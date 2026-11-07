@@ -1,12 +1,14 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 대기실 화면. 팀 또는 개인전 명단, 준비와 시작, 모드와 맵 변경, 채팅을 다룬다.
+ * Purpose: 대기실 화면. 팀 또는 개인전 명단, 준비와 시작, 모드·규칙·맵 변경, 채팅을 다룬다.
  */
-// SKALA FPS UI — 방(대기실): 팀 칼럼(팀전) / 한 줄 명단(개인전), 준비/시작, 모드·맵 변경, 채팅
+// SKALA FPS UI — 방(대기실): 팀 칼럼(팀전) / 한 줄 명단(개인전), 준비/시작, 모드·규칙·맵 변경, 채팅
 import { h, btn, setText, num, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, modeLabel, MODE_ICON } from './dom.js';
-import { makeScreen, mapCard } from './parts.js';
+import { makeScreen, mapCard, createChoiceRow } from './parts.js';
 import { mapList, mapInfo } from './icons.js';
+import { RULE_CHOICES, mapsForRule } from './lobby.js';
+import { RULESETS, normalizeRuleset } from '../game/modes.js';
 
 const CHAT_MAX = 30;
 const CHAT_LEN = 120;
@@ -33,6 +35,7 @@ export function createRoom(ctx) {
   // ---------- 헤더 ----------
   const title = h('h1', { class: 'sk-h1 sk-stencil sk-room-title' });
   const modeChip = h('span', { class: 'sk-chip sk-chip--mode' });
+  const ruleChip = h('span', { class: 'sk-chip sk-chip--mode' });
   const mapChip = h('span', { class: 'sk-chip' });
   const countChip = h('span', { class: 'sk-chip' });
   const idChip = h('span', { class: 'sk-chip sk-chip--dim' });
@@ -91,10 +94,30 @@ export function createRoom(ctx) {
   }
   const emptyRow = (n) => h('li', { class: 'sk-pl sk-pl--empty' }, h('span', { class: 'sk-pl-crown' }), h('span', { class: 'sk-pl-name', text: n > 1 ? `빈 자리 ×${n}` : '빈 자리' }));
 
+  // ---------- 규칙(방장만 바꿀 수 있음. 바꾸면 세션이 이 규칙으로 고를 수 있는 맵으로 맞춘다) ----------
+  const rulePick = createChoiceRow({ label: '규칙 변경(방장)', onPick: pickRule });
+  const ruleDesc = h('p', { class: 'sk-set-hint' });
+  function pickRule(id) {
+    const me = normPlayers(p).find((x) => x.me);
+    const next = normalizeRuleset(id);
+    if (!me || !me.host || p.starting || next === normalizeRuleset(p.ruleset)) return;
+    screen.update({ ruleset: next }); // 즉시 반영, 다음 update가 오면 그 값이 우선
+    ctx.emit('room:ruleset', { ruleset: next });
+  }
+
   // ---------- 맵 ----------
   const mapCur = h('div', { class: 'sk-room-mapcur' });
   const mapPick = h('div', { class: 'sk-mapcards sk-mapcards--sm', role: 'radiogroup', 'aria-label': '맵 변경' });
   const mapNote = h('p', { class: 'sk-set-hint' });
+  /** 작은 카드는 mapCard가 tag를 빼므로 여기서 붙인다('칼전 전용' 같은 표시가 고를 때 보이게) */
+  function pickerCard(m) {
+    const card = mapCard(m, {
+      small: true, selected: m.id === p.mapId,
+      onPick: (id) => { if (id !== p.mapId) ctx.emit('room:map', { mapId: id }); },
+    });
+    if (m.tag) card.querySelector('.sk-mapcard-text').append(h('span', { class: 'sk-mapcard-tag', text: m.tag }));
+    return card;
+  }
 
   // ---------- 채팅 ----------
   const chatLog = h('ol', { class: 'sk-chat-log', 'aria-live': 'polite', 'aria-label': '채팅' });
@@ -145,7 +168,7 @@ export function createRoom(ctx) {
     h('div', { class: 'sk-page-inner' },
       h('header', { class: 'sk-bar' },
         btn('← 나가기', () => ctx.emit('room:leave', { roomId: p.roomId }), 'sk-btn--ghost'),
-        h('div', { class: 'sk-bar-title' }, title, h('p', { class: 'sk-bar-sub sk-chips' }, modeChip, mapChip, countChip, idChip)),
+        h('div', { class: 'sk-bar-title' }, title, h('p', { class: 'sk-bar-sub sk-chips' }, ruleChip, modeChip, mapChip, countChip, idChip)),
         modePick),
       h('div', { class: 'sk-hazard sk-hazard--thin', 'aria-hidden': 'true' }),
       h('div', { class: 'sk-room-grid' },
@@ -154,6 +177,7 @@ export function createRoom(ctx) {
           ffaCol,
           h('section', { class: 'sk-panel sk-steel sk-chat' }, h('h2', { class: 'sk-panel-title', text: '💬 채팅' }), chatLog, chatForm)),
         h('aside', { class: 'sk-room-side' },
+          h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title', text: '🎮 규칙' }), rulePick.el, ruleDesc),
           h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title', text: '🗺️ 맵' }), mapCur, mapPick, mapNote))),
       h('footer', { class: 'sk-room-foot sk-steel' }, status, h('div', { class: 'sk-room-foot-actions' }, readyBtn, startBtn))));
 
@@ -166,8 +190,10 @@ export function createRoom(ctx) {
     const cap = Math.max(1, num(p.teamMax, Math.ceil(max / 2)));
     const mode = modeKey(p.mode);
     const ffa = mode === 'ffa';
+    const rs = normalizeRuleset(p.ruleset);
 
     setText(title, p.name || '대기실');
+    setText(ruleChip, `${RULESETS[rs].icon} ${RULESETS[rs].name}`);
     setText(modeChip, `${MODE_ICON[mode]} ${modeLabel(mode, { killTarget: p.killTarget })}`);
     modeChip.classList.toggle('is-ffa', ffa);
     const m = mapInfo(ctx.maps, p.maps, p.mapId);
@@ -209,17 +235,19 @@ export function createRoom(ctx) {
     modePick.hidden = !isHost;
     modeChip.title = isHost ? '' : '모드는 방장만 바꿀 수 있어요';
 
-    // 맵 (바뀐 경우에만 다시 그린다)
-    const maps = mapList(ctx.maps, p.maps);
+    // 규칙: 방장만 바꾼다. 다른 사람은 설명과 칩으로 확인
+    rulePick.el.hidden = !isHost;
+    if (isHost) rulePick.set(RULE_CHOICES, rs);
+    setText(ruleDesc, isHost ? RULESETS[rs].desc : `${RULESETS[rs].desc} · 규칙은 방장만 바꿀 수 있어요.`);
+
+    // 맵: 이 규칙으로 고를 수 있는 맵만 (바뀐 경우에만 다시 그린다)
+    const maps = mapsForRule(mapList(ctx.maps, p.maps), rs);
     const sig = JSON.stringify([isHost, p.mapId, maps]);
     if (sig !== mapSig) {
       mapSig = sig;
       mapCur.replaceChildren(m ? mapCard(m) : h('p', { class: 'sk-set-hint', text: '맵이 아직 정해지지 않았어요.' }));
       mapPick.hidden = !isHost;
-      mapPick.replaceChildren(...(isHost ? maps.map((x) => mapCard(x, {
-        small: true, selected: x.id === p.mapId,
-        onPick: (id) => { if (id !== p.mapId) ctx.emit('room:map', { mapId: id }); },
-      })) : []));
+      mapPick.replaceChildren(...(isHost ? maps.map(pickerCard) : []));
       setText(mapNote, isHost ? '방장: 카드를 눌러 맵을 바꿀 수 있어요.' : '맵은 방장만 바꿀 수 있어요.');
     }
 

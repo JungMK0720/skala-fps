@@ -87,11 +87,11 @@ net은 같은 JS 턴의 `send/sendTo`를 **프레임 1개**로 묶고, 프레임
 ### 메서드
 | 메서드 | 설명 |
 |---|---|
-| `sendFire({ weaponId, origin, dir, hit?, hitKind?:'world'\|'player', t? })` | 사격 연출(궤적·소리). `t` = 사격 로컬 시각(기본 지금) |
-| `sendHitClaim({ victimId, part, weaponId, dist, kind?:'shot'\|'slash'\|'stab', t? \| shotT? })` → id | 방장에게 히트 주장. `t`(로컬)를 주면 방장 시계로 바꿔 `shotT`로 보낸다. 잘못된 값이면 0 |
+| `sendFire({ weaponId, origin, dir, hit?, hitKind?:'world'\|'player', kind?:'stab', t? })` | 사격 연출(궤적·소리). `t` = 사격 로컬 시각(기본 지금). 칼 강타·찌르기는 `kind:'stab'`(원격이 강타 소리를 낸다) |
+| `sendHitClaim({ victimId, part, weaponId, dist, kind?:'shot'\|'slash'\|'stab', count?, shotId?, t? \| shotT? })` → id | 방장에게 히트 주장. `t`(로컬)를 주면 방장 시계로 바꿔 `shotT`로 보낸다. `count` = 이 사람에게 맞은 펠릿 수(기본 1), `shotId` = 같은 발을 묶는 양의 정수. 잘못된 값이면 0 |
 | `sendGrenade({ pos, vel, t? })` → `{ id, gid, pos, vel, t, localT }` | 전송 해상도로 맞춘 **정본**. `t`는 방장 시계. 던진 사람도 이 값으로 시뮬레이션 |
 | `sendMatch(snapshot, events?)` → mseq \| false | **방장 전용**. 5절 |
-| `sendLoadout(obj)` / `sendChat(text)` | 로드아웃(≤256B JSON), 채팅(120자, 제어문자 제거 — 화면에는 `textContent`로만) |
+| `sendLoadout(obj)` / `sendChat(text)` | 장비 알림(≤256B JSON. 세션은 `{ pick, primary, secondary, melee, round, m }`을 보낸다), 채팅(120자, 제어문자 제거 — 화면에는 `textContent`로만) |
 | `getRemote(id, renderTime?)` → state \| null | 렌더용 보간 상태(6절). 매 프레임 호출 |
 | `getRemoteAtHost(id, hostT)` | (방장 검증용) 방장 시각 `hostT`에 그 플레이어가 있던 상태. 지연 없이 버퍼에서 바로 |
 | `remoteIds()` / `remote(id)` | 상태를 받은 원격 id 목록 / `{ state, loadout, lastHeard }` |
@@ -108,8 +108,8 @@ net은 같은 JS 턴의 `send/sendTo`를 **프레임 1개**로 묶고, 프레임
 
 | type | 필드 | 설명 |
 |---|---|---|
-| `fire` | `from, weaponId, origin, dir, hit, hitKind, t(=senderT), at` | `at` = 원격 아바타의 렌더 시간축에서 그 사격이 일어나는 로컬 시각. 아바타와 맞추려면 `at`에 재생, 소리를 빨리 내려면 즉시 |
-| `hitClaim` | `from, id, victimId, part, weaponId, dist(m), kind, shotT(방장 시계), age(ms), local?` | **방장에게만**. 중복 제거됨. 방장이 거리·연사속도·생존 등을 검증해 `sendMatch`로 확정 |
+| `fire` | `from, weaponId, origin, dir, hit, hitKind, kind?, t(=senderT), at` | `at` = 원격 아바타의 렌더 시간축에서 그 사격이 일어나는 로컬 시각. 아바타와 맞추려면 `at`에 재생, 소리를 빨리 내려면 즉시. `kind`는 칼 강타일 때만 `'stab'` |
+| `hitClaim` | `from, id, victimId, part, weaponId, dist(m), kind, shotT(방장 시계), count, shotId, age(ms), local?` | **방장에게만**. 중복 제거됨. 방장이 거리·연사속도·생존 등을 검증해 `sendMatch`로 확정. `count`·`shotId`를 `match.claimHit`까지 그대로 넘겨야 샷건 피해가 맞는다 |
 | `grenade` | `from, id, gid, pos, vel, t(방장 시계), localT, age` | 모두 같은 결정론 시뮬레이션(아래 참고). 폭발 데미지는 방장이 계산해 `sendMatch`로 확정 |
 | `match` | `from, seq, snapshot\|null, events[], fresh, late?` | `snapshot`은 seq가 새로울 때만(아니면 null). `events`는 처음 보는 것만(eid 중복 제거) |
 | `loadout` | `from, loadout` | 바뀌었을 때만 |
@@ -175,7 +175,7 @@ sync.sendMatch({
 
 ## 7. 시계 동기화
 
-- 방장 시계 기준 NTP 4타임스탬프: 비방장이 `g1p [pid, t0, d0]`를 방장에게 보내고 방장이 `[pid, t0, t1, t2, d2, e0]`로 답한다.
+- 방장 시계 기준 NTP 4타임스탬프: 비방장이 `g2p [pid, t0, d0]`를 방장에게 보내고 방장이 `[pid, t0, t1, t2, d2, e0]`로 답한다.
   `rtt = (t3 − t0) − (t2 − t1)`, `offset = ((t1 − t0) + (t2 − t3)) / 2`. 최근 15개 중 **RTT 하위 절반의 offset 중앙값**.
 - net 큐 대기 보정: 핑·퐁에 `room.now()`(d)를 싣고, 받는 쪽이 net 프레임 시각 `message.t`와 비교해 net 큐에서 기다린 시간만큼 t0·t2를 고친다. relay 8인에서 방장 버킷이 꽉 차도 오차가 80ms에서 7ms로 줄었다.
 - 처음과 방장 교체 후 250ms 간격 5번, 이후 3초마다. 모두 상태 턴에 얹혀 가서 프레임이 늘지 않는다.
@@ -186,18 +186,20 @@ sync.sendMatch({
 
 ## 8. 메시지 스키마와 크기
 
-이벤트 이름 = `'g' + 버전 + 타입`(옛 클라이언트와 섞이지 않게). 모두 배열이고, 위치는 cm 정수, 속도는 cm/s, 각도는 0.01rad, 방향은 단위벡터×1000, 시각은 ms 정수다.
+이벤트 이름 = `'g' + 버전 + 타입`(옛 클라이언트와 섞이지 않게). 지금 버전은 2다. 모두 배열이고, 위치는 cm 정수, 속도는 cm/s, 각도는 0.01rad, 방향은 단위벡터×1000, 시각은 ms 정수다.
 
 | 이벤트 | payload | 크기(B) | 프레임 안(B) |
 |---|---|---|---|
-| `g1s` 상태(merge) | `[seq, t, x,y,z, yaw,pitch, vx,vy,vz, slot, flags, hp]` flags = onGround 1, zoom 2, walking 4, alive 8, reloading 16 | 57 (정지 41) | 66 |
-| `g1f` 사격 | `[weaponId, t, ox,oy,oz, dx,dy,dz, (hx,hy,hz, hitKind)]` | 65 (명중점 없음 45) | 74 |
-| `g1h` 히트 주장 → 방장 | `[id, victimId, part, weaponId, distCm, kind, shotT]` | 44 | 53 |
-| `g1x` 수류탄 | `[id, px,py,pz, vx,vy,vz, t]` | 40 | 49 |
-| `g1m` 경기(merge) | `[mseq, phase, round, sO, sC, endsAt, [[id,team,hp,alive,k,d],…], [[eid,type,…],…], rest?]` | 8인 + 이벤트 2개 362 | 371 |
-| `g1l` 로드아웃(merge) | `[id, {primary}]` | 23 | 32 |
-| `g1c` 채팅 | `[id, text]` | 한글 20자 57 | 66 |
-| `g1p` 핑 / 퐁(merge) | `[pid, t0, d0]` / `[pid, t0, t1, t2, d2, e0]` | 25 / 43 | 34 / 52 |
+| `g2s` 상태(merge) | `[seq, t, x,y,z, yaw,pitch, vx,vy,vz, slot, flags, hp]` flags = onGround 1, zoom 2, walking 4, alive 8, reloading 16, crouch 32, 이모트 64~512 | 57 (정지 41) | 66 |
+| `g2f` 사격 | `[weaponId, t, ox,oy,oz, dx,dy,dz, (hx,hy,hz, hitKind)]`. 칼 강타는 명중점 없이 끝에 `'stab'` 한 칸 | 65 (명중점 없음 45, 강타 58) | 74 |
+| `g2h` 히트 주장 → 방장 | `[id, victimId, part, weaponId, distCm, kind, shotT, count, shotId?]` | 57 | 66 |
+| `g2x` 수류탄 | `[id, px,py,pz, vx,vy,vz, t]` | 40 | 49 |
+| `g2m` 경기(merge) | `[mseq, phase, round, sO, sC, endsAt, [[id,team,hp,alive,k,d],…], [[eid,type,…],…], rest?]` | 8인 + 이벤트 2개 362 | 371 |
+| `g2l` 로드아웃(merge) | `[id, { pick, primary, secondary, melee, round, m }]` (JSON 256B 넘으면 비운다) | 최악 117 | 126 |
+| `g2c` 채팅 | `[id, text]` | 한글 20자 57 | 66 |
+| `g2p` 핑 / 퐁(merge) | `[pid, t0, d0]` / `[pid, t0, t1, t2, d2, e0]` | 25 / 43 | 34 / 52 |
+
+`g2f`의 `'stab'` 칸은 sync가 붙이고 읽는다. `decodeFire`는 모르는 칸을 무시한다. 경기 규칙은 `g2m` 부가 영역의 `rs`로 간다. `g2l`을 어떻게 읽는지는 SESSION_API.md 3절 "규칙"에 있다.
 
 - net 프레임 + Phoenix 봉투는 약 190B다. 따라서 상태만 담은 프레임은 254B, 상태+사격은 328B다(추정, net/realtime.js와 같은 모양으로 계산).
 - 실측 송신량(클라이언트당): 10Hz 약 2.8KB/s, 3.5Hz 약 1.3KB/s. 수신량은 그 × (N−1)이다.
@@ -216,7 +218,9 @@ sync.sendMatch({
 
 ---
 
-## 10. 측정 (node 테스트, 스크래치패드)
+## 10. 측정 (규칙 도입 전 버전의 기록, 스크립트는 저장소에 없다)
+
+지금 저장소에서 도는 연결 시험은 `tests/session-wiring.test.mjs`다(SESSION_API.md 7절). 아래 수치는 그 전에 잰 값이고 새 Supabase 프로젝트에서 다시 재지 않았다.
 
 **가짜 room**: net Room을 흉내 냈다(같은 턴 묶음, merge, `room.rate` 토큰 버킷, mesh/relay 중계, 방장 선출). 조건은 지연 80±40ms(균등), 손실 3%, 프레임 중복 1%, +150ms 스파이크 2%(순서 뒤바뀜)다. 진짜 궤적은 1ms 해상도이고 걷기·정지·점프와 가속 40m/s²를 넣었다. 보간 오차는 렌더 시각의 진짜 위치와 비교했다.
 
@@ -235,7 +239,7 @@ sync.sendMatch({
 - 전송 상한: 모든 시나리오에서 1초 창 최대 턴이 11 이하(≤15)였다. 클라이언트당 프레임/초는 상태 Hz 수준을 유지했다(10Hz 8.8, 8Hz 7.4, 3.5~4Hz 3.6).
 - 시계: 가짜 room에서 평균 6~8ms(p95 11~22ms) 오차였다. 단위 테스트에서 비대칭 지연과 15% 스파이크를 넣으면 평균 8ms였다.
 
-**실제 Supabase**(net Room 3개, 같은 PC, 예산 50 → mesh 5.5Hz, 원운동 5m/s, 25초, 정상 퇴장으로 방장 이전 포함):
+**실제 Supabase**(이전 테스트 프로젝트, net Room 3개, 같은 PC, 예산 50 → mesh 5.5Hz, 원운동 5m/s, 25초, 정상 퇴장으로 방장 이전 포함):
 보간 RMS 1.2cm(p95 2.0, 최대 2.4cm), 외삽 0%, 보간 지연 약 415ms(2.2 × 189ms), 화면 지연 450ms였다. 시계 오차는 평균 2.8ms(p95 8.5ms, 진짜 오프셋 0)였다. 히트 주장은 68/68, 이전 후 15/15였고 중복은 0이었다. 방장 이전은 0.13초, 턴은 5.6/s(= room.rate), 추정 이벤트/초는 49(예산 50)였고 콜백 오류는 0이었다.
 
 ---

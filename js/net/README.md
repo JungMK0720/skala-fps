@@ -7,8 +7,8 @@
 |---|---|
 | `index.js` | 진입점: `connect()`, `Net`. 아래 모듈을 모두 re-export |
 | `realtime.js` | 소켓·채널·presence 동기화, 하트비트, 지수 백오프 재연결, presence 호출 제한 |
-| `lobby.js` | 로비 `skalafps:lobby`: 방 목록 = 방장들의 presence |
-| `room.js` | 방 `skalafps:room:<roomId>`: 방장 선출·이전, 프레임 병합/스로틀, 핑·시계, mesh/relay |
+| `lobby.js` | 로비 `skalafps:lobby`(`consts.NET.LOBBY_CHANNEL`): 방 목록 = 방장들의 presence |
+| `room.js` | 방 `skalafps:room:<roomId>`(`consts.NET.ROOM_CHANNEL_PREFIX`): 방장 선출·이전, 프레임 병합/스로틀, 핑·시계, mesh/relay |
 | `codec.js` | 상태 직렬화 도우미(반올림, 각도 양자화, 짧은 키, delta, 보간) |
 | `limits.js` | 무료 플랜 한도, 예산 계산(`frameCost`, `maxHz`), `TokenBucket`, `SlidingWindowLimiter` |
 
@@ -24,12 +24,12 @@ const net = await connect({ playerId: crypto.randomUUID().replace(/-/g, '').slic
 
 // 로비
 const offLobby = net.lobby.subscribe((rooms, { synced }) => {
-  // rooms: [{ roomId, name, mapId, hostId, hostName, players, max, status: 'waiting'|'playing' }]
+  // rooms: [{ roomId, name, mapId, hostId, hostName, players, max, status: 'waiting'|'playing', mode: 'team'|'ffa', ruleset }]
   // synced=false 동안은 '불러오는 중', true인데 []이면 '방 없음'
 });
 
 // 방 만들기(내가 방장) 또는 참가
-const room = await net.lobby.createRoom({ name: '방 1', mapId: 'jetty', max: 8 });
+const room = await net.lobby.createRoom({ name: '방 1', mapId: 'alley', max: 6, mode: 'ffa', ruleset: 'knife' });
 // const room = await net.joinRoom(roomId);   // 실패 시 e.code: ROOM_NOT_FOUND | ROOM_FULL | ...
 offLobby(); // 방 안에서는 로비 구독을 끄면 presence 예산이 절약된다(방장은 자동으로 로비에 남음)
 
@@ -82,11 +82,13 @@ await net.close();
 | `subscribe(fn) → off` | `fn(rooms, { synced })`. 즉시 1회 호출, 첫 동기화 때 1회(비어 있어도), 이후 바뀔 때마다 호출. 구독자가 0명이고 방장이 아니면 로비 채널에서 나간다 |
 | `rooms()` | 현재 목록 사본. 정렬: waiting 먼저, 이름순 |
 | `synced` / `ready()` | 로비 presence를 받았는지 / 참가 완료 Promise |
-| `createRoom({ name, mapId='jetty', max=8, topology?, ...extra })` | 방 생성 → `Room`(내가 방장, term 1). `max`는 2~16. `extra`는 meta에 들어간다 |
+| `createRoom({ name, mapId='jetty', max=8, topology?, ...extra })` | 방 생성 → `Room`(내가 방장, term 1). `max`는 2~16. `extra`는 meta에 들어간다(게임은 `mode`, `ruleset`을 넣는다) |
 | `joinRoom(roomId, opts?)` | 참가 → `Room` |
 
-방 항목: `{ roomId, name, mapId, hostId, hostName, players, max, status }`. 방장이 로비 presence에 track한다.
+방 항목: `{ roomId, name, mapId, hostId, hostName, players, max, status, mode, ruleset }`. 방장이 로비 presence에 track한다.
 방장이 바뀌면 새 방장이 `term+1`로 다시 track하고, 같은 `roomId`가 겹치면 term이 큰 쪽을 쓴다. 인원이 0이 되면 목록에서 빠진다.
+
+presence 객체는 키가 10개까지인데 로비 항목은 `roomId, name, mapId, hostId, hostName, players, max, status, term, mode`로 이미 10개다. 그래서 규칙은 키를 늘리지 않고 `mode` 값에 함께 싣는다: `'team'`, `'ffa'`, `'team:knife'`, `'ffa:sniper'`(`packRoomKind`, `unpackRoomKind`). 클래식은 규칙을 적지 않으므로 규칙이 없는 옛 항목은 클래식으로 읽힌다. 항목을 만들고 읽는 곳은 `lobbyEntry`, `readLobbyEntry` 하나씩이다. 키를 더하고 싶으면 `tests/session-wiring.test.mjs`의 키 수 검사가 막는다.
 
 ### `Room`
 | 멤버 | 설명 |
@@ -95,7 +97,7 @@ await net.close();
 | `room.me` | 내 플레이어 객체 (players()와 같은 모양) |
 | `room.isHost()` / `room.hostId()` | 방장 여부 / 방장 id |
 | `room.players()` | `[{ id, name, team, ready, joinedAt, ping, isHost, ...updateMe 필드 }]` joinedAt 순 |
-| `room.meta` | `{ roomId, name, mapId, max, status, topo, net, hz, hostId, term, ...extra }` |
+| `room.meta` | `{ roomId, name, mapId, max, status, topo, net, hz, hostId, term, mode?, ruleset?, ...extra }`. 방장이 바뀌어도 이어진다. `ruleset`이 없으면 클래식으로 읽는다 |
 | `room.rate` | 지금 내가 보낼 수 있는 초당 프레임 수(방장이 정한 `meta.hz`). 보간 지연 계산에 쓴다 |
 | `room.now()` | 방 시계(방장 `Date.now()` 기준). NTP 방식으로 맞춘다. `room.clockInfo()` → `{ offset, delay, samples }`(오차 ≤ delay/2) |
 | `room.send(event, payload, { merge })` | 방 전체. `event`는 1~64자, `_`로 시작 금지. payload는 JSON 가능 값 |
@@ -237,7 +239,9 @@ Supabase는 메시지 **개수**로 한도를 세므로 크기보다 개수가 �
 
 ---
 
-## 6. 측정 결과 (이 PC → 프로젝트 `lkmkynpyokpfetwazgwl`, node 클라이언트 3개, 같은 프로세스 시계)
+## 6. 측정 결과 (규칙 도입 전 기록: 이전 테스트 프로젝트, node 클라이언트 3개, 같은 프로세스 시계)
+지금 저장소 설정(`js/config.js`)은 비어 있다. 새 Supabase 프로젝트를 만들면 아래 값을 다시 재야 한다.
+
 | 항목 | 결과 |
 |---|---|
 | 연결 | 0.4~1.0초 |
@@ -252,7 +256,8 @@ Supabase는 메시지 **개수**로 한도를 세므로 크기보다 개수가 �
 | 재연결(멤버 순단) | 0.9~1.2초 |
 
 검증 항목 52개 모두 통과: 생성 → 목록 → 참가 → presence → 패치 → 연타 제한 → 지연 → sendTo → 스로틀·병합 → meta·로비 반영 → 핑·시계 → 멤버·방장 재연결 → 방장 이전(정상/비정상) → 목록 갱신 → 전원 퇴장 후 소멸 → relay 전환 무손실·중계·sendTo·방장 교체 → 유령 방 방지 → ROOM_NOT_FOUND/ROOM_FULL → 시스템 에러 0 → 종료 후 타이머·소켓 0(프로세스 자연 종료).
-테스트 스크립트는 레포 밖(에이전트 스크래치패드)에 있다. 다시 돌리려면 `connect({url, key})`에 `js/config.js` 값을 넣은 node 스크립트로 같은 순서를 밟으면 된다.
+테스트 스크립트는 저장소에 없다. 다시 돌리려면 `connect({url, key})`에 `js/config.js` 값을 넣은 node 스크립트로 같은 순서를 밟으면 된다.
+저장소 안의 `tests/session-wiring.test.mjs`는 로비 항목의 키 수·왕복과 채널 이름만 확인한다. 소켓·presence·relay는 실제 서버가 있어야 확인된다.
 
 ---
 

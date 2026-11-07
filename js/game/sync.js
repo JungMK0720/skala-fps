@@ -22,6 +22,7 @@
  *   - 턴은 토큰 버킷(rate = min(room.rate, 15)/s, 비축 2) + 1초 창 15회 + 최소 간격 25ms로 한 번 더 제한한다.
  *     막히면 항목을 쌓아 두었다가 다음 턴에 합쳐 보낸다(coalesce).
  *   - 히트 주장·수류탄·로드아웃·채팅은 두 번(다음 턴에 한 번 더) 보낸다 → 받는 쪽은 id로 중복 제거.
+ *   - 히트 주장은 count(맞은 펠릿 수)와 shotId(같은 발 묶음)까지 그대로 방장에게 간다.
  *
  * 수신
  *   - 상태 → 원격별 interp 버퍼(createInterp), 새 최신이면 onRemoteState(id, state, info)
@@ -116,8 +117,19 @@ export const SYNC_DEFAULTS = Object.freeze({
   interp: null            // createInterp 옵션
 });
 
-const MSG_OVERHEAD = 9;     // net 프레임 안 메시지 하나: ["g1s",…],
+const MSG_OVERHEAD = 9;     // net 프레임 안 메시지 하나: ["g2s",…],
 const FRAME_OVERHEAD = 180; // Phoenix 봉투 + net 프레임 머리(추정)
+
+/**
+ * g2f 메시지. 칼 강타·찌르기는 끝에 'stab' 한 칸을 더 붙인다(명중점 없는 8칸 + 1칸. 원격이 강타 소리를 낸다).
+ * decodeFire는 모르는 칸을 무시하므로 protocol 형식은 그대로이고, 베기와 총은 바이트가 늘지 않는다.
+ */
+function fireMessage(t, f) {
+  const a = encodeFire(t, f);
+  if (f && f.kind === 'stab' && a.length === 8) a.push('stab');
+  return a;
+}
+const fireKind = (payload) => (Array.isArray(payload) && payload.length === 9 && payload[8] === 'stab' ? 'stab' : undefined);
 
 function idOf(p) {
   if (p == null) return null;
@@ -311,7 +323,7 @@ export function createSync(opts = {}) {
     }
     // 사격 연출
     const n = Math.min(fireQ.length, o.maxFirePerTurn);
-    for (let i = 0; i < n; i++) { const f = fireQ.shift(); sendMsg(EV.fire, encodeFire(f.t, f.f), null, false); }
+    for (let i = 0; i < n; i++) { const f = fireQ.shift(); sendMsg(EV.fire, fireMessage(f.t, f.f), null, false); }
     // 신뢰 항목(2회)
     if (reliable.length) {
       const keep = [];
@@ -408,7 +420,7 @@ export function createSync(opts = {}) {
 
   /* ---------------------------------------------------------------- 공개 송신 API */
 
-  /** 사격 연출 { weaponId, origin:[x,y,z], dir:[x,y,z], hit?:[x,y,z], hitKind?:'world'|'player', t?: 로컬 ms } */
+  /** 사격 연출 { weaponId, origin:[x,y,z], dir:[x,y,z], hit?:[x,y,z], hitKind?:'world'|'player', kind?:'stab', t?: 로컬 ms } */
   function sendFire(f) {
     if (disposed || !f) return false;
     fireQ.push({ t: Number.isFinite(f.t) ? f.t : now(), f });
@@ -418,7 +430,8 @@ export function createSync(opts = {}) {
   }
 
   /**
-   * 히트 주장 → 방장 { victimId, part, weaponId, dist(m), kind?:'shot'|'slash'|'stab', t?: 로컬 사격 시각 | shotT?: 방장 시계 }
+   * 히트 주장 → 방장 { victimId, part, weaponId, dist(m), kind?:'shot'|'slash'|'stab', count?, shotId?, t?: 로컬 사격 시각 | shotT?: 방장 시계 }
+   * count = 이 사람에게 맞은 펠릿 수(기본 1), shotId = 같은 발을 묶는 양의 정수
    * 내가 방장이면 보내지 않고 onEvent('hitClaim')로 바로 돌려준다(같은 처리 경로). → id
    */
   function sendHitClaim(h) {
@@ -481,7 +494,7 @@ export function createSync(opts = {}) {
     return matchSeqOut;
   }
 
-  /** 로드아웃 선택 { primary:'sr_bolt'|'ar_std', ... } */
+  /** 장비 알림 { pick, primary, secondary, melee, round?, m? } (JSON 256B 이하). 내용 해석은 세션이 한다(session.readGear) */
   function sendLoadout(loadout) {
     if (disposed || !loadout) return false;
     myLoadout = encodeLoadout(++itemId, loadout);
@@ -552,7 +565,7 @@ export function createSync(opts = {}) {
       case 'fire':
         if (r.seenFire(x.t + ':' + x.weaponId)) { S.dup++; break; }
         // at: 이 사격이 원격 아바타의 렌더 시간축에서 일어나는 로컬 시각(아바타와 맞추려면 그때 재생). 상태를 아직 못 받았으면 지금
-        emit({ type: 'fire', from, ...x, senderT: x.t, at: r.interp.size ? r.interp.toLocal(x.t) : t });
+        emit({ type: 'fire', from, ...x, kind: fireKind(msg.payload), senderT: x.t, at: r.interp.size ? r.interp.toLocal(x.t) : t });
         break;
       case 'hit':
         if (!amHost) { S.ignored++; break; }

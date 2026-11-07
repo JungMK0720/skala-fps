@@ -9,7 +9,7 @@
  *   import { connect } from './net/index.js';
  *   const net = await connect({ playerId, name });     // url/key 생략 시 window.SKALA_CONFIG에서 읽음
  *   const off = net.lobby.subscribe((rooms) => render(rooms));
- *   const room = await net.lobby.createRoom({ name: '방 1', mapId: 'jetty', max: 8 });
+ *   const room = await net.lobby.createRoom({ name: '방 1', mapId: 'alley', max: 6, mode: 'ffa', ruleset: 'knife' });
  *   // 또는 const room = await net.joinRoom(roomId);
  *   room.on('message', ({ from, event, payload }) => ...);
  *   room.send('st', state, { merge: true });
@@ -22,7 +22,7 @@ import { Lobby } from './lobby.js';
 import { Room } from './room.js';
 
 export { RealtimeSocket, Channel, PresenceState, Emitter, backoffDelay, netError, randomId, sanitizeName } from './realtime.js';
-export { Lobby, LOBBY_TOPIC } from './lobby.js';
+export { Lobby, LOBBY_TOPIC, packRoomKind, unpackRoomKind, lobbyEntry, readLobbyEntry } from './lobby.js';
 export { Room, ROOM_DEFAULTS, ROOM_TOPIC_PREFIX } from './room.js';
 export * as codec from './codec.js';
 export * as limits from './limits.js';

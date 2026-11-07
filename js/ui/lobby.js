@@ -1,25 +1,47 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 로비 화면. 방 목록과 방 만들기 시트를 그린다.
+ * Purpose: 로비 화면. 방 목록(규칙·모드 배지)과 방 만들기 시트(규칙·모드·맵·인원)를 그린다.
  */
 // SKALA FPS UI — 로비(방 목록 + 방 만들기)
-import { h, btn, setText, clamp, num, modeKey, modeLabel, MODE_ICON } from './dom.js';
-import { makeScreen, createModal, sheet, mapCard } from './parts.js';
+import { h, btn, setText, clamp, num, modeKey, modeLabel, MODE_ICON, MODE_NAME } from './dom.js';
+import { makeScreen, createModal, sheet, mapCard, createChoiceRow } from './parts.js';
 import { mapIcon, mapList, mapInfo } from './icons.js';
+import { RULESETS, RULESET_IDS, DEFAULT_RULESET, normalizeRuleset } from '../game/modes.js';
 
 const ROOM_NAME_MAX = 24;
 // 무료 Realtime 한도(초당 메시지) 때문에 방은 최대 6명(3:3). props.maxPlayers로 더 낮출 수 있다.
 const ROOM_MAX = 6;
 const cleanRoomName = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, ROOM_NAME_MAX);
 const countOf = (v) => (Array.isArray(v) ? v.length : num(v, 0));
+/** rulesets를 적지 않은 맵이 고를 수 있는 규칙(DESIGN 5절) */
+const DEFAULT_MAP_RULESETS = Object.freeze(['classic', 'sniper']);
+
+/** 규칙 고르는 버튼 묶음의 항목(방 만들기 시트와 대기실이 같이 쓴다) */
+export const RULE_CHOICES = Object.freeze(RULESET_IDS.map((id) => Object.freeze({
+  id, label: RULESETS[id].name, icon: RULESETS[id].icon, title: RULESETS[id].desc,
+})));
+
+/** 방 목록 배지 글자. 예: '칼전 · 개인전'. 규칙이 없는 옛 방은 클래식이다 */
+export function ruleBadge(ruleset, mode) {
+  return `${RULESETS[normalizeRuleset(ruleset)].name} · ${MODE_NAME[modeKey(mode)]}`;
+}
+
+/** 맵 목록에서 이 규칙으로 고를 수 있는 맵만 남긴다. 하나도 없으면 그대로 둔다(고를 맵이 없어 막히지 않게) */
+export function mapsForRule(maps, ruleset) {
+  const id = normalizeRuleset(ruleset);
+  const valid = maps.filter((m) => (Array.isArray(m.rulesets) ? m.rulesets : DEFAULT_MAP_RULESETS).includes(id));
+  return valid.length ? valid : maps;
+}
 
 export function createLobby(ctx) {
   let p = {};
   let formMap = null;
   let formMax = ROOM_MAX;
   let formMode = 'team';
+  let formRule = DEFAULT_RULESET;
   const modal = createModal();
+  const myName = () => p.name || ctx.playerName || '플레이어';
 
   // ---------- 헤더 ----------
   const meChip = h('span', { class: 'sk-chip sk-chip--me' });
@@ -39,6 +61,8 @@ export function createLobby(ctx) {
       h('small', { text: m === 'ffa' ? '모두가 적 · 20킬' : '블루 vs 오렌지 · 5판 3선승' })),
   ], () => setMode(m), 'sk-mode-btn', { role: 'radio', 'data-mode': m }));
   const modeHint = h('p', { class: 'sk-set-hint' });
+  const ruleRow = createChoiceRow({ label: '규칙 선택', onPick: (id) => setRule(id) });
+  const ruleHint = h('p', { class: 'sk-set-hint' });
   const maxOut = h('output', { class: 'sk-stepper-val', 'aria-live': 'polite' });
   const maxNote = h('span', { class: 'sk-set-hint' });
   const minus = btn('−', () => setMax(formMax - 1), 'sk-btn--icon', { 'aria-label': '최대 인원 줄이기' });
@@ -46,6 +70,10 @@ export function createLobby(ctx) {
   const formErr = h('p', { class: 'sk-field-err', role: 'alert' });
   const form = h('form', { class: 'sk-create', novalidate: true, onsubmit: (e) => { e.preventDefault(); doCreate(); } },
     h('label', { class: 'sk-field' }, h('span', { class: 'sk-field-label', text: '방 이름' }), nameIn),
+    h('div', { class: 'sk-field' },
+      h('span', { class: 'sk-field-label', text: '규칙' }),
+      ruleRow.el,
+      ruleHint),
     h('div', { class: 'sk-field' },
       h('span', { class: 'sk-field-label', text: '모드' }),
       h('div', { class: 'sk-modepick', role: 'radiogroup', 'aria-label': '모드 선택' }, modeBtns),
@@ -80,8 +108,14 @@ export function createLobby(ctx) {
       : '블루 vs 오렌지 섬멸전이에요. 라운드 중 부활 없이 5판 3선승으로 겨뤄요.');
     setMax(formMax);
   }
+  function setRule(id) {
+    formRule = normalizeRuleset(id);
+    ruleRow.set(RULE_CHOICES, formRule);
+    setText(ruleHint, RULESETS[formRule].desc);
+    renderMapCards();
+  }
   function renderMapCards() {
-    const maps = mapList(ctx.maps, p.maps);
+    const maps = mapsForRule(mapList(ctx.maps, p.maps), formRule);
     if (!maps.some((m) => m.id === formMap)) formMap = maps[0] ? maps[0].id : null;
     mapBox.replaceChildren(...maps.map((m) => mapCard(m, {
       selected: m.id === formMap,
@@ -90,17 +124,17 @@ export function createLobby(ctx) {
   }
   function openCreate() {
     setText(formErr, '');
-    if (!nameIn.value) nameIn.value = cleanRoomName(`${ctx.playerName || '플레이어'}의 방`);
-    renderMapCards();
+    if (!nameIn.value) nameIn.value = cleanRoomName(`${myName()}의 방`);
+    setRule(formRule);
     setMode(formMode);
     modal.open(createSheet);
     nameIn.select();
   }
   function doCreate() {
-    const name = cleanRoomName(nameIn.value) || cleanRoomName(`${ctx.playerName || '플레이어'}의 방`);
+    const name = cleanRoomName(nameIn.value) || cleanRoomName(`${myName()}의 방`);
     if (!formMap) { setText(formErr, '맵을 골라 주세요.'); return; }
     modal.close();
-    ctx.emit('lobby:create', { name, mapId: formMap, max: formMax, mode: formMode });
+    ctx.emit('lobby:create', { name, mapId: formMap, max: formMax, mode: formMode, ruleset: formRule });
   }
 
   // ---------- 방 목록 ----------
@@ -120,8 +154,8 @@ export function createLobby(ctx) {
       h('div', { class: 'sk-room-main' },
         h('div', { class: 'sk-room-name', text: r.name || '이름 없는 방' }),
         h('div', { class: 'sk-room-meta' },
-          h('span', { class: `sk-mode-badge sk-mode-badge--${modeKey(r.mode)}`, text: modeLabel(r.mode, { killTarget: r.killTarget }) }),
-          h('span', { class: 'sk-room-map', text: m ? m.name : '맵 미정' }),
+          h('span', { class: `sk-mode-badge sk-mode-badge--${modeKey(r.mode)}`, text: ruleBadge(r.ruleset, r.mode), title: modeLabel(r.mode, { killTarget: r.killTarget }) }),
+          h('span', { class: 'sk-room-map', text: m ? [m.name, m.tag].filter(Boolean).join(' · ') : '맵 미정' }),
           h('span', { class: 'sk-room-host' }, h('span', { text: '👑', 'aria-label': '방장' }), h('span', { text: r.hostName || '?' })))),
       h('div', { class: 'sk-room-count', title: `${n}/${max}명` },
         h('b', { text: `${n}/${max}` }),

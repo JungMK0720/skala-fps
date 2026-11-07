@@ -20,7 +20,7 @@ export const FREE_PLAN = Object.freeze({
   messagesPerSecond: 100,          // 프로젝트 전체, 송신+수신(팬아웃) 합산, 60초 평균
   channelJoinsPerSecond: 100,
   channelsPerConnection: 100,
-  presenceKeysPerObject: 10,
+  presenceKeysPerObject: 10,       // 로비 항목은 이미 10개다. 규칙은 mode 값에 함께 싣는다(lobby.js lobbyEntry)
   presenceMessagesPerSecond: 20,   // 프로젝트 전체 presence 이벤트(track + diff 전달), 60초 평균
   presenceCallsPer30s: 5,          // 클라이언트 채널당 track/untrack 30초 5회 (초과 시 채널 종료)
   broadcastPayloadKB: 256

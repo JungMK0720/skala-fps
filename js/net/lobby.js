@@ -7,18 +7,60 @@
  * js/net/lobby.js — 로비 (Presence 채널 'skalafps:lobby')
  *
  *  - 방 목록 = 로비 presence. 방장만 자기 방 메타를 track한다:
- *      { roomId, name, mapId, hostId, hostName, players, max, status, term }   (presence 키 10개 이하)
+ *      { roomId, name, mapId, hostId, hostName, players, max, status, term, mode }   (presence 키 10개가 한도, 꽉 찼다)
  *  - 일반 구경꾼은 track하지 않고 presence만 읽는다(구독자가 없으면 채널에서 나간다).
  *  - 방장이 바뀌면 새 방장이 term+1로 이어서 track한다. 같은 roomId가 겹치면 term이 큰 쪽을 쓴다.
  *  - 메타 갱신은 Channel의 presence 리미터(31초 4회)가 병합하므로 마구 불러도 안전하다.
  */
+import { NET } from '../core/consts.js';
 import { Emitter } from './realtime.js';
 
-export const LOBBY_TOPIC = 'skalafps:lobby';
+export const LOBBY_TOPIC = NET.LOBBY_CHANNEL;
 
 const STATUS_ORDER = { waiting: 0, playing: 1 };
 const HOLD_MS = 1500; // 채널을 새로 연 직후 presence가 덜 찬 동안 이전 목록 유지
+const DEFAULT_RULESET = 'classic';
+const RULESET_RE = /^[a-z][a-z0-9_-]{0,15}$/;
 const nowMs = () => (globalThis.performance && performance.now ? performance.now() : Date.now());
+
+/**
+ * presence 객체는 키가 10개까지라(limits.FREE_PLAN) 모드와 규칙을 mode 키 하나에 싣는다: 'team', 'ffa', 'team:knife', 'ffa:sniper'.
+ * 클래식은 규칙을 적지 않으므로 규칙이 없는 옛 항목은 그대로 클래식으로 읽힌다.
+ */
+export function packRoomKind(mode, ruleset) {
+  const m = mode === 'ffa' ? 'ffa' : 'team';
+  const rs = typeof ruleset === 'string' && RULESET_RE.test(ruleset) ? ruleset : DEFAULT_RULESET;
+  return rs === DEFAULT_RULESET ? m : `${m}:${rs}`;
+}
+
+/** → { mode:'team'|'ffa', ruleset }. 어떤 규칙 이름이 있는지는 게임이 안다(모르는 이름은 화면에서 클래식으로 읽는다) */
+export function unpackRoomKind(v) {
+  const [m, rs] = String(v == null ? '' : v).split(':');
+  return { mode: m === 'ffa' ? 'ffa' : 'team', ruleset: rs && RULESET_RE.test(rs) ? rs : DEFAULT_RULESET };
+}
+
+/** (방장) 로비에 track할 한 줄. 키를 더하면 presence 한도를 넘는다 */
+export function lobbyEntry(meta, { roomId, hostId, hostName, players, term }) {
+  return {
+    roomId, name: meta.name, mapId: meta.mapId, hostId, hostName, players, max: meta.max, status: meta.status, term,
+    mode: packRoomKind(meta.mode, meta.ruleset)
+  };
+}
+
+/** presence 한 줄(믿을 수 없는 값) → 방 목록 항목 */
+export function readLobbyEntry(m) {
+  return {
+    roomId: m.roomId,
+    name: String(m.name || ''),
+    mapId: String(m.mapId || ''),
+    hostId: String(m.hostId || ''),
+    hostName: String(m.hostName || ''),
+    players: Math.max(0, m.players | 0),
+    max: Math.max(1, m.max | 0) || 8,
+    status: m.status === 'playing' ? 'playing' : 'waiting',
+    ...unpackRoomKind(m.mode)
+  };
+}
 
 export class Lobby extends Emitter {
   constructor(net) {
@@ -51,7 +93,7 @@ export class Lobby extends Emitter {
     };
   }
 
-  /** 현재 방 목록 사본: [{ roomId, name, mapId, hostId, hostName, players, max, status }] */
+  /** 현재 방 목록 사본: [{ roomId, name, mapId, hostId, hostName, players, max, status, mode, ruleset }] */
   rooms() { return this._rooms.map((r) => ({ ...r })); }
 
   /** 로비 presence를 한 번이라도 받았는지 */
@@ -132,19 +174,8 @@ export class Lobby extends Emitter {
     }
     const rooms = [];
     for (const m of byRoom.values()) {
-      const players = Math.max(0, m.players | 0);
-      if (!players) continue;
-      rooms.push({
-        roomId: m.roomId,
-        name: String(m.name || ''),
-        mapId: String(m.mapId || ''),
-        hostId: String(m.hostId || ''),
-        hostName: String(m.hostName || ''),
-        players,
-        max: Math.max(1, m.max | 0) || 8,
-        status: m.status === 'playing' ? 'playing' : 'waiting',
-        mode: m.mode === 'ffa' ? 'ffa' : 'team'
-      });
+      const entry = readLobbyEntry(m);
+      if (entry.players) rooms.push(entry);
     }
     rooms.sort((a, b) => (STATUS_ORDER[a.status] - STATUS_ORDER[b.status]) ||
       a.name.localeCompare(b.name) || (a.roomId < b.roomId ? -1 : 1));

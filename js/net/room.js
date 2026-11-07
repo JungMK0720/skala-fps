@@ -30,10 +30,12 @@
  *   내가 핑을 받은 시각 t3 → offset = ((t1-t0) + (t2-t3)) / 2, delay = (t3-t0) - (t2-t1)
  *   최근 8개 중 delay가 가장 작은 표본을 쓴다(오차 ≤ delay/2).
  */
+import { NET } from '../core/consts.js';
 import { Emitter, netError, randomId, sanitizeName } from './realtime.js';
 import { TokenBucket, frameCost, autoTopology, clampHz, DEFAULT_BUDGET } from './limits.js';
+import { lobbyEntry } from './lobby.js';
 
-export const ROOM_TOPIC_PREFIX = 'skalafps:room:';
+export const ROOM_TOPIC_PREFIX = NET.ROOM_CHANNEL_PREFIX;
 
 export const ROOM_DEFAULTS = Object.freeze({
   budget: DEFAULT_BUDGET,   // 프로젝트 전체 broadcast 예산(msg/s). 무료 한도 100의 80%
@@ -101,7 +103,7 @@ export class Room extends Emitter {
     const room = new Room(net, String(roomId), opts);
     const hint = net.lobby.rooms().find((r) => r.roomId === roomId);
     if (hint) {
-      Object.assign(room._meta, { name: hint.name, mapId: hint.mapId, max: hint.max, status: hint.status });
+      Object.assign(room._meta, { name: hint.name, mapId: hint.mapId, max: hint.max, status: hint.status, mode: hint.mode, ruleset: hint.ruleset });
       room._hostId = hint.hostId || null;
     }
     try {
@@ -282,6 +284,7 @@ export class Room extends Emitter {
       this._schedule();
     }
     this._refreshPlayers();
+    if ('name' in patch) this._updateLobby();   // 로비 목록의 방장 이름
     return true;
   }
 
@@ -295,6 +298,8 @@ export class Room extends Emitter {
       if (k === 'name' || k === 'mapId') val = sanitizeName(v, 32);
       if (k === 'max') val = Math.max(2, Math.min(16, v | 0 || 8));
       if (k === 'status') val = v === 'playing' ? 'playing' : 'waiting';
+      if (k === 'mode') val = v === 'ffa' ? 'ffa' : 'team';
+      if (k === 'ruleset') val = sanitizeName(v, 16);
       if (k === 'topo') val = ['mesh', 'relay', 'auto'].includes(v) ? v : 'auto';
       if (JSON.stringify(this._meta[k]) !== JSON.stringify(val)) { this._meta[k] = val; changed = true; }
     }
@@ -967,18 +972,13 @@ export class Room extends Emitter {
 
   _updateLobby() {
     if (!this._ready || this._closed || !this.isHost()) return;
-    this.net.lobby._setHosted(this, {
+    this.net.lobby._setHosted(this, lobbyEntry(this._meta, {
       roomId: this.id,
-      name: this._meta.name,
-      mapId: this._meta.mapId,
       hostId: this._meId,
       hostName: this._my.name,
       players: Math.max(1, this._presenceCount()),
-      max: this._meta.max,
-      status: this._meta.status,
-      term: this._term,
-      mode: this._meta.mode === 'ffa' ? 'ffa' : 'team'   // 10번째 키(Supabase presence 한 객체 최대 10키)
-    });
+      term: this._term
+    }));
   }
 
   _afterMembersChanged() {
