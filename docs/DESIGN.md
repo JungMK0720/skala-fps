@@ -30,6 +30,7 @@ HTML은 `<!DOCTYPE html>` 다음 줄에 `<!-- ... -->`, SQL은 `--`, YAML은 `#`
 `consts.PARTS = ['head','body','legs','hand','foot']`. `HITBOX` / `HITBOX_CROUCH`에 `FOOT`(발), `HANDS`(손 구 2개)가 추가됐다.
 
 - `physics.raycastPlayers`는 다섯 부위 중 하나를 돌려준다. 손은 로컬 좌표 구이고 yaw로 회전한다.
+- 손은 탄이 손만 스칠 때만 손이다. 같은 사람의 다른 부위가 그 뒤에 있으면 그 부위로 친다. 총을 쥔 손이 가슴 앞에 있어서, 이렇게 하지 않으면 정면 가슴 사격이 저격 반샷이 된다.
 - `weapons/defs.js`의 `normalizePart`와 `match.js`의 부위 정규화에서 `foot`, `hand`를 더 이상 `legs`, `body`로 뭉개지 않는다.
 - `protocol.PART_CODES = ['head','body','legs','hand','foot']` (뒤에 추가, 앞 순서 유지).
 - 칼·수류탄은 부위 무시.

@@ -69,6 +69,14 @@ async function ready(page, id, { ads }) {
 async function shootPart(t, page, id, part, { ads = true, handIndex = 0 } = {}) {
   await ready(page, id, { ads });
   const def = WEAPONS[id];
+  if (part === 'hand') {
+    // 손 뒤에 몸통이 있으면 몸통으로 판정된다. 손끝만 맞는 각도가 되도록 표적을 옆으로 돌려 세운다
+    await page.fn(() => {
+      const qa = window.__qa, b = qa.run.bots[0];
+      qa.placeBot(0, b.body.pos[0], b.body.pos[1], b.body.pos[2], b.yaw + Math.PI / 2);
+    });
+    await waitTicks(page, 6);
+  }
   const aim = await page.fn(({ part: p, handIndex: h }) => {
     const qa = window.__qa;
     const point = qa.partPoint(qa.run.bots[0].id, p, h);

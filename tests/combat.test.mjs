@@ -122,26 +122,25 @@ describe('raycastPlayers: 다섯 부위', () => {
           expect('legs', [0, legsMid, 0], from);
           expect('foot', [0, footMid, V.foot.cz], from);
         }
-        // 몸 앞에는 손이 있으므로 정면에서는 손이 없는 쪽을 쏜다
-        expect('body', [-V.body.hw + 0.02, bodyMid, 0], FROM_FRONT);
-        for (const from of [FROM_BACK, FROM_LEFT, FROM_RIGHT]) expect('body', [0, bodyMid, 0], from);
+        // 가슴 앞에 총을 쥔 손이 있어도 정면의 가슴 사격은 몸통이다
+        for (const from of [FROM_FRONT, FROM_BACK, FROM_LEFT, FROM_RIGHT]) expect('body', [0, bodyMid, 0], from);
       }
     });
 
-    test(`${name}: 손을 앞과 옆에서 맞히고, 뒤에서는 몸통이 가린다`, () => {
+    test(`${name}: 손은 옆에서만 손이다. 앞뒤에서는 뒤에 있는 몸통으로 친다`, () => {
       for (const yaw of YAWS) {
         const t = place(yaw, crouch);
         for (const h of V.hands) {
-          for (const from of [FROM_FRONT, FROM_LEFT, FROM_RIGHT]) {
+          for (const from of [FROM_LEFT, FROM_RIGHT]) {
             const res = shootLocal(t, [h.x, h.y, h.z], from);
             assert.ok(res, `hand yaw ${yaw}: 안 맞음`);
             assert.equal(res.part, 'hand', `yaw ${yaw} from ${from}`);
           }
+          for (const from of [FROM_FRONT, FROM_BACK]) {
+            const res = shootLocal(t, [h.x, h.y, h.z], from);
+            assert.equal(res.part, 'body', `yaw ${yaw} from ${from}`);
+          }
         }
-        // 왼손(몸통 폭 안쪽)은 뒤에서 쏘면 몸통이 먼저 막는다. 가장 가까운 부위가 이긴다
-        const inner = V.hands.find((h) => Math.abs(h.x) < V.body.hw - h.r);
-        const res = shootLocal(t, [inner.x, inner.y, inner.z], FROM_BACK);
-        assert.ok(['body', 'legs'].includes(res.part), `뒤에서 가린 손: ${res.part}`);
       }
     });
 
@@ -170,16 +169,36 @@ describe('raycastPlayers: 다섯 부위', () => {
     }
   });
 
-  test('가장 가까운 부위가 결과다: 손을 지나 몸통으로 가는 레이는 손, 손을 비켜 가면 몸통', () => {
+  test('손을 지나 몸통까지 가는 레이는 몸통이고, 거리도 몸통 앞면까지다', () => {
     const t = place(0.7, false);
     const V = volumes(false);
     const h = V.hands[1];
-    const onHand = shootLocal(t, [h.x, h.y, 0], FROM_FRONT);
-    assert.equal(onHand.part, 'hand');
-    assert.ok(Math.abs(onHand.dist - (5 + h.z - h.r)) < 1e-6, '손 앞면까지의 거리');
-    const beside = shootLocal(t, [h.x, h.y + h.r + 0.01, 0], FROM_FRONT);
-    assert.equal(beside.part, 'body');
-    assert.ok(beside.dist > onHand.dist);
+    const through = shootLocal(t, [h.x, h.y, 0], FROM_FRONT);
+    assert.equal(through.part, 'body');
+    assert.ok(Math.abs(through.dist - (5 - V.body.hd)) < 1e-6, `몸통 앞면까지의 거리 ${through.dist}`);
+  });
+
+  test('몸통 밖으로 나온 손끝만 맞으면 손이고, 벽이 몸을 가려도 손이다', () => {
+    const target = { id: 'v', pos: [0, 0, -10], yaw: Math.PI };   // 쏘는 사람을 바라본다
+    const V = volumes(false);
+    const h = V.hands[0];
+    const hw = toWorld(target, [h.x, h.y, h.z]);
+    // 표적 바로 앞, 손과 몸통 사이에 있는 얇은 벽
+    const between = createWorld([makeBox(-2, 0, -9.7, 2, 3, -9.6, 'steel')]);
+    const hit = traceShot(between, [hw[0], hw[1], 0], [0, 0, -1], 100, [target]);
+    assert.equal(hit.kind, 'player');
+    assert.equal(hit.part, 'hand');
+  });
+
+  test('손 뒤의 몸통보다 다른 사람이 가까우면 그 사람이 맞는다', () => {
+    const shield = { id: 'near', pos: [0, 0, -5], yaw: Math.PI };
+    const back = { id: 'far', pos: [0, 0, -9], yaw: Math.PI };
+    const V = volumes(false);
+    const h = V.hands[0];
+    const hw = toWorld(back, [h.x, h.y, h.z]);
+    const res = raycastPlayers([hw[0], hw[1], 0], [0, 0, -1], 100, [back, shield]);
+    assert.equal(res.id, 'near');
+    assert.equal(res.part, 'body');
   });
 
   test('발은 cz만큼 앞으로 나와 있어 다리보다 먼저 닿는다', () => {
@@ -198,7 +217,7 @@ describe('raycastPlayers: 다섯 부위', () => {
     assert.ok(half.head.y < up.head.y && half.head.y > down.head.y);
     assert.ok(half.hands[0].y < up.hands[0].y && half.hands[0].y > down.hands[0].y);
     const t = place(0.3, 0.5);
-    assert.equal(shootLocal(t, [half.hands[0].x, half.hands[0].y, half.hands[0].z], FROM_FRONT).part, 'hand');
+    assert.equal(shootLocal(t, [half.hands[0].x, half.hands[0].y, half.hands[0].z], FROM_RIGHT).part, 'hand');
     // 같은 높이여도 서 있는 사람의 손 자리는 앉는 중인 사람에게 비어 있다
     assert.equal(shootLocal(t, [up.hands[0].x, up.hands[0].y, up.hands[0].z], FROM_RIGHT), null);
   });
@@ -224,7 +243,7 @@ describe('raycastPlayers: 다섯 부위', () => {
     assert.equal(traceShot(wall, eye, [0, 0, -1], 100, [target]).kind, 'world');
     const hit = traceShot(behind, eye, [0, 0, -1], 100, [target]);
     assert.equal(hit.kind, 'player');
-    assert.equal(hit.part, 'hand');
+    assert.equal(hit.part, 'body');
     assert.equal(traceShot(null, [50, 1, 0], [0, 0, -1], 30, [target]).kind, 'none');
   });
 });

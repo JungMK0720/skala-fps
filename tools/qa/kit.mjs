@@ -173,8 +173,8 @@ function pageSetup(opts) {
       };
       switch (part) {
         case 'head': return [t.pos[0], t.pos[1] + H.HEAD.y, t.pos[2]];
-        // 가슴 한가운데 앞에는 총을 쥔 왼손이 있다(가장 가까운 부위가 판정된다). 그래서 손보다 위쪽 가슴을 겨눈다
-        case 'body': return [t.pos[0], t.pos[1] + H.BODY.y0 + (H.BODY.y1 - H.BODY.y0) * 0.84, t.pos[2]];
+        // 가슴 한가운데. 앞에 총을 쥔 손이 있어도 몸통으로 판정되어야 한다
+        case 'body': return [t.pos[0], t.pos[1] + (H.BODY.y0 + H.BODY.y1) / 2, t.pos[2]];
         case 'legs': return [t.pos[0], t.pos[1] + (H.LEGS.y0 + H.LEGS.y1) / 2, t.pos[2]];
         case 'foot': return local(0, (H.FOOT.y0 + H.FOOT.y1) / 2, H.FOOT.cz || 0);
         case 'hand': { const h = H.HANDS[handIndex]; return local(h.x, h.y, h.z); }

@@ -623,7 +623,10 @@ const BROAD_REACH2 = BROAD_REACH * BROAD_REACH;
 
 /**
  * 플레이어 히트박스 레이캐스트 (월드 차단은 고려하지 않음 — traceShot 사용 권장).
- * 다섯 부위 중 레이가 가장 먼저 닿은 곳이 결과다. 머리와 손은 구, 몸·다리·발은 상자다.
+ * 머리·몸·다리·발 중 레이가 가장 먼저 닿은 곳이 결과다. 머리와 손은 구, 몸·다리·발은 상자다.
+ * 손은 탄이 손만 스칠 때만 결과가 된다. 같은 사람의 다른 부위가 그 뒤에 있으면 그 부위로 친다.
+ * 총을 쥔 손은 가슴 앞에 있어서, 이렇게 하지 않으면 정면에서 가슴 한가운데를 쏴도 저격 반샷이 나온다.
+ * 벽이 몸을 가리고 손만 나와 있으면 maxDist가 벽에서 끊겨 손으로 판정된다.
  * 몸·다리·발 상자와 손 구는 대상의 yaw로 함께 돌고, 머리는 세로축 위에 있어 돌지 않는다.
  * @param targets [{ id, pos:[x,y,z](발바닥), yaw?:number, alive?:boolean, crouch?:boolean|number }]
  *   crouch: true(또는 1)면 HITBOX_CROUCH, 0..1 사이면 서 있는/앉은 히트박스를 그 비율로 섞는다(자세 전환 중)
@@ -660,22 +663,24 @@ export function raycastPlayers(origin, dir, maxDist = 1000, targets = [], opts =
     const fy0 = F.y0 + (FC.y0 - F.y0) * k, fy1 = F.y1 + (FC.y1 - F.y1) * k;
     const fz = (F.cz || 0) + ((FC.cz || 0) - (F.cz || 0)) * k;
 
+    let coreT = best, corePart = null;
     const th = raySphere(rx, ry - headY, rz, dx, dy, dz, headR);
-    if (th >= 0 && th < best) { best = th; hitT = tg; hitPart = 'head'; }
+    if (th >= 0 && th < coreT) { coreT = th; corePart = 'head'; }
 
     const yaw = tg.yaw || 0, cs = Math.cos(yaw), sn = Math.sin(yaw);
     // 월드 → 로컬 (rotation.y = yaw 의 역회전). 아래 부위는 모두 이 로컬 좌표에서 잰다
     const lox = rx * cs - rz * sn, loz = rx * sn + rz * cs;
     const ldx = dx * cs - dz * sn, ldz = dx * sn + dz * cs;
-    if (rayAabb(lox, ry, loz, ldx, dy, ldz, -B.hw, by0, -B.hd, B.hw, by1, B.hd, best) && _hit.t < best) {
-      best = _hit.t; hitT = tg; hitPart = 'body';
+    if (rayAabb(lox, ry, loz, ldx, dy, ldz, -B.hw, by0, -B.hd, B.hw, by1, B.hd, coreT) && _hit.t < coreT) {
+      coreT = _hit.t; corePart = 'body';
     }
-    if (rayAabb(lox, ry, loz, ldx, dy, ldz, -L.hw, ly0, -L.hd, L.hw, ly1, L.hd, best) && _hit.t < best) {
-      best = _hit.t; hitT = tg; hitPart = 'legs';
+    if (rayAabb(lox, ry, loz, ldx, dy, ldz, -L.hw, ly0, -L.hd, L.hw, ly1, L.hd, coreT) && _hit.t < coreT) {
+      coreT = _hit.t; corePart = 'legs';
     }
-    if (rayAabb(lox, ry, loz, ldx, dy, ldz, -F.hw, fy0, fz - F.hd, F.hw, fy1, fz + F.hd, best) && _hit.t < best) {
-      best = _hit.t; hitT = tg; hitPart = 'foot';
+    if (rayAabb(lox, ry, loz, ldx, dy, ldz, -F.hw, fy0, fz - F.hd, F.hw, fy1, fz + F.hd, coreT) && _hit.t < coreT) {
+      coreT = _hit.t; corePart = 'foot';
     }
+    if (corePart) { best = coreT; hitT = tg; hitPart = corePart; continue; }
     for (let h = 0; h < HS.length; h++) {
       const a = HS[h], c = HSC[h];
       const hx = a.x + (c.x - a.x) * k, hy = a.y + (c.y - a.y) * k, hz = a.z + (c.z - a.z) * k, hr = a.r + (c.r - a.r) * k;

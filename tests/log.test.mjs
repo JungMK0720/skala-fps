@@ -441,13 +441,16 @@ describe('디버그 도구: F4 판정 부위 선', () => {
   function shoot(target, point, from) {
     const sign = from === 'front' ? -1 : 1;
     const yaw = target.yaw || 0;
-    // 로컬 z축의 월드 방향 = (sin yaw, 0, cos yaw)
-    const axis = [Math.sin(yaw) * sign, 0, Math.cos(yaw) * sign];
+    // 로컬 z축의 월드 방향 = (sin yaw, 0, cos yaw), 로컬 x축의 월드 방향 = (cos yaw, 0, -sin yaw)
+    const axis = from === 'side'
+      ? [Math.cos(yaw), 0, -Math.sin(yaw)]
+      : [Math.sin(yaw) * sign, 0, Math.cos(yaw) * sign];
     const origin = [point[0] + axis[0] * 10, point[1], point[2] + axis[2] * 10];
     return raycastPlayers(origin, [-axis[0], 0, -axis[2]], 100, [target]);
   }
 
-  const FROM = { head: 'front', body: 'back', legs: 'back', foot: 'back', hand: 'front' };
+  // 손 뒤에 몸통이 있으면 몸통으로 판정되므로 손은 옆에서 쏜다
+  const FROM = { head: 'front', body: 'back', legs: 'back', foot: 'back', hand: 'side' };
   const POSES = [
     { name: '서 있음, yaw 0', target: { id: 'a', pos: [0, 0, 0], yaw: 0, crouch: 0 } },
     { name: '돌아섬', target: { id: 'a', pos: [12, 3, -7], yaw: 1.1, crouch: 0 } },
