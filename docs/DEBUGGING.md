@@ -154,7 +154,7 @@ QA_NET_DELAY_MS=120 npm run qa -- --only multi-play  # 가짜 서버에 지연�
 | 파일 | 내용 |
 |---|---|
 | `tools/qa/browser.mjs` | 브라우저 찾기(`QA_BROWSER` → Windows → macOS → Linux), CDP 연결, 페이지 API, 오류 수집 |
-| `tools/qa/server.mjs` | 저장소를 `/skala-fps/` 아래에서만 내려주는 서버. 절대 경로는 404로 드러난다. `config`로 `js/config.js` 내용을 바꿔 줄 수 있다 |
+| `tools/qa/server.mjs` | 저장소를 `/skala-fps/` 아래에서만 내려주는 서버. 절대 경로는 404로 드러난다. 시험이 운영 Supabase를 건드리지 않도록 `js/config.js`는 기본으로 빈 설정을 내려주고, `config`나 `setConfig`로 바꿀 수 있다 |
 | `tools/qa/kit.mjs` | 페이지 안 도우미 `window.__qa`, 검사 기록기, 게임 열기·포인터 잠금 |
 | `tools/qa/fake-supabase.mjs` | 닉네임·프로필 RPC와 Realtime WebSocket을 흉내 내는 시험용 서버 |
 | `tools/qa/scenarios/` | 시나리오. 새 시나리오는 `{ name, title, timeoutMs, run(t) }`를 내보내고 `index.mjs`에 넣는다 |

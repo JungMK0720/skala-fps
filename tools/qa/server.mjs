@@ -2,7 +2,7 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 자동 플레이 테스트용 정적 서버(의존성 없음). 저장소를 GitHub Pages와 같은 /skala-fps/ 아래에서만 내려주므로 절대 경로는 404로 드러난다.
- *          js/config.js 내용을 시험용으로 바꿔 내려줄 수 있다. 포트는 운영체제가 고른다.
+ *          시험이 운영 Supabase를 건드리지 않도록 js/config.js는 기본으로 빈 설정을 내려주고, 시험용 값으로 바꿀 수 있다. 포트는 운영체제가 고른다.
  */
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
@@ -12,6 +12,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const PREFIX = '/skala-fps/';
 const CONFIG_PATH = 'js/config.js';
+/** 저장소의 js/config.js는 운영 프로젝트를 가리킨다. 시험은 이 빈 설정으로 시작해 닉네임이나 프로필이 운영 DB에 들어가지 않게 한다. */
+export const OFFLINE_CONFIG = "window.SKALA_CONFIG = { supabase: { url: '', anonKey: '' } };\n";
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.md': 'text/markdown; charset=utf-8',
@@ -25,11 +27,12 @@ function notFound(res) {
 
 /**
  * @param {{ root?:string, config?:string|null }} [options]
- *   config: 문자열이면 js/config.js 대신 내려준다. server.setConfig로 나중에 바꿀 수 있다(null이면 원래 파일).
+ *   config: js/config.js 대신 내려줄 글자. 기본은 OFFLINE_CONFIG이고, null이면 저장소의 파일을 그대로 내려준다.
+ *   server.setConfig로 나중에 바꿀 수 있고, setConfig(null)은 서버를 시작할 때의 설정으로 돌아간다.
  * @returns {Promise<{ url:string, base:string, port:number, requests:{url:string,status:number}[], setConfig(text):void, close():Promise<void> }>}
  *   base는 끝에 /가 붙은 게임 주소, requests는 지금까지 받은 요청이다.
  */
-export async function startServer({ root = ROOT, config = null } = {}) {
+export async function startServer({ root = ROOT, config = OFFLINE_CONFIG } = {}) {
   let configText = config;
   const requests = [];
 
@@ -74,7 +77,7 @@ export async function startServer({ root = ROOT, config = null } = {}) {
     port,
     base: url + PREFIX,
     requests,
-    setConfig(text) { configText = text; },
+    setConfig(text) { configText = text == null ? config : text; },
     close() {
       return new Promise((res) => {
         for (const s of sockets) s.destroy();

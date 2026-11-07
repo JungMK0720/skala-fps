@@ -5,8 +5,9 @@
  */
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { MAX_HEIGHT, MAX_WIDTH, SAFE_FLAGS, keyInfo, withTimeout } from '../tools/qa/browser.mjs';
-import { startServer } from '../tools/qa/server.mjs';
+import { OFFLINE_CONFIG, startServer } from '../tools/qa/server.mjs';
 import { startFakeSupabase } from '../tools/qa/fake-supabase.mjs';
 
 describe('시험용 정적 서버', () => {
@@ -47,6 +48,22 @@ describe('시험용 정적 서버', () => {
     assert.equal(await (await fetch(`${server.base}js/config.js`)).text(), 'window.SKALA_CONFIG = { qa: true };');
     server.setConfig(null);
     assert.equal(await (await fetch(`${server.base}js/config.js`)).text(), plain);
+  });
+
+  test('기본 설정은 운영 Supabase를 가리키지 않는다', async () => {
+    const text = await (await fetch(`${server.base}js/config.js`)).text();
+    assert.equal(text, OFFLINE_CONFIG);
+    assert.doesNotMatch(text, /supabase\.co|sb_publishable/);
+  });
+
+  test('config: null이면 저장소의 설정 파일을 내려준다', async () => {
+    const real = await startServer({ config: null });
+    try {
+      const text = await (await fetch(`${real.base}js/config.js`)).text();
+      assert.equal(text, readFileSync(new URL('../js/config.js', import.meta.url), 'utf8'));
+    } finally {
+      await real.close();
+    }
   });
 });
 
