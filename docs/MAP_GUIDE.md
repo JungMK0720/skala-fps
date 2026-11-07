@@ -1,0 +1,176 @@
+# 맵 제작 가이드
+
+맵은 `js/maps/<id>.js`의 순수 데이터다. 형식의 기준은 `docs/ARCHITECTURE.md` 4절과 `docs/DESIGN.md` 5절이고, 이 문서는 그 형식을 빠르게 쓰는 법을 정리한다. 맵을 고칠 때마다 `npm run check:maps`를 돌린다.
+
+## 1. 좌표 규칙
+
+- 1 단위 = 1 m, y가 위, 지면 y = 0, 맵 중심이 원점. `size`가 플레이 영역이고 바깥은 보이지 않는 벽이다.
+- `box`·`ramp`·`cyl`의 x, z는 **바닥 중심**, y는 **바닥 높이**다. 회전은 없다.
+- `ramp`는 `dir`(`+x`, `-x`, `+z`, `-z`) 쪽으로 올라간다. `w`는 x 길이, `d`는 z 길이다.
+- 바닥보다 낮은 상자(윗면 ≤ 0.05, y < 0)는 그 자리의 지면을 도려낸다. 물웅덩이와 구덩이를 이렇게 만든다.
+- `mat: 'clip'`은 보이지 않는 막이다. 사람만 막고 총알과 시야는 통과한다. 물가와 맵 가장자리의 낮은 벽 위에 올린다.
+
+| 값 | 치수 |
+|---|---|
+| 몸 | 키 1.8, 앉으면 1.25, 반지름 0.35 |
+| 그냥 오르는 턱 | 0.45 |
+| 점프로 오르는 턱 | 1.2까지 안전, 물리 한계 약 1.46 |
+| 달리기 점프 거리 | 평지 약 4 m |
+| 봇이 지나가는 폭 | **1.8 이상**. 내비 칸이 1 m라서 더 좁으면 칸 중심이 안 걸릴 수 있다 |
+
+`rotY` 규약은 두 가지다.
+
+| 대상 | 0 | π | π/2 | -π/2 |
+|---|---|---|---|---|
+| 스폰, 포털 도착 (카메라가 보는 쪽) | -z | +z | -x | +x |
+| sign, banner, vent, 장식 (앞면이 향하는 쪽) | +z | -z | +x | -x |
+
+스폰 `y`를 생략하면 아래부터 첫 빈 바닥에 놓는다. 벽 속에 찍으면 벽 위로 올라가므로 벽에서 0.4 m 이상 띄운다. 지붕처럼 아래가 빈 곳에 세우려면 `y`를 적는다.
+
+## 2. 뼈대
+
+새 맵은 180° 대칭으로 절반만 쓰면 양 팀이 공정하다.
+
+```js
+/*
+ * Date: 06NOV2026
+ * Author: Minkyu Jung
+ * Purpose: 이 맵이 무엇인지 한 문장으로
+ */
+import { box, ramp, wall, stairs, platform, doorwayWall, clipAbove, rotate180 } from './kit.js';
+
+const solids = [
+  wall(-20, -14, 20, -14, 4, 0.4, 'brick'),
+  doorwayWall(-8, -14, -8, 6, 4, 0.4, 'plaster', { at: [-6, 2] }),
+  stairs(12, 0, 4, 4, 3, 6, '+z', 'stone'),
+  platform(12, 3, 10, 6, 6, 'wood_dark')
+].flat();
+
+const owner = [-24, -21, -18, -15].map((x) => ({ x, z: -6, rotY: -Math.PI / 2 }));
+
+export default {
+  id: 'example', name: '예시', nameEn: 'Example', desc: '한 줄 설명',
+  size: { x: 56, z: 36 },
+  rulesets: ['classic', 'knife'],
+  theme: { sky: '#a9cde8', skyTop: '#3f78b5', fog: [40, 160], ground: 'stone' },
+  spawns: {
+    owner,
+    charterer: rotate180(owner),
+    ffa: [{ x: -10, z: 12, rotY: 0 }, /* 6곳 이상 */]
+  },
+  solids: [...solids, ...rotate180(solids)],
+  decor: [],
+  pads: [], portals: [], secrets: [], props: []
+};
+```
+
+`MAP_IDS`와 메뉴 이름은 `js/maps/index.js`에 이미 있다. `tag`는 메뉴 배지이고, `rulesets`를 안 적으면 `['classic','sniper']`다.
+
+## 3. kit (`js/maps/kit.js`)
+
+| 함수 | 돌려주는 것 | 설명 |
+|---|---|---|
+| `box(x, y, z, w, h, d, mat)` | 하나 | 상자 |
+| `ramp(x, y, z, w, h, d, dir, mat)` | 하나 | 경사로 |
+| `cyl(x, y, z, r, h, mat)` | 하나 | 세로 원통 |
+| `wall(x0, z0, x1, z1, h, t, mat, y=0)` | 하나 | 축에 나란한 벽. 두 점이 중심선, `t`가 두께 |
+| `pillar(x, z, h, s=0.6, mat, y=0)` | 하나 | 네모 기둥 |
+| `stairs(x, y, z, w, h, d, dir, mat, steps?)` | 배열 | 속이 찬 계단. 자리 잡는 법은 `ramp`와 같다. 단 하나가 solid 하나다 |
+| `platform(x, top, z, w, d, mat, { t, legs, legMat, leg, base })` | 배열 | 윗면이 `top`인 판과 네 귀 다리 |
+| `doorwayWall(x0, z0, x1, z1, h, t, mat, { at, w, top, sill, y })` | 배열 | 문이 뚫린 벽. `at`은 벽 방향의 월드 좌표이고 배열이면 문이 여러 개, `w`는 폭(1.8), `top`은 윗변(2.4), `sill`을 주면 창 |
+| `clipAbove(solidOrList, h=8)` | 배열 | 도형 바로 위에 보이지 않는 막이 |
+| `mirrorX(list)` | 배열 | x → -x 복사본 |
+| `mirrorZ(list)` | 배열 | z → -z 복사본 |
+| `rotate180(list)` | 배열 | x, z 모두 뒤집은 복사본 |
+
+- 뒤집기 함수는 복사본만 돌려준다. 원본까지 쓰려면 `[...list, ...rotate180(list)]`로 적는다.
+- solids, decor, pads, portals, secrets, props, 스폰을 모두 받는다. 경사로 `dir`, `rotY`, 발판 `target`·`vel`, 포털 `to`, 파이프 `from`·`to`를 함께 뒤집는다.
+- 비밀 스팟 `id`에는 꼬리표(`_r`, `_mx`, `_mz`)가 붙어 따로 세어진다. 보상을 한 번만 줄 곳이면 복사하지 않는다.
+- 배열을 돌려주는 함수를 섞었으면 `solids`에 넣기 전에 `.flat()`한다.
+- 대각선 벽이나 벽 밖으로 나간 문처럼 잘못 쓰면 바로 오류가 난다.
+
+## 4. 재질과 장식
+
+재질은 기존 14종에 `stone, brick, plaster, tile, sand, moss, wood_dark, bamboo, paper, metal_dark, neon_cyan, neon_pink`가 더해졌다. `neon_*`은 그늘에서도 같은 밝기로 빛나고, `paper`는 창호지처럼 살짝 빛난다.
+
+| 장식 | 필드 (y를 생략하면 0) | 기준점 |
+|---|---|---|
+| `tree` | `x, y, z, h=5.5, r, petals=true` | 밑동. 분홍 벚나무 |
+| `bamboo` | `x, y, z, h=6, n=7, r=0.9` | 밑동. `n`줄기 무더기 |
+| `lantern` | `x, y, z, r=0.28, color, cord=0.5` | 몸통 중심. 실제 조명 없음 |
+| `banner` | `x, y, z, rotY, w=1.2, h=3, text, bg, fg, emblem` | 천 중심. `emblem`은 `circle, ring, diamond, blossom, blade` |
+| `rope` | `from, to, sag, r, mat` | 두 끝점 |
+| `vent` | `x, y, z, rotY, w, h, d, mat` | 중심. 벽에 붙이면 앞으로 튀어나온다 |
+| `crateStack` | `x, y, z, rotY, size=1.1, levels=2, mat` | 바닥. 충돌 없음 |
+
+장식은 총알이 통과하고 사람을 막지 않는다. 막아야 하면 같은 자리에 solid나 `clip`을 둔다.
+
+## 5. 발판
+
+```js
+{ x, y, z, w, d, target: [x, y, z], apex: 3, color: '#35e0ff' }
+```
+
+- `y`는 발판을 그릴 바닥 높이다. 그 자리 바닥과 0.35 m 안이어야 발동한다.
+- `target`은 착지할 **발 위치**이고 y는 그곳의 바닥 높이다. 발판 어디를 밟든 target으로 떨어진다.
+- 비행 최고점은 `max(발판 y, target y) + apex`다. 머리가 그보다 1.8 m 위까지 올라가므로 그 경로에 천장이 있으면 안 된다.
+- 수평 속도가 28 m/s를 넘으면 경고가 난다. `apex`를 올려 비행 시간을 늘린다.
+- 도착지는 3 m 이상 넓게 만든다. 착지 뒤 약 1 m 미끄러지므로 좁은 턱에서는 떨어질 수 있다.
+- `target` 대신 `vel: [vx, vy, vz]`로 속도를 직접 줄 수 있다. 이때는 밟은 자리만큼 착지점이 달라진다.
+
+## 6. 포털과 비밀 스팟
+
+```js
+portals: [{ x, y, z, w, h, d, to: { x, y, z, rotY }, color }]
+secrets: [{ id, name, x, y, z, w, h, d, points: 100, reach: 'jump' }]
+```
+
+- 둘 다 x, z는 바닥 중심, y는 바닥 높이다. 몸 중심이 사각형 안이고 몸이 상자 높이와 겹치면 발동한다.
+- 포털은 얇은 쪽을 정면으로 그린다. `w`와 `d`가 비슷하면 십자로 그린다.
+- 포털 `to.rotY`를 생략하면 보던 방향을 유지한다. 도착지를 다른 포털 안에 두지 않는다.
+- 비밀 `id`는 맵 안에서 겹치지 않아야 한다. 계정 보상이 이 값으로 묶이므로 출시 뒤에는 바꾸지 않는다.
+- 비밀 상자는 사람이 서는 자리를 덮게 놓는다. 지붕이면 `y`를 지붕 높이로, `h`를 2.5 정도로 한다.
+- 검사기는 스폰에서 걷기와 점프로 닿는지, 닿을 수 있는 발판의 착지나 포털 도착이 2 m 안인지 본다. 달리기 점프로만 가는 곳은 `reach: 'jump'`를 적는다. 그러면 점프 시뮬레이션으로 실제 도달을 확인한다.
+
+## 7. 검사기
+
+```bash
+npm run check:maps                       # MAP_IDS 중 파일이 있는 맵 전부
+node tools/check-maps.mjs alley          # 한 맵만
+node tools/check-maps.mjs alley --json   # 결과를 JSON으로
+node tools/check-maps.mjs --file 경로.js # MAP_IDS에 없는 작업 파일
+```
+
+오류가 하나라도 있으면 종료 코드 1이다. 표의 `los`는 서로 보이는 적 스폰 쌍의 수이고 `nav`는 봇 내비 노드 수다.
+
+| 검사 | 내용 |
+|---|---|
+| 데이터 | `validateMap` 결과. 새 맵(새 id 또는 `rulesets`가 있는 맵)은 경고도 오류로 친다 |
+| 스폰 | 바닥이 있고 몸이 벽과 겹치지 않고 좁은 꼭대기가 아닌지. 새 맵은 팀당 4곳, 개인전 6곳 이상 |
+| 발판 | 가운데와 네 귀퉁이에서 쏘아 착지 확인. target에서 수평 2 m, 높이 0.6 m 안. 천장에 부딪히면 오류 |
+| 포털 | 도착지에 설 수 있는지 |
+| 비밀 | 6절의 경로 중 하나로 닿는지 |
+| 길 | 모든 팀 스폰에서 적 스폰까지 내비 경로가 있는지 |
+| 시야 | 적 스폰이 바로 보이면 경고. 실패로 치지는 않지만 벽으로 가리는 것이 원칙이다 |
+
+## 8. 성능 한도
+
+`consts.LIMITS`를 넘으면 맵이 불러와지지 않는다.
+
+| 항목 | 한도 |
+|---|---|
+| solids | 400 |
+| decor | 280 |
+| pads, portals | 각 16 |
+| secrets | 8 |
+| props | 40 |
+| 실제 조명 | 4 (앞쪽 `light`부터, 나머지는 발광 구) |
+
+- solids는 재질별로 합쳐져 재질 하나가 드로우콜 하나다. 긴 경사가 필요하면 `stairs`보다 solid 하나인 `ramp`가 싸다.
+- `sign`은 하나마다 드로우콜 하나다. `banner`는 같은 그림끼리 합쳐진다.
+- 나무는 한 그루에 약 600삼각형, 대나무는 줄기 하나에 약 250삼각형이다. 합쳐서 인스턴싱되지만 삼각형 수는 그대로 늘어난다.
+- 시야가 짧은 맵은 `theme.fog`를 당겨 먼 곳을 가린다.
+
+## 9. 직접 설계 원칙
+
+상용 게임의 맵 구조, 이름, 배치를 복제하지 않는다. 좁은 교전 구역이나 공중 가속 같은 장르 관습은 써도 되지만 레이아웃과 이름은 직접 설계한다. 외부 이미지와 음원 파일은 쓰지 않고, 표지판과 현수막의 글자도 직접 지은 것만 쓴다.
