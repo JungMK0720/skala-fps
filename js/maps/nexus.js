@@ -28,6 +28,8 @@ const WALL_H = 4;        // 블록 벽
 const RAIL_H = 1.25;     // 난간. 앉으면 몸이 다 가려진다
 
 const CYAN = '#35e0ff', PINK = '#ff4d8d', GOLD = '#ffd166', VIOLET = '#b77dff';
+const WALL = 'tank';     // 블록, 탑, 스폰 건물의 밝은 벽 패널
+const COVER = 'steel';   // 낮은 엄폐물과 턱
 
 const door = (at, w = 2.2, top = 2.7) => ({ at, w, top });
 const slot = (at, w = 2.4, sill = 1.05, top = 2.4) => ({ at, w, top, sill });
@@ -55,8 +57,8 @@ function wallWith(x0, z0, x1, z1, h, t, mat, holes = [], y = 0) {
 
 const shellTop = [wall(-45.5, -35, 45.5, -35, 9, 1, 'metal_dark', 5), wall(-45, -34.5, -45, 34.5, 9, 1, 'metal_dark', 5)];
 const shell = [
-  wall(-45.5, -35, 45.5, -35, 5, 1, 'plaster'),
-  wall(-45, -34.5, -45, 34.5, 5, 1, 'plaster'),
+  wall(-45.5, -35, 45.5, -35, 5, 1, WALL),
+  wall(-45, -34.5, -45, 34.5, 5, 1, WALL),
   ...shellTop,
   clipAbove(shellTop, 16)
 ];
@@ -77,13 +79,13 @@ const pit = [
   // 북쪽 계단
   stairs(0, PIT, -10.625, 7, -PIT, 2.75, '-z', 'steel', 5),
   // 낮은 기둥과 턱
-  box(-7, PIT, -6.4, 2.6, 1.2, 1, 'plaster'),
-  box(0, PIT, -6.9, 3.2, 1.05, 0.8, 'plaster'),
-  box(-6.5, PIT, -2.2, 1, 2.3, 1, 'tile'),
-  box(7, PIT, -2, 1.2, 1.3, 1.2, 'plaster'),
+  box(-7, PIT, -6.4, 2.6, 1.2, 1, COVER),
+  box(0, PIT, -6.9, 3.2, 1.05, 0.8, COVER),
+  box(-6.5, PIT, -2.2, 1, 2.3, 1, COVER),
+  box(7, PIT, -2, 1.2, 1.3, 1.2, COVER),
   // 코어 룸 포털을 가리는 ㄱ자 기둥. 벽과의 틈으로 돌아 들어간다
-  box(6.5, PIT, -7.2, 3, 2.4, 1, 'tile'),
-  box(4.6, PIT, -8.5, 0.5, 2.4, 1.6, 'tile')
+  box(6.5, PIT, -7.2, 3, 2.4, 1, COVER),
+  box(4.6, PIT, -8.5, 0.5, 2.4, 1.6, COVER)
 ];
 
 /* ---------------- 캣워크 ---------------- */
@@ -103,10 +105,10 @@ const catwalk = [
   box(-14, DECK, -8.2, 6, RAIL_H, 0.1, 'glass'),
   box(-16.95, DECK, -6.95, 0.1, RAIL_H, 2.4, 'glass'),
   // 서서 몸을 가리는 방패판
-  box(-24, DECK, -5.5, 2.2, 2.2, 0.3, 'tile'),
-  box(-9, DECK, -2.5, 2.2, 2.2, 0.3, 'tile'),
-  box(-29.5, DECK, -18, 0.3, 2.2, 2.2, 'tile'),
-  box(-32.5, DECK, -9, 0.3, 2.2, 2.2, 'tile'),
+  box(-24, DECK, -5.5, 2.2, 2.2, 0.3, COVER),
+  box(-9, DECK, -2.5, 2.2, 2.2, 0.3, COVER),
+  box(-29.5, DECK, -18, 0.3, 2.2, 2.2, COVER),
+  box(-32.5, DECK, -9, 0.3, 2.2, 2.2, COVER),
   // 기둥
   box(-31, 0, -20, 0.7, DECK - 0.25, 0.7, 'tile'),
   box(-31, 0, -11, 0.7, DECK - 0.25, 0.7, 'tile'),
@@ -128,16 +130,16 @@ const catwalk = [
 
 const tower = [
   // 아래층 벽(바닥 ~ 다리 높이)
-  wallWith(-44.5, -22, -32.75, -22, DECK, 0.5, 'plaster', [door(-38, 2.4, 3)]),
-  wallWith(-33, -34.5, -33, -22.25, DECK, 0.5, 'plaster', [door(-26, 2.4, 3)]),
+  wallWith(-44.5, -22, -32.75, -22, DECK, 0.5, WALL, [door(-38, 2.4, 3)]),
+  wallWith(-33, -34.5, -33, -22.25, DECK, 0.5, WALL, [door(-26, 2.4, 3)]),
   // 가운데 층 벽(다리 높이 ~ 꼭대기)
-  wallWith(-44.5, -22, -32.75, -22, TOWER - DECK, 0.5, 'plaster', [slot(-37, 3, 1, 2.6)], DECK),
-  wallWith(-33, -34.5, -33, -22.25, TOWER - DECK, 0.5, 'plaster', [door(-27, 2.4, 2.8)], DECK),
+  wallWith(-44.5, -22, -32.75, -22, TOWER - DECK, 0.5, WALL, [slot(-37, 3, 1, 2.6)], DECK),
+  wallWith(-33, -34.5, -33, -22.25, TOWER - DECK, 0.5, WALL, [door(-27, 2.4, 2.8)], DECK),
   // 바깥 벽 윗단이 어두워서 탑 안쪽에 밝은 판을 댄다
-  box(-38.875, 5, -34.45, 11.25, TOWER - 5.25, 0.1, 'plaster'),
-  box(-44.45, 5, -28.325, 0.1, TOWER - 5.25, 12.15, 'plaster'),
+  box(-38.875, 5, -34.45, 11.25, TOWER - 5.25, 0.1, WALL),
+  box(-44.45, 5, -28.325, 0.1, TOWER - 5.25, 12.15, WALL),
   // 오르는 길: 북쪽 경사로 → 층계참 → 서쪽 경사로 → 가운데 층 → 북쪽 경사로 → 꼭대기
-  stairs(-35.8, 0, -33.125, 2.2, 1.6, 2.75, '-x', 'plaster', 4),
+  stairs(-35.8, 0, -33.125, 2.2, 1.6, 2.75, '-x', WALL, 4),
   box(-39.325, 0, -33.125, 4.85, 1.6, 2.75, 'tile'),
   ramp(-39.325, 1.6, -33.125, 4.85, 1.7, 2.75, '-x', 'tile'),
   box(-43.125, 0, -33.125, 2.75, 3.3, 2.75, 'tile'),
@@ -166,37 +168,37 @@ const tower = [
 
 const hallRoof = box(-40.1, 4.2, 0, 8.8, 0.25, 20.5, 'tile');
 const hall = [
-  wallWith(-36, -10.25, -36, 10.25, 4.2, 0.6, 'plaster', [door(-6, 2.6, 3), door(6, 2.6, 3)]),
-  wallWith(-44.5, -10, -36.3, -10, 4.2, 0.5, 'plaster', [door(-40, 2.4, 4.2)]),
-  wallWith(-44.5, 10, -36.3, 10, 4.2, 0.5, 'plaster', [door(-40, 2.4, 4.2)]),
+  wallWith(-36, -10.25, -36, 10.25, 4.2, 0.6, WALL, [door(-6, 2.6, 3), door(6, 2.6, 3)]),
+  wallWith(-44.5, -10, -36.3, -10, 4.2, 0.5, WALL, [door(-40, 2.4, 4.2)]),
+  wallWith(-44.5, 10, -36.3, 10, 4.2, 0.5, WALL, [door(-40, 2.4, 4.2)]),
   hallRoof,
   clipAbove(hallRoof, 12),
-  box(-39, 0, 0, 1, 1.2, 4.5, 'tile'),
+  box(-39, 0, 0, 1, 1.2, 4.5, COVER),
   // 문 앞 가림벽: 탑과 광장에서 문이 곧바로 보이지 않게 한다
-  box(-33.2, 0, -6, 0.6, 3, 7, 'tile'),
-  box(-33.2, 0, 6, 0.6, 3, 7, 'tile'),
-  box(-36.55, 0, 12.25, 0.5, 3, 4, 'tile')
+  box(-33.2, 0, -6, 0.6, 3, 7, COVER),
+  box(-33.2, 0, 6, 0.6, 3, 7, COVER),
+  box(-36.55, 0, 12.25, 0.5, 3, 4, COVER)
 ];
 
 /* ---------------- 북쪽 블록 ---------------- */
 
 const block = [
   // 구덩이와 마주 보는 긴 벽
-  wallWith(-26.2, -16, 26.2, -16, WALL_H, 0.4, 'plaster', [door(-20.5), slot(-16.5), door(-8.5), door(0, 2.6), door(8.5), slot(16.5), door(20.5)]),
+  wallWith(-26.2, -16, 26.2, -16, WALL_H, 0.4, WALL, [door(-20.5), slot(-16.5), door(-8.5), door(0, 2.6), door(8.5), slot(16.5), door(20.5)]),
   // 서쪽: 방과 골목 사이, 골목과 뒷방 사이
-  wallWith(-26, -22, -2, -22, WALL_H, 0.4, 'plaster', [door(-22.5, 2.2, WALL_H), slot(-17.5), door(-10, 2.2, WALL_H)]),
-  wallWith(-26.2, -26, -1.8, -26, WALL_H, 0.4, 'plaster', [door(-19, 2.2, WALL_H), door(-7, 2.2, WALL_H)]),
+  wallWith(-26, -22, -2, -22, WALL_H, 0.4, WALL, [door(-22.5, 2.2, WALL_H), slot(-17.5), door(-10, 2.2, WALL_H)]),
+  wallWith(-26.2, -26, -1.8, -26, WALL_H, 0.4, WALL, [door(-19, 2.2, WALL_H), door(-7, 2.2, WALL_H)]),
   // 동쪽: 방과 서비스 마당 사이
-  wallWith(1.8, -26, 26.2, -26, WALL_H, 0.4, 'plaster', [door(6, 2.2, WALL_H), slot(12), door(20, 2.2, WALL_H)]),
+  wallWith(1.8, -26, 26.2, -26, WALL_H, 0.4, WALL, [door(6, 2.2, WALL_H), slot(12), door(20, 2.2, WALL_H)]),
   // 끝 벽과 칸막이(방 안쪽 문은 지붕까지 튼다)
-  wallWith(-26, -21.8, -26, -16.2, WALL_H, 0.4, 'plaster', [door(-19, 2.2, WALL_H)]),
-  wallWith(-26, -34.5, -26, -26.2, WALL_H, 0.4, 'plaster', [door(-30, 2.2, WALL_H)]),
-  wallWith(-14, -21.8, -14, -16.2, WALL_H, 0.4, 'plaster', [door(-19, 2.2, WALL_H)]),
-  wallWith(-2, -21.8, -2, -16.2, WALL_H, 0.4, 'plaster', [door(-19, 2.2, WALL_H)]),
-  wallWith(-2, -34.5, -2, -26.2, WALL_H, 0.4, 'plaster', [door(-30, 2.2, WALL_H)]),
-  wallWith(2, -25.8, 2, -16.2, WALL_H, 0.4, 'plaster', [door(-21, 2.2, WALL_H)]),
-  wallWith(14, -25.8, 14, -16.2, WALL_H, 0.4, 'plaster', [door(-21, 2.2, WALL_H)]),
-  wallWith(26, -25.8, 26, -16.2, WALL_H, 0.4, 'plaster', [door(-21, 2.2, WALL_H)]),
+  wallWith(-26, -21.8, -26, -16.2, WALL_H, 0.4, WALL, [door(-19, 2.2, WALL_H)]),
+  wallWith(-26, -34.5, -26, -26.2, WALL_H, 0.4, WALL, [door(-30, 2.2, WALL_H)]),
+  wallWith(-14, -21.8, -14, -16.2, WALL_H, 0.4, WALL, [door(-19, 2.2, WALL_H)]),
+  wallWith(-2, -21.8, -2, -16.2, WALL_H, 0.4, WALL, [door(-19, 2.2, WALL_H)]),
+  wallWith(-2, -34.5, -2, -26.2, WALL_H, 0.4, WALL, [door(-30, 2.2, WALL_H)]),
+  wallWith(2, -25.8, 2, -16.2, WALL_H, 0.4, WALL, [door(-21, 2.2, WALL_H)]),
+  wallWith(14, -25.8, 14, -16.2, WALL_H, 0.4, WALL, [door(-21, 2.2, WALL_H)]),
+  wallWith(26, -25.8, 26, -16.2, WALL_H, 0.4, WALL, [door(-21, 2.2, WALL_H)]),
   // 지붕과 골목 위 널빤지
   box(0, WALL_H, -19, 52.4, 0.2, 6.4, 'tile'),
   box(14, WALL_H, -24.2, 24.4, 0.2, 4, 'tile'),
@@ -207,45 +209,45 @@ const block = [
   box(11, ROOF, -22, 1.6, 1.2, 3, 'metal_dark'),
   box(-13, ROOF, -30.5, 2, 1.2, 2, 'metal_dark'),
   // 골목 엄폐
-  box(-18.5, 0, -24.9, 1.8, 1.2, 1.2, 'tile'),
-  box(-7.5, 0, -23.1, 1.8, 1.2, 1.2, 'tile'),
+  box(-18.5, 0, -24.9, 1.8, 1.2, 1.2, COVER),
+  box(-7.5, 0, -23.1, 1.8, 1.2, 1.2, COVER),
   // 방 안 집기
-  box(-21, 0, -20.4, 2.4, 1.1, 1, 'tile'),
-  box(9.5, 0, -19, 1.2, 1.2, 3.4, 'tile'),
-  box(-14, 0, -30, 1.2, 1.2, 4, 'tile'),
+  box(-21, 0, -20.4, 2.4, 1.1, 1, COVER),
+  box(9.5, 0, -19, 1.2, 1.2, 3.4, COVER),
+  box(-14, 0, -30, 1.2, 1.2, 4, COVER),
   // 서비스 마당 엄폐
-  box(9, 0, -31, 3, 2.4, 3, 'tile'),
-  box(17, 0, -28.3, 5, 1.2, 0.9, 'plaster'),
-  box(24.5, 0, -32, 2.6, 2.4, 3.6, 'tile')
+  box(9, 0, -31, 3, 2.4, 3, COVER),
+  box(17, 0, -28.3, 5, 1.2, 0.9, COVER),
+  box(24.5, 0, -32, 2.6, 2.4, 3.6, COVER)
 ];
 
 /* ---------------- 북동쪽 별관(높은 지붕) ---------------- */
 
 const annex = [
-  wallWith(32, -34.5, 32, -24.25, DECK - 0.3, 0.5, 'plaster', [door(-29, 2.4, 3)]),
-  wall(31.75, -24, 44.5, -24, DECK - 0.3, 0.5, 'plaster'),
+  // 문을 둘 두어 방에 갇히지 않는다
+  wallWith(32, -34.5, 32, -24.25, DECK - 0.3, 0.5, WALL, [door(-31.6, 2.2, 2.8), door(-26.8, 2.2, 2.8)]),
+  wall(31.75, -24, 44.5, -24, DECK - 0.3, 0.5, WALL),
   box(38.125, DECK - 0.3, -29.125, 12.75, 0.3, 10.75, 'tile'),
   box(32, DECK, -29.125, 0.4, 0.5, 10.75, 'tile'),
   box(36.95, DECK, -24, 9.5, 0.5, 0.4, 'tile'),
   ramp(36.875, 0, -22.5, 9.75, DECK, 2.5, '+x', 'tile'),
   box(43.125, 0, -22.5, 2.75, DECK, 2.5, 'tile'),
-  box(40, 0, -30, 2.4, 1.2, 1.2, 'tile')
+  box(40, 0, -30, 2.4, 1.2, 1.2, COVER)
 ];
 
 /* ---------------- 광장과 테두리 ---------------- */
 
 const plaza = [
-  box(-24.5, 0, -10, 3, 2.6, 3, 'tile'),
-  box(-29, 0, 6, 3, 2.6, 3, 'tile'),
-  box(-23.5, 0, 9.5, 1, 1.2, 7, 'plaster'),
-  box(-39, 0, -16.5, 3.4, 1.2, 1, 'plaster'),
+  box(-24.5, 0, -10, 3, 2.6, 3, COVER),
+  box(-29, 0, 6, 3, 2.6, 3, COVER),
+  box(-23.5, 0, 9.5, 1, 1.2, 7, COVER),
+  box(-39, 0, -16.5, 3.4, 1.2, 1, COVER),
   // 지붕으로 오르는 경사로와 층계참
   ramp(-27.6, 0, -11.5, 2.8, ROOF, 9, '-z', 'tile'),
   box(-27.6, WALL_H - 0.1, -17.5, 2.8, 0.3, 3, 'tile'),
-  box(-28.8, 0, -17.8, 0.3, WALL_H - 0.1, 0.3, 'tile'),
   // 테두리 낮은 벽
-  box(-18, 0, -13.4, 3.5, 1.2, 0.7, 'plaster'),
-  box(14.5, 0, -13.6, 3.5, 1.2, 0.7, 'plaster')
+  box(-18, 0, -13.4, 3.5, 1.2, 0.7, COVER),
+  box(14.5, 0, -13.6, 3.5, 1.2, 0.7, COVER)
 ];
 
 /* ---------------- 가운데(대칭 복사 없이 한 번만) ---------------- */
@@ -255,15 +257,15 @@ const center = [
   cyl(0, PIT, 0, 1.9, 0.35, 'steel'),
   cyl(0, PIT, 0, 1.5, DECK - 0.25 - PIT, 'metal_dark'),
   box(0, DECK - 0.25, 0, 8, 0.25, 11.5, 'metal_dark'),       // 허브
-  box(0, DECK, 0, 0.5, 2.3, 6.4, 'plaster'),                 // 양쪽 캣워크 시야를 끊는 벽
+  box(0, DECK, 0, 0.5, 2.3, 6.4, COVER),                 // 양쪽 캣워크 시야를 끊는 벽
   cyl(0, DECK, 0, 0.45, SKY - 0.3 - DECK, 'metal_dark'),     // 스카이 데크 기둥
   box(0, SKY - 0.3, 0, 6.4, 0.3, 6.4, 'metal_dark'),
   // 코어 룸: 천장은 구덩이 바닥(아랫면이 그려지지 않아 장식 판으로 덮는다)
   box(0, CORE - 0.6, 0, 15, 0.6, 13, 'tile'),
-  box(0, CORE, -6.25, 15, PIT - 0.6 - CORE, 0.5, 'plaster'),
-  box(0, CORE, 6.25, 15, PIT - 0.6 - CORE, 0.5, 'plaster'),
-  box(7.25, CORE, 0, 0.5, PIT - 0.6 - CORE, 12, 'plaster'),
-  box(-7.25, CORE, 0, 0.5, PIT - 0.6 - CORE, 12, 'plaster'),
+  box(0, CORE, -6.25, 15, PIT - 0.6 - CORE, 0.5, 'steel'),
+  box(0, CORE, 6.25, 15, PIT - 0.6 - CORE, 0.5, 'steel'),
+  box(7.25, CORE, 0, 0.5, PIT - 0.6 - CORE, 12, 'steel'),
+  box(-7.25, CORE, 0, 0.5, PIT - 0.6 - CORE, 12, 'steel'),
   cyl(0, CORE, 0, 1.6, 0.5, 'metal_dark'),
   cyl(0, CORE + 0.5, 0, 1.25, 2.6, 'glass'),
   cyl(0, CORE + 0.5, 0, 0.55, 1.3, 'neon_cyan'),
@@ -283,6 +285,11 @@ const vent = (x, y, z, rotY, w = 1.4, h = 0.9) => ({ type: 'vent', x, y, z, rotY
 const flag = (x, y, z, rotY, w, h, text, emblem) => ({ type: 'banner', x, y, z, rotY, w, h, text, emblem, team: true });
 /** 천장 판: vent의 앞뒤 깊이를 바닥판처럼 쓴다. x는 가운데, z는 북쪽 끝. 어두운 지붕 아랫면이 구멍처럼 보이는 것을 막는다 */
 const ceiling = (x, y, z, w, d, mat = 'steel') => ({ type: 'vent', x, y, z, rotY: 0, w, h: 0.1, d, mat });
+/** 바깥 벽 위 조명탑: 기둥과 불 켜진 등 패널. rotY = 패널이 맵 안쪽을 보는 방향 */
+const mast = (x, z, rotY) => [
+  { type: 'pipe', from: [x, 13, z], to: [x, 21, z], r: 0.16, mat: 'steel' },
+  { type: 'sign', x, y: 21.5, z, rotY, w: 3.8, h: 1.6, text: '● ● ● ●\n● ● ● ●', bg: '#7f96bd', fg: '#ffffff' }
+];
 
 const decorHalf = [
   // 실내 천장
@@ -320,43 +327,36 @@ const decorHalf = [
   tube([-41.75, 7.2, -29.22], [-35, 11, -29.22], 0.025),
   tube([-33.28, 9.6, -31.7], [-33.28, 9.6, -22.3], 0.025),
   tube([-41.7, 9.6, -22.28], [-33.3, 9.6, -22.28], 0.025),
-  tube([-44.38, 3.2, -31.7], [-44.38, 3.2, -22.3], 0.025),
   vent(-39.5, 4.2, -21.74, 0),
   vent(-32.74, 4.2, -30, Math.PI / 2),
   // 스폰 건물
   tube([-35.68, 4.2, -10.25], [-35.68, 4.2, 10.25], 0.04),
   tube([-35.68, 3.05, -7.3], [-35.68, 3.05, -4.7]),
   tube([-35.68, 3.05, 4.7], [-35.68, 3.05, 7.3]),
-  tube([-41.2, 3.05, -10.27], [-38.8, 3.05, -10.27]),
-  tube([-41.2, 3.05, 10.27], [-38.8, 3.05, 10.27]),
   tube([-36.32, 3.6, -9.7], [-36.32, 3.6, 9.7], 0.025),
   tube([-44.4, 3.6, -9.7], [-44.4, 3.6, 9.7], 0.025),
   tube([-44.2, 3.6, -9.73], [-36.5, 3.6, -9.73], 0.025),
   tube([-44.2, 3.6, 9.73], [-36.5, 3.6, 9.73], 0.025),
   flag(-35.6, 2, 0, Math.PI / 2, 2.4, 3.2, 'TEAM', 'diamond'),
+  flag(-36.36, 2.1, 0, -Math.PI / 2, 2, 2.8, 'TEAM', 'diamond'),
   vent(-35.68, 3.4, -2.6, Math.PI / 2),
   vent(-35.68, 3.4, 2.6, Math.PI / 2),
   // 북쪽 블록
   tube([-26.2, 3.98, -15.78], [0, 3.98, -15.78]),
   tube([0, 3.98, -15.78], [26.2, 3.98, -15.78]),
   tube([-26, 3.2, -22.22], [-2, 3.2, -22.22], 0.025),
-  tube([-26, 3.2, -25.78], [-2, 3.2, -25.78], 0.025),
   tube([2, 3.2, -26.22], [26, 3.2, -26.22], 0.025),
   tube([-25.7, 3.6, -21.78], [-14.3, 3.6, -21.78], 0.025),
   tube([-13.7, 3.6, -21.78], [-2.3, 3.6, -21.78], 0.025),
-  tube([-25.7, 3.6, -26.22], [-2.3, 3.6, -26.22], 0.025),
   tube([2.3, 3.6, -16.22], [13.7, 3.6, -16.22], 0.025),
   tube([14.3, 3.6, -16.22], [25.7, 3.6, -16.22], 0.025),
-  vent(-12, 2.9, -15.78, 0),
   vent(-4, 2.9, -15.78, 0),
   vent(4, 2.9, -15.78, 0),
-  vent(12, 2.9, -15.78, 0),
-  vent(-20, 3, -25.79, 0, 1.2, 0.7),
-  vent(18, 3, -26.21, Math.PI, 1.2, 0.7),
   // 별관
   tube([31.72, DECK, -34.5], [31.72, DECK, -23.75]),
   tube([31.75, DECK, -23.72], [44.5, DECK, -23.72]),
-  tube([31.72, 3.05, -30.2], [31.72, 3.05, -27.8]),
+  tube([31.72, 2.9, -32.7], [31.72, 2.9, -30.5]),
+  tube([31.72, 2.9, -27.9], [31.72, 2.9, -25.7]),
   tube([32, 0.05, -21.22], [41.75, DECK + 0.05, -21.22], 0.03),
   vent(31.74, 4.8, -26, -Math.PI / 2),
   // 바깥 벽
@@ -371,9 +371,6 @@ const decorHalf = [
   flag(-16, 9.2, -34.3, 0, 2.2, 7, 'NEXUS', 'diamond'),
   flag(16, 9.2, -34.3, 0, 2.2, 7, 'NEXUS', 'diamond'),
   flag(-44.3, 9.2, 0, Math.PI / 2, 2.2, 7, 'NEXUS', 'blade'),
-  vent(-30, 7, -34.48, 0, 2.2, 1.2),
-  vent(0, 7, -34.48, 0, 2.2, 1.2),
-  vent(30, 7, -34.48, 0, 2.2, 1.2),
   // 구덩이 벽 환기구
   vent(-6, -1, -10.48, 0),
   vent(6, -1, -10.48, 0),
@@ -383,9 +380,20 @@ const decorHalf = [
   // 먼 도시 윤곽
   ...[[-112, -104, 10, 92], [-46, -132, 13, 118], [24, -124, 9, 84], [98, -112, 12, 104], [-138, -28, 11, 88], [-128, 44, 9, 98]].flatMap(([x, z, r, h]) => [
     { type: 'pipe', from: [x, -0.04, z], to: [x, h, z], r, mat: 'metal_dark' },
-    tube([x + r + 0.02, 8, z], [x + r + 0.02, h - 3, z], 0.3)
-  ])
+    tube([x + r + 0.02, 8, z], [x + r + 0.02, h - 3, z], 0.3),
+    { type: 'lantern', x, y: h + 1.6, z, r: 1, cord: 0, color: '#ff5a5a' }
+  ]),
+  // 조명탑: 돌린 쪽까지 네 변에 고루 선다
+  ...mast(-24, -35.6, 0),
+  ...mast(8, -35.6, 0),
+  ...mast(-45.6, 16, Math.PI / 2)
 ];
+
+/** 구역 이름. 돌린 쪽은 글자가 다르다 */
+const zoneSigns = ([west, east, tower]) => {
+  const plate = (x, y, z, w, text) => ({ type: 'sign', x, y, z, rotY: 0, w, h: 0.6, text, bg: '#10203a', fg: '#bfe6ff' });
+  return [plate(-12, 3, -15.76, 1.6, west), plate(12, 3, -15.76, 1.6, east), plate(-38, 3.7, -21.72, 2.2, tower)];
+};
 
 const decorCenter = [
   // 실제 조명 네 개: 구덩이, 코어 룸, 양쪽 블록 교차로(배열 앞쪽부터 실제 조명이 된다)
@@ -408,7 +416,7 @@ const decorCenter = [
   { type: 'sign', x: 0.26, y: DECK + 1.65, z: 0, rotY: Math.PI / 2, w: 3.2, h: 0.7, text: 'NEXUS', bg: '#10203a', fg: '#ff4d8d' },
   { type: 'sign', x: -0.26, y: DECK + 1.65, z: 0, rotY: -Math.PI / 2, w: 3.2, h: 0.7, text: 'NEXUS', bg: '#10203a', fg: '#35e0ff' },
   // 코어 룸 천장 판(9장)
-  ...[-4.67, 0, 4.67].flatMap((x) => [-6, -2, 2].map((z) => ({ type: 'vent', x, y: PIT - 0.7, z, rotY: 0, w: 4.67, h: 0.1, d: 4, mat: 'steel' }))),
+  ...[-6, -2, 2].map((z) => ({ type: 'vent', x: 0, y: PIT - 0.7, z, rotY: 0, w: 14, h: 0.1, d: 4, mat: 'steel' })),
   // 코어 룸 네온
   tube([-7, CORE + 3.3, -6], [0, CORE + 3.3, -6]),
   tube([0, CORE + 3.3, -6], [7, CORE + 3.3, -6]),
@@ -416,7 +424,6 @@ const decorCenter = [
   tube([0, CORE + 3.3, 6], [7, CORE + 3.3, 6]),
   tube([-6.98, CORE + 3.3, -6], [-6.98, CORE + 3.3, 6]),
   tube([6.98, CORE + 3.3, -6], [6.98, CORE + 3.3, 6]),
-  ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => tube([sx * 6.9, CORE, sz * 5.9], [sx * 6.9, CORE + 3.3, sz * 5.9], 0.03)),
   { type: 'sign', x: 0, y: CORE + 2.4, z: -5.97, rotY: 0, w: 3.4, h: 0.8, text: 'CORE · 코어', bg: '#10203a', fg: '#d9c8ff' },
   { type: 'sign', x: 0, y: CORE + 2.4, z: 5.97, rotY: Math.PI, w: 3.4, h: 0.8, text: 'CORE · 코어', bg: '#10203a', fg: '#d9c8ff' }
 ];
@@ -488,7 +495,7 @@ const ffaHalf = [
   { x: -8, z: -30, rotY: Math.PI },
   { x: 8, z: -21, rotY: Math.PI },
   { x: 20, z: -31, rotY: Math.PI / 2 },
-  { x: 38, z: -28, rotY: Math.PI / 2 },
+  { x: 38, z: -26.8, rotY: Math.PI / 2 },
   { x: -37, z: -27, rotY: -Math.PI / 2 }
 ];
 
@@ -520,7 +527,7 @@ export default {
     ffa: [...ffaHalf, ...rotate180(ffaHalf)]
   },
   solids: [...center, ...half, ...rotate180(half)],
-  decor: [...decorCenter, ...decorHalf, ...rotate180(decorHalf)].map(paintSide),
+  decor: [...decorCenter, ...decorHalf, ...rotate180(decorHalf), ...zoneSigns(['A동', 'B동', 'A 타워']), ...rotate180(zoneSigns(['C동', 'D동', 'B 타워']))].map(paintSide),
   pads: [...padsHalf, ...rotate180(padsHalf)].map(paintPad),
   portals: [...portalsHalf, ...rotate180(portalsHalf)],
   secrets: [

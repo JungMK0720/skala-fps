@@ -122,13 +122,13 @@ const pagoda = [
 /* ---------------- 절반: 안뜰 ---------------- */
 
 const courtHalf = [
-  // 포장 무늬
-  box(0, PAVE, -6.375, 15.9, INLAY - PAVE, 3.15, 'tile'),
-  box(6.375, PAVE, 0, 3.15, INLAY - PAVE, 9.6, 'tile'),
-  box(5.35, PAVE, -9.75, 4.5, INLAY - PAVE, 2.3, 'sand'),
-  box(-5.35, PAVE, -9.75, 4.5, INLAY - PAVE, 2.3, 'sand'),
-  box(9.75, PAVE, -3.8, 2.3, INLAY - PAVE, 3.6, 'sand'),
-  box(9.75, PAVE, 3.8, 2.3, INLAY - PAVE, 3.6, 'sand'),
+  // 포장 무늬: 탑을 도는 갈퀴 모래 길과 나무 밑 이끼 정원. 지붕 기와와 색이 달라 위에서 봐도 길이 읽힌다
+  box(0, PAVE, -6.375, 15.9, INLAY - PAVE, 3.15, 'sand'),
+  box(6.375, PAVE, 0, 3.15, INLAY - PAVE, 9.6, 'sand'),
+  box(5.35, PAVE, -9.75, 4.5, INLAY - PAVE, 2.3, 'moss'),
+  box(-5.35, PAVE, -9.75, 4.5, INLAY - PAVE, 2.3, 'moss'),
+  box(9.75, PAVE, -3.8, 2.3, INLAY - PAVE, 3.6, 'moss'),
+  box(9.75, PAVE, 3.8, 2.3, INLAY - PAVE, 3.6, 'moss'),
   box(12.6, 0, 0, 3.2, PAVE, 6, 'stone'),
   // 낮은 벽 고리: 무릎 높이는 그냥 넘고 허리 높이는 뛰어넘는다
   lowWall(-3.85, -8.2, 4.1, 0.5, 0.45),
@@ -290,16 +290,20 @@ const GARDEN_ENTRY = { x: 19.4, y: 0, z: -5, rotY: PI };
 
 /* ---------------- 스폰 ---------------- */
 
+/** 카메라가 (x,z)에서 (tx,tz)를 보는 rotY */
+const look = (x, z, tx, tz) => Math.atan2(-(tx - x), -(tz - z));
+
+// 가림막에 코를 박지 않게 문 쪽 틈을 보고 시작한다. 가운데 칸만 팀 족자를 정면으로 본다
 const owner = [
-  { x: -8.6, y: DECK, z: -17.4, rotY: PI },
-  { x: 0, y: DECK, z: -18.8, rotY: PI },
-  { x: 8.6, y: DECK, z: -19.4, rotY: PI },
-  { x: -17.7, y: DECK, z: -17, rotY: PI }
+  { x: -6.4, y: DECK, z: -19, rotY: look(-6.4, -19, -8.4, -14) },
+  { x: 0, y: DECK, z: -19.7, rotY: PI },
+  { x: 6.4, y: DECK, z: -19, rotY: look(6.4, -19, 8.4, -14) },
+  { x: -17.7, y: DECK, z: -17, rotY: look(-17.7, -17, -14, -16.4) }
 ];
 const ffaHalf = [
   { x: 18.6, y: DECK, z: -17, rotY: PI / 2 },
-  { x: 19.7, y: 0, z: -8.6, rotY: PI / 2 },
-  { x: 19.7, y: 0, z: 8.6, rotY: PI / 2 },
+  { x: 19.8, y: 0, z: -12.4, rotY: look(19.8, -12.4, 15, -8.4) },
+  { x: 19.8, y: 0, z: 12.4, rotY: look(19.8, 12.4, 15, 8.4) },
   { x: 2.4, y: 0.43, z: 0, rotY: 0 }
 ];
 
@@ -338,7 +342,16 @@ const courtTrees = [
   { type: 'tree', x: 9.75, y: INLAY, z: 3.8, h: 5 }
 ];
 
+/** 도장 뒷벽의 칼 걸이: 기둥 둘과 칼 셋 */
+const swordRack = (x, z = -20.97) => [
+  ...[-0.72, 0.72].map((dx) => ({ type: 'pipe', from: [x + dx, DECK + 1.05, z], to: [x + dx, DECK + 2.3, z], r: 0.035, mat: 'wood_dark' })),
+  ...[1.35, 1.7, 2.05].map((h) => ({ type: 'pipe', from: [x - 0.98, DECK + h, z + 0.05], to: [x + 0.98, DECK + h, z + 0.05], r: 0.018, mat: 'steel' }))
+];
+
 const yardHalf = [
+  // 도장 뒷벽의 칼 걸이
+  ...swordRack(-7),
+  ...swordRack(7),
   // 안뜰 처마 등
   ...[-15.3, -10.7, -5.8, 5.8, 10.7, 15.3].map((x) => hang(x, -11.75, 3.5)),
   // 동쪽 회랑 등
@@ -472,7 +485,7 @@ export default {
   portals: [
     { x: 20.5, y: DECK, z: -19.8, w: 0.5, h: 2.4, d: 2.2, to: GARDEN_ENTRY, color: '#ff7ac0' },
     { x: -20.5, y: DECK, z: 19.8, w: 0.5, h: 2.4, d: 2.2, to: GARDEN_ENTRY, color: '#ff7ac0' },
-    { x: 19.4, y: 0, z: 5.6, w: 2.2, h: 2.4, d: 0.5, to: { x: 15.4, y: 0, z: 4.6, rotY: PI / 2 }, color: '#ff7ac0' }
+    { x: 19.4, y: 0, z: 5.6, w: 2.2, h: 2.4, d: 0.5, to: { x: 15, y: 0, z: 4.6, rotY: PI }, color: '#ff7ac0' }
   ],
   secrets: [
     { id: 'dojo_roof', name: '명상 지붕', x: 0, y: TOP, z: 0, w: 7.2, h: 2.6, d: 7.2, points: 100 },

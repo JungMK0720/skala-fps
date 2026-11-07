@@ -105,7 +105,7 @@ function drain(dir, fixed, c, top) {
 }
 
 /** 젖은 빗물 도랑. 바닥을 도려내면 슬래브가 띠로 갈라져 이음매가 보이므로 납작한 장식으로 깐다 */
-const gutter = (x0, z0, x1, z1) => ({ type: 'pipe', from: [x0, -0.23, z0], to: [x1, -0.23, z1], r: 0.25, mat: 'metal_dark' });
+const gutter = (x0, z0, x1, z1) => ({ type: 'pipe', from: [x0, -0.23, z0], to: [x1, -0.23, z1], r: 0.25, mat: 'asphalt' });
 
 /** 벽에 내민 팔걸이 등 */
 function wallLantern(dir, fixed, c, y) {
@@ -483,7 +483,7 @@ export default {
   rulesets: ['classic', 'knife'],
   theme: {
     sky: '#f2a872', skyTop: '#3c4a80', fog: [22, 95], sunDir: [0.25, 0.42, -0.87],
-    sunColor: '#ffc296', ambient: 0.58, water: '#26333f', waterLevel: -0.8, ground: 'stone'
+    sunColor: '#ffc296', ambient: 0.58, water: '#56586c', waterLevel: -0.8, ground: 'stone'
   },
   spawns: {
     owner: blue,
