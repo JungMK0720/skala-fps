@@ -10,7 +10,7 @@
 | `log=debug\|info\|warn\|error` | 로그 레벨. 기본 `info` |
 | `logns=physics,net` | 이 이름표만 남긴다. `net`은 `net:room`도 포함한다. `error`는 항상 남는다 |
 | `sandbox=<맵 id>` | 메뉴 없이 그 맵의 연습장으로 들어간다 |
-| `autoplay=1` | 포인터 잠금 없이 입력을 받는다(자동 테스트용) |
+| `autoplay=1` | 포인터 잠금 없이 키 입력을 받고 닉네임 게이트와 나가기 확인을 건너뛴다(자동 테스트용). 마우스 시점과 버튼은 포인터 잠금이 있어야 한다 |
 | `plugins=0` | UI·무기·연습장 플러그인을 끄고 core만 띄운다 |
 
 ## F키 (`debug=1`일 때)
@@ -106,6 +106,7 @@ log.debug('벽 밀어내기', { pos, vel });
 |---|---|
 | `node tools/serve.mjs 8104` | 로컬 서버. `http://localhost:8104/?sandbox=testyard&debug=1` |
 | `npm test` | `tests/*.test.mjs` 전체 |
+| `npm run qa` | 실제 페이지를 헤드리스 브라우저로 끝까지 플레이한다(아래 절) |
 | `npm run check` | 머리말·금지 단어 + 맵 검증 + 테스트. 커밋 전에 돌린다 |
 | `npm run check:headers` | 머리말과 금지 단어만. 파일별로 결과를 적고 실패하면 종료 코드 1 |
 | `npm run check:maps` | 맵 검증만 |
@@ -115,6 +116,51 @@ log.debug('벽 밀어내기', { pos, vel });
 ```bash
 node tools/check-headers.mjs --fix-from stamp.json --dry-run
 ```
+
+## 자동 플레이 테스트 (`npm run qa`)
+
+실제 게임 페이지를 헤드리스 브라우저로 돌려 끝까지 플레이해 본다. 설치할 패키지는 없고 Node 22 이상과 Edge나 Chrome만 있으면 된다. CDN(jsDelivr)에서 three.js와 cannon-es를 받으므로 네트워크가 필요하다.
+
+```bash
+npm run qa                           # 전체 시나리오. 약 40분
+npm run qa -- --list                 # 시나리오 이름 목록
+npm run qa -- --only menus,damage    # 고른 시나리오만
+npm run qa -- --only practice --filter knife/dojo   # 조합·무기·맵 이름으로 좁히기
+QA_NET_DELAY_MS=120 npm run qa -- --only multi-play  # 가짜 서버에 지연을 넣어 멀티를 돌린다
+```
+
+끝나면 통과·실패 표와 실패 내용을 찍고, 스크린샷을 모아 둔 임시 폴더 경로를 알려 준다. 스크린샷은 저장소 밖에 둔다.
+
+| 시나리오 | 보는 것 |
+|---|---|
+| `first-run` | 닉네임 게이트: 닫을 수 없음, 잘못된 이름 문구, 오프라인 안내, 새로고침 유지, `?sandbox=`·`?autoplay=`의 건너뛰기 |
+| `menus` | 메뉴, 마이페이지(이름·전적·장비), 상점(구매·부족·장착·유지), 빠른 시작, 연습장 시트의 규칙별 맵 |
+| `practice` | 규칙 × 맵 × 모드 전체를 봇 2명으로 결과 화면까지: 싸움, 킬, 규칙 위반 무기, 판정 거절, 보상 1회, 다시 하기, 메뉴 복귀. 시간 배율 1로 한 판, 맵마다 8명 경기(`--filter realtime`, `--filter crowd`) |
+| `weapons` | 무기 전부를 로드아웃 화면으로 쥐고 진짜 입력으로 사격·재장전·줌·교체·칼·수류탄·F. 칼전·스나전의 슬롯 제한 |
+| `damage` | 표적을 세워 머리·몸·다리·손·발을 쏜다: 라이플 헤드 1발, 반샷 표시, 샷건, 칼, 폭발, 피격과 부활 |
+| `movement` | 버니합, A/D·마우스 스윙, 속도계, 앉기, 새 맵 넷의 발판·포털·비밀 스팟(보상 1회, 새로고침 유지) |
+| `props` | cannon-es 로드, 폭발·총알·밀기, cannon-es 차단 때 고정 소품 |
+| `debug` | F3·F4·F6, `?debug` 없을 때 꺼짐, `dev/` 데모 페이지 넷 |
+| `multi` | 빈 설정의 비활성 안내, 닿지 않는 서버 |
+| `controls` | 클릭 안내, 포인터 잠금, 일시정지, 설정 적용, 점수판, 이모트 휠 |
+| `multi-play` | 가짜 서버(`tools/qa/fake-supabase.mjs`)에 클라이언트 둘을 붙여 닉네임, 로비, 방, 경기, 도중 재접속, 결과, 규칙 변경, 퇴장, 다시 입장까지. 이 시나리오만 페이지가 둘이다 |
+| `robust` | 깨진 저장값, 이상한 URL, 없는 맵, `?plugins=0`, 메모리 누수, 무승부, 연타, 경기 전환, 창 크기, 낙하, 관전 |
+| `monkey` | 무작위 입력을 쏟아부어도 예외 없이 돌고, 그 뒤에도 조작이 먹는지(시드 고정) |
+| `gallery` | 주요 화면 사진. 눈으로 확인할 때 이 폴더를 본다 |
+
+어느 시나리오든 잡히지 않은 예외, `console.error`, 실패한 요청(이유를 적어 허용한 것 제외)이 있으면 실패다. 실서버(Supabase)의 인증, 전송 한도, 실제 지연과 소리를 귀로 듣는 확인은 자동화하지 못했다.
+
+| 파일 | 내용 |
+|---|---|
+| `tools/qa/browser.mjs` | 브라우저 찾기(`QA_BROWSER` → Windows → macOS → Linux), CDP 연결, 페이지 API, 오류 수집 |
+| `tools/qa/server.mjs` | 저장소를 `/skala-fps/` 아래에서만 내려주는 서버. 절대 경로는 404로 드러난다. `config`로 `js/config.js` 내용을 바꿔 줄 수 있다 |
+| `tools/qa/kit.mjs` | 페이지 안 도우미 `window.__qa`, 검사 기록기, 게임 열기·포인터 잠금 |
+| `tools/qa/fake-supabase.mjs` | 닉네임·프로필 RPC와 Realtime WebSocket을 흉내 내는 시험용 서버 |
+| `tools/qa/scenarios/` | 시나리오. 새 시나리오는 `{ name, title, timeoutMs, run(t) }`를 내보내고 `index.mjs`에 넣는다 |
+
+브라우저는 `--headless=new --disable-gpu --use-angle=swiftshader --enable-unsafe-swiftshader --mute-audio`, 화면 960x540 이하로만 띄운다. GPU를 쓰지 않고, 한 번에 하나만 띄우며, 어떻게 끝나든(시간 초과, 강제 종료 포함) 감시 프로세스가 브라우저를 함께 없앤다. 포트는 운영체제가 고른다. 헤드리스 Edge가 끝날 때 비정상 종료 코드를 남기는 것은 해롭지 않아 무시한다.
+
+페이지를 직접 볼 때는 개발자 도구 콘솔처럼 `window.__qa`를 쓴다(`__qa.snapshot()`, `__qa.freezeBots()`, `__qa.bus`, `__qa.match`). `npm run qa`로 띄운 페이지에만 있다.
 
 ## 어디에 무엇이 있나
 

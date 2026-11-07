@@ -61,7 +61,7 @@ npm run serve
 npm run check
 ```
 
-머리말 검사, 맵 검사, 전체 테스트를 차례로 돌립니다.
+머리말 검사, 맵 검사, 전체 테스트를 차례로 돌립니다. `npm run qa`는 실제 게임을 헤드리스 브라우저로 끝까지 플레이해 봅니다(Edge나 Chrome 필요, [docs/DEBUGGING.md](docs/DEBUGGING.md)).
 
 | 문서 | 내용 |
 |---|---|
