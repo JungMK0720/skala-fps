@@ -18,6 +18,8 @@
  *   g2m 경기(merge)   [mseq, phase, round, scoreOwner, scoreCharterer, endsAt, players, events, rest?]
  *   g2l 로드아웃(merge) [id, {...}]
  *   g2c 채팅          [id, text]
+ *   g2d 총 버림       [id, dropId, weaponId, x,y,z, mag, reserve]   reserve −1 = 무제한
+ *   g2k 총 주움       [id, dropId]
  *   g2p 핑/퐁(merge)  [pid, t0, d0?] → sendTo(방장) / [pid, t0, t1, t2, d2?, e0?] → sendTo(요청자)
  *                     d = 보낸 쪽 room.now()(있으면). 받는 쪽이 net 프레임 시각(msg.t)과 비교해
  *                     net 큐에서 기다린 시간(e)을 알아내 t0·t2를 보정한다.
@@ -34,7 +36,8 @@ const PFX = 'g' + PROTOCOL_VERSION;
 /** net 이벤트 이름 */
 export const EV = Object.freeze({
   state: PFX + 's', fire: PFX + 'f', hit: PFX + 'h', grenade: PFX + 'x',
-  match: PFX + 'm', loadout: PFX + 'l', chat: PFX + 'c', ping: PFX + 'p'
+  match: PFX + 'm', loadout: PFX + 'l', chat: PFX + 'c', ping: PFX + 'p',
+  drop: PFX + 'd', pick: PFX + 'k'
 });
 
 const TAU = Math.PI * 2;
@@ -449,12 +452,44 @@ export function decodePing(a) {
   return { pid: a[0] | 0, t0: a[1], t1: a[2], t2: a[3], d2: isNum(a[4]) ? a[4] : null, e0: isNum(a[5]) ? clamp(a[5], 0, 60000) : 0 };
 }
 
+/* ------------------------------------------------------------------ 바닥에 버린 총 */
+
+/** @param {{ dropId, weaponId, pos, mag, reserve }} d  reserve가 Infinity(프리미엄)면 −1로 보낸다 */
+export function encodeDrop(id, d) {
+  const o = d && typeof d === 'object' ? d : {};
+  const p = vec3(o.pos);
+  return [id | 0, String(o.dropId == null ? '' : o.dropId).slice(0, MAX_ID), String(o.weaponId || '').slice(0, MAX_WEAPON),
+    cm(p[0]), cm(p[1]), cm(p[2]), clamp(toInt(fin(o.mag)), 0, 9999), o.reserve === Infinity ? -1 : clamp(toInt(fin(o.reserve)), 0, 9999)];
+}
+
+/** → { id, dropId, weaponId, pos, mag, reserve } | null. 탄약 상한과 무기 종류는 받는 쪽(drops.js)이 무기 표로 다시 자른다 */
+export function decodeDrop(a) {
+  if (!Array.isArray(a) || a.length < 8 || !isNum(a[0]) || typeof a[2] !== 'string') return null;
+  const dropId = idStr(a[1]);
+  if (!dropId) return null;
+  for (let i = 3; i < 8; i++) if (!isNum(a[i])) return null;
+  return {
+    id: a[0] | 0, dropId, weaponId: a[2].slice(0, MAX_WEAPON),
+    pos: [fromCm(a[3]), fromCm(a[4]), fromCm(a[5])],
+    mag: clamp(a[6] | 0, 0, 9999), reserve: a[7] < 0 ? Infinity : clamp(a[7] | 0, 0, 9999)
+  };
+}
+
+export function encodePick(id, dropId) { return [id | 0, String(dropId == null ? '' : dropId).slice(0, MAX_ID)]; }
+
+/** → { id, dropId } | null */
+export function decodePick(a) {
+  if (!Array.isArray(a) || a.length < 2 || !isNum(a[0])) return null;
+  const dropId = idStr(a[1]);
+  return dropId ? { id: a[0] | 0, dropId } : null;
+}
+
 /* ------------------------------------------------------------------ 이벤트 이름 → 디코더 */
 
 const DECODERS = {
   [EV.state]: ['state', decodeState], [EV.fire]: ['fire', decodeFire], [EV.hit]: ['hit', decodeHit],
   [EV.grenade]: ['grenade', decodeGrenade], [EV.match]: ['match', decodeMatch], [EV.loadout]: ['loadout', decodeLoadout],
-  [EV.chat]: ['chat', decodeChat], [EV.ping]: ['ping', decodePing]
+  [EV.chat]: ['chat', decodeChat], [EV.ping]: ['ping', decodePing], [EV.drop]: ['drop', decodeDrop], [EV.pick]: ['pick', decodePick]
 };
 
 const decoderOf = (event) => (typeof event === 'string' && Object.prototype.hasOwnProperty.call(DECODERS, event) ? DECODERS[event] : null);

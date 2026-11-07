@@ -158,8 +158,7 @@ function fakeNet(hub, id, name) {
 const WORLD_CALLS = [
   'unloadMap', 'setRuleset', 'reset', 'spawnLocal', 'setLocalLoadout', 'setLocalHp', 'killLocal', 'addActor', 'removeActor', 'setActorState',
   'actorFire', 'actorGrenade', 'actorDeath', 'feedbackDamage', 'setRound', 'setControlsEnabled', 'setScoreboard', 'setHint', 'setPauseOptions',
-  'setMode', 'setRespawn', 'setProtect', 'setActorProtect', 'sound'
-];
+  'setMode', 'setRespawn', 'setProtect', 'setActorProtect', 'sound', 'addDrop', 'removeDrop'];
 function fakeWorld() {
   const log = [];
   const handlers = new Map();
@@ -279,6 +278,28 @@ async function startMatch(env, players, create) {
 /* ================================================================== 경기 흐름 */
 
 describe('세션 연결', () => {
+  test('죽은 뒤 버린 총은 모두에게 가고, 주웠다는 알림이 오면 사라진다', async (t) => {
+    const env = stage(t);
+    const a = env.client('a', '하늘');
+    const b = env.client('b', '구름');
+    await startMatch(env, [a, b], { mapId: 'jetty' });
+    await env.run(1500);
+    assert.equal(a.session.state.matchPhase, 'live');
+
+    const drop = { dropId: 'b#1', weaponId: 'sr_twin', pos: [1.5, 0, -2.25], mag: 3, reserve: Infinity };
+    b.world.fire('weaponDrop', drop);
+    await env.run(300);
+    const sent = env.hub.decoded(EV.drop, 'b');
+    assert.ok(sent.length >= 1, '방장을 거치지 않고 보낸다');
+    assert.deepEqual(a.world.calls('addDrop'), [[{ id: 'b#1', weaponId: 'sr_twin', pos: [1.5, 0, -2.25], mag: 3, reserve: Infinity }]], '두 번 보내도 한 번만 놓는다');
+    assert.equal(b.world.calls('addDrop').length, 0, '자기가 보낸 것은 다시 받지 않는다');
+
+    a.world.fire('weaponPick', { dropId: 'b#1', weaponId: 'sr_twin' });
+    await env.run(300);
+    assert.deepEqual(b.world.calls('removeDrop'), [['b#1']]);
+    assert.equal(a.world.calls('removeDrop').length, 0);
+  });
+
   test('팀전: 장비 → 로드아웃 → 산탄 count → 킬 → 결과, 계정 기록은 한 번', async (t) => {
     const env = stage(t);
     const a = env.client('a', '하늘');
@@ -660,7 +681,7 @@ describe('장비 메시지', () => {
     assert.equal(preferredPick('sniper', OWNED, { primary: 'sr_twin' }), 'sr_twin');
     assert.equal(preferredPick('classic', ['ar_std'], { primary: 'ar_line' }), 'ar_std', '없는 무기는 고르지 않는다');
     assert.equal(preferredPick('classic', null, null), 'ar_std');
-    assert.equal(preferredPick('knife', null, null), 'ml_katana');
+    assert.equal(preferredPick('knife', null, null), 'ml_knife');
   });
 
   test('g2l 왕복과 256B 예산', () => {
@@ -691,12 +712,12 @@ describe('장비 메시지', () => {
     assert.equal(weaponForSlot(gear, 3, 'classic'), 'ml_knife');
     assert.equal(weaponForSlot(gear, 4, 'classic'), 'gr_frag');
     assert.equal(weaponForSlot(null, 1, 'classic'), 'ar_std');
-    assert.equal(weaponForSlot(null, 3, 'classic'), 'ml_katana');
+    assert.equal(weaponForSlot(null, 3, 'classic'), 'ml_knife');
     assert.equal(weaponForSlot(null, 1, 'classic', 'dm_mark'), 'dm_mark');
     assert.equal(weaponForSlot(gear, 1, 'sniper'), 'sr_bolt', '스나전에 샷건은 그리지 않는다');
     assert.equal(weaponForSlot(gear, 1, 'sniper', 'sr_twin'), 'sr_twin');
     assert.equal(weaponForSlot(gear, 1, 'knife'), 'ml_knife', '칼전이면 어떤 슬롯이든 칼');
-    assert.equal(weaponForSlot(null, 4, 'knife'), 'ml_katana');
+    assert.equal(weaponForSlot(null, 4, 'knife'), 'ml_knife');
   });
 });
 

@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 무기 15종과 수류탄의 수치·표시 정보, 데미지 계산의 유일한 구현(computeDamage)을 둔다.
+ * Purpose: 무기 17종과 수류탄의 수치·표시 정보, 데미지 계산의 유일한 구현(computeDamage)을 둔다.
  *          three.js·엔진·DOM에 의존하지 않아 node 테스트와 방장 판정에서 그대로 import한다.
  */
 
@@ -18,6 +18,8 @@ export const PLAYER_HP = 100;
 export const WALK_SPEED = 5.2;
 /** 기본 세로 FOV 가정값. 엔진 FOV가 다르면 getZoom(baseFov)에 넘긴다. */
 export const BASE_FOV = 75;
+/** 상점 가격이 이 값 이상인 총은 프리미엄이다. 예비 탄약이 무제한이고, 탄창과 재장전은 그대로다. 나머지 총은 탄창 + 예비 2탄창이 전부다. */
+export const PREMIUM_PRICE = 1200;
 
 export const PARTS = Object.freeze(['head', 'body', 'legs', 'hand', 'foot']);
 
@@ -145,7 +147,7 @@ function gunStats(w) {
   rows.push({ label: '감쇠', value: f ? `${f.start}~${f.end} m → ${pct(f.min)}${w.headIgnoresFalloff ? ' · 머리 제외' : ''}` : '없음' });
   if (z) rows.push({ label: '줌', value: `${zoomText(z)} · 이동 ${pct(z.moveMul)}` });
   if (w.recoilNote) rows.push({ label: '반동', value: w.recoilNote });
-  rows.push({ label: '탄약', value: `${w.mag} / ${w.reserve}` });
+  rows.push({ label: '탄약', value: `${w.mag} / ${w.premium ? '무제한' : w.reserve}` });
   rows.push({ label: '이동', value: pct(w.moveMul) });
   return rows;
 }
@@ -155,7 +157,12 @@ function meleeStats(w) {
   return [row(w.melee.slash), row(w.melee.stab), { label: '이동', value: pct(w.moveMul) }];
 }
 
-const gun = (o) => ({ pellets: 1, headIgnoresFalloff: false, ...o, stats: gunStats({ pellets: 1, ...o }) });
+/** 표의 값에 프리미엄 여부와 카드 문구를 더한다. 프리미엄 총의 reserve는 Infinity라 재장전 계산이 그대로 돈다 */
+function gun(o) {
+  const premium = o.price >= PREMIUM_PRICE;
+  const w = { pellets: 1, headIgnoresFalloff: false, ...o, premium, reserve: premium ? Infinity : o.reserve };
+  return { ...w, stats: gunStats(w) };
+}
 const blade = (o) => ({ ...o, stats: meleeStats(o) });
 
 /* ───────────────────────────── 무기 표 (DESIGN 3.2) ───────────────────────────── */
@@ -178,7 +185,7 @@ const WEAPON_TABLE = {
 
     rpm: 600, fireInterval: 60 / 600,
 
-    mag: 30, reserve: 90, reload: 2.3, reloadEmpty: 2.7,
+    mag: 30, reserve: 60, reload: 2.3, reloadEmpty: 2.7,
     drawTime: 0.65, moveMul: 0.95,
 
     spread: { hip: 1.2, ads: 0.2, move: 2.5, adsMove: 1.0, air: 5, adsAir: 4,
@@ -206,7 +213,7 @@ const WEAPON_TABLE = {
 
     rpm: 860, fireInterval: 60 / 860,
 
-    mag: 35, reserve: 105, reload: 2.4, reloadEmpty: 2.9,
+    mag: 35, reserve: 70, reload: 2.4, reloadEmpty: 2.9,
     drawTime: 0.6, moveMul: 0.97,
 
     spread: { hip: 1.7, ads: 0.45, move: 3.0, adsMove: 1.4, air: 5.5, adsAir: 4.5,
@@ -235,7 +242,7 @@ const WEAPON_TABLE = {
 
     rpm: 480, fireInterval: 60 / 480,
 
-    mag: 25, reserve: 75, reload: 2.2, reloadEmpty: 2.6,
+    mag: 25, reload: 2.2, reloadEmpty: 2.6,
     drawTime: 0.7, moveMul: 0.95,
 
     spread: { hip: 0.8, ads: 0.06, move: 2.0, adsMove: 0.7, air: 5, adsAir: 4,
@@ -265,7 +272,7 @@ const WEAPON_TABLE = {
     rpm: 367, fireInterval: 0.36,
     burst: { count: 3, gap: 0.065 },
 
-    mag: 30, reserve: 90, reload: 2.3, reloadEmpty: 2.7,
+    mag: 30, reserve: 60, reload: 2.3, reloadEmpty: 2.7,
     drawTime: 0.65, moveMul: 0.95,
 
     spread: { hip: 1.0, ads: 0.15, move: 2.5, adsMove: 1.0, air: 5, adsAir: 4,
@@ -294,7 +301,7 @@ const WEAPON_TABLE = {
 
     rpm: 200, fireInterval: 60 / 200,
 
-    mag: 15, reserve: 45, reload: 2.6, reloadEmpty: 3.0,
+    mag: 15, reload: 2.6, reloadEmpty: 3.0,
     drawTime: 0.75, moveMul: 0.9,
 
     spread: { hip: 3.2, ads: 0.05, move: 3.0, adsMove: 1.2, air: 6, adsAir: 5,
@@ -322,7 +329,7 @@ const WEAPON_TABLE = {
 
     rpm: 950, fireInterval: 60 / 950,
 
-    mag: 32, reserve: 128, reload: 1.9, reloadEmpty: 2.2,
+    mag: 32, reserve: 64, reload: 1.9, reloadEmpty: 2.2,
     drawTime: 0.45, moveMul: 1.05,
 
     // move가 라이플의 절반 아래: 이동 사격이 이 총의 존재 이유다
@@ -351,7 +358,7 @@ const WEAPON_TABLE = {
 
     rpm: 71, fireInterval: 0.85,
 
-    mag: 6, reserve: 24, reload: 2.6, reloadEmpty: 3.0,
+    mag: 6, reserve: 12, reload: 2.6, reloadEmpty: 3.0,
     drawTime: 0.7, moveMul: 0.98,
 
     spread: { hip: 3.2, move: 0.8, air: 2.5, bloomPerShot: 0, bloomMax: 0, bloomDecay: 0, max: 7 },
@@ -378,7 +385,7 @@ const WEAPON_TABLE = {
     bolt: 1.2,               // 사격 후 볼트 조작 시간(이 동안 사격·줌 불가)
     emptyShotRecover: 0.35,  // 마지막 탄을 쏜 뒤 자동 재장전까지의 틈
 
-    mag: 5, reserve: 20, reload: 3.0, reloadEmpty: 3.4,
+    mag: 5, reserve: 10, reload: 3.0, reloadEmpty: 3.4,
     drawTime: 0.8, moveMul: 0.85,
 
     spread: { hip: 8, ads: 0, move: 2, adsMove: 1.5, air: 6, adsAir: 6,
@@ -406,7 +413,7 @@ const WEAPON_TABLE = {
     bolt: 1.35,
     emptyShotRecover: 0.4,
 
-    mag: 5, reserve: 20, reload: 3.2, reloadEmpty: 3.6,
+    mag: 5, reload: 3.2, reloadEmpty: 3.6,
     drawTime: 0.9, moveMul: 0.82,
 
     spread: { hip: 9, ads: 0, move: 2.2, adsMove: 1.7, air: 6.5, adsAir: 6.5,
@@ -435,7 +442,7 @@ const WEAPON_TABLE = {
     bolt: 0.85,
     emptyShotRecover: 0.25,
 
-    mag: 7, reserve: 28, reload: 2.4, reloadEmpty: 2.8,
+    mag: 7, reserve: 14, reload: 2.4, reloadEmpty: 2.8,
     drawTime: 0.6, moveMul: 0.95,
 
     spread: { hip: 5, ads: 0, move: 1.6, adsMove: 1.0, air: 5, adsAir: 5,
@@ -463,7 +470,7 @@ const WEAPON_TABLE = {
     bolt: 1.9,
     emptyShotRecover: 0.5,
 
-    mag: 4, reserve: 12, reload: 3.8, reloadEmpty: 4.4,
+    mag: 4, reload: 3.8, reloadEmpty: 4.4,
     drawTime: 1.1, moveMul: 0.75,
 
     spread: { hip: 11, ads: 0, move: 3, adsMove: 2.2, air: 8, adsAir: 8,
@@ -489,7 +496,7 @@ const WEAPON_TABLE = {
 
     rpm: 375, fireInterval: 0.16,   // 반자동: 누를 때마다 1발, 최소 간격 0.16초
 
-    mag: 12, reserve: 36, reload: 1.6, reloadEmpty: 1.9,
+    mag: 12, reserve: 24, reload: 1.6, reloadEmpty: 1.9,
     drawTime: 0.45, moveMul: 1.0,
 
     spread: { hip: 0.8, move: 1.6, air: 4.5, bloomPerShot: 0.45, bloomMax: 2.0, bloomDecay: 6, max: 8 },
@@ -514,7 +521,7 @@ const WEAPON_TABLE = {
 
     rpm: 130, fireInterval: 0.46,
 
-    mag: 6, reserve: 24, reload: 2.2, reloadEmpty: 2.5,
+    mag: 6, reserve: 12, reload: 2.2, reloadEmpty: 2.5,
     drawTime: 0.55, moveMul: 0.97,
 
     spread: { hip: 1.1, move: 2.0, air: 5, bloomPerShot: 0.9, bloomMax: 2.6, bloomDecay: 3.6, max: 9 },
@@ -524,14 +531,15 @@ const WEAPON_TABLE = {
   }),
 
   // ───────────────────────────── 슬롯 3 · 근접 ─────────────────────────────
+  // 기본 지급. 갈고리 날에 밧줄을 감은 손잡이. 짧고 빠르게 베고, 찌르기는 한 번에 쓰러뜨린다.
   ml_knife: blade({
     id: 'ml_knife', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 0,
-    name: '컴뱃 나이프', nameEn: 'Combat Knife', short: 'KNIFE', role: '근접',
+    name: '호크빌 나이프', nameEn: 'Hawkbill Knife', short: 'HAWKBILL', role: '근접',
     icon: '🔪', color: '#b8935a', sound: 'knife_slash', fxKind: null,
     heavySound: 'knife_slash', hitSound: 'knife_hit',
-    tagline: '빠르고 짧게, 바로 앞의 적에게.',
-    desc: '사거리는 짧지만 베기가 빠르고 이동이 가장 빠르다. 찌르기는 한 번에 쓰러뜨린다.',
-    bars: { power: 70, rate: 40, accuracy: 30, mobility: 100 },
+    tagline: '갈고리 날로 짧고 빠르게.',
+    desc: '기본으로 주는 칼이다. 사거리는 짧지만 베기가 빠르고 몸이 가볍다. 찌르기는 한 번에 쓰러뜨린다.',
+    bars: { power: 70, rate: 40, accuracy: 30, mobility: 95 },
 
     damage: null,
     falloff: null,
@@ -546,9 +554,55 @@ const WEAPON_TABLE = {
     spread: null, recoil: null, zoom: null,
   }),
 
+  // 베기는 세 번에 쓰러뜨려 호크빌보다 약하다. 대신 찌르기가 더 빠르고 멀리 닿고, 들고 뛰는 속도가 가장 빠르다.
+  ml_tanto: blade({
+    id: 'ml_tanto', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 500,
+    name: '탄토', nameEn: 'Tanto', short: 'TANTO', role: '근접',
+    icon: '🔪', color: '#ff7a1a', sound: 'knife_slash', fxKind: null,
+    heavySound: 'knife_slash', hitSound: 'knife_hit',
+    tagline: '찌르는 데 쓰는 각진 칼.',
+    desc: '무광 흑색 도신에 날만 밝게 갈았다. 베기는 약하지만 찌르기가 빠르고 멀리 닿으며 가장 빠르게 달린다.',
+    bars: { power: 62, rate: 46, accuracy: 35, mobility: 100 },
+
+    damage: null,
+    falloff: null,
+    melee: {
+      slash: { label: '베기', damage: 40, cooldown: 0.42, windup: 0.06, range: 1.8, arc: 30 },
+      stab: { label: '찌르기', damage: 100, cooldown: 0.85, windup: 0.17, range: 2.1, arc: 12 },
+    },
+    maxRange: 2.1,
+    rpm: 143, fireInterval: 0.42,
+    mag: null, reserve: null, reload: null,
+    drawTime: 0.35, moveMul: 1.12,
+    spread: null, recoil: null, zoom: null,
+  }),
+
+  // 앞으로 꺾인 묵직한 날. 호크빌과 같은 두 번 베기지만 조금 더 멀리 넓게 닿고, 그만큼 느리다.
+  ml_gurkha: blade({
+    id: 'ml_gurkha', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 800,
+    name: '구르카 나이프', nameEn: 'Gurkha Knife', short: 'GURKHA', role: '근접',
+    icon: '🔪', color: '#c8a45a', sound: 'katana_swing', fxKind: null,
+    heavySound: 'katana_heavy', hitSound: 'knife_hit',
+    tagline: '앞으로 꺾인 날이 무게를 싣는다.',
+    desc: '앞이 무거운 굽은 칼이다. 베기가 조금 더 멀리 넓게 닿고, 내려찍기는 한 번에 쓰러뜨린다. 호크빌보다 느리다.',
+    bars: { power: 80, rate: 34, accuracy: 42, mobility: 94 },
+
+    damage: null,
+    falloff: null,
+    melee: {
+      slash: { label: '베기', damage: 55, cooldown: 0.52, windup: 0.09, range: 2.1, arc: 42 },
+      stab: { label: '내려찍기', damage: 110, cooldown: 1.05, windup: 0.27, range: 2.1, arc: 16 },
+    },
+    maxRange: 2.1,
+    rpm: 115, fireInterval: 0.52,
+    mag: null, reserve: null, reload: null,
+    drawTime: 0.45, moveMul: 1.07,
+    spread: null, recoil: null, zoom: null,
+  }),
+
   // 베기가 2발 킬(65×2)로 나이프와 같은데 사거리가 1.5배다. 선딜과 쿨다운이 길어 먼저 맞으면 진다.
   ml_katana: blade({
-    id: 'ml_katana', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 0,
+    id: 'ml_katana', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 1200,
     name: '카게 카타나', nameEn: 'Kage Katana', short: 'KATANA', role: '근접',
     icon: '🗡️', color: '#ff4d8d', sound: 'katana_swing', fxKind: null,
     heavySound: 'katana_heavy', hitSound: 'katana_hit',
@@ -625,7 +679,13 @@ export const SECONDARY_IDS = idsInSlot(2);
 export const MELEE_IDS = idsInSlot(3);
 export const GRENADE_IDS = idsInSlot(4);
 
-export const DEFAULT_LOADOUT = Object.freeze({ primary: 'ar_std', secondary: 'pt_std', melee: 'ml_katana' });
+export const DEFAULT_LOADOUT = Object.freeze({ primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
+
+/** 프리미엄 총인가(PREMIUM_PRICE). 모르는 무기와 칼은 false */
+export function isPremium(id) {
+  const d = getDef(id);
+  return !!(d && d.premium);
+}
 
 /** id로 정의를 찾는다. 없으면 null. 네트워크로 온 값도 받는다(문자열이 아니면 null, 던지지 않는다). */
 export function getDef(id) {

@@ -30,7 +30,7 @@ export default {
     await readyGame(page, { screen: 'menu' });
     const fixed = await page.eval(`({ p: __qa.profile(), fov: __qa.ctx.renderer.baseFov, sens: __qa.ctx.settings.get('sensitivity'), zoom: __qa.ctx.settings.get('zoomMode'), vol: __qa.ctx.settings.get('volume') })`);
     t.check(fixed.p.points === 0, '음수 포인트를 바로잡는다', fixed.p.points);
-    t.check(fixed.p.loadout.primary === 'ar_std' && fixed.p.loadout.secondary === 'pt_std' && fixed.p.loadout.melee === 'ml_katana', '틀린 장비를 기본값으로 바꾼다', fixed.p.loadout);
+    t.check(fixed.p.loadout.primary === 'ar_std' && fixed.p.loadout.secondary === 'pt_std' && fixed.p.loadout.melee === 'ml_knife', '틀린 장비를 기본값으로 바꾼다', fixed.p.loadout);
     t.check(fixed.p.stats.kills === 0 && fixed.p.stats.deaths === 0, '틀린 전적을 0으로 바꾼다', fixed.p.stats);
     t.check(fixed.fov === 100 && fixed.sens === 1 && fixed.zoom === 'hold' && fixed.vol === 0, '틀린 설정을 바로잡는다', fixed);
     t.errorsOk('틀린 값');

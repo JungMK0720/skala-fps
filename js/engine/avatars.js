@@ -17,7 +17,8 @@
  *   await avatars.prewarm(fn)                // 맵 로드 때: 두 팀의 평소 몸·앉은 다리·이모트 리그 부품을 장면에 잠깐 넣고 fn(컴파일·한 번 그리기)
  *   avatars.compileWarm(webglRenderer, camera) // 그림자 켬·끔 등 품질이 바뀐 뒤 셰이더만 다시 준비
  *
- * 든 무기: state.slot === 3이면 총 대신 칼(weaponId 'ml_knife'면 나이프, 그 밖은 카타나). 슬롯 없이 weaponId가 'ml_'로 시작해도 칼이다.
+ * 든 무기: state.slot === 3이면 총 대신 칼(카타나·구르카는 제 모양, 그 밖은 나이프). 슬롯 없이 weaponId가 'ml_'로 시작해도 칼이다.
+ * avatar.swing(kind)는 칼을 휘두르는 동작을 시작한다. 'stab'은 앞으로 내지르고, 나머지는 좌우를 번갈아 벤다.
  *   메시를 늘리지 않고 팔 메시의 지오메트리만 바꾼다(아바타당 메시 4개 유지). 수류탄 등 나머지는 기본 총.
  *   칼을 들어도 두 손 위치는 총을 든 자세와 같아서 손 히트박스(consts HITBOX.HANDS)가 그대로 맞는다.
  *
@@ -182,6 +183,21 @@ function knifeGeo() {
     box(0.027, 0.035, 0.018, 0, 0, 0.066, HELMET_DK)
   ]);
 }
+/** 구르카 나이프(손 소켓 기준). 곧은 뿌리에서 앞쪽 날이 아래로 꺾인다 */
+function gurkhaGeo() {
+  const root = bladeGeo(0.13, 0, 0.034, 0.04, 0.008, 0x8a8f96, STEEL);
+  root.translate(0, 0, -0.05);
+  const head = bladeGeo(0.2, 0, 0.056, 0.032, 0.008, 0x8a8f96, STEEL);
+  head.rotateX(-0.38);                                     // 칼끝(-Z)을 아래로
+  head.translate(0, -0.008, -0.17);
+  return merge([
+    root,
+    head,
+    box(0.016, 0.05, 0.012, 0, -0.002, -0.048, BRASS),
+    box(0.026, 0.034, 0.11, 0, -0.004, 0.005, 0x5b3a1e),
+    box(0.03, 0.038, 0.016, 0, -0.008, 0.066, BRASS)
+  ]);
+}
 /** 지오메트리의 -Z를 D로, -Y를 E로 돌려 pos에 놓는다 */
 function aimGeo(geo, pos, D, E) {
   const d = new THREE.Vector3(D[0], D[1], D[2]).normalize();
@@ -198,7 +214,7 @@ const place = (g, x, y, z, rx = 0, ry = 0, rz = 0) => {
 };
 
 const geoCache = new Map();
-/** team → { upper(몸통+머리), legL, legR, armsGun·armsKatana·armsKnife(두 팔+든 무기), armsOnly } (팀 색이 정점색으로 들어감) */
+/** team → { upper(몸통+머리), legL, legR, armsGun·armsKatana·armsKnife·armsGurkha(두 팔+든 무기), armsOnly } (팀 색이 정점색으로 들어감) */
 function teamGeometry(team) {
   if (geoCache.has(team)) return geoCache.get(team);
   const T = TEAMS[team] || TEAMS.owner;
@@ -226,6 +242,7 @@ function teamGeometry(team) {
   // 칼을 들어도 두 팔은 그대로다. 오른손에 칼을 쥐고 왼손은 앞에 둔 경계 자세
   const armsKatana = merge([armsOnly(), aimGeo(katanaGeo(), HAND_R, [-0.14, 0.56, -0.82], [0.0, -0.82, -0.56])]);
   const armsKnife = merge([armsOnly(), aimGeo(knifeGeo(), HAND_R, [-0.1, 0.24, -0.96], [0.0, -0.96, -0.24])]);
+  const armsGurkha = merge([armsOnly(), aimGeo(gurkhaGeo(), HAND_R, [-0.1, 0.34, -0.93], [0.0, -0.93, -0.34])]);
   // 앉은 다리(엉덩이 피벗): 허벅지 0.45 m를 앞으로 굽히고 정강이 0.38 m를 뒤로, 장화는 바닥과 평평하게
   const legBent = () => {
     const a = SQUAT.thigh, b = SQUAT.shin;
@@ -236,7 +253,7 @@ function teamGeometry(team) {
     const boot = box(0.17, 0.13, 0.28, 0, ankleY - 0.065, ankleZ - 0.035, BOOT);
     return merge([thigh, shin, boot]);
   };
-  const set = { upper, legL: leg(), legR: leg(), legBent: legBent(), armsGun, armsKatana, armsKnife, armsOnly: armsOnly() };
+  const set = { upper, legL: leg(), legR: leg(), legBent: legBent(), armsGun, armsKatana, armsKnife, armsGurkha, armsOnly: armsOnly() };
   geoCache.set(team, set);
   return set;
 }
@@ -276,13 +293,20 @@ function armsKeyOf(slot, weaponId) {
   const s = Number(slot);
   const melee = s === 3 || (!(s > 0) && typeof weaponId === 'string' && weaponId.startsWith('ml_'));
   if (!melee) return 'armsGun';
-  return weaponId === 'ml_knife' ? 'armsKnife' : 'armsKatana';
+  return weaponId === 'ml_katana' ? 'armsKatana' : weaponId === 'ml_gurkha' ? 'armsGurkha' : 'armsKnife';
 }
 
 let sharedMat = null;
 function bodyMaterial() {
   if (!sharedMat) sharedMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   return sharedMat;
+}
+
+let droppedGeo = null;
+/** 바닥에 떨어진 총 모형. 몸에 든 총과 같은 모양이고 지오메트리와 재질은 모두 나눠 쓴다(지우지 말 것). 총구 = -Z */
+export function droppedGunMesh() {
+  if (!droppedGeo) droppedGeo = gunGeo();
+  return new THREE.Mesh(droppedGeo, bodyMaterial());
 }
 
 /* ---------------- 이름표 ---------------- */
@@ -342,6 +366,9 @@ class Avatar {
     this.lastPos = null;
     this.data = opts.data || {};   // 자유 메타데이터(무기 등)
     this.armsKey = 'armsGun';      // 든 무기에 맞는 팔 지오메트리 이름
+    this.swingT = -1;              // 칼 휘두르기 진행도 0..1(-1 = 안 함)
+    this.swingStab = false;
+    this.swingDir = -1;            // 베기 방향. 벨 때마다 뒤집어 좌우를 번갈아 간다
     this.root = new THREE.Group();
     this.root.name = 'avatar:' + id;
     this.body = new THREE.Group();  // 쓰러질 때 회전
@@ -493,6 +520,43 @@ class Avatar {
     this.tag.visible = true;
   }
 
+  /** 칼을 휘두르기 시작한다. 'stab'은 앞으로 내지르고, 나머지는 좌우를 번갈아 벤다 */
+  swing(kind) {
+    this.swingStab = kind === 'stab';
+    if (!this.swingStab) this.swingDir = -this.swingDir;
+    this.swingT = 0;
+  }
+
+  /** 어깨 피벗을 돌려 휘두른다. 뒤로 뺀 뒤 빠르게 지나가고 천천히 돌아온다. 조준 pitch는 이미 rotation.x에 들어 있다 */
+  updateSwing(dt) {
+    const pivot = this.armsPivot, upper = this.upper;
+    if (this.swingT < 0) return;
+    this.swingT += dt / (this.swingStab ? 0.46 : 0.34);
+    if (this.swingT >= 1 || this.death || this.emoteCode) {
+      this.swingT = -1;
+      pivot.rotation.y = 0; pivot.rotation.z = 0; pivot.position.z = 0;
+      upper.rotation.y = 0;
+      return;
+    }
+    const t = this.swingT;
+    const ease = (a, b) => { const u = Math.max(0, Math.min(1, (t - a) / (b - a))); return u * u * (3 - 2 * u); };
+    if (this.swingStab) {
+      const back = ease(0, 0.26) * (1 - ease(0.26, 0.38));
+      const thrust = ease(0.26, 0.42) * (1 - ease(0.58, 1));
+      pivot.position.z = 0.1 * back - 0.3 * thrust;       // -Z = 앞
+      pivot.rotation.x += 0.28 * back - 0.12 * thrust;
+      upper.rotation.y = 0.32 * (thrust - back);
+    } else {
+      const wind = ease(0, 0.2) * (1 - ease(0.2, 0.36));
+      const cut = ease(0.2, 0.46) * (1 - ease(0.56, 1));
+      const d = this.swingDir;
+      pivot.rotation.y = d * (1.05 * cut - 0.75 * wind);  // +Y = 왼쪽으로 돈다
+      pivot.rotation.x += d > 0 ? 0.42 * wind - 0.34 * cut : -0.2 * wind + 0.3 * cut;
+      pivot.rotation.z = d * 0.25 * cut;
+      upper.rotation.y = d * 0.34 * (cut - wind);
+    }
+  }
+
   update(renderTime, dt) {
     const s = this.buffer.sample(renderTime, this.sample);
     if (s) {
@@ -543,6 +607,7 @@ class Avatar {
     const aim = Math.max(-0.9, Math.min(0.9, this.pitch));
     this.upper.rotation.x = aim * 0.35 - SQUAT.lean * ck;
     this.armsPivot.rotation.x = aim * 0.6 + sw * 0.03 + SQUAT.lean * ck;
+    this.updateSwing(dt);
     this.tag.position.y = 2.18 - 0.5 * ck;
     // 이모트: 번호가 있으면 관절 리그로 재생(평소 메시는 숨김)
     this.updateEmote(this.emoteCode | 0, dt);
@@ -598,7 +663,7 @@ export function createAvatars({ scene, camera, delay = NET.INTERP_DELAY_MS } = {
     const mat = bodyMaterial();
     for (const team of TEAM_IDS) {
       const T = teamGeometry(team), R = rigGeometry(team);
-      for (const geo of [T.upper, T.legL, T.legR, T.legBent, T.armsGun, T.armsKatana, T.armsKnife, T.armsOnly, ...Object.values(R)]) {
+      for (const geo of [T.upper, T.legL, T.legR, T.legBent, T.armsGun, T.armsKatana, T.armsKnife, T.armsGurkha, T.armsOnly, ...Object.values(R)]) {
         const m = new THREE.Mesh(geo, mat);
         m.frustumCulled = false;
         m.castShadow = true;

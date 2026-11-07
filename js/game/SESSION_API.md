@@ -129,7 +129,7 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 | 규칙 | 고르는 칸 | 로드아웃 목록 | 기본값 | 쓸 수 있는 슬롯 |
 |---|---|---|---|---|
 | `classic` 클래식 | 주무기 | 보유한 주무기 전부 | 계정 장비 → `ar_std` | 1·2·3·4 |
-| `knife` 칼전 | 칼 | 칼 2종 | 계정 장비 → `ml_katana` | 3 |
+| `knife` 칼전 | 칼 | 칼 4종 | 계정 장비 → `ml_knife` | 3 |
 | `sniper` 스나전 | 주무기 | 보유한 저격총 | 계정 장비 → `sr_bolt` | 1·3 |
 
 - 정본은 방장이다: `rules.ruleset`이 경기에 들어가고 스냅샷 `rs`로 모두에게 간다. 스냅샷의 규칙이 들어올 때 받은 값과 다르면 `world.setRuleset`으로 맞춘다.

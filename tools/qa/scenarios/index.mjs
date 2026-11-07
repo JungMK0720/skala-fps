@@ -18,5 +18,6 @@ import robust from './robust.mjs';
 import monkey from './monkey.mjs';
 import gallery from './gallery.mjs';
 import maps from './maps.mjs';
+import drops from './drops.mjs';
 
-export const SCENARIOS = [firstRun, menus, practice, weapons, damage, movement, props, debug, multi, controls, multiPlay, robust, monkey, gallery, maps];
+export const SCENARIOS = [firstRun, menus, practice, weapons, damage, drops, movement, props, debug, multi, controls, multiPlay, robust, monkey, gallery, maps];

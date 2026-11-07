@@ -22,7 +22,7 @@ export const RULESETS = Object.freeze({
   }),
   knife: Object.freeze({
     id: 'knife', name: '칼전', icon: '🗡️', desc: '칼만 쓰는 근접전. 총과 수류탄은 없다',
-    slots: Object.freeze([3]), pickSlot: 3, primaryKinds: null, defaultPick: 'ml_katana'
+    slots: Object.freeze([3]), pickSlot: 3, primaryKinds: null, defaultPick: 'ml_knife'
   }),
   sniper: Object.freeze({
     id: 'sniper', name: '스나전', icon: '🎯', desc: '저격총과 칼만 쓰는 규칙',

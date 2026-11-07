@@ -6,6 +6,7 @@
  */
 import { h, btn, fmtPoints, setText } from './dom.js';
 import { barMeters, makeScreen, normWeapon, pointsBadge } from './parts.js';
+import { PREMIUM_PRICE } from '../weapons/defs.js';
 
 const TAB_LABELS = { rifle: '라이플', sniper: '저격', smg: 'SMG·샷건', pistol: '권총', melee: '근접' };
 /** 상점에서 다루는 슬롯과 계정 장비 칸. 슬롯 4(수류탄)는 팔지 않는다. */
@@ -29,7 +30,7 @@ export function createShop(ctx) {
         backBtn,
         h('div', { class: 'sk-bar-title' },
           h('h1', { class: 'sk-h1 sk-stencil', text: '상점' }),
-          h('p', { class: 'sk-bar-sub', text: '경기와 비밀 스팟으로 모은 포인트로 무기를 사서 장착해요.' })),
+          h('p', { class: 'sk-bar-sub', text: `경기와 비밀 스팟으로 모은 포인트로 무기를 사서 장착해요. ${fmtPoints(PREMIUM_PRICE)} 이상인 프리미엄 총은 예비 탄약이 무제한이에요.` })),
         points.el),
       h('div', { class: 'sk-hazard sk-hazard--thin', 'aria-hidden': 'true' }),
       h('div', { class: 'sk-shop-bar' }, tabsEl, note),
@@ -53,7 +54,8 @@ export function createShop(ctx) {
       h('header', { class: 'sk-shop-head' },
         h('span', { class: 'sk-lo-ico', text: w.icon, 'aria-hidden': 'true' }),
         h('div', { class: 'sk-shop-names' },
-          h('h3', { class: 'sk-shop-name', text: w.name }),
+          h('h3', { class: 'sk-shop-name', text: w.name },
+            w.premium ? h('span', { class: 'sk-premium', text: '프리미엄' }) : null),
           w.tagline ? h('p', { class: 'sk-lo-tagline', text: w.tagline }) : null),
         state),
       w.bars.length ? barMeters(w.bars, 'sk-shop-bars') : null,

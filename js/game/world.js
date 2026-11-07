@@ -26,7 +26,9 @@ import { createViewmodel } from '../weapons/viewmodel.js';
 import { createAudio } from '../fx/audio.js';
 import { createEffects } from '../fx/effects.js';
 import { relativeAngle } from '../ui/dom.js';
+import { droppedGunMesh } from '../engine/avatars.js';
 import { DEFAULT_RULESET, normalizeRuleset, rulesetOf, pickableWeapons, isWeaponAllowed } from './modes.js';
+import { createDrops, DROP_WINDOW_MS } from './drops.js';
 
 const STEEL_MATS = new Set(['steel', 'rust', 'deck', 'tank', 'pipe', 'container_red', 'yellow', 'white', 'glass', 'metal_dark']);
 const SPECTATE_DELAY_MS = 1600;
@@ -165,7 +167,7 @@ function buildWorld(ctx, opts) {
 
   /* ---------- 상태 ---------- */
   // loadout = 이 규칙에서 직접 고른 무기(pickSlot). 아직 안 골랐으면 null이고 계정 장비를 쓴다
-  const local = { id: String(ctx.session.id), name: String(ctx.session.name || ''), team: 'owner', alive: false, spawned: false, deadAt: 0, loadout: null };
+  const local = { id: String(ctx.session.id), name: String(ctx.session.name || ''), team: 'owner', alive: false, spawned: false, deadAt: 0, loadout: null, dropped: false };
   const spec = { id: null, idx: 0, yaw: 0, name: '' };
   const actors = new Map();
   const rnd = { phase: null, round: 0, score: { owner: 0, charterer: 0 }, timeLeftMs: null, elapsed: 0, alive: null, teamSize: null, target: 3, bestOf: 5, ffa: null };
@@ -188,6 +190,14 @@ function buildWorld(ctx, opts) {
   const tmpV = new THREE.Vector3();
   const latch = { fire: false, rmb: false, reload: false, slot: null, wheel: 0 };
   let rmbDown = false;
+  // 바닥에 버린 총(game/drops.js). 그리는 것은 여기서 한다
+  const drops = createDrops();
+  const dropViews = new Map();                    // 항목 id → { group, spin, label }
+  const dropRingGeo = new THREE.RingGeometry(0.42, 0.52, 28);
+  dropRingGeo.rotateX(-Math.PI / 2);
+  const dropRingMat = new THREE.MeshBasicMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.75, depthWrite: false });
+  const dropRingPremium = new THREE.MeshBasicMaterial({ color: 0xffc83d, transparent: true, opacity: 0.85, depthWrite: false });
+  let dropSeq = 0;
 
   function emit(evt, data) {
     const set = listeners.get(evt);
@@ -273,6 +283,7 @@ function buildWorld(ctx, opts) {
   offs.push(bus.on('player:emote-denied', (e) => onEmoteDenied(e)));
   offs.push(bus.on('input:aim', (e) => { if (e && e.active && e.source === 'user' && !input.locked) latch.rmb = true; }));  // autoplay 테스트용
   offs.push(bus.on('input:reload', () => { latch.reload = true; }));
+  offs.push(bus.on('input:drop', () => { dropLocalPrimary(); }));
   offs.push(bus.on('input:slot', (e) => { latch.slot = e && e.slot; }));
   offs.push(bus.on('input:cycle', (e) => { latch.wheel = (e && e.dir) || 0; }));
   offs.push(bus.on('input:lock', (e) => { if (e && !e.locked) rmbDown = false; }));
@@ -424,6 +435,7 @@ function buildWorld(ctx, opts) {
     active = false;
     simPaused = false; uiPaused = false; scoreboardOpen = false;
     clearActors();
+    clearDrops();
     if (nades) { nades.dispose(); nades = null; }
     for (const m of nadeMeshes) m.visible = false;
     fx.clear(false);
@@ -457,6 +469,7 @@ function buildWorld(ctx, opts) {
   function reset() {
     if (nades) nades.clear();
     for (const m of nadeMeshes) m.visible = false;
+    clearDrops();
     fx.clear(false);
     scheduled.length = 0;
     spec.id = null; spec.name = '';
@@ -487,6 +500,7 @@ function buildWorld(ctx, opts) {
     local.loadout = lo[SLOT_KEYS[rulesetOf(ruleset).pickSlot]];
     local.alive = true;
     local.spawned = true;
+    local.dropped = false;
     spec.id = null; spec.name = '';
     latch.fire = latch.rmb = latch.reload = false; latch.slot = null; latch.wheel = 0;
     vm.setVisible(true);
@@ -681,6 +695,7 @@ function buildWorld(ctx, opts) {
     if (!local.spawned || !local.alive) return;
     cancelLocalEmote('death');
     local.alive = false;
+    local.dropped = false;
     local.deadAt = performance.now();
     if (ctx.renderer.applyPendingQuality) ctx.renderer.applyPendingQuality();   // 미뤄 둔 자동 품질 변경은 죽었을 때 치른다
     player.kill(info || {});
@@ -689,6 +704,119 @@ function buildWorld(ctx, opts) {
     spec.id = null; spec.idx = 0; spec.name = '';
     spec.yaw = player.state.yaw;
     emit('localDeath', { id: local.id, info: info || {} });
+  }
+
+  /* ---------- 바닥에 버린 총 ----------
+   * 죽은 뒤 DROP_WINDOW_MS 안에 G를 누르면 주무기를 그 자리에 버린다. 탄약이 다 떨어진 사람이 닿으면 주워서 바로 쓴다.
+   * 받은 총은 이번 목숨에만 쓴다. 다음 스폰은 자기 장비로 돌아간다(spawnLocal → resetRound). */
+  function dropLabel(text, premium) {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 64;
+    const g = c.getContext('2d');
+    g.font = '700 30px "Noto Sans KR", "Malgun Gothic", sans-serif';
+    const tw = Math.min(236, g.measureText(text).width + 28);
+    g.fillStyle = 'rgba(8,14,24,0.7)';
+    g.beginPath();
+    if (g.roundRect) g.roundRect((256 - tw) / 2, 10, tw, 44, 12); else g.rect((256 - tw) / 2, 10, tw, 44);
+    g.fill();
+    g.fillStyle = premium ? '#ffd76a' : '#ffffff';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(text, 128, 32, 228);
+    const map = new THREE.CanvasTexture(c);
+    map.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false }));
+    sprite.scale.set(0.9, 0.225, 1);
+    sprite.position.y = 0.72;
+    return sprite;
+  }
+  function addDropView(d) {
+    const def = getDef(d.weaponId);
+    const group = new THREE.Group();
+    group.name = 'world:drop';
+    group.position.set(d.pos[0], d.pos[1], d.pos[2]);
+    const ring = new THREE.Mesh(dropRingGeo, def.premium ? dropRingPremium : dropRingMat);
+    ring.position.y = 0.03;
+    const spin = new THREE.Group();
+    spin.position.y = 0.34;
+    const gun = droppedGunMesh();
+    gun.position.z = 0.18;                        // 모형의 가운데를 돌림축에 맞춘다
+    gun.rotation.z = 0.9;
+    spin.add(gun);
+    const label = dropLabel(def.short, !!def.premium);
+    group.add(ring, spin, label);
+    R.scene.add(group);
+    dropViews.set(d.id, { group, spin, label });
+  }
+  function removeDropView(id) {
+    const v = dropViews.get(id);
+    if (!v) return;
+    dropViews.delete(id);
+    R.scene.remove(v.group);
+    v.label.material.map.dispose();
+    v.label.material.dispose();
+  }
+  /** 항목 { id, weaponId, pos, mag, reserve }를 바닥에 놓는다. 이 규칙에서 못 쓰는 총이나 깨진 값이면 null */
+  function addDrop(o) {
+    if (!active || !o || !isWeaponAllowed(ruleset, o.weaponId)) return null;
+    const { drop, evicted } = drops.add(o);
+    for (const d of evicted) removeDropView(d.id);
+    if (drop) addDropView(drop);
+    return drop;
+  }
+  function removeDrop(id) {
+    const d = drops.remove(String(id));
+    if (d) removeDropView(d.id);
+    return !!d;
+  }
+  function clearDrops() {
+    for (const d of drops.clear()) removeDropView(d.id);
+  }
+  /** G를 받을 수 있는 남은 시간(ms). 살아 있거나, 이미 버렸거나, 교전 중이 아니면 0 */
+  function dropWindowLeft() {
+    if (!active || !local.spawned || local.alive || local.dropped || rnd.phase !== 'live') return 0;
+    return Math.max(0, DROP_WINDOW_MS - (displayNow() - local.deadAt));
+  }
+  /** 버릴 수 있는 내 주무기 { id, mag, reserve }. 규칙이 막았거나 탄이 하나도 없으면 null */
+  function droppablePrimary() {
+    if (!rulesetOf(ruleset).slots.includes(1)) return null;
+    const a = arsenal.getAmmo(arsenal.getPrimary());
+    return a && (a.mag > 0 || a.reserve > 0) ? { id: a.weaponId, mag: a.mag, reserve: a.reserve } : null;
+  }
+  function dropLocalPrimary() {
+    if (!(dropWindowLeft() > 0) || !map) return false;
+    const gun = droppablePrimary();
+    if (!gun) return false;
+    const p = player.state.pos;
+    const h = raycastWorld(map.world, [p[0], p[1] + 0.5, p[2]], [0, -1, 0], 60);   // 공중에서 죽었어도 바닥에 놓는다
+    const pos = r2([p[0], h ? p[1] + 0.5 - h.dist : p[1], p[2]]);
+    const dropId = `${local.id}#${++dropSeq}`;
+    if (!addDrop({ id: dropId, weaponId: gun.id, pos, mag: gun.mag, reserve: gun.reserve })) return false;
+    local.dropped = true;
+    play('switch', { gain: 0.7 });
+    emit('weaponDrop', { dropId, weaponId: gun.id, pos, mag: gun.mag, reserve: gun.reserve });
+    return true;
+  }
+  /** 내 주무기가 비었으면 닿은 총을 줍는다 */
+  function pickNearbyGun() {
+    if (!drops.size || !arsenal.isPrimaryEmpty()) return;
+    const d = drops.nearest(player.state.pos);
+    if (!d || !arsenal.takePrimary(d.weaponId, { mag: d.mag, reserve: d.reserve })) return;
+    removeDrop(d.id);
+    play('switch');
+    if (ui) ui.hud.callout(`${getDef(d.weaponId).short} 획득`);
+    emit('weaponPick', { dropId: d.id, weaponId: d.weaponId });
+  }
+  function dropHint() {
+    const left = dropWindowLeft();
+    const gun = left > 0 ? droppablePrimary() : null;
+    return gun ? `G 키로 ${getDef(gun.id).short} 버리기 · ${Math.ceil(left / 1000)}초` : '';
+  }
+  /** 총 위에 섰는데 탄이 남아 있어 줍지 못할 때의 안내 */
+  function pickHint() {
+    if (!local.spawned || !local.alive || !drops.size || rnd.phase !== 'live') return '';
+    const d = drops.nearest(player.state.pos);
+    return d ? `${getDef(d.weaponId).short}: 주무기 탄약을 다 쓰면 주울 수 있어요` : '';
   }
 
   /* ---------- 로컬 무기 ---------- */
@@ -985,7 +1113,12 @@ function buildWorld(ctx, opts) {
     const def = getDef(w);
     const shooter = actors.get(String(o.id));
     if (shooter) noteActorWeapon(shooter, w, null);
-    if (def && def.melee) { play(o.kind === 'stab' ? def.heavySound : def.sound, { pos: origin }); return; }
+    if (def && def.melee) {
+      play(o.kind === 'stab' ? def.heavySound : def.sound, { pos: origin });
+      const av = avatars.get(String(o.id));
+      if (av) av.swing(o.kind);                  // 3인칭: 든 칼을 휘두른다
+      return;
+    }
     const kind = (def && def.fxKind) || 'rifle';
     const yaw = Math.atan2(-d[0], -d[2]);
     const rx = Math.cos(yaw), rz = -Math.sin(yaw);
@@ -1126,7 +1259,9 @@ function buildWorld(ctx, opts) {
       const evs = arsenal.update(dt, wi, { speed: Math.hypot(st.vel[0], st.vel[2]), onGround: st.onGround, walking: st.walking, crouch: !!st.crouch });
       for (const ev of evs) onWeaponEvent(ev);
       player.setSpeedScale(arsenal.getMoveMul());
+      if (rnd.phase === 'live') pickNearbyGun();
     }
+    for (const d of drops.expire()) removeDropView(d.id);
     if (nades) for (const ge of nades.update(dt)) onGrenadeEvent(ge);
   }
 
@@ -1194,6 +1329,7 @@ function buildWorld(ctx, opts) {
     cam.rotation.z += sh.roll;
     audio.setListener(cam.position, cam.rotation.y, cam.rotation.x);
     drawGrenades();
+    for (const v of dropViews.values()) v.spin.rotation.y += dt * 1.4;
     // 속도 줄기: 걷기 속도부터 나타나 수평 속도 상한에서 가장 세다
     fx.setSpeedAmount(local.spawned && local.alive ? (num(player.state.speed) - PLAYER.WALK) / (MOVE.MAX_SPEED - PLAYER.WALK) : 0);
     // 체력 낮음: 심장 박동
@@ -1235,7 +1371,7 @@ function buildWorld(ctx, opts) {
       p.respawn = null;
       p.protect = false;
     }
-    p.hint = lockHint() || customHint || '';
+    p.hint = lockHint() || dropHint() || pickHint() || customHint || '';
     p.spectate = !alive && local.spawned ? spec.name : '';
     ui.hud.set(p);
   }
@@ -1280,6 +1416,8 @@ function buildWorld(ctx, opts) {
     if (nades) nades.dispose();
     for (const m of nadeMeshes) R.scene.remove(m);
     nadeGeo.dispose(); nadeMat.dispose();
+    clearDrops();
+    dropRingGeo.dispose(); dropRingMat.dispose(); dropRingPremium.dispose();
     avatars.setDelay(prevDelay);
     if (loadingEl) loadingEl.remove();
     listeners.clear();
@@ -1301,6 +1439,8 @@ function buildWorld(ctx, opts) {
     actorFire,
     actorGrenade,
     actorDeath,
+    addDrop,
+    removeDrop,
     feedbackDamage,
     setRound,
     setMode,
@@ -1344,7 +1484,7 @@ function buildWorld(ctx, opts) {
     get localAlive() { return local.spawned && local.alive; },
     get paused() { return uiPaused; },
     /** 디버그·테스트용 내부 객체(읽기 전용으로 쓸 것) */
-    get internals() { return { arsenal, vm, fx, audio, nades, actors, local, rnd, props }; }
+    get internals() { return { arsenal, vm, fx, audio, nades, actors, local, rnd, props, drops }; }
   };
 
   W.handle = function handle() {

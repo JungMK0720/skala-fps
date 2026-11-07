@@ -2158,6 +2158,14 @@ export function createSession(options = {}) {
       case 'chat':
         pushChat({ name: nameOf(e.from), text: cleanText(e.text, 120), team: roomMode() === 'ffa' ? null : roomTeamOf(e.from) });
         break;
+      case 'drop':
+        if (phase === 'match' && current && current.loaded && current.phase === 'live') {
+          W('addDrop', { id: e.dropId, weaponId: e.weaponId, pos: e.pos, mag: e.mag, reserve: e.reserve });
+        }
+        break;
+      case 'pick':
+        if (phase === 'match' && current && current.loaded) W('removeDrop', e.dropId);
+        break;
       case 'leave':
         remoteGear.delete(e.id);
         if (actors.has(e.id)) { W('removeActor', e.id); actors.delete(e.id); }
@@ -2203,6 +2211,12 @@ export function createSession(options = {}) {
     if (!inRound() || current.phase !== 'live') return;
     sync.sendGrenade({ pos: g.pos, vel: g.vel, t: localT(g.t) });
   });
+  // 총은 죽은 뒤에 버리므로 살아 있는지(inRound)는 보지 않는다
+  wOn('weaponDrop', (d) => {
+    if (phase !== 'match' || !current || !current.loaded || !current.playing || !sync || current.phase !== 'live') return;
+    sync.sendDrop({ dropId: d.dropId, weaponId: d.weaponId, pos: d.pos, mag: d.mag, reserve: d.reserve });
+  });
+  wOn('weaponPick', (p) => { if (inRound()) sync.sendPick(p.dropId); });
   wOn('explosion', (x) => { if (hm) hostExplosion(x); });
   wOn('loadoutPick', (p) => pickLoadout(p.id != null ? p.id : p.weaponId != null ? p.weaponId : p.primary));
   wOn('leave', () => { if (phase === 'match') leaveRoom(); });

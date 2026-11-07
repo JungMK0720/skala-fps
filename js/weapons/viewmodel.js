@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 1인칭 무기 모형(뷰모델). 15종 무기와 수류탄을 도형·캔버스 텍스처로 만들고 사격·재장전·베기·점검 동작을 재생한다.
+ * Purpose: 1인칭 무기 모형(뷰모델). 17종 무기와 수류탄을 도형·캔버스 텍스처로 만들고 사격·재장전·베기·점검 동작을 재생한다.
  */
 
 /*
@@ -33,7 +33,7 @@ export const VIEWMODEL_LAYER = 30;
 /** 모형을 가진 무기 id(DESIGN 3.2 표 순서) */
 export const VIEWMODEL_IDS = Object.freeze([
   'ar_std', 'ar_rapid', 'ar_line', 'ar_burst', 'dm_mark', 'sm_vx3', 'sg_bx12',
-  'sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy', 'pt_std', 'pt_magnum', 'ml_knife', 'ml_katana', 'gr_frag',
+  'sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy', 'pt_std', 'pt_magnum', 'ml_knife', 'ml_tanto', 'ml_gurkha', 'ml_katana', 'gr_frag',
 ]);
 
 const RO = 10000;                 // renderOrder 기준(월드의 투명 물체보다 뒤에 그려지도록 크게)
@@ -142,6 +142,65 @@ function quatFrom(D, E) {
 const K = (p, d, e) => ({ p: new THREE.Vector3(p[0], p[1], p[2]), q: quatFrom(d, e) });
 /** a→b 회전의 비율 w 지점 + 손 위치 p */
 const between = (a, b, w, p) => ({ p: new THREE.Vector3(p[0], p[1], p[2]), q: a.q.clone().slerp(b.q, w) });
+
+/**
+ * 짧은 칼(호크빌·탄토·구르카)의 동작. 카타나처럼 카메라 좌표 키프레임으로 적는다.
+ * 지킬 것: 손은 화면 오른쪽 아래에 머물러 소매가 화면을 가로막지 않는다. 뒤로 빼는 동작은 작게 해서 칼이 화면 밖으로 나가지 않는다.
+ * 맞는 순간(windup)에 칼끝이 조준점 가까이를 지나간다. 베는 동안 날(e)은 움직이는 쪽을 향한다.
+ * @param {{ heavy?: 'stab'|'chop', push?: number }} [o] heavy = 우클릭 동작(찌르기·내려찍기), push = 칼이 길어 앞으로 더 내미는 거리
+ */
+function shortBladeClips({ heavy = 'stab', push = 0 } = {}) {
+  const at = (x, y, z) => [x, y, z - push];
+  const idle = K(at(0.13, -0.128, -0.29), [-0.435, 0.223, -0.872], [-0.781, -0.575, 0.243]);
+  // 베기 A: 오른쪽 위 → 조준점 → 왼쪽 아래
+  const aW = K(at(0.178, -0.096, -0.285), [-0.08, 0.5, -0.86], [-0.95, -0.2, 0.2]);
+  const aM = K(at(0.075, -0.098, -0.36), [-0.56, 0.3, -0.77], [-0.68, -0.62, 0.38]);
+  const aE = K(at(-0.05, -0.155, -0.35), [-0.9, -0.2, -0.39], [-0.2, -0.92, 0.34]);
+  const aA = K(at(-0.07, -0.168, -0.34), [-0.92, -0.3, -0.25], [-0.26, -0.9, 0.34]);
+  // 베기 B: 왼쪽 아래 → 조준점 → 오른쪽 위(되돌아 벤다)
+  const bW = K(at(0.05, -0.15, -0.3), [-0.74, -0.06, -0.67], [0.42, 0.72, -0.55]);
+  const bM = K(at(0.085, -0.09, -0.37), [-0.35, 0.55, -0.76], [0.85, 0.35, -0.15]);
+  const bE = K(at(0.215, -0.06, -0.33), [0.2, 0.82, -0.53], [0.72, -0.3, 0.62]);
+  const bA = K(at(0.232, -0.068, -0.325), [0.3, 0.8, -0.52], [0.68, -0.42, 0.6]);
+  let hv;
+  if (heavy === 'chop') {
+    // 내려찍기: 칼을 들어 올렸다가 조준점을 지나 아래로
+    const W = K(at(0.17, -0.055, -0.3), [-0.1, 0.9, -0.42], [0.02, 0.42, -0.9]);
+    const M = K(at(0.095, -0.1, -0.38), [-0.16, 0.42, -0.89], [-0.05, -0.89, -0.42]);
+    const E = K(at(0.09, -0.165, -0.37), [-0.2, -0.08, -0.975], [-0.1, -0.98, 0.12]);
+    hv = { wind: W, hold: between(W, W, 0, at(0.172, -0.045, -0.292)), mid: M, end: E, after: between(M, E, 1.08, at(0.09, -0.175, -0.365)) };
+  } else {
+    // 찌르기: 뒤로 당겼다가 조준점으로 곧게. 날의 넓은 면이 계속 보이게 돌리지 않는다
+    const W = K(at(0.165, -0.142, -0.225), [-0.3, 0.2, -0.93], [-0.72, -0.68, 0.09]);
+    const M = K(at(0.115, -0.112, -0.38), [-0.33, 0.22, -0.92], [-0.72, -0.68, 0.1]);
+    const E = K(at(0.095, -0.095, -0.47), [-0.3, 0.2, -0.93], [-0.72, -0.68, 0.08]);
+    hv = { wind: W, hold: between(W, W, 0, at(0.17, -0.146, -0.215)), mid: M, end: E, after: between(M, E, 1, at(0.097, -0.097, -0.46)) };
+  }
+  return {
+    idle,
+    span: 0.075, heavySpan: 0.075, heavyAfter: 0.09,
+    slashA: { wind: aW, mid: aM, end: aE, after: aA },
+    slashB: { wind: bW, mid: bM, end: bE, after: bA },
+    heavy: hv,
+    // 점검: 칼을 눈앞에 가로로 들어 한쪽 면을 보고, 손목을 뒤집어 반대쪽 면을 본다
+    inspect: [
+      { t: 0, ...idle },
+      { t: 0.42, ...K(at(0.12, -0.115, -0.27), [-0.9, 0.2, -0.39], [-0.1, -0.92, -0.34]), e: 'io' },
+      { t: 1.05, ...K(at(0.125, -0.105, -0.275), [-0.88, 0.26, -0.4], [-0.14, -0.9, -0.38]), e: 'io' },
+      { t: 1.32, ...K(at(0.12, -0.105, -0.27), [-0.88, 0.26, -0.4], [-0.3, 0.1, 0.94]), e: 'io' },
+      { t: 1.55, ...K(at(0.115, -0.105, -0.27), [-0.88, 0.28, -0.38], [0.14, 0.9, 0.42]), e: 'io' },
+      { t: 2.15, ...K(at(0.125, -0.095, -0.28), [-0.84, 0.36, -0.4], [0.22, 0.86, 0.46]), e: 'io' },
+      { t: 2.6, ...idle, e: 'io' },
+    ],
+    inspectDur: 2.6,
+    // 꺼내기(진행도 u 0..1): 화면 아래에서 칼끝을 앞세워 올라와 살짝 넘겼다가 자세를 잡는다
+    draw: [
+      { t: 0, ...K(at(0.2, -0.42, -0.24), [-0.3, -0.25, -0.92], [-0.85, 0.3, 0.2]) },
+      { t: 0.6, ...K(at(0.14, -0.11, -0.28), [-0.3, 0.42, -0.86], [-0.85, -0.42, 0.1]), e: 'out' },
+      { t: 1, ...idle, e: 'io' },
+    ],
+  };
+}
 
 /**
  * @param {THREE.Camera} camera  모형을 그리는 카메라(core: R.viewCamera, 또는 월드 카메라)
@@ -892,19 +951,28 @@ export function createViewmodel(camera, opts = {}) {
 
     // 키프레임(카메라 좌표)
     const idle = K([0.262, -0.175, -0.49], [-0.42, 0.62, -0.66], [-0.82, -0.42, 0.08]);
-    const aW = K([0.35, 0.05, -0.34], [0.3, 0.9, -0.3], [-0.831, 0.089, -0.549]);
-    const aE = K([0.04, -0.17, -0.4], [-0.88, -0.3, -0.37], [0.08, -0.858, 0.507]);
-    const bW = K([-0.17, 0.05, -0.35], [-0.33, 0.9, -0.28], [0.805, 0.112, -0.582]);
-    const bE = K([0.3, -0.17, -0.4], [0.86, -0.34, -0.37], [-0.101, -0.843, 0.528]);
-    const hW = K([0.13, 0.1, -0.39], [-0.1, 0.8, 0.59], [0.02, 0.59, -0.8]);
-    const hE = K([0.21, -0.23, -0.45], [-0.3, -0.05, -0.95], [-0.6, -0.78, 0.23]);
+    // 베기 A: 오른쪽 위 → 조준점 → 왼쪽 아래. 손은 화면 아래쪽에 두고 칼끝이 크게 돈다
+    const aW = K([0.335, -0.115, -0.47], [0.12, 0.84, -0.53], [-0.95, 0.06, -0.3]);
+    const aM = K([0.17, -0.155, -0.47], [-0.56, 0.4, -0.73], [-0.64, -0.68, 0.36]);
+    const aE = K([0.02, -0.205, -0.45], [-0.92, -0.2, -0.34], [-0.2, -0.9, 0.39]);
+    const aA = K([-0.015, -0.215, -0.44], [-0.94, -0.28, -0.2], [-0.25, -0.88, 0.4]);
+    // 베기 B: 왼쪽 아래 → 조준점 → 오른쪽 위(되돌아 벤다)
+    const bW = K([0.06, -0.205, -0.46], [-0.84, -0.04, -0.54], [0.36, 0.78, -0.51]);
+    const bM = K([0.17, -0.15, -0.48], [-0.08, 0.5, -0.86], [0.84, 0.42, 0.33]);
+    const bE = K([0.335, -0.115, -0.46], [0.45, 0.75, -0.48], [0.68, -0.6, 0.42]);
+    const bA = K([0.355, -0.122, -0.45], [0.52, 0.7, -0.49], [0.62, -0.68, 0.38]);
+    // 강타: 두 손으로 머리 위로 들었다가(칼끝은 앞을 향해 화면에 남는다) 조준점을 지나 내려친다
+    const hW = K([0.17, -0.055, -0.47], [-0.06, 0.9, -0.43], [0.02, 0.43, -0.9]);
+    const hM = K([0.14, -0.13, -0.53], [-0.1, 0.22, -0.97], [-0.03, -0.97, -0.22]);
+    const hE = K([0.15, -0.205, -0.5], [-0.14, -0.13, -0.98], [-0.08, -0.98, 0.14]);
     const melee = {
       idle,
-      slashA: { wind: aW, mid: between(aW, aE, 0.5, [0.17, -0.13, -0.41]), end: aE, after: between(aW, aE, 1.05, [0.01, -0.19, -0.39]) },
-      slashB: { wind: bW, mid: between(bW, bE, 0.34, [0.0, -0.12, -0.42]), end: bE, after: between(bW, bE, 1.05, [0.32, -0.19, -0.39]) },
+      span: 0.105, heavySpan: 0.085, heavyAfter: 0.13,
+      slashA: { wind: aW, mid: aM, end: aE, after: aA },
+      slashB: { wind: bW, mid: bM, end: bE, after: bA },
       heavy: {
-        wind: hW, hold: between(hW, hW, 0, [0.135, 0.13, -0.36]), mid: between(hW, hE, 0.62, [0.17, -0.03, -0.47]), end: hE,
-        after: between(hW, hE, 1.015, [0.215, -0.25, -0.46]),
+        wind: hW, hold: between(hW, hW, 0, [0.172, -0.04, -0.46]), mid: hM, end: hE,
+        after: between(hM, hE, 1.06, [0.15, -0.218, -0.495]),
       },
       // 점검: 칼을 눈앞에 가로로 들고 → 빛을 따라 기울이고 → 뒤집어 반대쪽 면을 본다
       inspect: [
@@ -938,9 +1006,84 @@ export function createViewmodel(camera, opts = {}) {
     };
   }
 
-  // ── 나이프 ──────────────────────────────────────────────────
-  /** 짧고 빠른 전투 나이프: 무광 흑색 도신에 날만 밝게 갈았다. 칼끝은 각진 탄토형 */
+  // ── 호크빌 나이프 ───────────────────────────────────────────
+  /** 기본 칼: 안으로 굽은 갈고리 날과 톱니, 밧줄을 감은 손잡이 */
   function buildMlKnife() {
+    const g = new THREE.Group();
+    const parts = {};
+    const rope = paint(0xc29d63, { rough: 0.95, metal: 0, glow: 0.08 });
+    const ropeDark = paint(0x7a5a33, { rough: 0.95, metal: 0 });
+    cyl(0.0155, 0.017, 0.11, ropeDark, g, 'z', 0, 0, 0.035);             // 손잡이
+    for (let i = 0; i < 6; i++) torus(0.0168, 0.0032, rope, g, 0, 0, -0.01 + i * 0.018);   // 밧줄 감기
+    box(0.014, 0.054, 0.012, M.black, g, 0, -0.004, -0.024);             // 날밑
+    cyl(0.0175, 0.014, 0.016, M.black, g, 'z', 0, 0, 0.098);             // 손잡이 끝
+    torus(0.009, 0.0022, M.cuff, g, 0, -0.012, 0.11).rotation.y = Math.PI / 2;   // 끈 고리
+    const s = new THREE.Shape();
+    s.moveTo(0, 0.011);
+    s.lineTo(0.115, 0.011);
+    s.quadraticCurveTo(0.156, 0.009, 0.168, -0.018);
+    s.lineTo(0.162, -0.021);
+    s.quadraticCurveTo(0.142, -0.004, 0.11, -0.006);
+    for (let u = 0.11; u > 0.03; u -= 0.012) { s.lineTo(u - 0.006, -0.013); s.lineTo(u - 0.012, -0.007); }   // 톱니
+    s.lineTo(0, -0.012);
+    s.lineTo(0, 0.011);
+    const bg = new THREE.ExtrudeGeometry(s, { depth: 0.004, bevelEnabled: true, bevelThickness: 0.0012, bevelSize: 0.001, bevelSegments: 1, curveSegments: 8 });
+    bg.translate(0, 0, -0.002);
+    bg.rotateY(Math.PI / 2);                                             // 길이 → -z, 두께 → x
+    parts.blade = add(bg, M.steel, g, 0, 0, -0.03);
+    const melee = shortBladeClips({ heavy: 'stab' });
+    return {
+      g, parts, muzzle: null,
+      arms: { R: makeArm('R', [0, 0, 0.035], [0, 0, 1], [1, 0, 0], 0.0172), L: null },
+      hip: [melee.idle.p.x, melee.idle.p.y, melee.idle.p.z], hipRot: [0, 0, 0],
+      ads: null,
+      kick: { z: 0, pitch: 0, roll: 0 }, flash: 0,
+      melee, tipP: new THREE.Vector3(0, -0.018, -0.198), midP: new THREE.Vector3(0, -0.002, -0.11), trailColor: 0xe6d9c0, trailGain: 0.6,
+    };
+  }
+
+  // ── 구르카 나이프 ───────────────────────────────────────────
+  /** 곧은 뿌리에서 앞쪽이 아래로 꺾이고 배가 넓어지는 날. 나무 손잡이와 황동 장식 */
+  function buildMlGurkha() {
+    const g = new THREE.Group();
+    const parts = {};
+    const wood = paint(0x5b3a1e, { rough: 0.55, metal: 0.05, glow: 0.1 });
+    prof([[-0.03, 0.015], [0.0, 0.017], [0.05, 0.013], [0.092, 0.003], [0.11, -0.012], [0.1, -0.026], [0.055, -0.021], [0.0, -0.021], [-0.03, -0.017]], 0.027, wood, g, 0, 0, 0, 0.002);
+    box(0.03, 0.052, 0.012, M.brass, g, 0, -0.002, -0.034);              // 날밑
+    box(0.0285, 0.043, 0.006, M.brass, g, 0, -0.002, 0.006);             // 손잡이 띠
+    box(0.0285, 0.04, 0.006, M.brass, g, 0, -0.005, 0.066);
+    box(0.03, 0.03, 0.01, M.brass, g, 0, -0.012, 0.107);                 // 손잡이 끝
+    const s = new THREE.Shape();
+    // x = 밑동에서 칼끝 쪽, y = 등(+) / 날(-)
+    s.moveTo(0, 0.012);
+    s.lineTo(0.07, 0.014);                                               // 등: 곧게 나가다가
+    s.quadraticCurveTo(0.13, 0.014, 0.19, -0.016);                       // 앞으로 꺾인다
+    s.quadraticCurveTo(0.235, -0.04, 0.275, -0.07);                      // 칼끝
+    s.quadraticCurveTo(0.225, -0.082, 0.175, -0.066);                    // 넓은 배
+    s.quadraticCurveTo(0.12, -0.046, 0.06, -0.019);                      // 안으로 굽은 날
+    s.lineTo(0.02, -0.016);
+    s.lineTo(0.014, -0.009);                                             // 날 뿌리의 작은 홈
+    s.lineTo(0.008, -0.016);
+    s.lineTo(0, -0.015);
+    s.lineTo(0, 0.012);
+    const bg = new THREE.ExtrudeGeometry(s, { depth: 0.005, bevelEnabled: true, bevelThickness: 0.0014, bevelSize: 0.0012, bevelSegments: 1, curveSegments: 10 });
+    bg.translate(0, 0, -0.0025);
+    bg.rotateY(Math.PI / 2);                                             // 길이 → -z, 두께 → x
+    parts.blade = add(bg, M.steel, g, 0, 0, -0.038);
+    const melee = shortBladeClips({ heavy: 'chop', push: 0.03 });
+    return {
+      g, parts, muzzle: null,
+      arms: { R: makeArm('R', [0, -0.003, 0.034], [0, 0, 1], [1, 0, 0], 0.0185), L: null },
+      hip: [melee.idle.p.x, melee.idle.p.y, melee.idle.p.z], hipRot: [0, 0, 0],
+      ads: null,
+      kick: { z: 0, pitch: 0, roll: 0 }, flash: 0,
+      melee, tipP: new THREE.Vector3(0, -0.07, -0.313), midP: new THREE.Vector3(0, -0.02, -0.16), trailColor: 0xffe2a8, trailGain: 0.8,
+    };
+  }
+
+  // ── 탄토 ────────────────────────────────────────────────────
+  /** 짧고 빠른 칼: 무광 흑색 도신에 날만 밝게 갈았다. 칼끝은 각진 탄토형 */
+  function buildMlTanto() {
     const g = new THREE.Group();
     const parts = {};
     const blade = new THREE.Group();
@@ -987,13 +1130,14 @@ export function createViewmodel(camera, opts = {}) {
     ], 12);
     add(cap, M.iron, g);
     const F = (s) => new THREE.Vector3(0, B.secAt(s).a, -s - 0.028);
+    const melee = shortBladeClips({ heavy: 'stab' });
     return {
       g, parts, muzzle: null,
       arms: { R: makeArm('R', [0, -0.003, 0.038], [0, 0, 1], [1, 0, 0], 0.0145), L: null },
-      hip: [0.13, -0.128, -0.29], hipRot: [0.25, 0.45, -1.05],   // 날의 넓은 면이 보이게 시계 방향으로 눕힘
+      hip: [melee.idle.p.x, melee.idle.p.y, melee.idle.p.z], hipRot: [0, 0, 0],
       ads: null,
       kick: { z: 0, pitch: 0, roll: 0 }, flash: 0,
-      tipP: F(B.L), midP: new THREE.Vector3(0, -0.005, -0.11), trailColor: 0xdfe8f2, trailGain: 0.6,
+      melee, tipP: F(B.L), midP: new THREE.Vector3(0, -0.005, -0.11), trailColor: 0xdfe8f2, trailGain: 0.6,
     };
   }
 
@@ -1721,6 +1865,8 @@ export function createViewmodel(camera, opts = {}) {
     pt_std: buildPtStd,
     pt_magnum: buildPtMagnum,
     ml_knife: buildMlKnife,
+    ml_tanto: buildMlTanto,
+    ml_gurkha: buildMlGurkha,
     ml_katana: buildMlKatana,
     gr_frag: buildGrFrag,
   };
@@ -1948,7 +2094,7 @@ export function createViewmodel(camera, opts = {}) {
   let time = 0;
   let drawT = 1, drawDur = 0.5;
   let reloadT = -1, reloadDur = 2, reloadEmpty = false;
-  let act = null;               // { type: 'slash'|'stab'|'bolt'|'pump'|'prime'|'throw'|'inspect'|'clip', t, dur, ... }
+  let act = null;               // { type: 'bolt'|'pump'|'prime'|'throw'|'inspect'|'clip', t, dur, ... }. 칼의 베기·강타·점검은 'clip'
   let slideT = 1, hammerT = 1, cylTurn = 0, cylAngle = 0, stageA = 0;
   let adsBlend = 0, bobPhase = 0, bobAmt = 0, airTime = 0, wasOnGround = true;
   let refFov = camera.fov || 60;
@@ -2016,19 +2162,22 @@ export function createViewmodel(camera, opts = {}) {
     }
   }
 
-  /** 카타나 베기·강타 키프레임. 맞는 순간(windup)에 칼이 화면 가운데를 지나도록 시간을 맞춘다 */
-  function katanaSwing(M_, heavy, index, wu, dur) {
+  /**
+   * 칼의 베기·강타 클립. 맞는 순간(windup)에 mid 자세가 오도록 시간을 맞춘다.
+   * 뒤로 빼기는 감속, 맞히러 갈 때 가속, 지나간 뒤 감속해서 빠른 순간이 판정과 겹친다. 남은 쿨다운 동안 천천히 자세를 되찾는다.
+   */
+  function bladeSwing(M_, heavy, index, wu, dur) {
     const I = M_.idle;
     if (heavy) {
       const H = M_.heavy;
-      const t1 = wu * 0.74, t2 = wu * 0.9, t3 = wu, t4 = wu + 0.075, t5 = t4 + 0.13, t6 = dur * 0.98;
+      const t1 = wu * 0.74, t2 = wu * 0.9, t3 = wu, t4 = wu + M_.heavySpan, t5 = t4 + M_.heavyAfter, t6 = dur * 0.95;
       return {
         type: 'clip', kind: 'heavy', t: 0, dur, trail: [t2, t4 + 0.02], grab: [t1 * 0.8, t5 + 0.1],
         keys: [{ t: 0, ...I }, { t: t1, ...H.wind, e: 'out3' }, { t: t2, ...H.hold, e: 'lin' }, { t: t3, ...H.mid, e: 'in' }, { t: t4, ...H.end, e: 'out' }, { t: t5, ...H.after, e: 'lin' }, { t: t6, ...I, e: 'io' }],
       };
     }
     const C = index % 2 ? M_.slashB : M_.slashA;
-    const t1 = wu * 0.7, t2 = wu, t3 = wu + 0.105, t4 = t3 + 0.06, t5 = dur * 0.98;
+    const t1 = wu * 0.62, t2 = wu, t3 = wu + M_.span, t4 = t3 + M_.span * 0.6, t5 = dur * 0.92;
     return {
       type: 'clip', kind: 'slash', t: 0, dur, trail: [t1 * 0.9, t3 + 0.02],
       keys: [{ t: 0, ...I }, { t: t1, ...C.wind, e: 'out' }, { t: t2, ...C.mid, e: 'in' }, { t: t3, ...C.end, e: 'out' }, { t: t4, ...C.after, e: 'lin' }, { t: t5, ...I, e: 'io' }],
@@ -2089,19 +2238,13 @@ export function createViewmodel(camera, opts = {}) {
         break;
       case 'boltCycle': act = { type: 'bolt', t: 0, dur: Math.max(0.2, num(ev.duration, 1.2)) }; break;
       case 'swing': {
-        if (!cur) break;
+        if (!cur || !cur.melee) break;
         const heavy = ev.kind === 'stab' || ev.kind === 'heavy';
-        if (cur.melee) {
-          act = katanaSwing(cur.melee, heavy, ev.index | 0, num(ev.windup, heavy ? 0.34 : 0.12), num(ev.duration, heavy ? 1.25 : 0.62));
-        } else if (heavy) {
-          act = { type: 'stab', t: 0, dur: clamp(num(ev.duration, 1) * 0.78, 0.3, 0.9) };
-        } else {
-          act = { type: 'slash', t: 0, dur: clamp(num(ev.duration, 0.45) * 0.82, 0.2, 0.42), index: ev.index | 0, trail: [0.035, 0.17] };
-        }
+        act = bladeSwing(cur.melee, heavy, ev.index | 0, num(ev.windup, heavy ? 0.34 : 0.12), num(ev.duration, heavy ? 1.25 : 0.62));
         break;
       }
       case 'swingCancel':
-        if (act && (act.type === 'slash' || act.type === 'stab' || act.kind === 'slash' || act.kind === 'heavy')) { startFade(); act = null; }
+        if (act && (act.kind === 'slash' || act.kind === 'heavy')) { startFade(); act = null; }
         break;
       case 'prime': act = { type: 'prime', t: 0, dur: Infinity, kind: ev.kind }; break;
       case 'primeCancel': act = null; resetParts(cur); break;
@@ -2214,25 +2357,6 @@ export function createViewmodel(camera, opts = {}) {
     }
   }
 
-  function slashAnim(u, index, o) {
-    const wind = smooth(0, 0.2, u) * (1 - smooth(0.2, 0.32, u));
-    const s = smooth(0.18, 0.48, u) * (1 - smooth(0.55, 1, u));
-    if (index % 2 === 0) {        // 오른쪽 위 → 왼쪽 아래
-      o.px += 0.05 * wind - 0.22 * s; o.py += 0.05 * wind - 0.05 * s; o.pz -= 0.08 * s;
-      o.ry += -0.35 * wind + 1.1 * s; o.rz += -0.6 * wind + 1.0 * s; o.rx -= 0.25 * s;
-    } else {                      // 오른쪽 아래 → 왼쪽 위(올려 베기)
-      o.px += 0.03 * wind - 0.2 * s; o.py += -0.05 * wind + 0.07 * s; o.pz -= 0.07 * s;
-      o.ry += -0.25 * wind + 0.9 * s; o.rz += 0.5 * wind - 0.9 * s; o.rx += 0.2 * s;
-    }
-  }
-
-  function stabAnim(u, o) {
-    const pull = smooth(0, 0.3, u) * (1 - smooth(0.3, 0.4, u));
-    const th = smooth(0.29, 0.4, u) * (1 - smooth(0.62, 1, u));
-    o.pz += 0.08 * pull - 0.26 * th; o.px -= 0.08 * th; o.py += 0.02 * pull + 0.03 * th;
-    o.rx += 0.2 * pull - 0.45 * th; o.ry -= 0.25 * th; o.rz += 0.3 * th;
-  }
-
   function primeAnim(m, u, kind, o) {
     const k = smooth(0, 1, u);
     if (kind === 'underhand') { o.py -= 0.04 * k; o.pz += 0.05 * k; o.rx -= 0.3 * k; }
@@ -2288,10 +2412,11 @@ export function createViewmodel(camera, opts = {}) {
     L.position.copy(L.userData.base).addScaledVector(tmpV, k);
   }
 
-  /** 꺼내기: 칼집을 호를 따라 밀어내고 왼손이 칼집을 잡고 따라간다 */
-  function katanaDraw(m, u) {
+  /** 꺼내기: 키프레임대로 올린다. 칼집이 있는 칼은 칼집을 호를 따라 밀어내고 왼손이 칼집을 잡고 따라간다 */
+  function bladeDraw(m, u) {
     sampleKeys(m.melee.draw, u);
     const saya = m.parts.saya, L = m.arms.L;
+    if (!saya) return;
     const slide = smooth(0.14, 0.5, u), drop = smooth(0.5, 0.6, u) * 0.75;
     const alpha = (slide * m.sayaLen) / m.sayaRc;
     saya.visible = u < 0.58;
@@ -2396,7 +2521,7 @@ export function createViewmodel(camera, opts = {}) {
     else if (!hasPhase && drawT < 1) drawU = drawT;
     let useClip = false;
     if (m.melee) {
-      if (drawU >= 0) { katanaDraw(m, drawU); useClip = true; wasDrawing = true; }
+      if (drawU >= 0) { bladeDraw(m, drawU); useClip = true; wasDrawing = true; }
       else if (wasDrawing) { wasDrawing = false; resetParts(m); triggerGleam(m); }
     } else if (drawU >= 0) {
       const drawK = 1 - easeOutCubic(drawU);
@@ -2415,8 +2540,6 @@ export function createViewmodel(camera, opts = {}) {
       const u = Number.isFinite(act.dur) ? clamp(act.t / act.dur, 0, 1) : act.t;
       if (act.type === 'bolt') boltParts(m, u, o, true);
       else if (act.type === 'pump') pumpParts(m, u, o);
-      else if (act.type === 'slash') slashAnim(u, act.index || 0, o);
-      else if (act.type === 'stab') stabAnim(u, o);
       else if (act.type === 'prime') primeAnim(m, clamp(act.t / 0.3, 0, 1), act.kind, o);
       else if (act.type === 'throw') throwAnim(m, u, act.kind, o);
       else if (act.type === 'inspect') inspectGun(m, u, o);

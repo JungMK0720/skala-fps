@@ -465,7 +465,7 @@ publish(h.m.start());                                      // sync.sendMatch(h.m
 | 규칙 | 쓸 수 있는 슬롯 | 고르는 무기(`setLoadout`) | 기본 | 비고 |
 |---|---|---|---|---|
 | `classic` | 1·2·3·4 | 슬롯 1 전부 | `ar_std` | |
-| `knife` | 3 | 칼 2종 | `ml_katana` | 총·수류탄 주장은 `ruleset`으로 거절 |
+| `knife` | 3 | 칼 4종 | `ml_knife` | 총·수류탄 주장은 `ruleset`으로 거절 |
 | `sniper` | 1·3 | 저격총 4종 | `sr_bolt` | 칼은 쓸 수 있다. 보조·수류탄·다른 주무기는 `ruleset`으로 거절 |
 
 - `claimHit`·`claimExplosion`은 `isWeaponAllowed(ruleset, weaponId)`가 false면 `reject 'ruleset'`이다.

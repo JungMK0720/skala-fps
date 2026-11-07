@@ -92,6 +92,7 @@ net은 같은 JS 턴의 `send/sendTo`를 **프레임 1개**로 묶고, 프레임
 | `sendGrenade({ pos, vel, t? })` → `{ id, gid, pos, vel, t, localT }` | 전송 해상도로 맞춘 **정본**. `t`는 방장 시계. 던진 사람도 이 값으로 시뮬레이션 |
 | `sendMatch(snapshot, events?)` → mseq \| false | **방장 전용**. 5절 |
 | `sendLoadout(obj)` / `sendChat(text)` | 장비 알림(≤256B JSON. 세션은 `{ pick, primary, secondary, melee, round, m }`을 보낸다), 채팅(120자, 제어문자 제거 — 화면에는 `textContent`로만) |
+| `sendDrop({ dropId, weaponId, pos, mag, reserve })` / `sendPick(dropId)` | 버린 총과 주웠다는 알림을 모두에게 보낸다. 방장을 거치지 않고, 동시에 주우면 둘 다 갖는다(판정에 영향이 없다) |
 | `getRemote(id, renderTime?)` → state \| null | 렌더용 보간 상태(6절). 매 프레임 호출 |
 | `getRemoteAtHost(id, hostT)` | (방장 검증용) 방장 시각 `hostT`에 그 플레이어가 있던 상태. 지연 없이 버퍼에서 바로 |
 | `remoteIds()` / `remote(id)` | 상태를 받은 원격 id 목록 / `{ state, loadout, lastHeard }` |
@@ -114,6 +115,8 @@ net은 같은 JS 턴의 `send/sendTo`를 **프레임 1개**로 묶고, 프레임
 | `match` | `from, seq, snapshot\|null, events[], fresh, late?` | `snapshot`은 seq가 새로울 때만(아니면 null). `events`는 처음 보는 것만(eid 중복 제거) |
 | `loadout` | `from, loadout` | 바뀌었을 때만 |
 | `chat` | `from, text` | |
+| `drop` | `from, dropId, weaponId, pos, mag, reserve` | 누가 총을 버렸다 |
+| `pick` | `from, dropId` | 누가 총을 주웠다 |
 | `host` | `hostId, prevHostId, isHost` | 방장 교체. 내가 새 방장이면 `lastMatch()`로 경기를 이어받아 `sendMatch`로 **다시 공지**한다(endsAt 등 방장 시계 값은 새 방장 기준으로 다시 계산) |
 | `leave` | `id` | 원격 퇴장 → 아바타 제거 |
 | `closed` | `reason` | room이 닫힘 |
@@ -197,6 +200,8 @@ sync.sendMatch({
 | `g2m` 경기(merge) | `[mseq, phase, round, sO, sC, endsAt, [[id,team,hp,alive,k,d],…], [[eid,type,…],…], rest?]` | 8인 + 이벤트 2개 362 | 371 |
 | `g2l` 로드아웃(merge) | `[id, { pick, primary, secondary, melee, round, m }]` (JSON 256B 넘으면 비운다) | 최악 117 | 126 |
 | `g2c` 채팅 | `[id, text]` | 한글 20자 57 | 66 |
+| `g2d` 총 버림 | `[id, dropId, weaponId, x,y,z, mag, reserve]` (무제한 −1) | 약 45 | 54 |
+| `g2k` 총 주움 | `[id, dropId]` | 약 15 | 24 |
 | `g2p` 핑 / 퐁(merge) | `[pid, t0, d0]` / `[pid, t0, t1, t2, d2, e0]` | 25 / 43 | 34 / 52 |
 
 `g2f`의 `'stab'` 칸은 sync가 붙이고 읽는다. `decodeFire`는 모르는 칸을 무시한다. 경기 규칙은 `g2m` 부가 영역의 `rs`로 간다. `g2l`을 어떻게 읽는지는 SESSION_API.md 3절 "규칙"에 있다.

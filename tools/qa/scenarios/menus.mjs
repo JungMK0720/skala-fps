@@ -63,10 +63,9 @@ export default {
     const choiceTitles = () => page.eval(`[...document.querySelectorAll('.sk-my-equiprow')].map((r) => [...r.querySelectorAll('.sk-choice')].map((b) => b.title))`);
     const rows = await choiceTitles();
     t.check(rows.length === 3, '장비 칸 3개', rows);
-    t.check(rows[0].length === 2 && rows[1].length === 1 && rows[2].length === 2, '기본 지급 무기만 고를 수 있다', rows);
-    await page.click(`.sk-my-equiprow .sk-choice[title="컴뱃 나이프"]`);
-    t.check((await page.eval('__qa.ctx.account.loadout.melee')) === 'ml_knife', '근접 장비가 바뀐다');
-    t.check(await page.eval(`document.querySelector('.sk-my-equiprow .sk-choice[title="컴뱃 나이프"]').classList.contains('is-on')`), '고른 칸이 표시된다');
+    t.check(rows[0].length === 2 && rows[1].length === 1 && rows[2].length === 1, '기본 지급 무기만 고를 수 있다', rows);
+    t.check((await page.eval('__qa.ctx.account.loadout.melee')) === 'ml_knife', '기본 칼은 호크빌 나이프다');
+    t.check(await page.eval(`document.querySelector('.sk-my-equiprow .sk-choice[title="호크빌 나이프"]').classList.contains('is-on')`), '장착한 칸이 표시된다');
     await t.shot('mypage');
 
     t.setSection('상점: 포인트 부족');

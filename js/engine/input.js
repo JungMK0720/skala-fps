@@ -16,10 +16,10 @@
  *   input.emoteWheel       // { open, cursor:{x,y}, selected, id, code } (이모트 휠 폴링용)
  *   input.setEmoteLock(b)  // 이모트 중: 좌·우클릭을 사격·줌 대신 input:emoteCancel로 (player가 켜고 끔)
  *
- * 키는 e.code 기준(한/영 상태와 무관): WASD(+화살표) · Space · Shift · Ctrl/C(앉기) · R · F(무기 살펴보기) · 1~4 · Tab · Esc
+ * 키는 e.code 기준(한/영 상태와 무관): WASD(+화살표) · Space · Shift · Ctrl/C(앉기) · R · F(무기 살펴보기) · G(죽은 뒤 총 버리기) · 1~4 · Tab · Esc
  * Space: input.state.jump = 누르는 동안 true(player가 착지 즉시 다시 뛰는 데 쓴다), input:jump는 누른 순간 1번.
  *        잠금을 잃거나 창 포커스를 잃으면 풀리고, 키 반복으로는 다시 켜지지 않는다.
- * bus 이벤트: input:lock{locked} · input:fire{down} · input:aim{active,source} · input:reload · input:inspect · input:slot{slot}
+ * bus 이벤트: input:lock{locked} · input:fire{down} · input:aim{active,source} · input:reload · input:inspect · input:drop · input:slot{slot}
  *            input:cycle{dir} · input:jump · input:walk{down} · input:crouch{down} · input:scoreboard{open} · input:menu{reason}
  *            input:key{code,down} (모든 키, 반복 제외)
  *            input:emoteWheel{open,cursor,selected,id,code,cancelled?} · input:emotePick{id,code,selected} · input:emoteCancel{reason}
@@ -45,7 +45,7 @@ const MOVE_KEYS = {
 const SLOT_KEYS = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4 };
 const CROUCH_KEYS = new Set(['ControlLeft', 'ControlRight', 'KeyC']);
 /** 전체 화면에서 Keyboard Lock으로 잡을 키(Esc는 빼서 전체 화면·잠금 해제가 그대로 되게) */
-const LOCK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyC', 'KeyR', 'KeyF', 'Space', 'Tab', 'Digit1', 'Digit2', 'Digit3', 'Digit4',
+const LOCK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyC', 'KeyR', 'KeyF', 'KeyG', 'Space', 'Tab', 'Digit1', 'Digit2', 'Digit3', 'Digit4',
   'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
 
 function isTyping(e) {
@@ -147,6 +147,7 @@ export function createInput({ element, bus, settings } = {}) {
     if (code === 'ShiftLeft' || code === 'ShiftRight') { state.walk = true; emit('input:walk', { down: true }); return; }
     if (code === 'KeyR') { emit('input:reload', {}); return; }
     if (code === 'KeyF') { if (locked) e.preventDefault(); emit('input:inspect', {}); return; }
+    if (code === 'KeyG') { if (locked) e.preventDefault(); emit('input:drop', {}); return; }
     if (code === 'KeyB') { openWheel(); return; }
     const slot = SLOT_KEYS[code];
     if (slot) { emit('input:slot', { slot }); return; }

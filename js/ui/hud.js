@@ -265,9 +265,10 @@ export function createHud(ctx) {
     const ammo = Math.max(0, Math.floor(Number(a)));
     st.magSeen = Math.max(st.magSeen, ammo);
     const mag = num(st.mag, 0) || st.magSeen;
-    const res = st.reserve == null || st.reserve === '' ? null : Math.max(0, Math.floor(num(st.reserve, 0)));
+    const unlimited = st.reserve === Infinity;   // 프리미엄 총
+    const res = st.reserve == null || st.reserve === '' ? null : unlimited ? Infinity : Math.max(0, Math.floor(num(st.reserve, 0)));
     setText(magEl, ammo);
-    setText(resEl, res == null ? '' : `/ ${res}`);
+    setText(resEl, res == null ? '' : `/ ${unlimited ? '∞' : res}`);
     const empty = ammo === 0;
     const low = !empty && mag > 1 && ammo <= Math.max(1, Math.ceil(mag * 0.25));
     ammoEl.classList.toggle('is-empty', empty);

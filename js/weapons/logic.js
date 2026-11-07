@@ -740,8 +740,35 @@ export function createArsenal(opts = {}) {
     // 수류탄 슬롯이 금지된 규칙에서는 0개로 알린다. 봇이 던지려고 슬롯을 바꾸다 멈추지 않게 한다.
     if (d.count != null) return { weaponId: id, kind: 'count', mag: carried(id) ? w.count : 0, magSize: d.count, reserve: 0, infinite: false, reloading: false };
     if (d.mag == null) return { weaponId: id, kind: 'none', mag: null, magSize: null, reserve: null, infinite: true, reloading: false };
-    return { weaponId: id, kind: 'mag', mag: w.mag, magSize: d.mag, reserve: w.reserve, infinite: false,
+    return { weaponId: id, kind: 'mag', mag: w.mag, magSize: d.mag, reserve: w.reserve, infinite: w.reserve === Infinity,
       reloading: id === cur && state === 'reload' };
+  }
+
+  /** 주무기를 더 쏠 수 없는가(탄창과 예비가 모두 비었다). 주무기 슬롯이 막힌 규칙에서는 false */
+  function isPrimaryEmpty() {
+    if (!allowed.includes(1)) return false;
+    const w = inv[loadout[1]];
+    return w.mag <= 0 && w.reserve <= 0;
+  }
+
+  /**
+   * 바닥에서 주운 총을 슬롯 1에 넣고 바로 꺼낸다. 탄약은 남은 만큼 이어받되 정의의 최대를 넘지 못한다(프리미엄 예비는 무제한 그대로).
+   * 수류탄을 던지는 중이면 다 던진 뒤 이 총으로 돌아온다. 다음 목숨은 resetRound가 자기 장비로 되돌린다.
+   * @returns {boolean} 주무기가 아니거나 슬롯이 막혀 있으면 false
+   */
+  function takePrimary(id, ammo = {}) {
+    if (!PRIMARY_IDS.includes(id) || !allowed.includes(1)) return false;
+    const d = WEAPONS[id];
+    const left = (v, max) => (Number.isFinite(v) ? clamp(Math.floor(v), 0, max) : max);
+    const w = fresh(id);
+    w.mag = left(ammo && ammo.mag, d.mag);
+    if (d.reserve !== Infinity) w.reserve = left(ammo && ammo.reserve, d.reserve);
+    loadout[1] = id;
+    inv[id] = w;
+    if (state === 'throw') { prev = id; return true; }
+    if (cur !== id) prev = cur;
+    drawWeapon(id);
+    return true;
   }
 
   function stateProgress() {
@@ -863,6 +890,8 @@ export function createArsenal(opts = {}) {
     /** 카메라에 '더할' 반동 오프셋(누적값, 라디안). 매 프레임 내 각도에 누적하지 말 것. */
     getRecoilKick: () => ({ yaw: recoil.yaw, pitch: recoil.pitch }),
     getAmmo,
+    isPrimaryEmpty,
+    takePrimary,
     getWeapon,
     getSlots,
     getMoveMul,

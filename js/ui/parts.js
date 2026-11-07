@@ -172,6 +172,7 @@ export function normWeapon(reg, ref) {
     bars: normBars(d.bars),
     summary: weaponSummary(d),
     price: num(d.price, 0),
+    premium: !!d.premium,
   };
 }
 

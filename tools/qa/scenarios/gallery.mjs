@@ -86,7 +86,7 @@ export default {
     await waitRun(page);
     await waitLive(page);
     await page.waitFor('!__qa.ui.isVisible("loadout")', 5000, { label: '무기 선택 닫힘' });
-    await page.eval(`__qa.ui.show('loadout', { ruleset: 'knife', seconds: 0, selected: 'ml_katana', round: 1 })`);
+    await page.eval(`__qa.ui.show('loadout', { ruleset: 'knife', seconds: 0, selected: 'ml_knife', round: 1 })`);
     await see('knife-loadout', '.sk-loadout');
     await page.eval(`__qa.ui.hide('loadout')`);
     await lockPointer(page);

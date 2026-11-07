@@ -19,7 +19,7 @@ import {
 } from '../js/account/economy.js';
 import { authHeaders, createRemote, RPC_TIMEOUT_MS } from '../js/account/remote.js';
 import {
-  PROFILE_KEY, STAT_KEYS, STAT_MAX, TOKEN_KEY, createStore, defaultProfile, generateToken, mergeProfiles, normalizeProfile
+  PROFILE_KEY, PROFILE_VERSION, STAT_KEYS, STAT_MAX, TOKEN_KEY, createStore, defaultProfile, generateToken, mergeProfiles, normalizeProfile
 } from '../js/account/store.js';
 import { DEFAULT_LOADOUT, WEAPON_IDS, getDef } from '../js/weapons/defs.js';
 
@@ -295,12 +295,27 @@ describe('store', () => {
     const profile = { ...defaultProfile(1000), nickname: '철수', points: 777 };
     store.save({ profile, dirty: true, pendingClaim: '철수' });
     assert.deepEqual(store.load(), { profile, dirty: true, pendingClaim: '철수' });
-    assert.equal(storedEnvelope(storage).v, 1);
+    assert.equal(storedEnvelope(storage).v, PROFILE_VERSION);
 
     const future = storedEnvelope(storage);
-    future.v = 2;
+    future.v = PROFILE_VERSION + 1;
     storage.setItem(PROFILE_KEY, JSON.stringify(future));
     assert.equal(store.load(), null, '모르는 버전은 읽지 않는다');
+  });
+
+  test('v1 프로필의 공짜 카타나는 거둬들이고 나머지는 그대로 읽는다', () => {
+    const storage = fakeStorage();
+    const profile = { nickname: '철수', points: 777, owned: ['ar_std', 'sr_twin', 'ml_katana'], loadout: { primary: 'sr_twin', melee: 'ml_katana' }, createdAt: 5 };
+    storage.setItem(PROFILE_KEY, JSON.stringify({ v: 1, profile, sync: { dirty: false, pendingClaim: null } }));
+    const got = createStore({ storage }).load();
+    assert.equal(got.profile.nickname, '철수');
+    assert.equal(got.profile.points, 777);
+    assert.ok(got.profile.owned.includes('sr_twin'), '산 총은 남는다');
+    assert.ok(!got.profile.owned.includes('ml_katana'));
+    assert.equal(got.profile.loadout.primary, 'sr_twin');
+    assert.equal(got.profile.loadout.melee, 'ml_knife', '장비도 기본 칼로 돌아간다');
+    storage.setItem(PROFILE_KEY, JSON.stringify({ v: PROFILE_VERSION, profile, sync: {} }));
+    assert.equal(createStore({ storage }).load().profile.loadout.melee, 'ml_katana', '새 형식의 카타나는 산 것이다');
   });
 
   test('normalizeProfile은 깨진 항목만 기본값으로 되돌린다', () => {
@@ -383,7 +398,7 @@ describe('createAccount 첫 실행과 복구', () => {
       assert.equal(account.hasNickname(), false);
       assert.equal(account.profile.points, START_POINTS);
       assert.ok(account.buy('pt_magnum').ok, '복구 뒤 정상 동작한다');
-      assert.equal(storedEnvelope(storage).v, 1, '손상된 값을 새 값으로 덮어쓴다');
+      assert.equal(storedEnvelope(storage).v, PROFILE_VERSION, '손상된 값을 새 값으로 덮어쓴다');
     });
   }
 
@@ -836,12 +851,15 @@ describe('createAccount 상점과 장비', () => {
 
     assert.deepEqual(account.equip('primary', 'sr_bolt'), { ok: true });
     assert.equal(account.loadout.primary, 'sr_bolt');
-    assert.deepEqual(account.equip('melee', 'ml_knife'), { ok: true });
-    assert.equal(account.loadout.melee, 'ml_knife');
+    assert.deepEqual(account.equip('melee', 'ml_katana'), { ok: false, reason: 'unowned' }, '카타나는 사야 한다');
+    assert.deepEqual(account.equip('primary', 'ar_std'), { ok: true });
+    assert.equal(account.loadout.primary, 'ar_std');
     assert.equal(bus.of('account:change').length, 2);
+    assert.deepEqual(account.equip('primary', 'sr_bolt'), { ok: true });
+    assert.equal(bus.of('account:change').length, 3);
 
     assert.deepEqual(account.equip('primary', 'sr_bolt'), { ok: true });
-    assert.equal(bus.of('account:change').length, 2, '같은 무기면 바뀐 것이 없다');
+    assert.equal(bus.of('account:change').length, 3, '같은 무기면 바뀐 것이 없다');
   });
 
   test('recordMatch는 포인트와 전적을 쌓는다', (t) => {

@@ -557,7 +557,8 @@ export async function launchBrowser({ extraFlags = [] } = {}) {
       if (exited) throw new Error('브라우저가 시작하자마자 끝났어요');
       if (Date.now() > end) throw new Error('브라우저 시작 시간 초과');
       if (existsSync(activePort)) {
-        const lines = readFileSync(activePort, 'utf8').split(/\r?\n/);
+        let lines = [];
+        try { lines = readFileSync(activePort, 'utf8').split(/\r?\n/); } catch (err) { /* 윈도우에서 브라우저가 쓰는 중이면 EBUSY다. 다음 차례에 다시 읽는다 */ }
         if (lines[0] && lines[1]) wsUrl = `ws://127.0.0.1:${lines[0]}${lines[1]}`;
       }
       if (!wsUrl) await sleep(100);

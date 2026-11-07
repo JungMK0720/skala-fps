@@ -32,6 +32,8 @@ const world = await createWorld({ root, ui, settings, ctx });
 | `setRuleset(id)` → id | `'classic'`·`'knife'`·`'sniper'`. 쓸 수 있는 슬롯(`arsenal.setAllowedSlots`)과 무기를 맞춘다. `loadMap(mapId, { ruleset })`도 같다. 지금 값은 `world.ruleset`. 모르는 값은 클래식 |
 | `reset()` | 라운드 전환용: 수류탄·이펙트·탄흔·예약 소리·관전 정리, HUD 킬피드·중앙 메시지 비우기. **액터는 남는다** |
 | `spawnLocal({ id?, name?, team, spawn:{x,z,rotY,y?}, loadout?, protectMs? })` | 로컬 플레이어 부활(체력 100, 탄약 채움, 허용된 첫 슬롯 꺼내기). `loadout`은 **규칙의 `pickSlot` 무기 id**다(클래식·스나전은 주무기, 칼전은 칼). 없거나 이 규칙에서 못 고르면 직전 선택 → 계정 장비 → 규칙 기본값 순서다. 나머지 슬롯은 `ctx.account.loadout`, 없으면 `DEFAULT_LOADOUT` |
+| `addDrop({ id, weaponId, pos, mag, reserve })` | 다른 사람이 버린 주무기를 바닥에 놓는다. 이 규칙에서 못 쓰는 총이나 깨진 값이면 `null` |
+| `removeDrop(id)` | 바닥의 총을 지운다(누가 주웠다). 라운드 전환과 맵 정리 때는 World가 알아서 비운다 |
 | `setLocalLoadout(id)` → bool | 무기 하나를 슬롯에 넣는다(주무기·보조·칼 모두. live 시작 때 `phase.loadouts[myId]` 확정값 반영). 이 규칙에서 못 쓰는 무기는 `false`이고 아무 일도 없다. `pickSlot` 무기면 다음 스폰의 기본값으로도 기억한다 |
 | `setLocalHp(hp)` | 체력 표시·상태 갱신(방장 확정값). 줄면 화면이 살짝 흔들린다. 0이어도 죽이지는 않는다 → `killLocal` |
 | `killLocal(info?)` | 쓰러지는 카메라 → 1.6초 뒤 같은 팀 생존 액터 3인칭 관전(좌클릭으로 대상 바꾸기). `info = { killerId?, dir?:[x,z] }`. `localDeath` 발생 |
@@ -60,6 +62,8 @@ const world = await createWorld({ root, ui, settings, ctx });
 |---|---|---|
 | `fire` | `{ id, weaponId, origin:[x,y,z], dir:[x,y,z], hitPoint:[x,y,z]\|null, hitKind:'player'\|'world'\|'none', victimId?, part?, dist, normal?, mat?, t, quickscope, noscope, spread(°), shotId, pellets }` | 로컬 플레이어가 쏠 때 한 번(산탄도 한 번). 방향·명중은 사람을 맞힌 첫 펠릿, 없으면 첫 펠릿이다. 칼 휘두르기는 든 칼의 `weaponId`에 `kind`, `hitKind:'none'` — 원격에 `actorFire`로 재생 |
 | `hitClaim` | `{ victimId, part, weaponId, dist, kind, t, point, origin, count, shotId }` | 로컬 판정에 액터가 맞았을 때 **맞은 사람마다 한 번**. `kind`: 총 `'shot'`, 칼 `'slash'`·`'stab'`. `part`: `head`·`body`·`legs`·`hand`·`foot`. 산탄은 그 사람에게 맞은 펠릿 중 가장 좋은 부위(머리 > 몸 > 다리 > 손 > 발). `count` = 맞은 펠릿 수. 같은 발의 주장은 `t`와 `shotId`가 같다. `t` = `performance.now()` ms. **데미지는 match가 확정** → `match.claimHit({ attackerId: myId, ...payload })` |
+| `weaponDrop` | `{ dropId, weaponId, pos, mag, reserve }` | 죽은 뒤 4초 안에 G로 주무기를 버렸다. `reserve`가 `Infinity`면 프리미엄 총이다 |
+| `weaponPick` | `{ dropId, weaponId }` | 주무기 탄약이 다 떨어져 닿은 총을 주웠다. 총은 이미 슬롯 1에 들어갔다 |
 | `grenade` | `{ id, grenadeId, pos:[x,y,z], vel:[x,y,z], fuse, t, kind }` | 로컬 투척 직후 — 원격은 `actorGrenade(payload)`로 같은 궤적 재생 |
 | `explosion` | `{ ownerId, local, grenadeId, center:{x,y,z}, victims:[{ id, dmg, dist }] }` | **모든** 수류탄 폭발(엄폐·거리 감쇠 끝난 값, 로컬 플레이어 포함). 멀티는 `local:true`만 `match.claimExplosion({ attackerId: ownerId, center, victims })`, 연습장은 전부 |
 | `localDeath` | `{ id, info }` | `killLocal` 직후 |

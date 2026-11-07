@@ -10,7 +10,7 @@ import { validateNickname } from './nickname.js';
 
 export const PROFILE_KEY = 'skalafps.profile.v1';
 export const TOKEN_KEY = 'skalafps.token';
-export const PROFILE_VERSION = 1;
+export const PROFILE_VERSION = 2;
 export const STAT_KEYS = Object.freeze(['kills', 'deaths', 'headshots', 'halfShots', 'matches', 'wins', 'draws', 'knifeKills', 'secondsPlayed']);
 /** 장비 칸 → 무기 정의의 slot 번호 */
 export const LOADOUT_SLOTS = Object.freeze({ primary: 1, secondary: 2, melee: 3 });
@@ -175,6 +175,11 @@ export function generateToken() {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** v1에서 카타나는 기본 지급이었다. 판 적이 없으니 v1 프로필의 카타나는 모두 공짜로 받은 것이고, 이제는 상점에서 산다 */
+function migrateV1(profile) {
+  return Array.isArray(profile.owned) ? { ...profile, owned: profile.owned.filter((id) => id !== 'ml_katana') } : profile;
+}
+
 function resolveStorage(injected) {
   if (injected !== undefined) return injected;
   try {
@@ -215,10 +220,11 @@ export function createStore({ storage } = {}) {
     } catch (_) {
       return null;
     }
-    if (!isRecord(data) || data.v !== PROFILE_VERSION || !isRecord(data.profile)) return null;
+    if (!isRecord(data) || (data.v !== PROFILE_VERSION && data.v !== 1) || !isRecord(data.profile)) return null;
     const sync = isRecord(data.sync) ? data.sync : {};
     const pending = validateNickname(sync.pendingClaim);
-    return { profile: normalizeProfile(data.profile), dirty: sync.dirty === true, pendingClaim: pending.ok ? pending.name : null };
+    const saved = data.v === 1 ? migrateV1(data.profile) : data.profile;
+    return { profile: normalizeProfile(saved), dirty: sync.dirty === true, pendingClaim: pending.ok ? pending.name : null };
   }
 
   function save({ profile, dirty, pendingClaim }) {

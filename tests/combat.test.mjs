@@ -711,10 +711,10 @@ describe('규칙', () => {
   });
 
   test('carry의 무기는 이 규칙에서 고를 수 있을 때만 받는다', () => {
-    const carry = { a: { kills: 2, halfShots: 3, loadout: 'ar_std' }, b: { loadout: 'ml_knife' } };
+    const carry = { a: { kills: 2, halfShots: 3, loadout: 'ar_std' }, b: { loadout: 'ml_gurkha' } };
     const m = createMatch({ rules: { ruleset: 'knife' }, players: [{ id: 'a', team: 'owner' }, { id: 'b', team: 'charterer' }], carry });
-    assert.equal(playerOf(m, 'a').loadout, 'ml_katana');
-    assert.equal(playerOf(m, 'b').loadout, 'ml_knife');
+    assert.equal(playerOf(m, 'a').loadout, 'ml_knife');
+    assert.equal(playerOf(m, 'b').loadout, 'ml_gurkha');
     assert.equal(playerOf(m, 'a').halfShots, 3);
   });
 });
@@ -920,6 +920,6 @@ describe('방장 이전', () => {
     const r = restoreFfaMatch({ snapshot: m.snapshot(), players: [{ id: 'a' }, { id: 'b' }], seed: 9 });
     assert.equal(r.rules.ruleset, 'knife');
     assert.equal(r.state.players.find((p) => p.id === 'a').kills, 1);
-    assert.equal(r.state.players.find((p) => p.id === 'a').loadout, 'ml_katana');
+    assert.equal(r.state.players.find((p) => p.id === 'a').loadout, 'ml_knife');
   });
 });

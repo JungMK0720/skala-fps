@@ -22,28 +22,30 @@ const {
 
 /* ---------- DESIGN 3.2 표 ---------- */
 const TABLE = {
-  ar_std: { name: 'RX-4 돌격소총', kind: 'rifle', fire: 'auto', rpm: 600, head: 110, body: 30, legs: 22, limb: 15, falloff: [30, 80, 0.75], mag: 30, reserve: 90, move: 0.95, price: 0 },
-  ar_rapid: { name: 'RX-9 스톰', kind: 'rifle', fire: 'auto', rpm: 860, head: 100, body: 22, legs: 16, limb: 11, falloff: [25, 70, 0.7], mag: 35, reserve: 105, move: 0.97, price: 800 },
-  ar_line: { name: 'LN-3 헤드라인', kind: 'rifle', fire: 'auto', rpm: 480, head: 120, body: 17, legs: 12, limb: 8, falloff: [40, 100, 0.8], mag: 25, reserve: 75, move: 0.95, price: 1200 },
-  ar_burst: { name: 'BR-3 트리플', kind: 'rifle', fire: 'burst', interval: 0.36, head: 110, body: 34, legs: 24, limb: 16, falloff: [30, 80, 0.75], mag: 30, reserve: 90, move: 0.95, price: 1000 },
-  dm_mark: { name: 'DM-4 마크스맨', kind: 'dmr', fire: 'semi', rpm: 200, head: 130, body: 52, legs: 38, limb: 26, falloff: null, mag: 15, reserve: 45, move: 0.9, price: 1500 },
-  sm_vx3: { name: 'VX-3 바이퍼', kind: 'smg', fire: 'auto', rpm: 950, head: 60, body: 18, legs: 14, limb: 9, falloff: [12, 40, 0.55], mag: 32, reserve: 128, move: 1.05, price: 600 },
-  sg_bx12: { name: 'BX-12 브리처', kind: 'shotgun', fire: 'semi', interval: 0.85, head: 20, body: 14, legs: 10, limb: 7, falloff: [8, 22, 0.35], mag: 6, reserve: 24, move: 0.98, price: 700 },
-  sr_bolt: { name: 'SK-7 볼트', kind: 'sniper', fire: 'bolt', interval: 1.2, head: 200, body: 120, legs: 100, limb: 50, falloff: null, mag: 5, reserve: 20, move: 0.85, price: 0 },
-  sr_twin: { name: 'T-2 트윈옵틱', kind: 'sniper', fire: 'bolt', interval: 1.35, head: 200, body: 120, legs: 100, limb: 50, falloff: null, mag: 5, reserve: 20, move: 0.82, price: 1500 },
-  sr_swift: { name: 'S-3 스위프트', kind: 'sniper', fire: 'bolt', interval: 0.85, head: 150, body: 85, legs: 60, limb: 40, falloff: null, mag: 7, reserve: 28, move: 0.95, price: 1000 },
-  sr_heavy: { name: 'H-50 타이탄', kind: 'sniper', fire: 'bolt', interval: 1.9, head: 300, body: 200, legs: 150, limb: 70, falloff: null, mag: 4, reserve: 12, move: 0.75, price: 2500 },
-  pt_std: { name: 'P-9 권총', kind: 'pistol', fire: 'semi', interval: 0.16, head: 70, body: 28, legs: 20, limb: 14, falloff: [15, 45, 0.6], mag: 12, reserve: 36, move: 1.0, price: 0 },
-  pt_magnum: { name: 'M-44 매그넘', kind: 'pistol', fire: 'semi', interval: 0.46, head: 110, body: 55, legs: 38, limb: 25, falloff: [25, 60, 0.7], mag: 6, reserve: 24, move: 0.97, price: 500 },
+  ar_std: { name: 'RX-4 돌격소총', kind: 'rifle', fire: 'auto', rpm: 600, head: 110, body: 30, legs: 22, limb: 15, falloff: [30, 80, 0.75], mag: 30, reserve: 60, move: 0.95, price: 0 },
+  ar_rapid: { name: 'RX-9 스톰', kind: 'rifle', fire: 'auto', rpm: 860, head: 100, body: 22, legs: 16, limb: 11, falloff: [25, 70, 0.7], mag: 35, reserve: 70, move: 0.97, price: 800 },
+  ar_line: { name: 'LN-3 헤드라인', kind: 'rifle', fire: 'auto', rpm: 480, head: 120, body: 17, legs: 12, limb: 8, falloff: [40, 100, 0.8], mag: 25, reserve: Infinity, move: 0.95, price: 1200 },
+  ar_burst: { name: 'BR-3 트리플', kind: 'rifle', fire: 'burst', interval: 0.36, head: 110, body: 34, legs: 24, limb: 16, falloff: [30, 80, 0.75], mag: 30, reserve: 60, move: 0.95, price: 1000 },
+  dm_mark: { name: 'DM-4 마크스맨', kind: 'dmr', fire: 'semi', rpm: 200, head: 130, body: 52, legs: 38, limb: 26, falloff: null, mag: 15, reserve: Infinity, move: 0.9, price: 1500 },
+  sm_vx3: { name: 'VX-3 바이퍼', kind: 'smg', fire: 'auto', rpm: 950, head: 60, body: 18, legs: 14, limb: 9, falloff: [12, 40, 0.55], mag: 32, reserve: 64, move: 1.05, price: 600 },
+  sg_bx12: { name: 'BX-12 브리처', kind: 'shotgun', fire: 'semi', interval: 0.85, head: 20, body: 14, legs: 10, limb: 7, falloff: [8, 22, 0.35], mag: 6, reserve: 12, move: 0.98, price: 700 },
+  sr_bolt: { name: 'SK-7 볼트', kind: 'sniper', fire: 'bolt', interval: 1.2, head: 200, body: 120, legs: 100, limb: 50, falloff: null, mag: 5, reserve: 10, move: 0.85, price: 0 },
+  sr_twin: { name: 'T-2 트윈옵틱', kind: 'sniper', fire: 'bolt', interval: 1.35, head: 200, body: 120, legs: 100, limb: 50, falloff: null, mag: 5, reserve: Infinity, move: 0.82, price: 1500 },
+  sr_swift: { name: 'S-3 스위프트', kind: 'sniper', fire: 'bolt', interval: 0.85, head: 150, body: 85, legs: 60, limb: 40, falloff: null, mag: 7, reserve: 14, move: 0.95, price: 1000 },
+  sr_heavy: { name: 'H-50 타이탄', kind: 'sniper', fire: 'bolt', interval: 1.9, head: 300, body: 200, legs: 150, limb: 70, falloff: null, mag: 4, reserve: Infinity, move: 0.75, price: 2500 },
+  pt_std: { name: 'P-9 권총', kind: 'pistol', fire: 'semi', interval: 0.16, head: 70, body: 28, legs: 20, limb: 14, falloff: [15, 45, 0.6], mag: 12, reserve: 24, move: 1.0, price: 0 },
+  pt_magnum: { name: 'M-44 매그넘', kind: 'pistol', fire: 'semi', interval: 0.46, head: 110, body: 55, legs: 38, limb: 25, falloff: [25, 60, 0.7], mag: 6, reserve: 12, move: 0.97, price: 500 },
 };
 const MELEE_TABLE = {
-  ml_knife: { name: '컴뱃 나이프', slash: [50, 0.45, 1.8, 35], stab: [100, 1.0, 1.8, 12], move: 1.1 },
-  ml_katana: { name: '카게 카타나', slash: [65, 0.62, 2.7, 48], stab: [120, 1.25, 2.9, 14], move: 1.05 },
+  ml_knife: { name: '호크빌 나이프', slash: [50, 0.45, 1.8, 35], stab: [100, 1.0, 1.8, 12], move: 1.1, price: 0 },
+  ml_tanto: { name: '탄토', slash: [40, 0.42, 1.8, 30], stab: [100, 0.85, 2.1, 12], move: 1.12, price: 500 },
+  ml_gurkha: { name: '구르카 나이프', slash: [55, 0.52, 2.1, 42], stab: [110, 1.05, 2.1, 16], move: 1.07, price: 800 },
+  ml_katana: { name: '카게 카타나', slash: [65, 0.62, 2.7, 48], stab: [120, 1.25, 2.9, 14], move: 1.05, price: 1200 },
 };
 const GUN_IDS = Object.keys(TABLE);
 const SNIPER_IDS = ['sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy'];
 const RIFLE_IDS = ['ar_std', 'ar_rapid', 'ar_line', 'ar_burst'];
-const ALL_IDS = [...GUN_IDS, 'ml_knife', 'ml_katana', 'gr_frag'];
+const ALL_IDS = [...GUN_IDS, ...Object.keys(MELEE_TABLE), 'gr_frag'];
 
 /* ---------- 도우미 ---------- */
 const DT = 1 / 60;
@@ -68,18 +70,18 @@ const lerp = (a, b, t) => a + (b - a) * t;
 
 /* ---------- 표 ---------- */
 describe('무기 표(DESIGN 3.2)', () => {
-  test('15종 + 수류탄이 빠짐없이 있고 슬롯별 목록이 맞다', () => {
+  test('17종 + 수류탄이 빠짐없이 있고 슬롯별 목록이 맞다', () => {
     assert.deepEqual([...WEAPON_IDS].sort(), [...ALL_IDS].sort());
-    assert.equal(WEAPON_IDS.length, 16);
+    assert.equal(WEAPON_IDS.length, 18);
     assert.deepEqual([...PRIMARY_IDS].sort(), [...RIFLE_IDS, 'dm_mark', 'sm_vx3', 'sg_bx12', ...SNIPER_IDS].sort());
     assert.deepEqual([...SECONDARY_IDS].sort(), ['pt_magnum', 'pt_std']);
-    assert.deepEqual([...MELEE_IDS].sort(), ['ml_katana', 'ml_knife']);
+    assert.deepEqual([...MELEE_IDS].sort(), ['ml_gurkha', 'ml_katana', 'ml_knife', 'ml_tanto']);
     assert.deepEqual([...GRENADE_IDS], ['gr_frag']);
     for (const id of PRIMARY_IDS) assert.equal(WEAPONS[id].slot, 1, id);
     for (const id of SECONDARY_IDS) assert.equal(WEAPONS[id].slot, 2, id);
     for (const id of MELEE_IDS) assert.equal(WEAPONS[id].slot, 3, id);
     assert.equal(WEAPONS.gr_frag.slot, 4);
-    assert.deepEqual({ ...DEFAULT_LOADOUT }, { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_katana' });
+    assert.deepEqual({ ...DEFAULT_LOADOUT }, { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
   });
 
   for (const [id, t] of Object.entries(TABLE)) {
@@ -122,7 +124,7 @@ describe('무기 표(DESIGN 3.2)', () => {
       assert.equal(d.kind, 'melee');
       assert.equal(d.fire, 'melee');
       assert.equal(d.moveMul, t.move);
-      assert.equal(d.price, 0);
+      assert.equal(d.price, t.price);
       for (const k of ['slash', 'stab']) {
         const m = d.melee[k];
         assert.deepEqual([m.damage, m.cooldown, m.range, m.arc], t[k], k);
@@ -186,7 +188,7 @@ describe('무기 표(DESIGN 3.2)', () => {
       ar_std: 'rifle', ar_rapid: 'rifle', ar_line: 'rifle', ar_burst: 'rifle', dm_mark: 'rifle',
       sm_vx3: 'smg', sg_bx12: 'smg',
       sr_bolt: 'sniper', sr_twin: 'sniper', sr_swift: 'sniper', sr_heavy: 'sniper',
-      pt_std: 'pistol', pt_magnum: 'pistol', ml_knife: 'melee', ml_katana: 'melee', gr_frag: 'grenade',
+      pt_std: 'pistol', pt_magnum: 'pistol', ml_knife: 'melee', ml_tanto: 'melee', ml_gurkha: 'melee', ml_katana: 'melee', gr_frag: 'grenade',
     };
     for (const id of ALL_IDS) assert.equal(WEAPONS[id].category, expected[id], id);
   });
@@ -212,7 +214,7 @@ describe('무기 표(DESIGN 3.2)', () => {
     for (const id of GUN_IDS) {
       const d = WEAPONS[id];
       const text = d.stats.map((s) => `${s.label} ${s.value}`).join('\n');
-      assert.ok(text.includes(`${d.mag} / ${d.reserve}`), `${id} 탄약`);
+      assert.ok(text.includes(`${d.mag} / ${d.premium ? '무제한' : d.reserve}`), `${id} 탄약`);
       assert.ok(text.includes(`머리 ${d.damage.head}`) && text.includes(`몸 ${d.damage.body}`) && text.includes(`다리 ${d.damage.legs}`), `${id} 피해`);
       assert.ok(text.includes(`손·발 ${d.damage.hand}`), `${id} 손·발`);
       assert.ok(text.includes(`이동 ${Math.round(d.moveMul * 100)}%`), `${id} 이동`);
@@ -589,7 +591,7 @@ describe('점사(fire: burst)', () => {
     assert.ok(start && start.empty === true);
     assert.equal(only(run(a, WEAPONS.ar_burst.reloadEmpty + 0.1), 'reloadEnd').length, 1);
     assert.equal(a.getAmmo().mag, 30);
-    assert.equal(a.getAmmo().reserve, 60);
+    assert.equal(a.getAmmo().reserve, 30);
   });
 
   test('R을 눌러도 시작한 점사를 끊지 않는다', () => {
@@ -1248,11 +1250,11 @@ describe('허용 슬롯', () => {
 describe('로드아웃', () => {
   test('기본값과 잘못된 id', () => {
     const a = createArsenal();
-    assert.deepEqual(a.getLoadout(), { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_katana' });
+    assert.deepEqual(a.getLoadout(), { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
     assert.equal(a.getWeapon().id, 'ar_std');
     assert.equal(a.getWeapon().previous, 'pt_std');
     const b = createArsenal({ primary: 'pt_std', secondary: 'ar_std', melee: 'gr_frag' });
-    assert.deepEqual(b.getLoadout(), { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_katana' });
+    assert.deepEqual(b.getLoadout(), { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
     assert.ok(!('SLOT_DEFAULTS' in defs));
   });
 
@@ -1342,7 +1344,7 @@ describe('로드아웃', () => {
     a.setLoadout({ primary: 'sr_bolt' });
     a.setLoadout({ primary: 'ar_std' });
     assert.equal(a.getAmmo('ar_std').mag, 30);
-    assert.equal(a.getAmmo('ar_std').reserve, 90);
+    assert.equal(a.getAmmo('ar_std').reserve, 60);
   });
 
   test('들고 있는 칼을 바꾸면 깨끗하게 다시 꺼낸다', () => {
@@ -1570,7 +1572,7 @@ describe('규칙(modes.js)', () => {
   test('칼전은 칼만 허용한다', () => {
     for (const id of ALL_IDS) assert.equal(isWeaponAllowed('knife', id), MELEE_IDS.includes(id), id);
     assert.deepEqual(pickableWeapons('knife'), [...MELEE_IDS]);
-    assert.equal(defaultPick('knife'), 'ml_katana');
+    assert.equal(defaultPick('knife'), 'ml_knife');
   });
 
   test('스나전은 저격총과 칼만 허용한다', () => {
@@ -1599,9 +1601,9 @@ describe('규칙(modes.js)', () => {
 
   test('가진 무기가 하나도 없으면 규칙의 기본 무기 하나가 남는다', () => {
     assert.deepEqual(pickableWeapons('classic', []), ['ar_std']);
-    assert.deepEqual(pickableWeapons('knife', []), ['ml_katana']);
+    assert.deepEqual(pickableWeapons('knife', []), ['ml_knife']);
     assert.deepEqual(pickableWeapons('sniper', []), ['sr_bolt']);
-    assert.deepEqual(pickableWeapons('knife', ['ar_std']), ['ml_katana']);
+    assert.deepEqual(pickableWeapons('knife', ['ar_std']), ['ml_knife']);
     assert.deepEqual(pickableWeapons('sniper', new Set(['ar_std', 'dm_mark'])), ['sr_bolt']);
   });
 

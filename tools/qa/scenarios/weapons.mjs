@@ -48,7 +48,8 @@ async function pickThroughLoadout(t, page, id, ruleset = 'classic') {
 async function fireAndReload(t, page, id) {
   const def = WEAPONS[id];
   const s0 = await snap(page);
-  t.check(s0.mag === def.mag && s0.reserve === def.reserve, `${id}: 처음 탄약`, s0);
+  const premium = def.reserve === Infinity;
+  t.check(s0.mag === def.mag && s0.reserve === (premium ? 'unlimited' : def.reserve), `${id}: 처음 탄약`, s0);
   t.check(near(+(await page.eval(`document.querySelector('.sk-ammo-mag').textContent`)), def.mag, 0), `${id}: HUD 탄약`, await page.eval(`document.querySelector('.sk-ammo-mag').textContent`));
   await page.eval('__qa.clearLogs()');
 
@@ -79,7 +80,8 @@ async function fireAndReload(t, page, id) {
   await waitIdle(page, (def.reload + 2) * 1000 * 4);
   const s2 = await snap(page);
   t.check(s2.mag === def.mag, `${id}: 재장전으로 탄창이 찬다`, s2.mag);
-  t.check(s2.reserve === def.reserve - used, `${id}: 예비탄이 줄어든다`, { reserve: s2.reserve, used });
+  if (premium) t.check(s2.reserve === 'unlimited' && /∞/.test(await page.eval(`document.querySelector('.sk-ammo-res').textContent`)), `${id}: 프리미엄은 예비탄이 줄지 않고 ∞로 보인다`, s2.reserve);
+  else t.check(s2.reserve === def.reserve - used, `${id}: 예비탄이 줄어든다`, { reserve: s2.reserve, used });
 }
 
 /** 우클릭 조준과 FOV, 스코프 표시를 검사한다 */

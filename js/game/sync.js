@@ -34,7 +34,7 @@
 import {
   EV, isGameEvent, decodeMessage, byteSize, FLAG, vec3,
   encodeState, encodeStateBody, bodyNearlyEqual, encodeFire, encodeHit, encodeGrenade, decodeGrenade,
-  encodeMatch, encodeMatchEvent, encodeLoadout, encodeChat, encodePing, encodePong
+  encodeMatch, encodeMatchEvent, encodeLoadout, encodeChat, encodePing, encodePong, encodeDrop, encodePick
 } from './protocol.js';
 import { createInterp } from './interp.js';
 
@@ -514,6 +514,25 @@ export function createSync(opts = {}) {
     return true;
   }
 
+  /**
+   * 죽은 뒤 버린 총 { dropId, weaponId, pos, mag, reserve } → 모두에게.
+   * 방장을 거치지 않는다. 누가 먼저 주웠는지는 먼저 알린 쪽이고, 동시에 주우면 둘 다 갖는다(판정에 영향이 없다).
+   */
+  function sendDrop(d) {
+    if (disposed || !d) return false;
+    reliable.push({ ev: EV.drop, payload: encodeDrop(++itemId, d), to: null, merge: false, left: o.reliableRepeat, nextAt: -Infinity, kind: 'drop' });
+    kick();
+    return true;
+  }
+
+  /** 총을 주웠다 → 다른 사람 화면에서 그 총을 지운다 */
+  function sendPick(dropId) {
+    if (disposed || dropId == null) return false;
+    reliable.push({ ev: EV.pick, payload: encodePick(++itemId, dropId), to: null, merge: false, left: o.reliableRepeat, nextAt: -Infinity, kind: 'pick' });
+    kick();
+    return true;
+  }
+
   /* ---------------------------------------------------------------- 수신 */
 
   function remoteOf(id, t) {
@@ -522,7 +541,8 @@ export function createSync(opts = {}) {
     r = {
       id, interp: createInterp({ intervalHint: () => 1000 / stateHz(), ...(o.interp || {}) }), maxSeq: -Infinity, state: null, lastHeard: t, firstAt: t, seqLog: [],
       listed: playerIds.has(id), loadout: null, loadoutJson: '',
-      seenHit: makeSeen(), seenNade: makeSeen(), seenChat: makeSeen(), seenFire: makeSeen(64), seenLoadout: makeSeen(32)
+      seenHit: makeSeen(), seenNade: makeSeen(), seenChat: makeSeen(), seenFire: makeSeen(64), seenLoadout: makeSeen(32),
+      seenDrop: makeSeen(32), seenPick: makeSeen(32)
     };
     remotes.set(id, r);
     return r;
@@ -591,6 +611,14 @@ export function createSync(opts = {}) {
       case 'chat':
         if (r.seenChat(x.id)) { S.dup++; break; }
         emit({ type: 'chat', from, text: x.text });
+        break;
+      case 'drop':
+        if (r.seenDrop(x.id)) { S.dup++; break; }
+        emit({ type: 'drop', from, dropId: x.dropId, weaponId: x.weaponId, pos: x.pos, mag: x.mag, reserve: x.reserve });
+        break;
+      case 'pick':
+        if (r.seenPick(x.id)) { S.dup++; break; }
+        emit({ type: 'pick', from, dropId: x.dropId });
         break;
       case 'ping':
         onPing(from, x, t, msg.t);
@@ -835,6 +863,8 @@ export function createSync(opts = {}) {
     sendFire,
     sendHitClaim,
     sendGrenade,
+    sendDrop,
+    sendPick,
     sendMatch,
     sendLoadout,
     sendChat,

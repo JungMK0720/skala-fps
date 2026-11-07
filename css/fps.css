@@ -977,6 +977,7 @@
 .sk-shop-name { font-size: 16px; font-weight: 800; line-height: 1.25; }
 .sk-shop-card .sk-lo-tagline { display: block; margin-top: 2px; white-space: normal; }
 .sk-shop-state { flex: none; font: 800 13px/1.5 var(--sk-mono); color: var(--sk-pink-hi); }
+.sk-premium { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 800; vertical-align: middle; color: #241a02; background: linear-gradient(135deg, #ffe08a, #ffbe2e); }
 .sk-shop-card.is-owned .sk-shop-state { color: var(--sk-muted); }
 .sk-shop-card.is-equipped .sk-shop-state { color: var(--sk-cyan); }
 .sk-shop-stats { display: grid; margin: 0; font-size: 12px; }

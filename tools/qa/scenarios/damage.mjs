@@ -244,7 +244,7 @@ export default {
 
     t.setSection('칼');
     const closeIn = { a: open.a, b: { x: open.a.x + Math.sign(open.b.x - open.a.x) * 1.3, y: open.a.y, z: open.a.z + Math.sign(open.b.z - open.a.z) * 1.3 } };
-    for (const [id, slashDmg] of [['ml_knife', 50], ['ml_katana', 65]]) {
+    for (const [id, slashDmg] of [['ml_knife', 50], ['ml_gurkha', 55], ['ml_katana', 65]]) {
       await readyTarget(page, closeIn);
       await page.fn((w) => window.__qa.world.setLocalLoadout(w), id);
       await page.press('Digit3');

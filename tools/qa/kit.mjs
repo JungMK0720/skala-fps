@@ -18,7 +18,7 @@ function pageSetup(opts) {
   try {
     if (!localStorage.getItem('skalafps.qa.seed')) {
       localStorage.setItem('skalafps.qa.seed', '1');
-      if (opts.profile) localStorage.setItem('skalafps.profile.v1', JSON.stringify({ v: 1, profile: opts.profile, sync: { dirty: false, pendingClaim: null } }));
+      if (opts.profile) localStorage.setItem('skalafps.profile.v1', JSON.stringify({ v: 2, profile: opts.profile, sync: { dirty: false, pendingClaim: null } }));
       if (opts.settings) localStorage.setItem('skalafps.settings.v1', JSON.stringify(opts.settings));
     }
   } catch (err) { /* 저장소 없는 페이지 */ }
@@ -202,7 +202,7 @@ function pageSetup(opts) {
       const zoom = a.getZoom(qa.ctx.renderer.baseFov);
       return {
         pos: s.pos.slice(), vel: s.vel.slice(), speed: s.speed, yaw: s.yaw, pitch: s.pitch, onGround: s.onGround, hp: s.hp, alive: s.alive,
-        weapon: w.id, slot: w.slot, state: w.state, mag: ammo.mag, reserve: ammo.reserve,
+        weapon: w.id, slot: w.slot, state: w.state, mag: ammo.mag, reserve: ammo.reserve === Infinity ? 'unlimited' : ammo.reserve,
         zoom: { progress: zoom.progress, level: zoom.level, levels: zoom.levels, mag: zoom.mag, fov: zoom.fov, scopeAmount: zoom.scopeAmount },
         fov: qa.ctx.renderer.camera.fov, baseFov: qa.ctx.renderer.baseFov, locked: qa.ctx.input.locked, enabled: qa.ctx.input.enabled,
         phase: qa.run ? qa.run.phase : null

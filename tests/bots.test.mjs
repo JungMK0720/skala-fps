@@ -83,7 +83,7 @@ function makeRunner({ pick, ruleset = 'classic', difficulty = 'normal', start = 
         if (cmd.slot) { edgeSlot = cmd.slot; log.slots.push(cmd.slot); }
         if (cmd.reload) edgeReload = true;
         if (cmd.jump) edgeJump = true;
-        if (cmd.fire) { log.firePulses++; if (prevFire) log.doubleFire++; }
+        if (cmd.fire) { log.firePulses++; if (prevFire && arsenal.getWeapon().slot !== 4) log.doubleFire++; }   // 수류탄은 던질 때까지 누르고 있는다
         prevFire = !!cmd.fire;
       }
       if (ticks > 0) { y += rate; p = Math.max(-1.5, Math.min(1.5, p + pRate)); ticks--; }
