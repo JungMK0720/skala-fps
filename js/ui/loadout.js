@@ -110,6 +110,13 @@ export function createLoadout(ctx) {
     cNote.classList.toggle('is-picked', userPicked);
   }
 
+  /** 휴대폰에서는 무기 줄이 옆으로 밀린다. 패널을 열 때 고른 무기가 보이게 옮겨 둔다 */
+  function revealCompactPick() {
+    const sel = cCards.querySelector('.is-sel');
+    if (!sel || cCards.scrollWidth <= cCards.clientWidth) return;
+    cCards.scrollLeft = sel.offsetLeft - cCards.offsetLeft - (cCards.clientWidth - sel.offsetWidth) / 2;
+  }
+
   // ---------- 전체 화면 카드 ----------
   function card(w, i, sel) {
     return h('button', { type: 'button', class: 'sk-lo-card' + (sel ? ' is-sel' : ''), title: w.name, onclick: () => pick(w.id, false) },
@@ -222,6 +229,7 @@ export function createLoadout(ctx) {
     if (compact) {
       if (p.title) setText(cTitle, p.title);
       renderCompact();
+      if (fresh) revealCompactPick();
     } else {
       renderFull(secs);
     }

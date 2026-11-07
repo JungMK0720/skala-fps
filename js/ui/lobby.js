@@ -127,8 +127,11 @@ export function createLobby(ctx) {
     if (!nameIn.value) nameIn.value = cleanRoomName(`${myName()}의 방`);
     setRule(formRule);
     setMode(formMode);
+    // 터치 기기에서 입력칸에 바로 포커스를 주면 가상 키보드가 시트를 덮는다. 이름은 이미 채워 두었으니 손으로 누를 때만 연다
+    const touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    if (touch) nameIn.removeAttribute('data-autofocus');
     modal.open(createSheet);
-    nameIn.select();
+    if (!touch) nameIn.select();
   }
   function doCreate() {
     const name = cleanRoomName(nameIn.value) || cleanRoomName(`${myName()}의 방`);
