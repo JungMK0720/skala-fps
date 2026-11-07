@@ -1,0 +1,460 @@
+/*
+ * Date: 06NOV2026
+ * Author: Minkyu Jung
+ * Purpose: 계정 진입점. localStorage 프로필을 정본으로 닉네임·포인트·장비·전적을 관리하고, Supabase가 설정돼 있으면 비동기로 동기화한다.
+ *          네트워크가 실패해도 어떤 호출도 게임을 막거나 예외를 던지지 않는다. 계약은 docs/DESIGN.md 7절.
+ *
+ *   const account = createAccount({ bus });   // 만들면 곧바로 쓸 수 있다. 서버 동기화는 뒤에서 진행된다
+ *
+ * DESIGN 7절의 API에 더해:
+ *   account.ready                 시작 동기화가 끝나면 풀리는 Promise. 게임을 막지 않도록 기다리지 않는다
+ *   account.nicknamePending       서버에 아직 등록하지 못한 닉네임이 있으면 true
+ *   account.nicknameConflict      등록을 거절당한 닉네임, 없으면 null. 이벤트를 놓친 화면은 이 값을 본다
+ *   await account.retryNickname() 멀티 입장 때 부른다. setNickname과 같은 모양을 돌려준다
+ *   await account.syncFromRemote(), await account.flush(), await account.topPlayers(limit), account.dispose()
+ *   bus 'account:nickname-conflict' { name, reason, message }  새 닉네임을 물어볼 때
+ *
+ * 결과 모양:
+ *   checkNickname, setNickname, retryNickname → { ok, name, reason?, offline, message }. message는 화면에 그대로 보여 줘도 된다.
+ *   네트워크 실패는 { ok:true, offline:true, reason:'network', message }다. 게임을 막지 않으려고 ok가 true다.
+ *   equip의 reason: 'slot'(칸이 없거나 맞지 않음) | 'unknown' | 'unowned'
+ *   recordMatch의 summary에 knifeKills를 넣으면 전적에 쌓인다(선택).
+ *
+ * 닉네임 게이트는 'account:change'도 들어야 한다. 프로필을 잃어도 토큰이 남아 있으면 동기화가 끝난 뒤 닉네임이 돌아온다.
+ */
+import { getDef } from '../weapons/defs.js';
+import { clampPoints, matchReward, priceOf, readSummary, secretReward } from './economy.js';
+import { nicknameKey, validateNickname } from './nickname.js';
+import { createRemote } from './remote.js';
+import {
+  LOADOUT_SLOTS, PROFILE_KEY, createStore, defaultProfile, isSecretId, mergeProfiles, normalizeOwned,
+  normalizeProfile, normalizeStats, sameProfile, sameProgress, secretEntry
+} from './store.js';
+
+export { START_POINTS, matchReward, priceOf } from './economy.js';
+export { cleanNickname, nicknameKey, validateNickname } from './nickname.js';
+
+export const SAVE_DEBOUNCE_MS = 2000;
+export const RETRY_MIN_MS = 15000;
+export const RETRY_MAX_MS = 300000;
+
+const MESSAGE = Object.freeze({
+  offline: '오프라인이라 중복 확인을 못 했어요.',
+  available: '사용할 수 있는 닉네임이에요.',
+  saved: '닉네임을 저장했어요.'
+});
+
+/** 서버 오류 코드 → 화면에 알릴 이유 */
+const REFUSALS = new Map([
+  ['NAME_TAKEN', { reason: 'taken', message: '이미 사용 중인 닉네임이에요.' }],
+  ['NAME_INVALID', { reason: 'format', message: '닉네임 형식이 맞지 않아요.' }],
+  ['NAME_RESERVED', { reason: 'reserved', message: '이 닉네임은 쓸 수 없어요.' }]
+]);
+
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+function deepFreeze(o) {
+  if (o && typeof o === 'object' && !Object.isFrozen(o)) {
+    Object.freeze(o);
+    for (const k of Object.keys(o)) deepFreeze(o[k]);
+  }
+  return o;
+}
+
+function offlineResult(name) {
+  return { ok: true, name, reason: 'network', offline: true, message: MESSAGE.offline };
+}
+
+/**
+ * opts: { bus, storage?, fetch?, config?: { url, anonKey }, target? }
+ * config를 주지 않으면 globalThis.SKALA_CONFIG.supabase를 읽는다. target은 pagehide·online·storage를 받는 대상(기본 window).
+ */
+export function createAccount({ bus = null, storage, fetch: fetchImpl, config, target = globalThis.window } = {}) {
+  const store = createStore({ storage });
+  const remote = createRemote({ fetch: fetchImpl, config });
+  const restored = store.load();
+
+  let profile = restored ? restored.profile : defaultProfile();
+  let dirty = restored ? restored.dirty : false;              // 서버가 아직 받았다고 확인하지 않은 변경이 있다
+  let pendingClaim = restored ? restored.pendingClaim : null; // 서버에 등록하지 못한 닉네임
+  let conflictName = null;                                    // 등록을 거절당한 닉네임
+  let snapshot = null;
+  let revision = 0;                                           // 저장 요청 중에 또 바뀌었는지 알아채는 번호
+  let saveTimer = null;
+  let retryTimer = null;
+  let retryDelay = RETRY_MIN_MS;
+  let synced = false;
+  let syncing = null;
+  let queue = Promise.resolve();
+  let disposed = false;
+
+  // ───────────── 내부 상태 ─────────────
+  function readProfile() {
+    if (!snapshot) snapshot = deepFreeze(JSON.parse(JSON.stringify(profile)));
+    return snapshot;
+  }
+
+  function emit(event, payload) {
+    if (!bus) return;
+    try {
+      bus.emit(event, payload);
+    } catch (err) {
+      console.error('[account] 이벤트 처리 실패:', event, err);
+    }
+  }
+
+  function persist() {
+    store.save({ profile, dirty, pendingClaim });
+  }
+
+  function announce() {
+    snapshot = null;
+    emit('account:change', { profile: readProfile() });
+  }
+
+  /** 사용자의 변경을 확정한다: 로컬에 저장하고, 서버 저장을 예약하고, 화면에 알린다 */
+  function commit() {
+    dirty = true;
+    revision += 1;
+    persist();
+    scheduleSave();
+    announce();
+  }
+
+  /** 닉네임 등록·프로필 읽기·저장이 응답 순서로 뒤섞이지 않게 한 줄로 세운다 */
+  function serial(task) {
+    const run = queue.then(() => task());
+    queue = run.catch(() => {});
+    return run;
+  }
+
+  // ───────────── 서버 저장 ─────────────
+  function canSave() {
+    return remote.enabled && dirty && !!profile.nickname && !pendingClaim;
+  }
+
+  function scheduleSave() {
+    if (!remote.enabled || disposed) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      serial(() => sendSave());
+    }, SAVE_DEBOUNCE_MS);
+  }
+
+  async function sendSave(options) {
+    if (!canSave()) return;
+    const sent = revision;
+    const r = await remote.saveProfile(store.token(), profile, options);
+    if (r.ok) {
+      retryDelay = RETRY_MIN_MS;
+      if (sent === revision) {
+        dirty = false;
+        persist();
+      }
+    } else if (r.reason === 'network') {
+      armRetry();
+    } else if (r.error === 'NOT_FOUND' && profile.nickname && !pendingClaim) {
+      // 서버에 행이 없다(데이터베이스를 비운 경우 등): 닉네임부터 다시 등록하면 저장이 뒤따른다
+      pendingClaim = profile.nickname;
+      persist();
+      retryNickname();
+    }
+  }
+
+  /** 예약된 저장을 바로 보낸다. keepalive면 페이지가 닫혀도 요청이 끝까지 간다. */
+  function flush({ keepalive = false } = {}) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    if (!canSave()) return Promise.resolve();
+    // 페이지가 닫히는 중에는 앞선 요청을 기다릴 시간이 없다
+    return keepalive ? sendSave({ keepalive: true }) : serial(() => sendSave());
+  }
+
+  function armRetry() {
+    if (retryTimer || disposed || !remote.enabled) return;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      resumeRemote();
+    }, retryDelay);
+    retryDelay = Math.min(RETRY_MAX_MS, retryDelay * 2);
+  }
+
+  /** 네트워크가 돌아왔을 수 있을 때 못 끝낸 일을 이어서 한다 */
+  function resumeRemote() {
+    if (!synced) return syncFromRemote();
+    if (pendingClaim && !conflictName) retryNickname();
+    return flush();
+  }
+
+  // ───────────── 닉네임 ─────────────
+  function acceptClaim(name) {
+    profile.nickname = name;
+    pendingClaim = null;
+    conflictName = null;
+    retryDelay = RETRY_MIN_MS;
+    commit(); // 행이 방금 생겼을 수 있으니 진행 상황도 함께 올린다
+    return { ok: true, name, offline: false, message: MESSAGE.saved };
+  }
+
+  function keepOffline(name) {
+    profile.nickname = name;
+    pendingClaim = name;
+    conflictName = null;
+    commit();
+    armRetry();
+    return offlineResult(name);
+  }
+
+  async function checkNickname(name) {
+    const v = validateNickname(name);
+    if (!v.ok) return { ok: false, name: v.name, reason: v.reason, offline: false, message: v.message };
+    if (!remote.enabled) return offlineResult(v.name);
+    if (profile.nickname && !pendingClaim && nicknameKey(v.name) === nicknameKey(profile.nickname)) {
+      return { ok: true, name: v.name, offline: false, message: MESSAGE.available }; // 이미 내 이름이다
+    }
+    const r = await remote.checkNickname(v.name);
+    if (r.ok) return { ok: true, name: v.name, offline: false, message: MESSAGE.available };
+    const refusal = REFUSALS.get(r.error);
+    return refusal ? { ok: false, name: v.name, offline: false, ...refusal } : offlineResult(v.name);
+  }
+
+  async function setNickname(name) {
+    const v = validateNickname(name);
+    if (!v.ok) return { ok: false, name: v.name, reason: v.reason, offline: false, message: v.message };
+    return serial(async () => {
+      if (v.name === profile.nickname && !pendingClaim) return { ok: true, name: v.name, offline: false, message: MESSAGE.saved };
+      if (!remote.enabled) return keepOffline(v.name);
+      const r = await remote.claimNickname(store.token(), v.name);
+      if (r.ok) return acceptClaim(r.name || v.name);
+      const refusal = REFUSALS.get(r.error);
+      // 거절이면 이전 이름을 그대로 둔다. 그 밖의 실패는 게임을 막지 않도록 일단 로컬에 저장한다.
+      return refusal ? { ok: false, name: v.name, offline: false, ...refusal } : keepOffline(v.name);
+    });
+  }
+
+  /** 등록하지 못한 닉네임을 다시 등록한다. 거절되면 'account:nickname-conflict'를 알린다. */
+  function retryNickname() {
+    return serial(async () => {
+      const name = pendingClaim;
+      if (!name) return { ok: true, name: profile.nickname, offline: false, message: MESSAGE.saved };
+      if (!remote.enabled) return offlineResult(name);
+      const r = await remote.claimNickname(store.token(), name);
+      if (pendingClaim !== name) return { ok: true, name: profile.nickname, offline: false, message: MESSAGE.saved };
+      if (r.ok) return acceptClaim(r.name || name);
+      const refusal = REFUSALS.get(r.error);
+      if (!refusal) {
+        armRetry();
+        return offlineResult(name);
+      }
+      conflictName = name;
+      emit('account:nickname-conflict', { name, reason: refusal.reason, message: `${refusal.message} 새 닉네임을 정해 주세요.` });
+      return { ok: false, name, offline: false, ...refusal };
+    });
+  }
+
+  // ───────────── 서버 동기화 ─────────────
+  function adoptServerProfile(raw) {
+    const src = raw && typeof raw === 'object' ? raw : {};
+    const server = normalizeProfile({ ...src, nickname: src.name });
+    const merged = mergeProfiles(profile, server, { dirty, keepNickname: !!pendingClaim });
+    const changed = !sameProfile(merged, profile);
+    const ahead = !sameProgress(merged, server);
+    const wasDirty = dirty;
+    profile = merged;
+    dirty = ahead;
+    if (changed) revision += 1;
+    if (changed || dirty !== wasDirty) persist();
+    if (changed) announce();
+    if (dirty) scheduleSave();
+  }
+
+  /** 합치는 규칙은 store.js의 mergeProfiles. 시작할 때 한 번 저절로 불린다. */
+  function syncFromRemote() {
+    if (!remote.enabled || disposed) return Promise.resolve({ ok: false, offline: true });
+    if (!syncing) syncing = runSync().finally(() => { syncing = null; });
+    return syncing;
+  }
+
+  async function runSync() {
+    if (pendingClaim) await retryNickname();
+    const r = await serial(async () => {
+      const res = await remote.getProfile(store.token());
+      if (res.ok) adoptServerProfile(res.profile);
+      return res;
+    });
+    if (r.ok) {
+      synced = true;
+      retryDelay = RETRY_MIN_MS;
+      return { ok: true, offline: false };
+    }
+    if (r.error === 'NOT_FOUND') {
+      synced = true;
+      if (profile.nickname && !pendingClaim) {
+        pendingClaim = profile.nickname; // 서버 설정 전에 정한 이름 등: 지금 등록한다
+        persist();
+        await retryNickname();
+      }
+      return { ok: true, offline: false };
+    }
+    armRetry();
+    return { ok: false, offline: true };
+  }
+
+  // ───────────── 상점 · 장비 ─────────────
+  function isOwned(id) {
+    return profile.owned.includes(id);
+  }
+
+  function buy(id) {
+    const price = priceOf(id);
+    if (price === null) return { ok: false, reason: 'unknown', points: profile.points };
+    if (isOwned(id)) return { ok: false, reason: 'owned', points: profile.points };
+    if (profile.points < price) return { ok: false, reason: 'points', points: profile.points };
+    profile.points -= price;
+    profile.owned = normalizeOwned([...profile.owned, id]);
+    commit();
+    return { ok: true, points: profile.points };
+  }
+
+  function equip(slotKey, id) {
+    if (!hasOwn(LOADOUT_SLOTS, slotKey)) return { ok: false, reason: 'slot' };
+    const def = getDef(id);
+    if (!def) return { ok: false, reason: 'unknown' };
+    if (def.slot !== LOADOUT_SLOTS[slotKey]) return { ok: false, reason: 'slot' };
+    if (!isOwned(id)) return { ok: false, reason: 'unowned' };
+    if (profile.loadout[slotKey] !== id) {
+      profile.loadout[slotKey] = id;
+      commit();
+    }
+    return { ok: true };
+  }
+
+  // ───────────── 전적 · 보상 ─────────────
+  function recordMatch(summary) {
+    const s = readSummary(summary);
+    const { gained, breakdown } = matchReward(s);
+    const t = profile.stats;
+    profile.stats = normalizeStats({
+      ...t,
+      kills: t.kills + s.kills,
+      deaths: t.deaths + s.deaths,
+      headshots: t.headshots + s.headshots,
+      halfShots: t.halfShots + s.halfShots,
+      knifeKills: t.knifeKills + s.knifeKills,
+      matches: t.matches + 1,
+      wins: t.wins + (s.win ? 1 : 0),
+      draws: t.draws + (s.draw ? 1 : 0),
+      secondsPlayed: t.secondsPlayed + s.seconds
+    });
+    profile.points = clampPoints(profile.points + gained);
+    commit();
+    return { gained, breakdown, points: profile.points };
+  }
+
+  /** secret: 맵 데이터의 { id, name, points? }. 같은 스팟은 한 번만 보상한다. */
+  function findSecret(mapId, secret) {
+    const id = secret && typeof secret === 'object' ? secret.id : secret;
+    const none = { first: false, gained: 0, points: profile.points };
+    if (!isSecretId(mapId) || !isSecretId(id)) return none;
+    if (hasOwn(profile.secrets, mapId) && hasOwn(profile.secrets[mapId], id)) return none;
+    const gained = secretReward(secret);
+    if (!hasOwn(profile.secrets, mapId)) profile.secrets[mapId] = {};
+    profile.secrets[mapId][id] = secretEntry(secret.name, Date.now());
+    profile.points = clampPoints(profile.points + gained);
+    commit();
+    return { first: true, gained, points: profile.points };
+  }
+
+  /**
+   * 이 기기의 프로필을 지운다. 토큰은 남긴다. 토큰까지 지우면 서버의 닉네임을 영영 되찾을 수 없기 때문이다.
+   * 그래서 온라인이면 다음 시작 때 서버 프로필이 돌아오고, 그 전에 새 닉네임을 정하면 서버 행도 초기값으로 덮인다.
+   */
+  function resetLocal() {
+    clearTimeout(saveTimer);
+    clearTimeout(retryTimer);
+    saveTimer = null;
+    retryTimer = null;
+    retryDelay = RETRY_MIN_MS;
+    store.clear();
+    profile = defaultProfile();
+    dirty = false;
+    pendingClaim = null;
+    conflictName = null;
+    revision += 1;
+    announce();
+  }
+
+  async function topPlayers(limit = 20) {
+    if (!remote.enabled) return { ok: false, players: [], offline: true };
+    const r = await remote.topPlayers(limit);
+    if (r.ok && Array.isArray(r.players)) return { ok: true, players: r.players, offline: false };
+    return { ok: false, players: [], offline: r.reason === 'network' };
+  }
+
+  // ───────────── 브라우저 이벤트 ─────────────
+  function onPageHide() {
+    flush({ keepalive: true });
+  }
+
+  function onOnline() {
+    retryDelay = RETRY_MIN_MS;
+    resumeRemote();
+  }
+
+  /** 다른 탭이 프로필을 바꾸면 따라간다. 오래된 값으로 덮어써서 포인트를 잃지 않게 한다. */
+  function onStorage(e) {
+    if (e.key !== PROFILE_KEY && e.key !== null) return;
+    const next = store.load();
+    if (next) {
+      ({ profile, dirty, pendingClaim } = next);
+    } else if (e.newValue == null) {
+      profile = defaultProfile();
+      dirty = false;
+      pendingClaim = null;
+    } else {
+      return;
+    }
+    if (pendingClaim !== conflictName) conflictName = null;
+    revision += 1;
+    announce();
+  }
+
+  const listeners = [['pagehide', onPageHide], ['online', onOnline], ['storage', onStorage]];
+  const canListen = !!target && typeof target.addEventListener === 'function';
+  if (canListen) for (const [name, fn] of listeners) target.addEventListener(name, fn);
+
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    if (canListen) for (const [name, fn] of listeners) target.removeEventListener(name, fn);
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    flush();
+  }
+
+  const ready = syncFromRemote();
+
+  return Object.freeze({
+    get profile() { return readProfile(); },
+    get loadout() { return readProfile().loadout; },
+    get remoteEnabled() { return remote.enabled; },
+    get nicknamePending() { return !!pendingClaim; },
+    get nicknameConflict() { return conflictName; },
+    ready,
+    hasNickname: () => !!profile.nickname,
+    checkNickname,
+    setNickname,
+    retryNickname,
+    buy,
+    equip,
+    isOwned,
+    recordMatch,
+    findSecret,
+    resetLocal,
+    syncFromRemote,
+    flush: () => flush(),
+    topPlayers,
+    dispose
+  });
+}
