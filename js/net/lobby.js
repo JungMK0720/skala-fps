@@ -13,7 +13,7 @@
  *  - 메타 갱신은 Channel의 presence 리미터(31초 4회)가 병합하므로 마구 불러도 안전하다.
  */
 import { NET } from '../core/consts.js';
-import { Emitter } from './realtime.js';
+import { Emitter, sanitizeName } from './realtime.js';
 
 export const LOBBY_TOPIC = NET.LOBBY_CHANNEL;
 
@@ -21,7 +21,10 @@ const STATUS_ORDER = { waiting: 0, playing: 1 };
 const HOLD_MS = 1500; // 채널을 새로 연 직후 presence가 덜 찬 동안 이전 목록 유지
 const DEFAULT_RULESET = 'classic';
 const RULESET_RE = /^[a-z][a-z0-9_-]{0,15}$/;
+const ROOM_MAX_PLAYERS = 16;   // room.js의 방 인원 상한과 같다
 const nowMs = () => (globalThis.performance && performance.now ? performance.now() : Date.now());
+const textOf = (v, max) => (typeof v === 'string' ? sanitizeName(v, max) : '');
+const intOf = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.trunc(v) : 0);
 
 /**
  * presence 객체는 키가 10개까지라(limits.FREE_PLAN) 모드와 규칙을 mode 키 하나에 싣는다: 'team', 'ffa', 'team:knife', 'ffa:sniper'.
@@ -35,7 +38,7 @@ export function packRoomKind(mode, ruleset) {
 
 /** → { mode:'team'|'ffa', ruleset }. 어떤 규칙 이름이 있는지는 게임이 안다(모르는 이름은 화면에서 클래식으로 읽는다) */
 export function unpackRoomKind(v) {
-  const [m, rs] = String(v == null ? '' : v).split(':');
+  const [m, rs] = (typeof v === 'string' ? v : '').split(':');
   return { mode: m === 'ffa' ? 'ffa' : 'team', ruleset: rs && RULESET_RE.test(rs) ? rs : DEFAULT_RULESET };
 }
 
@@ -47,16 +50,17 @@ export function lobbyEntry(meta, { roomId, hostId, hostName, players, term }) {
   };
 }
 
-/** presence 한 줄(믿을 수 없는 값) → 방 목록 항목 */
+/** presence 한 줄(믿을 수 없는 값) → 방 목록 항목. 아무나 올릴 수 있으므로 한 줄이 목록 전체를 망가뜨리면 안 된다 */
 export function readLobbyEntry(m) {
+  const max = intOf(m.max);
   return {
-    roomId: m.roomId,
-    name: String(m.name || ''),
-    mapId: String(m.mapId || ''),
-    hostId: String(m.hostId || ''),
-    hostName: String(m.hostName || ''),
-    players: Math.max(0, m.players | 0),
-    max: Math.max(1, m.max | 0) || 8,
+    roomId: typeof m.roomId === 'string' ? m.roomId : '',
+    name: textOf(m.name, 32),
+    mapId: textOf(m.mapId, 32),
+    hostId: textOf(m.hostId, 64),
+    hostName: textOf(m.hostName, 24),
+    players: Math.max(0, intOf(m.players)),
+    max: max > 0 ? Math.min(ROOM_MAX_PLAYERS, max) : 8,
     status: m.status === 'playing' ? 'playing' : 'waiting',
     ...unpackRoomKind(m.mode)
   };

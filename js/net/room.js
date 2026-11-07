@@ -31,7 +31,7 @@
  *   최근 8개 중 delay가 가장 작은 표본을 쓴다(오차 ≤ delay/2).
  */
 import { NET } from '../core/consts.js';
-import { Emitter, netError, randomId, sanitizeName } from './realtime.js';
+import { Emitter, netError, plainFields, randomId, sanitizeName } from './realtime.js';
 import { TokenBucket, frameCost, autoTopology, clampHz, DEFAULT_BUDGET } from './limits.js';
 import { lobbyEntry } from './lobby.js';
 
@@ -65,6 +65,17 @@ const ROOM_ID_RE = /^[a-z0-9_-]{1,40}$/i;
 const EVENT_RE = /^[^_][\s\S]{0,63}$/;
 
 const nowMs = () => (globalThis.performance && performance.now ? performance.now() : Date.now());
+
+/** 방 메타 한 칸을 정규화한다. updateMeta와 방장이 보낸 _meta가 같이 쓴다. 받은 값은 믿을 수 없다(max로 대기실 빈 자리 수를 만든다) */
+function metaValue(k, v) {
+  if (k === 'name' || k === 'mapId') return sanitizeName(v, 32);
+  if (k === 'max') return Math.max(2, Math.min(16, v | 0 || 8));
+  if (k === 'status') return v === 'playing' ? 'playing' : 'waiting';
+  if (k === 'mode') return v === 'ffa' ? 'ffa' : 'team';
+  if (k === 'ruleset') return sanitizeName(v, 16);
+  if (k === 'topo') return ['mesh', 'relay', 'auto'].includes(v) ? v : 'auto';
+  return v;
+}
 
 let warnedKeys = false;
 
@@ -294,13 +305,7 @@ export class Room extends Emitter {
     let changed = false;
     for (const [k, v] of Object.entries(fields)) {
       if (META_LOCKED.has(k) || v === undefined) continue;
-      let val = v;
-      if (k === 'name' || k === 'mapId') val = sanitizeName(v, 32);
-      if (k === 'max') val = Math.max(2, Math.min(16, v | 0 || 8));
-      if (k === 'status') val = v === 'playing' ? 'playing' : 'waiting';
-      if (k === 'mode') val = v === 'ffa' ? 'ffa' : 'team';
-      if (k === 'ruleset') val = sanitizeName(v, 16);
-      if (k === 'topo') val = ['mesh', 'relay', 'auto'].includes(v) ? v : 'auto';
+      const val = metaValue(k, v);
       if (JSON.stringify(this._meta[k]) !== JSON.stringify(val)) { this._meta[k] = val; changed = true; }
     }
     if (!changed) return true;
@@ -562,7 +567,9 @@ export class Room extends Emitter {
     if (!p || typeof p !== 'object') return;
     const T = Math.max(0, p.term | 0);
     const cur = this._hostId;
-    if (full && Array.isArray(p.roster)) this._roster = p.roster.filter((x) => Array.isArray(x) && typeof x[0] === 'string');
+    if (full && Array.isArray(p.roster)) {
+      this._roster = p.roster.filter((x) => Array.isArray(x) && typeof x[0] === 'string').map((x) => [x[0], typeof x[1] === 'number' ? x[1] : 0]);
+    }
     if (from === cur) {
       if (T > this._term) this._term = T;
       this._hostConfirmed = true;
@@ -600,9 +607,9 @@ export class Room extends Emitter {
 
   _applyMeta(m) {
     const before = JSON.stringify(this._meta);
-    for (const [k, v] of Object.entries(m)) {
+    for (const [k, v] of Object.entries(plainFields(m))) {
       if (k === 'roomId' || k === 'hostId' || k === 'term') continue;
-      this._meta[k] = v;
+      this._meta[k] = metaValue(k, v);
     }
     this._meta.roomId = this.id;
     if (JSON.stringify(this._meta) !== before) {
@@ -673,11 +680,12 @@ export class Room extends Emitter {
 
   _onPatch(from, p) {
     if (!p || typeof p !== 'object') return;
-    const v = p.v | 0;
+    const clean = plainFields(p);
+    const v = clean.v | 0;
     const cur = this._patches.get(from);
     if (cur && v <= cur.v) return;
     const f = {};
-    for (const [k, val] of Object.entries(p)) if (!RESERVED_ME.has(k)) f[k] = val;
+    for (const [k, val] of Object.entries(clean)) if (!RESERVED_ME.has(k)) f[k] = val;
     this._patches.set(from, { v, f: cur ? { ...cur.f, ...f } : f });
     this._refreshPlayers();
   }
@@ -781,7 +789,7 @@ export class Room extends Emitter {
     return {
       ...rest,
       id,
-      name: rest.name != null ? String(rest.name) : '',
+      name: rest.name != null ? sanitizeName(rest.name) : '',
       team: rest.team != null ? rest.team : null,
       ready: !!rest.ready,
       joinedAt: +rest.joinedAt || 0,

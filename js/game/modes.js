@@ -32,7 +32,7 @@ export const RULESETS = Object.freeze({
 
 /** 모르는 값은 클래식으로 */
 export function normalizeRuleset(id) {
-  return Object.prototype.hasOwnProperty.call(RULESETS, id) ? id : DEFAULT_RULESET;
+  return typeof id === 'string' && Object.prototype.hasOwnProperty.call(RULESETS, id) ? id : DEFAULT_RULESET;
 }
 
 export function rulesetOf(id) {

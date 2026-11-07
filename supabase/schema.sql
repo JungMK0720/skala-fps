@@ -32,10 +32,10 @@ revoke all on public.fps_players from public, anon, authenticated;
 revoke all on sequence public.fps_players_id_seq from public, anon, authenticated;
 
 -- ───────────── 내부 함수 (외부 호출 불가) ─────────────
--- 공백 목록을 직접 적어 Postgres 로캘과 상관없이 JS의 \s와 같게 동작시킨다.
+-- 공백 목록을 직접 적어 Postgres 로캘과 상관없이 JS의 \s와 같게 동작시킨다. 안 보이는 글자는 정규식의 \u로 적어 붙여 넣기에 망가지지 않게 한다.
 create or replace function public.fps_clean_name(p_name text) returns text
 language sql immutable set search_path = public, extensions as $$
-  select btrim(regexp_replace(coalesce(p_name, ''), '[\f\n\r\t\v    -     　﻿]+', ' ', 'g'), ' ')
+  select btrim(regexp_replace(coalesce(p_name, ''), '[\f\n\r\t\v \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+', ' ', 'g'), ' ')
 $$;
 
 -- 통과하면 null, 아니면 오류 코드. 검사 순서도 nickname.js와 같다.

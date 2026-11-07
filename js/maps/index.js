@@ -221,5 +221,5 @@ export function mapsForRuleset(id) {
 /** id → 맵 데이터 (없으면 null). 'testyard'는 TEST_MAP */
 export function getMap(id) {
   if (id === TEST_MAP.id) return TEST_MAP;
-  return MAPS[id] || null;
+  return typeof id === 'string' && Object.prototype.hasOwnProperty.call(MAPS, id) ? MAPS[id] : null;   // id는 방장이 보낸 값일 수 있다
 }

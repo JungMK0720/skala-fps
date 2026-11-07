@@ -41,8 +41,9 @@ function readConfig() {
  */
 export async function connect(opts = {}) {
   const cfg = readConfig();
-  const url = opts.url || cfg.url;
-  const key = opts.key || cfg.anonKey;
+  // account/remote.js와 똑같이 앞뒤 공백을 지운다. 값을 붙여 넣다 공백이 끼면 RPC만 되고 Realtime은 안 되는 상태가 된다
+  const url = String(opts.url || cfg.url || '').trim();
+  const key = String(opts.key || cfg.anonKey || '').trim();
   if (!url || !key) throw netError('NO_CONFIG', 'Supabase 접속 정보(url, key)가 없습니다');
   let playerId = opts.playerId != null ? String(opts.playerId) : '';
   if (playerId && !ID_RE.test(playerId)) throw netError('BAD_PLAYER_ID', 'playerId는 영문·숫자·_- 1~40자');

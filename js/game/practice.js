@@ -570,7 +570,7 @@ export function createPractice({ ctx, world, ui }) {
         score: view.score,
         rounds: view.history.map((r) => ({ winner: r.winner || 'draw', reason: REASON_LABELS[r.reason] || r.reason })),
         players: stats.map((s) => ({ ...s, head: s.headshots, me: s.id === me.id })),
-        mvp: mvp ? { name: mvp.name, team: mvp.team, kills: mvp.kills, deaths: mvp.deaths, head: mvp.headshots } : undefined,
+        mvp: mvp ? { id: mvp.id, name: mvp.name, team: mvp.team, kills: mvp.kills, deaths: mvp.deaths, head: mvp.headshots } : undefined,
         myTeam: me.team, mapId: opts.mapId, meId: me.id,
         backLabel: '다시 하기', lobbyLabel: '메뉴로'
       });

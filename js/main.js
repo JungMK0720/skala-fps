@@ -87,6 +87,7 @@ function fatal(msg, err) {
 function createMapHost({ maps, renderer, avatars }) {
   let map = null;
   let loading = false;
+  let queue = Promise.resolve();
 
   function unload() {
     if (!map) return;
@@ -110,7 +111,14 @@ function createMapHost({ maps, renderer, avatars }) {
     });
   }
 
-  async function load(id) {
+  /** 한 번에 하나만 만든다. 겹치면 먼저 만든 맵이 치워지지 않은 채 장면에 남는다 */
+  function load(id) {
+    const run = queue.then(() => loadNow(id));
+    queue = run.catch(() => {});
+    return run;
+  }
+
+  async function loadNow(id) {
     const data = maps.getMap(id) || maps.TEST_MAP;
     loading = true;
     bus.emit('map:loading', { id });

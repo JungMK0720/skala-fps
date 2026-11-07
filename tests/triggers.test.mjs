@@ -447,6 +447,7 @@ test('map index lists every map with rulesets and filters by ruleset', async () 
   const realWarn = console.warn;
   console.warn = () => {}; // 아직 없는 맵 파일은 조용히 테스트 맵으로 대신한다
   const index = await import('../js/maps/index.js').finally(() => { console.warn = realWarn; });
+
   const { MAP_IDS, MAPS, MAP_LIST, TEST_MAP, getMap, mapsForRuleset } = index;
   assert.deepEqual([...MAP_IDS], ['alley', 'dojo', 'longshot', 'nexus', 'jetty', 'tankfarm', 'vlcc']);
   assert.deepEqual(Object.keys(MAPS), [...MAP_IDS]);
@@ -465,6 +466,8 @@ test('map index lists every map with rulesets and filters by ruleset', async () 
   assert.deepEqual(ids('bogus'), ids('classic'));
   assert.equal(getMap(TEST_MAP.id), TEST_MAP);
   assert.equal(getMap('nope'), null);
+  // 맵 id는 방장이 보낸 값일 수 있다. 물려받은 속성을 맵으로 착각하면 안 된다
+  for (const id of ['__proto__', 'constructor', 'toString', 'hasOwnProperty', '', null, undefined, {}]) assert.equal(getMap(id), null, String(id));
   for (const id of MAP_IDS) assert.equal(getMap(id).id, id);
   assert.equal(validateMap(TEST_MAP).ok, true);
 });

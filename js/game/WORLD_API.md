@@ -27,7 +27,7 @@ const world = await createWorld({ root, ui, settings, ctx });
 
 | 메서드 | 설명 |
 |---|---|
-| `await loadMap(mapId, { mode?, ruleset? })` → `{ spawns, mapName, mapId, map, data, fallback, ruleset }` | core `ctx.loadMap` + 수류탄 시스템 + 물리 소품 + HUD 표시 + 3D 렌더 켜기. `spawns`는 빌더 결과(`{owner:[{x,y,z,rotY}], charterer:[…], ffa?:[…]}`, y 자동). `mode` 기본 `'team'`, `ruleset` 기본 `'classic'` |
+| `await loadMap(mapId, { mode?, ruleset? })` → `{ spawns, mapName, mapId, map, data, fallback, ruleset }` | core `ctx.loadMap` + 수류탄 시스템 + 물리 소품 + HUD 표시 + 3D 렌더 켜기. `spawns`는 빌더 결과(`{owner:[{x,y,z,rotY}], charterer:[…], ffa?:[…]}`, y 자동). `mode` 기본 `'team'`, `ruleset` 기본 `'classic'`. 불러오는 동안 `unloadMap`이나 새 `loadMap`이 불렸으면 아무것도 켜지 않고 `null`을 돌려준다 |
 | `unloadMap()` | HUD·스코프 숨김, 액터·수류탄·소품·이펙트 정리, 포인터 잠금 해제, 렌더 끄기, core 맵 해제, 모드·규칙을 기본값으로. 화면 `exit`에서 부른다 |
 | `setRuleset(id)` → id | `'classic'`·`'knife'`·`'sniper'`. 쓸 수 있는 슬롯(`arsenal.setAllowedSlots`)과 무기를 맞춘다. `loadMap(mapId, { ruleset })`도 같다. 지금 값은 `world.ruleset`. 모르는 값은 클래식 |
 | `reset()` | 라운드 전환용: 수류탄·이펙트·탄흔·예약 소리·관전 정리, HUD 킬피드·중앙 메시지 비우기. **액터는 남는다** |

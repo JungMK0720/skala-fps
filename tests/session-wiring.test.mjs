@@ -15,9 +15,14 @@ import { EV, byteSize, decodeMessage, encodeLoadout } from '../js/game/protocol.
 import { NET } from '../js/core/consts.js';
 import { LOBBY_TOPIC, Lobby, lobbyEntry, packRoomKind, readLobbyEntry, unpackRoomKind } from '../js/net/lobby.js';
 import { ROOM_TOPIC_PREFIX, Room } from '../js/net/room.js';
+import { PresenceState, plainFields } from '../js/net/realtime.js';
+import { connect } from '../js/net/index.js';
 import { FREE_PLAN } from '../js/net/limits.js';
+import { normalizeRuleset } from '../js/game/modes.js';
+import { getDef } from '../js/weapons/defs.js';
 import { createLobby, mapsForRule, ruleBadge } from '../js/ui/lobby.js';
 import { createRoom } from '../js/ui/room.js';
+import { createResults } from '../js/ui/results.js';
 
 const MAP_LIST = Object.freeze([
   { id: 'alley', name: '항구 골목', rulesets: ['classic', 'knife'], tag: '' },
@@ -843,6 +848,138 @@ describe('로비 메타', () => {
   });
 });
 
+/* ================================================================== 남이 보낸 값 */
+
+describe('믿을 수 없는 값', () => {
+  // JSON으로 올 수 있는 값 중 String(v)·+v·v|0이 던지는 모양
+  const BAD = JSON.parse('{"toString":1,"valueOf":1}');
+
+  /** 실제 Room에 채널만 대역을 꽂는다. frame()은 방 채널로 프레임이 온 것과 같다 */
+  async function realRoom() {
+    let roomCh = null;
+    const socket = {
+      rtt: 40,
+      channel(topic, opts) {
+        const metas = new Map();
+        const subs = new Map();
+        const ch = {
+          state: 'joined', presenceSynced: true, metas,
+          presence: {
+            has: (k) => metas.has(k), keys: () => [...metas.keys()], get: (k) => metas.get(k) || [],
+            list: () => [...metas].map(([key, list]) => ({ key, metas: list }))
+          },
+          on(evt, fn) {
+            if (!subs.has(evt)) subs.set(evt, new Set());
+            subs.get(evt).add(fn);
+            return () => subs.get(evt).delete(fn);
+          },
+          fire(evt, ...args) { for (const fn of [...(subs.get(evt) || [])]) fn(...args); },
+          join: async () => ({}),
+          leave: async () => {},
+          sendJson() {},
+          track(meta) {
+            metas.set(opts.presenceKey, [meta]);
+            ch.fire('presence', null, {});
+            return Promise.resolve('ok');
+          }
+        };
+        if (topic.startsWith(NET.ROOM_CHANNEL_PREFIX)) roomCh = ch;
+        return ch;
+      }
+    };
+    const net = { me: { id: 'h1', name: '하늘' }, opts: {}, socket, closed: false };
+    net.lobby = new Lobby(net);
+    const room = await Room.create(net, { name: '방', mapId: 'alley', max: 6, mode: 'team', ruleset: 'classic' });
+    return {
+      room,
+      roomCh,
+      frame: (from, ...msgs) => roomCh.fire('broadcast', 'f', { f: from, t: 0, m: msgs }),
+      async close() { await room.leave(); net.lobby.dispose(); }
+    };
+  }
+
+  test('방장을 사칭한 _meta: max가 커도 빈 자리를 수억 개 만들지 않고, 객체 값은 버린다', async () => {
+    const s = await realRoom();
+    try {
+      s.frame('evil', ['_meta', { term: 9, meta: { max: 1e9, name: BAD, mapId: '__proto__', ruleset: BAD, mode: BAD, status: 'x', roster: BAD }, roster: [['a', BAD], ['b', 5], [BAD], 'c'] }]);
+      const meta = s.room.meta;
+      assert.equal(meta.hostId, 'evil', '이 층에서는 막을 수 없다(인증이 없다). 값만 안전하면 된다');
+      assert.ok(meta.max >= 2 && meta.max <= 16, `max ${meta.max}`);
+      assert.equal(meta.name, '방');
+      assert.equal(meta.ruleset, 'classic');
+      assert.equal(meta.mode, 'team');
+      assert.equal(meta.status, 'waiting');
+      assert.deepEqual(s.room._roster, [['a', 0], ['b', 5]]);
+      assert.equal(normalizeRuleset(meta.ruleset), 'classic');
+      assert.ok(Array.isArray(s.room.players()));
+    } finally { await s.close(); }
+  });
+
+  test('_me 패치: 객체 이름을 보내도 명단이 망가지지 않고, 긴 이름은 잘린다', async () => {
+    const s = await realRoom();
+    try {
+      s.roomCh.metas.set('m1', [{ id: 'm1', name: '구름', team: 'owner', ready: false, joinedAt: 5, ping: 0, v: 1 }]);
+      s.frame('m1', ['_me', { v: BAD, name: BAD, team: BAD, ready: true }]);
+      s.frame('m1', ['_me', { v: 2, name: `가\u0000${'나'.repeat(500)}`, ping: BAD }]);
+      const me = s.room.players().find((p) => p.id === 'm1');
+      assert.ok(me, '명단을 읽을 수 있다');
+      assert.equal(me.name, `가${'나'.repeat(23)}`);
+      assert.equal(me.team, 'owner');
+    } finally { await s.close(); }
+  });
+
+  test('presence: 객체 값은 저장하지 않고 긴 글자는 자른다', () => {
+    const ps = new PresenceState();
+    ps.syncState({
+      evil: { metas: [{ phx_ref: 'r1', id: 'evil', name: BAD, roomId: 'x'.repeat(5000), joinedAt: BAD, v: BAD, nest: { a: 1 }, ok: 1, flag: true, none: null }] }
+    });
+    const [m] = ps.get('evil');
+    assert.equal(m.presence_ref, 'r1');
+    assert.equal('phx_ref' in m, false);
+    for (const k of ['name', 'joinedAt', 'v', 'nest']) assert.equal(k in m, false, k);
+    assert.equal(m.roomId.length, 128);
+    assert.deepEqual([m.ok, m.flag, m.none], [1, true, null]);
+    ps.syncDiff({ joins: { b: { metas: [{ phx_ref: 'r2', name: BAD, ok: 2 }] } }, leaves: {} });
+    assert.deepEqual(ps.get('b'), [{ ok: 2, presence_ref: 'r2' }]);
+    assert.deepEqual(plainFields(JSON.parse('{"__proto__":null,"a":1}')), { a: 1 });
+    assert.deepEqual(plainFields(null), {});
+    assert.deepEqual(plainFields({ n: Infinity, f() {} }), {});
+  });
+
+  test('로비 한 줄이 목록을 망가뜨리지 않는다', () => {
+    const e = readLobbyEntry({ roomId: 'r1', name: BAD, mapId: BAD, hostId: BAD, hostName: BAD, players: BAD, max: BAD, status: BAD, mode: BAD });
+    assert.deepEqual(e, { roomId: 'r1', name: '', mapId: '', hostId: '', hostName: '', players: 0, max: 8, status: 'waiting', mode: 'team', ruleset: 'classic' });
+    assert.equal(readLobbyEntry({ roomId: 'r', max: 1e9, players: 1 }).max, 16, '방 인원 상한');
+    assert.equal(readLobbyEntry({ roomId: 'r', name: 'x'.repeat(500), hostName: 'y'.repeat(500), players: 1 }).name.length, 32);
+    assert.equal(readLobbyEntry({ roomId: BAD, players: 1 }).roomId, '');
+    assert.deepEqual(unpackRoomKind(BAD), { mode: 'team', ruleset: 'classic' });
+  });
+
+  test('규칙·무기 조회는 문자열이 아니면 던지지 않고 기본값이다', () => {
+    assert.equal(normalizeRuleset(BAD), 'classic');
+    assert.equal(normalizeRuleset(['knife']), 'classic');
+    assert.equal(normalizeRuleset('__proto__'), 'classic');
+    assert.equal(getDef(BAD), null);
+    assert.equal(getDef(['ar_std']), null);
+    assert.equal(getDef('__proto__'), null);
+    assert.equal(getDef('ar_std').id, 'ar_std');
+  });
+
+  test('접속 정보: Publishable key는 URL의 apikey로만 가고, 붙여 넣다 낀 공백은 지운다', async () => {
+    const urls = [];
+    class FakeWS {
+      constructor(url) { urls.push(url); this.readyState = 1; queueMicrotask(() => { if (this.onopen) this.onopen(); }); }
+      send() {}
+      close() {}
+    }
+    const net = await connect({ url: ' https://p.supabase.co/ ', key: ' sb_publishable_abc ', socket: { WebSocket: FakeWS } });
+    try {
+      assert.deepEqual(urls, ['wss://p.supabase.co/realtime/v1/websocket?apikey=sb_publishable_abc&vsn=1.0.0']);
+    } finally { await net.close(); }
+    await assert.rejects(connect({ url: '   ', key: '  ', socket: { WebSocket: FakeWS } }), (e) => e.code === 'NO_CONFIG');
+  });
+});
+
 /* ================================================================== 화면(아주 작은 DOM 대역) */
 
 class FakeNode {}
@@ -986,5 +1123,31 @@ describe('로비·대기실 화면', () => {
     choice.all((k) => k.tagName === 'BUTTON').forEach((k) => k.fire('click'));
     assert.equal(ctx.emitted.length, before, '방장이 아니면 보내지 않는다');
     room.dispose();
+  });
+
+  test('로비: 맵 id가 __proto__인 방이 있어도 목록을 그린다', () => {
+    const lobby = createLobby(uiCtx());
+    const evil = readLobbyEntry({ roomId: 'r9', name: '이상한 방', mapId: '__proto__', hostName: '누구', players: 1, max: 2, status: 'waiting', mode: 'team' });
+    assert.equal(evil.mapId, '__proto__');
+    lobby.show({ name: '하늘', rooms: [evil, { ...evil, roomId: 'r8', mapId: 'constructor' }] });
+    assert.equal(lobby.el.all((k) => k.classList.contains('sk-room-row')).length, 2);
+    lobby.dispose();
+  });
+
+  test('결과: 닉네임이 같은 사람이 있어도 MVP의 기록은 그 사람 것이다', () => {
+    const ctx = { ...uiCtx(), every: () => 0, cancel() {} };
+    const results = createResults(ctx);
+    results.show({
+      winner: 'owner', score: { owner: 3, charterer: 0 }, rounds: [], myTeam: 'owner', mapId: 'alley', meId: 'a',
+      players: [
+        { id: 'a', name: '하늘', team: 'owner', kills: 1, deaths: 5, head: 0 },
+        { id: 'b', name: '하늘', team: 'charterer', kills: 9, deaths: 0, head: 4 }
+      ],
+      mvp: { id: 'b', name: '하늘', team: 'charterer', kills: 9, deaths: 0, head: 4 }
+    });
+    const box = results.el.all((k) => k.classList.contains('sk-mvp'))[0];
+    assert.ok(box.textContent.includes('오렌지'), box.textContent);
+    assert.ok(box.textContent.includes('9'));
+    results.dispose();
   });
 });

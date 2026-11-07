@@ -189,7 +189,10 @@ export function createResults(ctx) {
     let mvp = null;
     if (p.mvp) {
       const name = typeof p.mvp === 'string' ? p.mvp : p.mvp.name;
-      mvp = players.find((x) => x.name === name) || (typeof p.mvp === 'object' ? normStatPlayers({ players: [p.mvp] })[0] : { name, kills: 0, deaths: 0, head: 0, team: '' });
+      // 같은 닉네임이 둘일 수 있다(같은 프로필의 두 탭 등). id가 있으면 id로 찾아야 다른 사람의 기록이 나오지 않는다
+      const mvpId = typeof p.mvp === 'object' ? p.mvp.id : null;
+      const same = (x) => (mvpId != null ? x.id === mvpId : x.name === name);
+      mvp = players.find(same) || (typeof p.mvp === 'object' ? normStatPlayers({ players: [p.mvp] })[0] : { name, kills: 0, deaths: 0, head: 0, team: '' });
     } else if (players.length && players[0].kills > 0) mvp = players[0];
     mvpBox.replaceChildren(
       h('h2', { class: 'sk-panel-title', text: 'MVP' }),

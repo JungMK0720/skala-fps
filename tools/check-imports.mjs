@@ -98,12 +98,25 @@ function loadExports(file) {
   return info;
 }
 
+/** 경로의 글자가 실제 파일·폴더 이름과 대소문자까지 같은가. Windows의 existsSync는 대소문자를 가리지 않지만 GitHub Pages에서는 404다 */
+function sameCase(fromDir, spec) {
+  let cur = fromDir;
+  for (const part of spec.split('/')) {
+    if (part === '.' || part === '') continue;
+    if (part === '..') { cur = dirname(cur); continue; }
+    if (!readdirSync(cur).includes(part)) return false;
+    cur = join(cur, part);
+  }
+  return true;
+}
+
 export function checkFile(file) {
   const problems = [];
   for (const { spec, names } of parseImports(stripComments(readFileSync(file, 'utf8')))) {
     if (!spec.startsWith('.')) continue; // three, cannon-es 같은 importmap 대상
     const target = resolve(dirname(file), spec);
     if (!existsSync(target)) { problems.push(`없는 파일: ${spec}`); continue; }
+    if (!sameCase(dirname(file), spec)) { problems.push(`대소문자가 다른 경로: ${spec}`); continue; }
     const { names: exported } = loadExports(target);
     for (const n of names) if (!exported.has(n)) problems.push(`${spec}에 없는 이름: ${n}`);
   }

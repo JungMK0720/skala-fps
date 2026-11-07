@@ -51,6 +51,25 @@ export function sanitizeName(v, max = 24) {
   return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
 }
 
+const MAX_FIELD_CHARS = 128;
+
+/**
+ * 남이 보낸 객체(presence·방 메타·_me 패치)에서 숫자·글자·참거짓만 남긴다. 긴 글자는 자른다.
+ * 쓰는 쪽은 여기 값을 String()·숫자로 바꾸는데, JSON으로 온 {"toString":1} 같은 객체는 그때 던지고
+ * 이 값은 계속 저장돼 있으므로 방이나 로비가 끝까지 망가진다. 프로토콜에 객체 칸은 없다.
+ */
+export function plainFields(src) {
+  const out = {};
+  if (!src || typeof src !== 'object') return out;
+  for (const k of Object.keys(src)) {
+    if (k === '__proto__') continue;
+    const v = src[k];
+    if (typeof v === 'string') out[k] = v.length > MAX_FIELD_CHARS ? v.slice(0, MAX_FIELD_CHARS) : v;
+    else if (v === null || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))) out[k] = v;
+  }
+  return out;
+}
+
 export function backoffDelay(attempt, opt = {}) {
   const { base = 500, max = 15000, factor = 2, jitter = 0.25 } = opt;
   const raw = Math.min(max, base * Math.pow(factor, Math.max(0, attempt)));
@@ -86,7 +105,7 @@ export class PresenceState {
   static metasOf(entry) {
     const arr = Array.isArray(entry) ? entry : (entry && Array.isArray(entry.metas) ? entry.metas : []);
     return arr.map((m) => {
-      const c = { ...m };
+      const c = plainFields(m);
       c.presence_ref = c.phx_ref != null ? c.phx_ref : c.presence_ref;
       delete c.phx_ref;
       delete c.phx_ref_prev;

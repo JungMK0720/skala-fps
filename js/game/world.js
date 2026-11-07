@@ -38,6 +38,8 @@ const FFA_KEYS = Object.freeze(['kills', 'rank', 'total', 'leaderName', 'leaderK
 const PART_RANK = Object.freeze({ head: 0, body: 1, legs: 2, hand: 3, foot: 4 });
 /** 산탄의 예광탄은 이만큼만 그린다. 판정과 탄착은 펠릿 전부 */
 const PELLET_TRACERS = 3;
+/** 동시에 시뮬레이션하는 다른 사람 수류탄 상한. 한 사람에 1개가 규칙이라 정상 경기는 닿지 않는다 */
+const MAX_LIVE_GRENADES = 32;
 /** 무기 슬롯 → arsenal 로드아웃 키 */
 const SLOT_KEYS = Object.freeze({ 1: 'primary', 2: 'secondary', 3: 'melee' });
 
@@ -45,6 +47,7 @@ const num = (v, d = 0) => (Number.isFinite(+v) && v !== null && v !== '' ? +v : 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const r3 = (v) => [Math.round(v[0] * 1000) / 1000, Math.round(v[1] * 1000) / 1000, Math.round(v[2] * 1000) / 1000];
 const round2 = (v) => Math.round(v * 100) / 100;
+const r2 = (v) => [round2(v[0]), round2(v[1]), round2(v[2])];
 /** [x,y,z] 배열이나 {x,y,z} → 새 배열 */
 function arr3(v) {
   if (!v) return [0, 0, 0];
@@ -377,12 +380,20 @@ function buildWorld(ctx, opts) {
   }
 
   /* ---------- 맵 ---------- */
+  let loadSeq = 0;                                // 가장 최근의 loadMap·unloadMap 번호. 늦게 끝난 loadMap을 알아챈다
+  /** → 맵 정보. 불러오는 동안 unloadMap이나 새 loadMap이 불렸으면 null이고 아무것도 켜지 않는다 */
   async function loadMap(mapId, opt = {}) {
+    const seq = ++loadSeq;
     const data = ctx.maps && ctx.maps.getMap ? ctx.maps.getMap(mapId) : null;
     showLoading(true, `🗺️ ${(data && data.name) || mapId} 불러오는 중…`);
     let built;
     try { built = await ctx.loadMap(mapId); }
-    finally { showLoading(false); }
+    finally { if (seq === loadSeq) showLoading(false); }
+    if (seq !== loadSeq) {
+      // 방이 닫히거나 강퇴되어 이미 경기에서 나왔다. 여기서 화면을 켜면 로비를 가리는 HUD만 남아 빠져나갈 수 없다
+      if (ctx.map === built) ctx.unloadMap();
+      return null;
+    }
     map = built;
     props.load(built.data, built.colliders);     // 기다리지 않는다: 표시 전용이고 cannon-es는 CDN에서 온다
     if (nades) nades.dispose();
@@ -407,6 +418,9 @@ function buildWorld(ctx, opts) {
 
   function unloadMap() {
     const was = active || !!map;
+    loadSeq++;
+    showLoading(false);
+    cancelLocalEmote('unload');                  // 안 끝내면 다음 경기까지 3인칭 카메라와 입력 잠금이 남는다
     active = false;
     simPaused = false; uiPaused = false; scoreboardOpen = false;
     clearActors();
@@ -477,6 +491,7 @@ function buildWorld(ctx, opts) {
     latch.fire = latch.rmb = latch.reload = false; latch.slot = null; latch.wheel = 0;
     vm.setVisible(true);
     player.setSpeedScale(arsenal.getMoveMul());
+    syncFrozen();
     R.setFov(R.baseFov);
     input.setLookScale(1);
     respawn = null;
@@ -805,8 +820,8 @@ function buildWorld(ctx, opts) {
     const fwd = player.getAimDir();
     const gid = `${local.id}#${++grenadeSeq}`;
     const g0 = nades.throwFrom({ eye, forward: fwd, speed: ev.speed, pitchUp: ev.pitchUp, fuse: ev.fuse, owner: local.id, inherit: st.vel, inheritScale: 0.5, id: gid });
-    // 보낼 값(반올림)과 내가 시뮬레이션하는 값을 똑같이 → 모든 클라이언트가 같은 궤적
-    const pos = r3(g0.pos), vel = r3(g0.vel);
+    // 보낼 값(protocol.encodeGrenade의 cm 해상도)과 내가 시뮬레이션하는 값을 똑같이 → 모든 클라이언트가 같은 궤적
+    const pos = r2(g0.pos), vel = r2(g0.vel);
     nades.remove(gid);
     nades.spawn(pos, vel, { owner: local.id, fuse: g0.fuse, id: gid });
     emit('grenade', { id: local.id, grenadeId: gid, pos, vel, fuse: g0.fuse, t: performance.now(), kind: ev.kind });
@@ -834,7 +849,8 @@ function buildWorld(ctx, opts) {
   function actorGrenade(o = {}) {
     if (!nades || !o) return null;
     const gid = o.grenadeId != null ? String(o.grenadeId) : `${o.id}#r${++grenadeSeq}`;
-    if (nades.list().some((g) => g.id === gid)) return null;   // 중복 수신
+    const live = nades.list();
+    if (live.length >= MAX_LIVE_GRENADES || live.some((g) => g.id === gid)) return null;   // 한도(프레임 하나에 수천 개를 보내도 끄떡없게) · 중복 수신
     const fuse = num(o.fuse, WEAPONS.gr_frag.fuse);
     const g = nades.spawn(arr3(o.pos), arr3(o.vel), { owner: o.id != null ? String(o.id) : null, fuse, id: gid });
     // 늦게 받은 만큼 앞당기기(폭발 직전까지만)
@@ -1051,7 +1067,7 @@ function buildWorld(ctx, opts) {
 
   function setRound(o = {}) {
     if (!o) return;
-    if (o.phase !== undefined) rnd.phase = o.phase;
+    if (o.phase !== undefined) { rnd.phase = o.phase; syncFrozen(); }
     // 교전 중이 아닐 때(로드아웃·라운드 끝 등) 미뤄 둔 자동 그래픽 품질 변경을 적용한다
     if (o.phase !== undefined && o.phase !== 'live' && ctx.renderer.applyPendingQuality) ctx.renderer.applyPendingQuality();
     if (o.round !== undefined) rnd.round = num(o.round) | 0;
@@ -1081,13 +1097,18 @@ function buildWorld(ctx, opts) {
   const localCanMove = () => controls && rnd.phase !== 'loadout' && rnd.phase !== 'matchEnd' && local.spawned && local.alive;
   /** 무기 입력을 받을 수 있는가: 움직일 수 있고, 입력이 켜져 있고, 커서가 필요한 화면·이모트·휠이 없을 때 */
   const localCanAct = () => localCanMove() && input.enabled && !(ui && ui.needsCursor()) && !emoteLocal && !wheel.open;
+  /**
+   * core 플레이어 틱이 이 틱보다 먼저 돈다(루프 순서 머리말). 스폰·페이즈가 바뀐 그 자리에서도 맞춰 두어야
+   * 로드아웃 첫 틱에 Space를 누르고 있었다고 뛰거나 W 값을 받아 미끄러지지 않는다.
+   */
+  function syncFrozen() { player.setFrozen(!localCanMove()); }
 
   function tick(dt) {
     if (!active || !map || simPaused) return;
     clock += dt;
     runScheduled();
     const st = player.state;
-    player.setFrozen(!localCanMove());
+    syncFrozen();
     syncLocalEmote();
     const canAct = localCanAct();
     const wi = {

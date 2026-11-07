@@ -101,6 +101,12 @@ export function defaultProfile(now = Date.now()) {
   return normalizeProfile({}, now);
 }
 
+/** 시작 상태 그대로인가: 포인트·무기·전적·비밀 스팟에 아무 진행이 없다 */
+function isUntouched(p) {
+  return p.points === START_POINTS && p.owned.length === defaultOwned().length &&
+    Object.keys(p.secrets).length === 0 && STAT_KEYS.every((key) => !p.stats[key]);
+}
+
 function mergeSecrets(a, b) {
   const out = normalizeSecrets(a);
   for (const mapId of Object.keys(b)) {
@@ -123,7 +129,9 @@ function mergeSecrets(a, b) {
  *  - 비밀   : 합집합, 먼저 찾은 시각을 유지
  *  - 전적   : 항목별로 큰 값
  *  - 포인트 : 둘 중 큰 값. 단 서버에 올리지 못한 변경이 있으면(dirty) 로컬 값.
- *             큰 값을 그대로 쓰면 오프라인 구매가 다음 접속 때 환불되어 무기가 공짜가 된다
+ *             큰 값을 그대로 쓰면 오프라인 구매가 다음 접속 때 환불되어 무기가 공짜가 된다.
+ *             아무것도 하지 않은 로컬(처음 보는 기기, 초기화 직후)이면 서버 값. 시작 포인트는 번 포인트가 아니라서,
+ *             큰 값을 고르면 무기를 다 산 뒤 초기화하고 다시 켜는 것만으로 포인트가 돌아온다
  *  - 장비   : dirty면 로컬, 아니면 서버 값. 가지지 않은 무기는 기본 장비로
  *  - 생성일 : 더 이른 값
  */
@@ -133,7 +141,7 @@ export function mergeProfiles(local, server, { dirty = false, keepNickname = fal
   for (const key of STAT_KEYS) stats[key] = Math.max(local.stats[key], server.stats[key]);
   return {
     nickname: keepNickname ? local.nickname : server.nickname || local.nickname,
-    points: dirty ? local.points : Math.max(local.points, server.points),
+    points: dirty ? local.points : isUntouched(local) ? server.points : Math.max(local.points, server.points),
     owned,
     loadout: normalizeLoadout(dirty ? local.loadout : server.loadout, owned),
     stats,

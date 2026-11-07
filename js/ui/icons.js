@@ -61,7 +61,8 @@ const MAP_DRAW = {
 };
 
 export function mapIcon(id, cls = '') {
-  const draw = MAP_DRAW[id] || MAP_DRAW._;
+  // id는 다른 사람이 올린 방 메타일 수 있다. '__proto__' 같은 값이 표의 물려받은 항목을 찾으면 로비 전체를 그리다 던진다
+  const draw = typeof id === 'string' && Object.prototype.hasOwnProperty.call(MAP_DRAW, id) ? MAP_DRAW[id] : MAP_DRAW._;
   return svg('svg', { viewBox: '0 0 48 32', class: 'sk-mapico' + (cls ? ' ' + cls : ''), 'aria-hidden': 'true', focusable: 'false' }, draw());
 }
 

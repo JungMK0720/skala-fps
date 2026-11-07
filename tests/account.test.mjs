@@ -1246,6 +1246,37 @@ describe('syncFromRemote 병합 규칙', () => {
     assert.equal(server.count('fps_get_profile'), 1);
   });
 
+  test('무기를 다 사고 초기화한 뒤 다시 켜도 시작 포인트가 돌아오지 않는다', async (t) => {
+    const server = fakeServer();
+    const storage = fakeStorage();
+    const first = makeAccount(t, { server, storage }).account;
+    await first.ready;
+    await first.setNickname('철수');
+    assert.equal(first.buy('pt_magnum').points, 0);
+    await first.flush();
+    assert.equal(server.rows.get(storage.getItem(TOKEN_KEY)).points, 0);
+
+    first.resetLocal();
+    const second = makeAccount(t, { server, storage }).account;
+    await second.ready;
+    assert.equal(second.profile.nickname, '철수');
+    assert.equal(second.profile.points, 0, '무기는 돌아오는데 포인트까지 500으로 돌아오면 공짜다');
+    assert.equal(second.isOwned('pt_magnum'), true);
+    assert.equal(storedEnvelope(storage).sync.dirty, false, '서버와 같으니 다시 올리지 않는다');
+  });
+
+  test('mergeProfiles: 손대지 않은 로컬의 시작 포인트는 번 포인트로 치지 않는다', () => {
+    const fresh = defaultProfile();
+    const server = normalizeProfile({ nickname: '철수', points: 120, owned: ['sr_heavy'] });
+    assert.equal(mergeProfiles(fresh, server).points, 120);
+    assert.equal(mergeProfiles(fresh, normalizeProfile({ points: 900 })).points, 900);
+    assert.equal(mergeProfiles(fresh, server, { dirty: true }).points, START_POINTS, '올리지 못한 변경이 있으면 로컬');
+    const played = normalizeProfile({ points: START_POINTS, stats: { kills: 1 } });
+    assert.equal(mergeProfiles(played, server).points, START_POINTS, '진행이 있으면 지금처럼 큰 값');
+    const bought = normalizeProfile({ points: START_POINTS, owned: ['pt_magnum'] });
+    assert.equal(mergeProfiles(bought, server).points, START_POINTS);
+  });
+
   test('mergeProfiles는 입력을 바꾸지 않는다', () => {
     const local = normalizeProfile({ nickname: '철수', points: 100, owned: ['sm_vx3'], createdAt: 5 });
     const server = normalizeProfile({ nickname: '영희', points: 200, owned: ['ar_rapid'], createdAt: 9 });

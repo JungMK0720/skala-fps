@@ -627,9 +627,9 @@ export const GRENADE_IDS = idsInSlot(4);
 
 export const DEFAULT_LOADOUT = Object.freeze({ primary: 'ar_std', secondary: 'pt_std', melee: 'ml_katana' });
 
-/** id로 정의를 찾는다. 없으면 null. */
+/** id로 정의를 찾는다. 없으면 null. 네트워크로 온 값도 받는다(문자열이 아니면 null, 던지지 않는다). */
 export function getDef(id) {
-  return Object.prototype.hasOwnProperty.call(WEAPONS, id) ? WEAPONS[id] : null;
+  return typeof id === 'string' && Object.prototype.hasOwnProperty.call(WEAPONS, id) ? WEAPONS[id] : null;
 }
 
 const PART_ALIAS = new Map(Object.entries({

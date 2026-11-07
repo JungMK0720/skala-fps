@@ -9,8 +9,11 @@ export const NICKNAME_MIN = 2;
 export const NICKNAME_MAX = 12;
 /** 정규식 대괄호 안에 들어갈 허용 글자. 눈에 보이지 않는 한글 채움 문자(U+3164)는 이 범위 밖이다. */
 export const NICKNAME_CHARSET = '0-9A-Za-zㄱ-ㅎㅏ-ㅣ가-힣 _-';
-/** 공백으로 치는 글자. JS의 \s와 같은 목록을 그대로 적어 Postgres의 로캘에 좌우되지 않게 한다. */
-export const NICKNAME_SPACES = String.raw`\f\n\r\t\v    -     　﻿`;
+/**
+ * 공백으로 치는 글자. JS의 \s와 같은 목록을 그대로 적어 Postgres의 로캘에 좌우되지 않게 한다.
+ * 안 보이는 글자는 \u로 적는다. schema.sql을 SQL Editor에 붙여 넣을 때 줄바꿈 U+2028 같은 글자는 편집기가 지우거나 바꿀 수 있다.
+ */
+export const NICKNAME_SPACES = String.raw`\f\n\r\t\v \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff`;
 export const RESERVED_NICKNAMES = Object.freeze(['admin', '관리자', '운영자', 'system', 'gm', 'null', 'undefined']);
 /** 봇 표시와 헷갈리지 않게 막는 꼬리표 */
 export const BOT_SUFFIX = ' 봇';

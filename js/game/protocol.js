@@ -97,6 +97,8 @@ export function vec3(v) {
 }
 
 const cm = (m) => clamp(toInt(fin(m) * 100), -MAX_CM, MAX_CM);
+/** 받은 cm 값 → m. 터무니없는 값은 ±100 km에서 자른다(그대로 두면 렌더·충돌 계산까지 간다) */
+const fromCm = (v) => clamp(v, -MAX_CM, MAX_CM) / 100;
 const ang = (a) => toInt(wrapAngle(fin(a)) * 100);
 const pitchQ = (a) => toInt(clamp(fin(a), -HALF_PI, HALF_PI) * 100);
 const ms = (t) => toInt(fin(t));
@@ -257,12 +259,12 @@ export function decodeFire(a) {
   const dl = Math.hypot(a[5], a[6], a[7]) || 1;
   const out = {
     weaponId: a[0].slice(0, MAX_WEAPON), t: a[1],
-    origin: [a[2] / 100, a[3] / 100, a[4] / 100],
+    origin: [fromCm(a[2]), fromCm(a[3]), fromCm(a[4])],
     dir: [a[5] / dl, a[6] / dl, a[7] / dl],
     hit: null, hitKind: null
   };
   if (a.length >= 11 && isNum(a[8]) && isNum(a[9]) && isNum(a[10])) {
-    out.hit = [a[8] / 100, a[9] / 100, a[10] / 100];
+    out.hit = [fromCm(a[8]), fromCm(a[9]), fromCm(a[10])];
     out.hitKind = uncode(a[11], IMPACT_CODES) || 'world';
   }
   return out;
@@ -319,7 +321,7 @@ export function encodeGrenade(id, g) {
 export function decodeGrenade(a) {
   if (!Array.isArray(a) || a.length < 8) return null;
   for (let i = 0; i < 8; i++) if (!isNum(a[i])) return null;
-  return { id: a[0] | 0, pos: [a[1] / 100, a[2] / 100, a[3] / 100], vel: [a[4] / 100, a[5] / 100, a[6] / 100], t: a[7] };
+  return { id: a[0] | 0, pos: [fromCm(a[1]), fromCm(a[2]), fromCm(a[3])], vel: [fromCm(a[4]), fromCm(a[5]), fromCm(a[6])], t: a[7] };
 }
 
 /* ------------------------------------------------------------------ 경기 스냅샷 + 이벤트 */

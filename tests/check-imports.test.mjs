@@ -5,7 +5,8 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, statSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkFile, parseExports, parseImports, stripComments } from '../tools/check-imports.mjs';
@@ -43,6 +44,19 @@ describe('구문 해석', () => {
     const code = stripComments(`// import { x } from './gone.js';\n/* import './gone2.js'; */\nconst s = 'a // b';`);
     assert.equal(parseImports(code).length, 0);
     assert.ok(code.includes("'a // b'"));
+  });
+});
+
+describe('파일 찾기', () => {
+  test('대소문자가 다른 경로도 잡는다(Windows에서는 있는 파일로 보이지만 GitHub Pages에서는 404)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skala-imports-'));
+    try {
+      writeFileSync(join(dir, 'Foo.js'), 'export const a = 1;\n');
+      writeFileSync(join(dir, 'wrong.js'), "import { a } from './foo.js';\n");
+      writeFileSync(join(dir, 'right.js'), "import { a } from './Foo.js';\n");
+      assert.equal(checkFile(join(dir, 'wrong.js')).length, 1);
+      assert.deepEqual(checkFile(join(dir, 'right.js')), []);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
 

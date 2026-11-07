@@ -16,6 +16,7 @@ import {
   isGameEvent, decodeMessage, wrapAngle, vec3, byteSize
 } from '../js/game/protocol.js';
 import { createMatch, applySnapshot, standings } from '../js/game/match.js';
+import { createWorld, makeBox } from '../js/engine/physics.js';
 import { PARTS } from '../js/weapons/defs.js';
 
 const wire = (v) => JSON.parse(JSON.stringify(v));   // 네트워크를 거친 것처럼
@@ -203,6 +204,26 @@ describe('다른 메시지 왕복', () => {
     const d = decodeGrenade(wire(encodeGrenade(5, { pos: { x: 1, y: 2, z: 3 }, vel: [4, 5, 6], t: 9 })));
     assert.deepEqual(d, { id: 5, pos: [1, 2, 3], vel: [4, 5, 6], t: 9 });
     assert.equal(decodeGrenade([1, 2, 3]), null);
+  });
+
+  test('터무니없는 좌표는 받자마자 자른다', () => {
+    const g = decodeGrenade([1, 1e300, -1e300, 0, 1e300, 0, -1e300, 0]);
+    assert.deepEqual(g.pos, [1e5, -1e5, 0]);
+    assert.deepEqual(g.vel, [1e5, 0, -1e5]);
+    const f = decodeFire(['ar_std', 0, 1e300, 0, -1e300, 0, 0, 1000, 1e300, -1e300, 0, 1]);
+    assert.deepEqual(f.origin, [1e5, 0, -1e5]);
+    assert.deepEqual(f.hit, [1e5, -1e5, 0]);
+  });
+
+  test('수류탄이 터무니없는 곳에 있어도 충돌 계산이 끝난다(격자 반복의 gx++가 값을 못 바꾸는 크기)', () => {
+    const world = createWorld([makeBox(-10, -1, -10, 10, 0, 10)]);
+    assert.equal(world.query(0, 0, 1, 1).length, 1);
+    for (const v of [1e300, -1e300, 1e17, Infinity, -Infinity, NaN]) {
+      assert.deepEqual(world.query(v, 0, v, 0), []);
+      assert.deepEqual(world.query(0, v, 0, v), []);
+    }
+    const body = { pos: [1e300, 1e300, 1e300], vel: [1e300, 0, 1e300] };
+    world.sphereSweep(body, 1 / 120, {});
   });
 
   test('로드아웃: 세 슬롯이 무손실로 간다', () => {

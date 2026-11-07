@@ -23,6 +23,7 @@ import { PLAYER, HITBOX, HITBOX_CROUCH } from '../core/consts.js';
 const SKIN = 0.001;            // 밀어낸 뒤 남기는 틈
 const AIR_STEP_FACTOR = 0.5;   // 공중에서의 턱 오르기 = STEP × 0.5
 const MAX_SUB_MOVE = 0.15;     // 서브스텝당 최대 이동 (m) — 반지름(0.35)보다 충분히 작게: 터널링 방지
+const MAX_QUERY_COORD = 1e9;   // 브로드페이즈가 받는 좌표 상한 (m)
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
@@ -149,6 +150,8 @@ export function createWorld(colliders = [], opts = {}) {
   /** XZ 사각형과 bbox가 겹치는 충돌체 목록 (out 재사용) */
   function query(minX, minZ, maxX, maxZ, out = []) {
     out.length = 0;
+    // 터무니없는 좌표에서는 gx++가 값을 바꾸지 못해 아래 격자 반복이 끝나지 않는다. 네트워크로 온 값이 여기까지 올 수 있다
+    if (!(Math.abs(minX) < MAX_QUERY_COORD && Math.abs(maxX) < MAX_QUERY_COORD && Math.abs(minZ) < MAX_QUERY_COORD && Math.abs(maxZ) < MAX_QUERY_COORD)) return out;
     stampId = (stampId + 1) >>> 0;
     if (stampId === 0) { stamp.fill(0); stampId = 1; }
     for (const c of big) {
