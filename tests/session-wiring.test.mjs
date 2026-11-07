@@ -555,6 +555,50 @@ describe('세션 연결', () => {
   });
 });
 
+describe('방에서 나가기', () => {
+  /** 방을 만들고, 서버가 나가기에 답할 때까지 room.leave가 끝나지 않게 한다 */
+  async function hostInSlowRoom(t) {
+    const env = stage(t);
+    const a = env.client('a', '하늘');
+    await a.session.open();
+    a.ui.fire('lobby:create', { name: '', max: 4, mapId: 'jetty', mode: 'team' });
+    await env.settle();
+    assert.equal(a.session.phase, 'room');
+    const room = a.session.room;
+    const realLeave = room.leave.bind(room);
+    const gate = {};
+    room.leave = async () => { await new Promise((r) => { gate.answer = r; }); await realLeave(); };
+    return { env, a, gate };
+  }
+
+  test('나가는 중에 ← 메뉴를 누르면 메뉴로 가고, 나가기가 끝나도 로비로 되돌리지 않는다', async (t) => {
+    const { env, a, gate } = await hostInSlowRoom(t);
+    let exits = 0;
+    a.session.on('exit', () => { exits += 1; });
+    a.ui.fire('room:leave', {});
+    assert.equal(a.session.phase, 'leaving');
+    assert.ok(a.ui.lastShown('lobby'), '나가는 동안 로비 화면이 보인다');
+    a.ui.fire('lobby:back', {});
+    assert.equal(exits, 1, '누른 ← 메뉴가 버려지지 않는다');
+    assert.equal(a.session.phase, 'idle');
+    gate.answer();
+    await env.settle();
+    assert.equal(a.session.phase, 'idle');
+    assert.equal(exits, 1);
+    env.dispose();
+  });
+
+  test('아무것도 누르지 않으면 나가기가 끝난 뒤 로비로 돌아온다', async (t) => {
+    const { env, a, gate } = await hostInSlowRoom(t);
+    a.ui.fire('room:leave', {});
+    assert.equal(a.session.phase, 'leaving');
+    gate.answer();
+    await env.settle();
+    assert.equal(a.session.phase, 'lobby');
+    env.dispose();
+  });
+});
+
 describe('서버 설정이 없을 때', () => {
   test('계정이 오프라인이면 안내 문구만 보여 주고 던지지 않는다', async () => {
     const world = fakeWorld();

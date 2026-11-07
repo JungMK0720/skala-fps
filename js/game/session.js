@@ -730,7 +730,8 @@ export function createSession(options = {}) {
   }
 
   function exitToMenu() {
-    if (phase !== 'lobby' && phase !== 'connecting' && phase !== 'idle') return;
+    // 'leaving': 방을 나가며 서버 답을 기다리는 동안에도 로비 화면이 보인다. 이때 누른 ← 메뉴를 버리지 않는다
+    if (phase !== 'lobby' && phase !== 'connecting' && phase !== 'idle' && phase !== 'leaving') return;
     unsubscribeLobby();
     pendingAction = null;
     phase = 'idle';

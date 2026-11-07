@@ -909,9 +909,9 @@
 .sk-ui.sk-emo-open .sk-xhair, .sk-ui.sk-emo-open .sk-hit,
 .sk-hud.is-emote .sk-xhair, .sk-hud.is-emote .sk-hit { visibility: hidden; }
 
-/* HUD 이모트 중 안내(하단) */
+/* HUD 이모트 중 안내(하단). 창이 좁으면 오른쪽 아래 무기 슬롯과 가로로 겹치니 슬롯 줄보다 위에 둔다 */
 .sk-emote-banner {
-  position: absolute; left: 50%; bottom: 116px; transform: translateX(-50%); padding: 7px 16px; border-radius: 999px; white-space: nowrap;
+  position: absolute; left: 50%; bottom: 146px; transform: translateX(-50%); padding: 7px 16px; border-radius: 999px; white-space: nowrap;
   font-size: 14px; font-weight: 800; color: #fff3d6;
   background: rgba(8, 12, 22, .8); box-shadow: inset 0 0 0 1px rgba(255, 209, 102, .45);
   animation: sk-fade .2s ease-out;

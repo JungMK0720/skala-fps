@@ -172,6 +172,8 @@ function buildWorld(ctx, opts) {
   let ruleset = DEFAULT_RULESET;                  // 무기 규칙(modes.js). 모드와 직교한다
   let respawn = null;                             // { at(ms), killer, weaponName } — 내 부활 대기
   let protectUntil = 0;                           // 내 보호(무적) 표시가 끝나는 시각(ms)
+  let pausedAt = 0;                               // 시뮬레이션을 멈춘 시각(ms). 멈춘 동안 부활·보호 표시 시계도 멈춘다
+  const displayNow = () => (simPaused ? pausedAt : performance.now());
   let customHint = '';
   let pauseOpts = { leaveLabel: '나가기', note: undefined };
   let scoreboardProvider = null, scoreboardOpen = false, sbRefresh = 0;
@@ -314,7 +316,9 @@ function buildWorld(ctx, opts) {
   function openPause() {
     if (!ui) return;
     ui.show('pause', { leaveLabel: pauseOpts.leaveLabel, note: pauseOpts.note });
-    if (!uiPaused) { uiPaused = true; emit('pause', { paused: true }); }
+    // 결과 화면이 일시정지 메뉴를 덮어 닫으면 uiPaused가 켜진 채 남는다. 메뉴를 새로 여는 것이니 언제나 알린다
+    uiPaused = true;
+    emit('pause', { paused: true });
   }
   function closePause() {
     if (uiPaused) { uiPaused = false; emit('pause', { paused: false }); }
@@ -442,7 +446,10 @@ function buildWorld(ctx, opts) {
     fx.clear(false);
     scheduled.length = 0;
     spec.id = null; spec.name = '';
-    if (ui) { ui.hud.reset(); ui.hide('scoreboard'); scoreboardOpen = false; }
+    if (ui) {
+      ui.hud.reset(); ui.hide('scoreboard'); scoreboardOpen = false;
+      if (uiPaused && !ui.isVisible('pause')) uiPaused = false;   // 다른 화면이 일시정지 메뉴를 닫은 채 새 판을 시작한다
+    }
   }
 
   /* ---------- 로컬 플레이어 ---------- */
@@ -1172,7 +1179,7 @@ function buildWorld(ctx, opts) {
     const nowMs = performance.now();
     if (local.alive && player.state.hp > 0 && player.state.hp <= 25 && nowMs >= heartbeatAt) { heartbeatAt = nowMs + 900; play('low_hp_heartbeat'); }
     // 다른 사람 보호 표시(🛡) 만료
-    for (const a of actors.values()) if (a.protectUntil && a.protectUntil !== Infinity && a.protectUntil <= nowMs) { a.protectUntil = 0; refreshAvatar(a); }
+    for (const a of actors.values()) if (a.protectUntil && a.protectUntil !== Infinity && a.protectUntil <= displayNow()) { a.protectUntil = 0; refreshAvatar(a); }
     hudFrame(dt);
     if (scoreboardOpen) { sbRefresh -= dt; if (sbRefresh <= 0) { sbRefresh = 0.5; showScoreboard(); } }
   }
@@ -1195,7 +1202,7 @@ function buildWorld(ctx, opts) {
     p.speed = alive ? num(player.state.speed) : 0;   // 수평 속력(m/s). HUD가 0.1 단위로 잘라 바뀔 때만 DOM에 쓴다
     p.team = local.team;
     p.roundTime = rnd.timeLeftMs == null ? null : Math.max(0, rnd.timeLeftMs - rnd.elapsed) / 1000;
-    const now = performance.now();
+    const now = displayNow();
     if (mode === 'ffa') {
       p.score = rnd.ffa || { mode: 'ffa', kills: 0, target: 20 };
       p.respawn = respawn && !alive ? { seconds: Math.max(0, Math.ceil((respawn.at - now) / 1000)), killer: respawn.killer || undefined, weaponName: respawn.weaponName || undefined } : null;
@@ -1287,7 +1294,19 @@ function buildWorld(ctx, opts) {
     get emoteWheelOpen() { return wheel.open; },
     get localEmote() { return emoteLocal; },
     setControlsEnabled(v) { controls = !!v; },
-    setPaused(v) { simPaused = !!v; },
+    setPaused(v) {
+      const next = !!v;
+      if (next === simPaused) return;
+      if (next) pausedAt = performance.now();
+      else {
+        // 멈춰 있던 만큼 부활·보호 표시를 미룬다. 경기(match)의 시계도 그만큼 멈춰 있었다
+        const late = performance.now() - pausedAt;
+        if (respawn) respawn.at += late;
+        if (protectUntil && protectUntil !== Infinity) protectUntil += late;
+        for (const a of actors.values()) if (a.protectUntil && a.protectUntil !== Infinity) a.protectUntil += late;
+      }
+      simPaused = next;
+    },
     setPauseOptions(o = {}) { pauseOpts = { leaveLabel: (o && o.leaveLabel) || '나가기', note: o ? o.note : undefined }; },
     setScoreboard(fn) { scoreboardProvider = typeof fn === 'function' ? fn : null; },
     setHint(text) { customHint = text ? String(text) : ''; },
