@@ -1,0 +1,71 @@
+/*
+ * Date: 06NOV2026
+ * Author: Minkyu Jung
+ * Purpose: 조작법 시트. 키 배치, 이동 기술, 맵 요소, 규칙을 메뉴와 일시정지가 같이 보여 준다.
+ */
+import { h, btn } from './dom.js';
+import { sheet, keycap } from './parts.js';
+
+const OR = '|'; // 키 사이 "또는"
+const KEYS = [
+  [['W', 'A', 'S', 'D'], '이동'],
+  [['마우스'], '시점'],
+  [['좌클릭'], '사격 · 베기 · 투척'],
+  [['우클릭'], '줌. 2단 줌 저격총은 누를 때마다 다음 단계로, 칼은 강타, 수류탄은 낮게 굴리기'],
+  [['Space'], '점프. 꾹 누르고 있으면 착지할 때마다 자동으로 다시 뛰어요'],
+  [['Ctrl', OR, 'C'], '앉기 (누르고 있는 동안)'],
+  [['Shift'], '천천히 걷기'],
+  [['R'], '재장전'],
+  [['F'], '살펴보기 (들고 있는 무기를 돌려 봐요)'],
+  [['1', '2', '3', '4'], '주무기 · 보조 · 근접 · 투척'],
+  [['휠'], '무기 전환'],
+  [['Tab'], '점수판 (누르는 동안)'],
+  [['B'], '이모트 휠 (누른 채 마우스로 고르고 떼기, 움직이면 취소)'],
+  [['Esc'], '일시정지 메뉴'],
+];
+
+const MOVES = [
+  '스페이스를 꾹 누르면 자동 점프: 착지하자마자 다시 뛰어서 달리던 속도가 줄지 않아요.',
+  '공중 가속: 공중에서 A/D와 마우스를 같은 쪽으로 흔들면 빨라져요. A → 왼쪽, D → 오른쪽을 번갈아 가며 리듬을 타 보세요.',
+  '점프 발판: 빛나는 원판을 밟으면 표시된 곳으로 높이 날아가요. 빛나는 문(포털)은 다른 장소로 바로 옮겨 줘요.',
+  '비밀 스팟: 맵 곳곳의 숨은 곳에 처음 들어가면 포인트를 받아요. 찾은 곳은 마이페이지에 남아요.',
+];
+
+const SHOTS = [
+  '라이플은 거리와 상관없이 머리 한 방이면 쓰러져요.',
+  '저격 반샷: 저격총은 머리·몸·다리가 대체로 한 방이지만 손끝이나 발에 맞으면 반샷이에요. SK-7 기준 50 피해만 들어가고, 화면에 "반샷"으로 표시돼요.',
+  '퀵스코프: 저격총은 줌이 절반쯤 들어간 순간부터 정확해요. 줌을 켜자마자 쏘면 빗나가기 쉬워요.',
+];
+
+const RULES = [
+  '규칙: 클래식은 모든 무기, 칼전은 칼만, 스나전은 저격총과 칼만 써요.',
+  '팀전: 블루 팀 🟦 vs 오렌지 팀 🟧 섬멸전 · 5판 3선승 · 라운드 2:00 · 라운드 중 부활 없음',
+  '팀전 시간 종료: 생존자가 많은 팀 → 남은 체력 합이 큰 팀 → 같으면 무승부(재경기)',
+  '개인전: 모두가 적 · 먼저 목표 킬(기본 20)에 닿으면 우승 · 5분 · 죽으면 3초 뒤 부활(직후 잠깐 보호)',
+];
+
+const bullets = (lines) => h('ul', { class: 'sk-rules' }, lines.map((t) => h('li', { text: t })));
+
+export function createControlsPanel({ onClose }) {
+  const list = h('ul', { class: 'sk-keys' },
+    KEYS.map(([keys, desc]) => h('li', { class: 'sk-keys-row' },
+      h('span', { class: 'sk-keys-caps' }, keys.map((k) => (k === OR ? h('span', { class: 'sk-keys-or', text: '또는' }) : keycap(k)))),
+      h('span', { class: 'sk-keys-desc', text: desc }))));
+  // Ctrl+W는 브라우저가 가로채 탭을 닫는다(페이지가 막을 수 없음)
+  const warn = h('p', { class: 'sk-keys-warn', role: 'note' },
+    h('b', { text: '앉은 채 앞으로 갈 때는 C 추천' }),
+    h('span', { text: ' · Ctrl+W는 브라우저 탭 닫기예요.' }));
+  const el = sheet({
+    title: '조작법',
+    onClose,
+    cls: 'sk-controls',
+    body: [
+      list, warn,
+      h('h3', { class: 'sk-sub-title', text: '이동과 맵' }), bullets(MOVES),
+      h('h3', { class: 'sk-sub-title', text: '사격' }), bullets(SHOTS),
+      h('h3', { class: 'sk-sub-title', text: '모드와 규칙' }), bullets(RULES),
+    ],
+    foot: [btn('확인', onClose, 'sk-btn--primary', { 'data-autofocus': '' })],
+  });
+  return { el };
+}
