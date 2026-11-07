@@ -91,6 +91,7 @@ const MELEE_WEAVE_RANGE = 6;     // 이 안에서 좌우로 흔들며 다가간�
 const HOP_RATE = 0.3;            // 달려가며 막히지 않아도 뛰는 빈도(/s, 난이도 strafe를 곱한다)
 const SNIPER_KNIFE_ENTER = 3.6;  // 보조 없는 규칙의 저격수: 볼트·재장전 중 이 안이면 칼을 든다(눈~발 거리, m)
 const SNIPER_KNIFE_LEAVE = 7;    // 칼을 든 저격수는 이보다 멀어지면 저격총으로 돌아간다
+const PATH_FAIL_WANDER = 3;      // 경로 찾기가 연달아 이만큼 실패하면 갇힌 것으로 보고 트인 쪽으로 움직여 본다
 
 /** 무기 정의 → 봇이 쓰는 값. 수치를 따로 적지 않고 전부 defs에서 읽는다 */
 function infoFromDef(d) {
@@ -362,7 +363,7 @@ export function createBot(opts = {}) {
   let damagedAt = -99;
 
   // 경로
-  const P = { pts: null, idx: 0, goal: null, purpose: '', plannedAt: -99, failAt: -99, wpBest: Infinity, wpT: 0, shortcutT: 0 };
+  const P = { pts: null, idx: 0, goal: null, purpose: '', plannedAt: -99, failAt: -99, failStreak: 0, wpBest: Infinity, wpT: 0, shortcutT: 0 };
   // 순찰 계획
   const plan = { lane: o.lane || null, route: [], routeIdx: 0, ownC: null, enemyC: null, holdUntil: 0, holdSpot: null, holdYaw: 0, scanT: 0, visited: [] , ready: false };
   // 끼임
@@ -534,10 +535,10 @@ export function createBot(opts = {}) {
     try { pts = nav.findPath(pos, goal, avoid ? { avoid } : undefined); } catch (e) { pts = null; }
     P.goal = { x: goal.x, y: gy, z: goal.z }; P.purpose = purpose;
     if (!pts || !pts.length) {
-      P.pts = null; P.failAt = clock; P.failGoal = { x: goal.x, y: gy, z: goal.z }; P.failPurpose = purpose; stats.pathFails++;
+      P.pts = null; P.failAt = clock; P.failGoal = { x: goal.x, y: gy, z: goal.z }; P.failPurpose = purpose; P.failStreak++; stats.pathFails++;
       return false;
     }
-    P.pts = pts; P.idx = 0; P.wpBest = Infinity; P.wpT = clock; P.shortcutT = clock;
+    P.pts = pts; P.idx = 0; P.wpBest = Infinity; P.wpT = clock; P.shortcutT = clock; P.failStreak = 0;
     return true;
   }
   function clearPath() { P.pts = null; P.goal = null; P.idx = 0; }
@@ -1014,7 +1015,7 @@ export function createBot(opts = {}) {
     wpn.preStop = -1; wpn.nextBurst = 0; wpn.nextTap = 0; wpn.pendingReload = null; wpn.pulseStop = false; wpn.heavyNext = false;
     rk.yaw = 0; rk.pitch = 0; rk.kickCfg = null;
     eng.strafeDir = 0; eng.advance = false; eng.blockSince = -1; eng.nextHop = 0; lastCoverTry = -99; damagedAt = -99;
-    hunt.goal = null; hunt.targetId = null; hunt.nextAt = 0; hunt.skip.clear(); flight = false;
+    hunt.goal = null; hunt.targetId = null; hunt.nextAt = 0; hunt.skip.clear(); flight = false; P.failStreak = 0;
     plan.laneChecked = false;
     setMode('patrol');
   }
@@ -1052,6 +1053,7 @@ export function createBot(opts = {}) {
     if (flight && clock - flightAt > 0.2 && (self.onGround === true || clock - flightAt > 5)) {
       flight = false;
       clearPath();
+      P.failStreak = 0;
       stk.ring.length = 0; stk.moveT = 0;
     }
     eye.x = pos.x; eye.y = pos.y + EYE + (CROUCH_EYE - EYE) * selfCrouchK; eye.z = pos.z;
@@ -1199,10 +1201,16 @@ export function createBot(opts = {}) {
 
     evalRecovery();
     if (mv.on && !mv.stop && !(clock < stk.recoverUntil) && !(stk.escape && clock < stk.escapeUntil)) { stk.lastDir.x = mv.x; stk.lastDir.z = mv.z; }
+    // 경로를 계속 못 찾으면(걷기 칸이 이어지지 않는 곳에 갇혔을 때) 서 있지 않고 트인 쪽으로 움직여 본다
+    if (P.failStreak >= PATH_FAIL_WANDER && !flight && !stk.escape && mode !== 'engage') {
+      P.failStreak = 0;
+      stk.escTries = 0;
+      startEscape();
+    }
     /* ---- 끼임 복구 덮어쓰기 ---- */
     if (stk.escape && clock < stk.escapeUntil && mode !== 'engage') {
       const dx = stk.escape.x - pos.x, dz = stk.escape.z - pos.z, l = hyp2(dx, dz);
-      if (l > 0.5) { mv.x = dx / l; mv.z = dz / l; mv.on = true; mv.stop = false; mv.jump = false; }
+      if (l > 0.5) { mv.x = dx / l; mv.z = dz / l; mv.on = true; mv.stop = false; mv.jump = false; hopOver(mv, Infinity); }
       else stk.escapeUntil = clock;
     }
     if (stk.escape && clock >= stk.escapeUntil) {
@@ -1213,6 +1221,8 @@ export function createBot(opts = {}) {
       mv.x = stk.rec.dx; mv.z = stk.rec.dz; mv.on = true; mv.stop = false;
       mv.jump = stk.level === 1 && clock < stk.recoverUntil - 0.35;
     }
+    // 발판으로 떠 있는 동안 멈추려 하면 앞으로 민다. 제자리 발판에서 같은 자리로 떨어져 계속 튀지 않게 한다
+    if (flight && !(mv.on && !mv.stop)) { mv.x = -Math.sin(yaw); mv.z = -Math.cos(yaw); mv.on = true; mv.stop = false; mv.jump = false; }
 
     /* ---- 시점 ---- */
     if (look) {
@@ -1597,7 +1607,7 @@ export function createBot(opts = {}) {
       // 머리만 보이는 적: easy는 기다리고, normal은 40m 안에서만 쏜다
       const hoT = clock - (combat.m.headOnlySince ?? clock);   // 머리만 보인 지 얼마나 됐나
       // easy는 머리만 보이는 적을 쏘지 않는다(교착 해소 로직이 각을 바꾼다)
-      const headOnlyOk = combat.m.part !== 2 || difficulty === 'hard' || (difficulty === 'normal' && (d < 40 || hoT > 1.5));
+      const headOnlyOk = info.kind === 'melee' || combat.m.part !== 2 || difficulty === 'hard' || (difficulty === 'normal' && (d < 40 || hoT > 1.5));
       const clear = !allyInLine(ap) && headOnlyOk && !combat.m.protect;   // 부활 보호 중인 적은 겨누기만
       const ready = drawn && curSlot === want && reactOk && clear && !W0.reloading;
       const style = styleOf(info);
@@ -1744,7 +1754,14 @@ export function createBot(opts = {}) {
       return !!pendingPrimary;
     },
     /** 발판에 실려 날아가기 시작했다(엔진이 알려 준다). 착지하면 경로를 새로 잡는다 */
-    onLaunch() { flight = true; flightAt = clock; clearPath(); },
+    onLaunch() {
+      flight = true; flightAt = clock;
+      clearPath();
+      // 가던 목표는 버린다. 버티던 자리가 발판 위면 돌아와서 다시 튀게 된다
+      if (plan.holdSpot) { plan.visited.push(plan.holdSpot); if (plan.visited.length > 12) plan.visited.shift(); plan.holdSpot = null; plan.holdUntil = 0; }
+      if (mode === 'patrol' && plan.routeIdx < plan.route.length) plan.routeIdx++;
+      hunt.goal = null; hunt.nextAt = 0;
+    },
     /** 매 프레임 호출 → 입력 */
     think(dt, v) {
       const out = think(dt, v);

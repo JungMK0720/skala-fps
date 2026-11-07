@@ -162,9 +162,9 @@ export function createPractice({ ctx, world, ui }) {
     } catch (err) {
       // 맵 파일이 깨져 있어도 연습장은 열린다
       console.warn(`[practice] 맵 '${opts.mapId}'을 열지 못해 '${FALLBACK_MAP}'으로 대신합니다`, err);
-      opts.mapId = FALLBACK_MAP;
       info = await world.loadMap(FALLBACK_MAP, load);
     }
+    if (info.mapId) opts.mapId = info.mapId;     // 없는 맵이면 코어가 대신 연 테스트 맵. 결과·전적에는 실제로 연 맵을 적는다
     run = startRun(opts, info);
   }
 
@@ -695,7 +695,8 @@ export function createPractice({ ctx, world, ui }) {
       if (map.world.triggers) {
         const fired = stepTriggers(map.world, b.body, b.crouch ? CROUCH_H : PLAYER.HEIGHT, b.trig, dt);
         if (fired.pad) {
-          b.padFlight = true;
+          // 목표가 있거나 옆으로 보내는 발판은 궤적을 그대로 탄다. 제자리 발판(수직 발사)은 공중에서 움직여 벗어난다
+          b.padFlight = !!fired.pad.target || Math.hypot(b.body.vel[0], b.body.vel[2]) > 1;
           b.brain.onLaunch();
           world.sound('pad_boost', { pos: [b.body.pos[0], b.body.pos[1], b.body.pos[2]] });
         }

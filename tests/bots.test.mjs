@@ -96,7 +96,12 @@ function makeRunner({ pick, ruleset = 'classic', difficulty = 'normal', start = 
       edgeJump = false;
       if (flying) { if (body.onGround) flying = false; else { wish.x = 0; wish.z = 0; } }
       moveCharacter(map.world, body, wish, dt);
-      if (map.world.triggers && stepTriggers(map.world, body, PLAYER.HEIGHT, trig, dt).pad) { flying = true; brain.onLaunch(); log.launched = (log.launched || 0) + 1; }
+      const fired = map.world.triggers ? stepTriggers(map.world, body, PLAYER.HEIGHT, trig, dt) : null;
+      if (fired && fired.pad) {
+        flying = !!fired.pad.target || Math.hypot(body.vel[0], body.vel[2]) > 1;   // practice.js와 같은 규칙
+        brain.onLaunch();
+        log.launched = (log.launched || 0) + 1;
+      }
       const evs = arsenal.update(dt, { fireDown: !!cmd.fire, zoomDown: !!cmd.zoom, reloadPressed: edgeReload, slot: edgeSlot, wheel: 0 },
         { speed: Math.hypot(body.vel[0], body.vel[2]), onGround: body.onGround, walking: !!cmd.walk });
       edgeReload = false; edgeSlot = null;
@@ -673,6 +678,52 @@ describe('내비 그리드', () => {
     let far = 0;
     for (let i = 0; i < 60 * 15; i++) { alone.tick([onRoof]); far = Math.max(far, horiz(alone.body.pos, from)); }
     assert.ok(far > 5, `제자리에 있다 ${far.toFixed(1)} m`);
+  });
+
+  test('제자리 발판에 올라서도 계속 튀지 않고 벗어난다', () => {
+    const c = buildCollision(PADS);
+    const g = buildNavGrid(PADS);
+    for (const [ruleset, pick] of [['knife', 'ml_knife'], ['classic', 'ar_std'], ['sniper', 'sr_bolt']]) {
+      const r = makeRunner({ pick, ruleset, start: [-10, -10], map: c, grid: g });
+      r.body.pos[1] = 1;
+      const target = enemyAt(25, 15);
+      for (let i = 0; i < 60 * 12; i++) r.tick([target]);
+      assert.ok(r.log.launched >= 1, `${ruleset}: 발판이 발동하지 않았다`);
+      assert.ok(r.log.launched <= 3, `${ruleset}: 발판에서 ${r.log.launched}번 튀었다`);
+      assert.ok(Math.hypot(r.body.pos[0] + 10, r.body.pos[2] + 10) > 3, `${ruleset}: 발판을 벗어나지 못했다`);
+    }
+  });
+
+  test('경로가 없는 곳에 갇혀도 서 있지 않는다', () => {
+    const data = {
+      id: 'closed-room', size: { x: 60, z: 40 }, theme: { ground: 'concrete' },
+      spawns: { owner: [{ x: -25, z: 0 }], charterer: [{ x: 25, z: 0 }] },
+      solids: [
+        { type: 'box', x: 0, y: 0, z: -5, w: 12, h: 6, d: 0.4, mat: 'concrete' },
+        { type: 'box', x: 0, y: 0, z: 5, w: 12, h: 6, d: 0.4, mat: 'concrete' },
+        { type: 'box', x: -6, y: 0, z: 0, w: 0.4, h: 6, d: 10, mat: 'concrete' },
+        { type: 'box', x: 6, y: 0, z: 0, w: 0.4, h: 6, d: 10, mat: 'concrete' }
+      ]
+    };
+    const g = buildNavGrid(data);
+    const c = buildCollision(data);
+    for (const [ruleset, pick] of [['knife', 'ml_knife'], ['classic', 'ar_std'], ['sniper', 'sr_bolt']]) {
+      const r = makeRunner({ pick, ruleset, start: [0, 0], map: c, grid: g });
+      const target = enemyAt(-25, 15);
+      let moved = 0, stopped = 0, longestStop = 0;
+      let last = r.body.pos.slice();
+      for (let i = 0; i < 60 * 20; i++) {
+        r.tick([target]);
+        const d = Math.hypot(r.body.pos[0] - last[0], r.body.pos[2] - last[2]);
+        moved += d;
+        last = r.body.pos.slice();
+        stopped = d < 1e-3 ? stopped + 1 : 0;
+        longestStop = Math.max(longestStop, stopped);
+      }
+      assert.ok(r.brain.stats.pathFails > 0, `${ruleset}: 경로 실패가 없었다`);
+      assert.ok(moved > 10, `${ruleset}: ${moved.toFixed(1)} m만 움직였다`);
+      assert.ok(longestStop < 60 * 8, `${ruleset}: ${(longestStop / 60).toFixed(1)}초 동안 서 있었다`);
+    }
   });
 
   test('봇이 발판을 타고 지붕에 내렸다가 돌아온다', () => {
