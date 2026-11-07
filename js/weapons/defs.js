@@ -92,7 +92,7 @@ const AR_BURST_PATTERN = [
 const DM_MARK_PATTERN = [[0.00, 1.70], [0.35, 1.60], [-0.35, 1.60], [0.20, 1.50], [-0.20, 1.50]];
 
 /** VX-3. 수직 상승은 작고 좌우로 빠르게 떤다. 근거리 몸통 조준을 깨지 않으면서 멀리서는 흩어지게 한다. */
-const SM_VP9_PATTERN = [
+const SM_VX3_PATTERN = [
   [0.06, 0.30], [-0.10, 0.32], [0.14, 0.34], [-0.16, 0.36], [0.18, 0.36], [-0.20, 0.34], [0.24, 0.30], [-0.26, 0.28],
   [0.22, 0.24], [-0.22, 0.22], [0.26, 0.20], [-0.26, 0.20], [0.20, 0.18], [-0.18, 0.18], [0.24, 0.18], [-0.24, 0.18],
 ];
@@ -307,8 +307,8 @@ const WEAPON_TABLE = {
 
   // ───────────────────────────── 슬롯 1 · SMG / 샷건 ─────────────────────────────
   // 12 m 안에서는 라이플과 TTK가 비슷하고 이동이 105%다. 40 m에서 55%까지 떨어져 먼 거리는 라이플에 내준다.
-  sm_vp9: gun({
-    id: 'sm_vp9', slot: 1, kind: 'smg', category: 'smg', fire: 'auto', price: 600,
+  sm_vx3: gun({
+    id: 'sm_vx3', slot: 1, kind: 'smg', category: 'smg', fire: 'auto', price: 600,
     name: 'VX-3 바이퍼', nameEn: 'VX-3 Viper', short: 'VX-3', role: '기동',
     icon: '🐍', color: '#18c98a', sound: 'smg', fxKind: 'pistol',
     tagline: '뛰면서 쏘는 근거리 기동형.',
@@ -328,7 +328,7 @@ const WEAPON_TABLE = {
     // move가 라이플의 절반 아래: 이동 사격이 이 총의 존재 이유다
     spread: { hip: 1.5, ads: 0.6, move: 0.9, adsMove: 0.5, air: 3.5, adsAir: 3,
       bloomPerShot: 0.12, bloomMax: 2.2, bloomDecay: 6, adsBloomMul: 0.7, max: 9 },
-    recoil: { pattern: SM_VP9_PATTERN, loopFrom: 8, adsMul: 0.85, maxPitch: 7, maxYaw: 3.5,
+    recoil: { pattern: SM_VX3_PATTERN, loopFrom: 8, adsMul: 0.85, maxPitch: 7, maxYaw: 3.5,
       recoverDelay: 0.09, recoverRate: 10, patternRecover: 26 },
     zoom: { mag: 1.4, inTime: 0.12, outTime: 0.09, accurateAt: null, overlay: null,
       hideViewmodelAt: null, moveMul: 0.9, unzoomOnFire: false },

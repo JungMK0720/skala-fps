@@ -284,10 +284,11 @@ props 없음. `ui.setWeapons`로 등록한 무기 중 슬롯 1~3을 `def.categor
 | `settings:change` | `{ settings, key, value, changed[] }` | 슬라이더를 움직이는 동안 계속 발생 |
 | `lobby:refresh` / `lobby:back` | `{}` | |
 | `lobby:join` | `{ roomId }` | |
-| `lobby:create` | `{ name, mapId, max, mode }` | `mode`: `'team'`(기본) / `'ffa'` |
+| `lobby:create` | `{ name, mapId, max, mode, ruleset }` | `mode`: `'team'`(기본) / `'ffa'`. `ruleset`: `'classic'`(기본) / `'knife'` / `'sniper'` |
 | `room:team` | `{ team }` | 팀전만 |
 | `room:ready` | `{ ready }` | |
 | `room:mode` | `{ mode }` | 방장만. `'team'` / `'ffa'` |
+| `room:ruleset` | `{ ruleset }` | 방장만. 규칙을 바꾸면 그 규칙에 맞는 맵으로 다시 고른다 |
 | `room:start` | `{ roomId, mapId, mode }` | 방장만, 조건을 만족할 때만 |
 | `room:map` | `{ mapId }` | 방장만 |
 | `room:chat` | `{ text }` | 공백을 정리한 1~120자 |

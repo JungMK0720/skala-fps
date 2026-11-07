@@ -32,7 +32,7 @@ import { getDef } from './defs.js';
 export const VIEWMODEL_LAYER = 30;
 /** 모형을 가진 무기 id(DESIGN 3.2 표 순서) */
 export const VIEWMODEL_IDS = Object.freeze([
-  'ar_std', 'ar_rapid', 'ar_line', 'ar_burst', 'dm_mark', 'sm_vp9', 'sg_bx12',
+  'ar_std', 'ar_rapid', 'ar_line', 'ar_burst', 'dm_mark', 'sm_vx3', 'sg_bx12',
   'sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy', 'pt_std', 'pt_magnum', 'ml_knife', 'ml_katana', 'gr_frag',
 ]);
 
@@ -47,7 +47,7 @@ const COLOR = {
 /** 팀별 소매 색(core TEAMS 색과 맞춤) */
 const TEAM_SLEEVE = { owner: 0x22407a, charterer: 0xe8731c };
 /** 표에 있지만 빌더가 없는 무기는 kind로 닮은 모형을 쓴다 */
-const KIND_FALLBACK = { rifle: 'ar_std', dmr: 'dm_mark', smg: 'sm_vp9', shotgun: 'sg_bx12', sniper: 'sr_bolt', pistol: 'pt_std', melee: 'ml_knife', grenade: 'gr_frag' };
+const KIND_FALLBACK = { rifle: 'ar_std', dmr: 'dm_mark', smg: 'sm_vx3', shotgun: 'sg_bx12', sniper: 'sr_bolt', pistol: 'pt_std', melee: 'ml_knife', grenade: 'gr_frag' };
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const num = (v, d = 0) => (Number.isFinite(v) ? v : d);
@@ -1443,11 +1443,11 @@ export function createViewmodel(camera, opts = {}) {
     };
   }
 
-  // ── 기관단총 VP-9 ───────────────────────────────────────────
-  function buildSmVp9() {
+  // ── 기관단총 VX-3 ───────────────────────────────────────────
+  function buildSmVx3() {
     const g = new THREE.Group();
     const parts = {};
-    const id = 'sm_vp9';
+    const id = 'sm_vx3';
     const body = paint(0x20262b, { rough: 0.52, metal: 0.35 });
     const shell = paint(0x2f3a3d, { rough: 0.62, metal: 0.15 });
     const accent = paint(accentOf(id, 0x18c98a), { rough: 0.42, metal: 0.1, glow: 0.3 });
@@ -1701,7 +1701,7 @@ export function createViewmodel(camera, opts = {}) {
       hip: [0.14, -0.15, -0.34], kick: { z: 0.02, pitch: 0.03, roll: 0.01 }, flash: 0.95,
     }),
     dm_mark: buildDmMark,
-    sm_vp9: buildSmVp9,
+    sm_vx3: buildSmVx3,
     sg_bx12: buildSgBx12,
     sr_bolt: () => buildSniper({
       id: 'sr_bolt', body: 0x1f3557, fore: 0.27, barrel: 0.5, barrelR: 0.0105, brake: 'std', stock: 'solid', optic: 'std', bipod: 'folded',

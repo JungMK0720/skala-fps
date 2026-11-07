@@ -336,7 +336,7 @@ describe('모든 주무기', () => {
       return closest;
     };
     assert.ok(closestTo('sg_bx12') <= 9, 'BX-12가 붙지 않았다');
-    assert.ok(closestTo('sm_vp9') <= 16, 'VX-3이 붙지 않았다');
+    assert.ok(closestTo('sm_vx3') <= 16, 'VX-3이 붙지 않았다');
     assert.ok(closestTo('dm_mark') >= 30, 'DM-4가 너무 가까이 갔다');
   });
 

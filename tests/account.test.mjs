@@ -805,7 +805,7 @@ describe('createAccount 상점과 장비', () => {
     const { account, bus } = makeAccount(t);
     assert.deepEqual(account.buy('no_such'), { ok: false, reason: 'unknown', points: 500 });
     assert.deepEqual(account.buy('ar_std'), { ok: false, reason: 'owned', points: 500 }, '기본 지급 무기');
-    assert.deepEqual(account.buy('sm_vp9'), { ok: false, reason: 'points', points: 500 }, '600포인트 무기');
+    assert.deepEqual(account.buy('sm_vx3'), { ok: false, reason: 'points', points: 500 }, '600포인트 무기');
     assert.equal(account.isOwned('pt_magnum'), false);
     assert.equal(bus.of('account:change').length, 0, '실패는 알리지 않는다');
 
@@ -1147,8 +1147,8 @@ describe('syncFromRemote 병합 규칙', () => {
   test('닉네임은 서버, 무기는 합집합, 전적은 큰 값, 포인트는 큰 값', async (t) => {
     const local = {
       profile: {
-        nickname: '로컬이름', points: 1200, owned: ['sm_vp9'],
-        loadout: { primary: 'sm_vp9', secondary: 'pt_std', melee: 'ml_katana' },
+        nickname: '로컬이름', points: 1200, owned: ['sm_vx3'],
+        loadout: { primary: 'sm_vx3', secondary: 'pt_std', melee: 'ml_katana' },
         stats: { kills: 10, deaths: 9, wins: 5 },
         secrets: { alley: { roof: { name: '옥상', at: 3000 } }, dojo: { top: { name: '지붕', at: 4000 } } },
         createdAt: 5000
@@ -1161,7 +1161,7 @@ describe('syncFromRemote 병합 규칙', () => {
     const p = account.profile;
     assert.equal(p.nickname, '서버이름');
     assert.equal(p.points, 1200);
-    assert.ok(p.owned.includes('sm_vp9') && p.owned.includes('ar_rapid'));
+    assert.ok(p.owned.includes('sm_vx3') && p.owned.includes('ar_rapid'));
     assert.equal(p.stats.kills, 50);
     assert.equal(p.stats.deaths, 9);
     assert.equal(p.stats.wins, 5);
@@ -1182,8 +1182,8 @@ describe('syncFromRemote 병합 규칙', () => {
   test('서버에 못 올린 구매가 있으면 환불되지 않는다', async (t) => {
     const local = {
       profile: {
-        nickname: '서버이름', points: 100, owned: ['ar_rapid', 'sm_vp9'],
-        loadout: { primary: 'sm_vp9', secondary: 'pt_std', melee: 'ml_katana' }
+        nickname: '서버이름', points: 100, owned: ['ar_rapid', 'sm_vx3'],
+        loadout: { primary: 'sm_vx3', secondary: 'pt_std', melee: 'ml_katana' }
       },
       sync: { dirty: true, pendingClaim: null }
     };
@@ -1191,8 +1191,8 @@ describe('syncFromRemote 병합 규칙', () => {
     const { account } = makeAccount(t, { server, storage });
     await account.ready;
     assert.equal(account.profile.points, 100);
-    assert.equal(account.isOwned('sm_vp9'), true);
-    assert.equal(account.loadout.primary, 'sm_vp9', '장비도 로컬 값');
+    assert.equal(account.isOwned('sm_vx3'), true);
+    assert.equal(account.loadout.primary, 'sm_vx3', '장비도 로컬 값');
     assert.equal(storedEnvelope(storage).sync.dirty, true);
   });
 
@@ -1209,13 +1209,13 @@ describe('syncFromRemote 병합 규칙', () => {
 
   test('서버 값이 깨져 있어도 로컬을 해치지 않는다', async (t) => {
     const bad = { name: 12345678901234, points: 'x', owned: 'nope', loadout: [], stats: 7, secrets: 'y', createdAt: 'z' };
-    const local = { profile: { nickname: '철수', points: 700, owned: ['sm_vp9'] }, sync: { dirty: false } };
+    const local = { profile: { nickname: '철수', points: 700, owned: ['sm_vx3'] }, sync: { dirty: false } };
     const { server, storage } = withRemote(bad, local);
     const { account } = makeAccount(t, { server, storage });
     await account.ready;
     assert.equal(account.profile.nickname, '철수');
     assert.equal(account.profile.points, 700);
-    assert.equal(account.isOwned('sm_vp9'), true);
+    assert.equal(account.isOwned('sm_vx3'), true);
   });
 
   test('서버에 행이 없고 닉네임이 있으면 등록한다', async (t) => {
@@ -1247,7 +1247,7 @@ describe('syncFromRemote 병합 규칙', () => {
   });
 
   test('mergeProfiles는 입력을 바꾸지 않는다', () => {
-    const local = normalizeProfile({ nickname: '철수', points: 100, owned: ['sm_vp9'], createdAt: 5 });
+    const local = normalizeProfile({ nickname: '철수', points: 100, owned: ['sm_vx3'], createdAt: 5 });
     const server = normalizeProfile({ nickname: '영희', points: 200, owned: ['ar_rapid'], createdAt: 9 });
     const frozen = JSON.stringify([local, server]);
     const merged = mergeProfiles(local, server);
