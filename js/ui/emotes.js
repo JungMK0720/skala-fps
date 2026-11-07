@@ -104,7 +104,7 @@ export function createEmotes(ctx) {
     setText(hubIco, it ? it.icon || '🙂' : '🕺');
     setText(hubName, it ? it.name : '');
     hubName.hidden = !it;
-    setText(hubHint, it ? 'B를 떼면 시작' : HINT);
+    setText(hubHint, it ? (document.documentElement.classList.contains('pc-touch') ? '손을 떼면 시작' : 'B를 떼면 시작') : HINT);
   }
 
   function applyCursor(c) {

@@ -30,6 +30,8 @@ import * as physics from './engine/physics.js';
 import * as materials from './engine/materials.js';
 import { createRenderer } from './engine/renderer.js';
 import { createInput } from './engine/input.js';
+import { createTouchControls } from './engine/touch.js';
+import { detectTouch } from './engine/touch-logic.js';
 import { createLoop } from './engine/loop.js';
 import { createLocalPlayer } from './engine/player.js';
 import { createAvatars } from './engine/avatars.js';
@@ -44,7 +46,8 @@ const FLAGS = {
   autoplay: params.has('autoplay') && params.get('autoplay') !== '0',
   plugins: params.get('plugins') !== '0',
   sandbox: params.get('sandbox') || null,
-  devgun: false
+  devgun: false,
+  touch: detectTouch({ flag: params.get('touch'), coarse: !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches), maxTouchPoints: navigator.maxTouchPoints || 0 })
 };
 // weapons·fx는 index.js 없이 game/index.js(World)가 직접 엮는다 → 여기서 불러 보면 404만 남고, 나중에 install이 생기면 두 번 엮인다
 const PLUGIN_NAMES = ['ui', 'net', 'game'];
@@ -352,11 +355,12 @@ async function boot() {
   const account = createAccount({ bus });
 
   let renderer;
-  try { renderer = createRenderer({ container: view, settings, bus }); }
+  try { renderer = createRenderer({ container: view, settings, bus, preferLow: FLAGS.touch }); }
   catch (err) { fatal('3D(WebGL)를 쓸 수 없어요. 브라우저의 하드웨어 가속을 켜거나 다른 브라우저로 열어 주세요.', err); return; }
 
-  const input = createInput({ element: renderer.domElement, bus, settings });
+  const input = createInput({ element: renderer.domElement, bus, settings, touch: FLAGS.touch });
   input.setEnabled(false);
+  if (FLAGS.touch) createTouchControls({ input, bus, canvas: renderer.domElement, root: app, gameScreens: GAME_SCREENS });
   const loop = createLoop({ tickRate: consts.TICK_RATE, bus });
   const avatars = createAvatars({ scene: renderer.scene, camera: renderer.camera });
   let mapHost = null;

@@ -25,6 +25,27 @@ const KEYS = [
   [['Esc'], '일시정지 메뉴'],
 ];
 
+/** 휴대폰 조작(engine/touch.js). html.pc-touch가 켜져 있으면 키 표 대신 보여 준다 */
+const TOUCH_KEYS = [
+  [['왼쪽 화면'], '끌면 이동. 조금만 밀면 천천히 걸어요'],
+  [['오른쪽 화면'], '끌면 시점'],
+  [['발사'], '사격 · 베기 · 투척. 누른 채 끌면 시점도 함께 움직여요'],
+  [['조준'], '줌 켜고 끄기. 2단 줌 저격총은 누를 때마다 다음 단계로, 칼은 강타, 수류탄은 낮게 굴리기'],
+  [['점프'], '점프. 꾹 누르고 있으면 착지할 때마다 자동으로 다시 뛰어요'],
+  [['앉기'], '누를 때마다 앉고 일어나요'],
+  [['장전'], '재장전'],
+  [['무기 칸'], '화면 아래 칸을 눌러 무기를 바꿔요'],
+  [['안내 줄'], '죽은 뒤 4초 안에 안내를 누르면 주무기를 버려요 (탄약이 다 떨어진 사람이 닿으면 주워서 써요)'],
+  [['점수'], '점수판 (누르는 동안)'],
+  [['이모트'], '누른 채 끌어서 고르고 떼기, 움직이면 취소'],
+  [['Ⅱ'], '일시정지 메뉴'],
+];
+
+const TOUCH_MOVES = [
+  '점프 버튼을 꾹 누르면 자동 점프: 착지하자마자 다시 뛰어서 달리던 속도가 줄지 않아요.',
+  '공중 가속: 공중에서 이동과 시점을 같은 쪽으로 번갈아 흔들면 빨라져요.',
+];
+
 const MOVES = [
   '스페이스를 꾹 누르면 자동 점프: 착지하자마자 다시 뛰어서 달리던 속도가 줄지 않아요.',
   '공중 가속: 공중에서 A/D와 마우스를 같은 쪽으로 흔들면 빨라져요. A → 왼쪽, D → 오른쪽을 번갈아 가며 리듬을 타 보세요.',
@@ -48,8 +69,10 @@ const RULES = [
 const bullets = (lines) => h('ul', { class: 'sk-rules' }, lines.map((t) => h('li', { text: t })));
 
 export function createControlsPanel({ onClose }) {
+  const isTouch = document.documentElement.classList.contains('pc-touch');
+  const moves = isTouch ? [...TOUCH_MOVES, ...MOVES.slice(2)] : MOVES;
   const list = h('ul', { class: 'sk-keys' },
-    KEYS.map(([keys, desc]) => h('li', { class: 'sk-keys-row' },
+    (isTouch ? TOUCH_KEYS : KEYS).map(([keys, desc]) => h('li', { class: 'sk-keys-row' },
       h('span', { class: 'sk-keys-caps' }, keys.map((k) => (k === OR ? h('span', { class: 'sk-keys-or', text: '또는' }) : keycap(k)))),
       h('span', { class: 'sk-keys-desc', text: desc }))));
   // Ctrl+W는 브라우저가 가로채 탭을 닫는다(페이지가 막을 수 없음)
@@ -62,7 +85,7 @@ export function createControlsPanel({ onClose }) {
     cls: 'sk-controls',
     body: [
       list, warn,
-      h('h3', { class: 'sk-sub-title', text: '이동과 맵' }), bullets(MOVES),
+      h('h3', { class: 'sk-sub-title', text: '이동과 맵' }), bullets(moves),
       h('h3', { class: 'sk-sub-title', text: '사격' }), bullets(SHOTS),
       h('h3', { class: 'sk-sub-title', text: '모드와 규칙' }), bullets(RULES),
     ],

@@ -1,12 +1,12 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 입력(Pointer Lock·키보드·마우스·휠)을 폴링 상태와 bus 이벤트로 바꾼다. 이동·점프·앉기·무기 키와 이모트 휠을 다룬다.
+ * Purpose: 입력(Pointer Lock·키보드·마우스·휠·터치)을 폴링 상태와 bus 이벤트로 바꾼다. 이동·점프·앉기·무기 키와 이모트 휠을 다룬다.
  */
 /**
  * SKALA FPS — 입력 (Pointer Lock · 키보드 · 마우스 · 휠)
  *
- *   const input = createInput({ element: canvas, bus, settings });
+ *   const input = createInput({ element: canvas, bus, settings, touch });   // touch = 휴대폰 조작(engine/touch.js가 input.touch로 넣는다)
  *   input.state.forward / back / left / right / jump / walk / crouch / fire / aim / scoreboard   (boolean, 폴링용)
  *   input.consumeLook() → { dx, dy }  // 라디안 (감도·lookScale 적용됨, invertY 반영). 프레임마다 1번 호출
  *   input.requestLock() / exitLock() / isLocked()
@@ -19,7 +19,7 @@
  * 키는 e.code 기준(한/영 상태와 무관): WASD(+화살표) · Space · Shift · Ctrl/C(앉기) · R · F(무기 살펴보기) · G(죽은 뒤 총 버리기) · 1~4 · Tab · Esc
  * Space: input.state.jump = 누르는 동안 true(player가 착지 즉시 다시 뛰는 데 쓴다), input:jump는 누른 순간 1번.
  *        잠금을 잃거나 창 포커스를 잃으면 풀리고, 키 반복으로는 다시 켜지지 않는다.
- * bus 이벤트: input:lock{locked} · input:fire{down} · input:aim{active,source} · input:reload · input:inspect · input:drop · input:slot{slot}
+ * bus 이벤트: input:lock{locked} · input:fire{down} · input:aim{active,source} · input:zoom{down}(터치 조준 버튼) · input:reload · input:inspect · input:drop · input:slot{slot}
  *            input:cycle{dir} · input:jump · input:walk{down} · input:crouch{down} · input:scoreboard{open} · input:menu{reason}
  *            input:key{code,down} (모든 키, 반복 제외)
  *            input:emoteWheel{open,cursor,selected,id,code,cancelled?} · input:emotePick{id,code,selected} · input:emoteCancel{reason}
@@ -33,8 +33,12 @@
  * (Ctrl+S·D·R·A·Space·휠 확대 등)을 막는다. Ctrl+W·T·N·Tab은 브라우저가 먼저 가져가서 막을 수 없다
  * → C 키를 권장하고, main.js가 경기 중 beforeunload 확인을 건다. 전체 화면(Fullscreen API)에서는
  * navigator.keyboard.lock()으로 게임 키를 잠가 Ctrl 조합도 게임이 받는다(크로뮴 계열).
+ *
+ * 터치 모드: 휴대폰에는 Pointer Lock이 없으니 requestLock·exitLock이 잠금 상태만 바꾼다. input:lock·input:menu는 PC와 똑같이 나가서 게임 코드는 그대로다.
+ * 탭 뒤에 브라우저가 흉내 내는 마우스 이벤트가 사격이 되지 않게 마우스 입력은 무시한다. 줌은 누를 때마다 켜고 끄는 방식으로 고정한다.
  */
 import { MOUSE, EMOTES, EMOTE_WHEEL, emoteSlotAt } from '../core/consts.js';
+import { TOUCH } from './touch-logic.js';
 
 const MOVE_KEYS = {
   KeyW: 'forward', ArrowUp: 'forward',
@@ -55,7 +59,7 @@ function isTyping(e) {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
 }
 
-export function createInput({ element, bus, settings } = {}) {
+export function createInput({ element, bus, settings, touch = false } = {}) {
   const el = element || document.body;
   const state = { forward: false, back: false, left: false, right: false, jump: false, walk: false, crouch: false, fire: false, aim: false, scoreboard: false, emoteWheel: false };
   const wheel = { open: false, x: 0, y: 0, selected: null };
@@ -67,7 +71,7 @@ export function createInput({ element, bus, settings } = {}) {
   let lookScale = 1;
   let lastWheel = 0;
   const emit = (evt, data) => { if (bus) bus.emit(evt, data); };
-  const zoomMode = () => (settings && settings.get('zoomMode')) || 'hold';
+  const zoomMode = () => (touch ? 'toggle' : (settings && settings.get('zoomMode')) || 'hold');
 
   function setAim(active, source = 'user') {
     if (state.aim === active) return;
@@ -172,7 +176,7 @@ export function createInput({ element, bus, settings } = {}) {
   }
 
   function onMouseMove(e) {
-    if (!enabled) return;
+    if (touch || !enabled) return;
     if (wheel.open) {
       // 휠: 잠금 중이면 상대 이동을 가상 커서에, 아니면 화면 중앙 기준 실제 커서 위치
       if (locked) {
@@ -191,8 +195,25 @@ export function createInput({ element, bus, settings } = {}) {
     lookX += mx; lookY += my;
   }
 
+  /** 사격(0)·줌(2)을 누른다. 이모트 중이면 이모트를 취소하기만 한다 */
+  function pressAction(button) {
+    if (emoteLock) {
+      emit('input:emoteCancel', { reason: button === 0 ? 'fire' : 'aim' });
+      return;
+    }
+    if (button === 0) {
+      if (!state.fire) { state.fire = true; emit('input:fire', { down: true }); }
+    } else if (zoomMode() === 'toggle') setAim(!state.aim);
+    else setAim(true);
+  }
+  function releaseAction(button) {
+    if (button === 0) {
+      if (state.fire) { state.fire = false; emit('input:fire', { down: false }); }
+    } else if (zoomMode() !== 'toggle') setAim(false);
+  }
+
   function onMouseDown(e) {
-    if (!locked || !enabled) return;
+    if (touch || !locked || !enabled) return;
     if (wheel.open) {
       // 휠 열림: 좌클릭 = 강조된 칸 바로 고르기, 우클릭 = 닫기. 사격·줌은 하지 않는다
       if (e.button === 0 && wheel.selected != null) closeWheel(true);
@@ -200,28 +221,60 @@ export function createInput({ element, bus, settings } = {}) {
       e.preventDefault();
       return;
     }
-    if (emoteLock && (e.button === 0 || e.button === 2)) {
-      // 이모트 중: 클릭은 이모트 취소만(사격·줌 안 함)
-      emit('input:emoteCancel', { reason: e.button === 0 ? 'fire' : 'aim' });
-      e.preventDefault();
-      return;
-    }
-    if (e.button === 0) {
-      if (!state.fire) { state.fire = true; emit('input:fire', { down: true }); }
-    } else if (e.button === 2) {
-      if (zoomMode() === 'toggle') setAim(!state.aim);
-      else setAim(true);
-    }
+    if (e.button === 0 || e.button === 2) pressAction(e.button);
     e.preventDefault();
   }
 
   function onMouseUp(e) {
-    if (e.button === 0) {
-      if (state.fire) { state.fire = false; emit('input:fire', { down: false }); }
-    } else if (e.button === 2) {
-      if (zoomMode() !== 'toggle') setAim(false);
-    }
+    if (touch) return;
+    if (e.button === 0 || e.button === 2) releaseAction(e.button);
   }
+
+  /** 터치 조작이 넣는 입력(engine/touch.js). 키보드·마우스와 같은 상태와 이벤트로 바꾼다 */
+  const touchApi = {
+    /** 조이스틱. stickState()의 결과를 그대로 받는다 */
+    stick(s) {
+      if (!enabled) return;
+      state.forward = !!s.forward; state.back = !!s.back; state.left = !!s.left; state.right = !!s.right;
+      const walk = !!s.walk;
+      if (state.walk !== walk) { state.walk = walk; emit('input:walk', { down: walk }); }
+    },
+    /** 시점을 손가락 이동량(px)만큼 돌린다 */
+    look(dx, dy) {
+      if (locked && enabled && !wheel.open) { lookX += dx * TOUCH.LOOK_SCALE; lookY += dy * TOUCH.LOOK_SCALE; }
+    },
+    fire(down) {
+      if (!down) { releaseAction(0); return; }
+      if (locked && enabled && !wheel.open) pressAction(0);
+    },
+    /** 조준 버튼. 칼은 강타, 수류탄은 낮게 굴리기가 된다 */
+    zoom(down) {
+      if (!down) { releaseAction(2); emit('input:zoom', { down: false }); return; }
+      if (!locked || !enabled || wheel.open) return;
+      pressAction(2);
+      if (!emoteLock) emit('input:zoom', { down: true });
+    },
+    jump(down) {
+      if (!down) { state.jump = false; return; }
+      if (enabled) { state.jump = true; emit('input:jump', {}); }
+    },
+    /** 앉기를 켜고 끈다 → 지금 앉아 있는가 */
+    crouchToggle() {
+      if (enabled) {
+        if (crouchDown.has('touch')) crouchDown.delete('touch');
+        else crouchDown.add('touch');
+        syncCrouch();
+      }
+      return state.crouch;
+    },
+    reload() { if (enabled) emit('input:reload', {}); },
+    slot(n) { if (enabled) emit('input:slot', { slot: n }); },
+    drop() { if (enabled) emit('input:drop', {}); },
+    scoreboard(open) {
+      if (open && enabled && !state.scoreboard) { state.scoreboard = true; emit('input:scoreboard', { open: true }); }
+      else if (!open && state.scoreboard) { state.scoreboard = false; emit('input:scoreboard', { open: false }); }
+    },
+  };
 
   function onWheel(e) {
     if (!locked || !enabled) return;
@@ -235,13 +288,15 @@ export function createInput({ element, bus, settings } = {}) {
 
   function onContextMenu(e) { e.preventDefault(); }
 
-  function onLockChange() {
-    const now = document.pointerLockElement === el;
+  function setLocked(now) {
     if (now === locked) return;
     locked = now;
     if (!locked) releaseAll();
     emit('input:lock', { locked });
     if (!locked) emit('input:menu', { reason: 'unlock' });
+  }
+  function onLockChange() {
+    if (!touch) setLocked(document.pointerLockElement === el);
   }
   function onLockError() {
     emit('input:lock-error', {});
@@ -263,6 +318,7 @@ export function createInput({ element, bus, settings } = {}) {
   /** 사용자 제스처(클릭) 안에서 호출해야 한다. 결과는 pointerlockchange → input:lock 으로도 온다 */
   function requestLock() {
     if (locked) return Promise.resolve(true);
+    if (touch) { setLocked(true); return Promise.resolve(true); }
     if (!el.requestPointerLock) return Promise.resolve(false);
     let p;
     try { p = el.requestPointerLock({ unadjustedMovement: true }); }
@@ -285,6 +341,7 @@ export function createInput({ element, bus, settings } = {}) {
   }
 
   function exitLock() {
+    if (touch) { setLocked(false); return; }
     if (document.pointerLockElement === el && document.exitPointerLock) document.exitPointerLock();
   }
 
@@ -305,6 +362,8 @@ export function createInput({ element, bus, settings } = {}) {
 
   return {
     state,
+    touchMode: !!touch,
+    touch: touchApi,
     get locked() { return locked; },
     isLocked: () => locked,
     isDown: (name) => !!state[name],

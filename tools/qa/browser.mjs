@@ -282,10 +282,11 @@ export class Page {
   clearErrors() { this.errors.length = 0; }
 
   /** initScript를 등록하고 url을 연다. clean이면 그 출처의 저장소를 먼저 지운다 */
-  async open(url, { width = MAX_WIDTH, height = MAX_HEIGHT, initScript = null, clean = false, timeoutMs = 60000 } = {}) {
+  async open(url, { width = MAX_WIDTH, height = MAX_HEIGHT, initScript = null, clean = false, timeoutMs = 60000, mobile = false } = {}) {
     this.width = Math.min(width, MAX_WIDTH);
     this.height = Math.min(height, MAX_HEIGHT);
-    await this.send('Emulation.setDeviceMetricsOverride', { width: this.width, height: this.height, deviceScaleFactor: 1, mobile: false });
+    await this.send('Emulation.setDeviceMetricsOverride', { width: this.width, height: this.height, deviceScaleFactor: 1, mobile });
+    if (mobile) await this.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
     for (const id of this.initScriptIds) await this.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: id });
     this.initScriptIds = [];
     if (initScript) {
@@ -449,6 +450,14 @@ export class Page {
   }
 
   /** 눌렀다 뗀다. holdMs 동안 누르고 있는다 */
+  /**
+   * 터치 이벤트. type = 'touchStart' | 'touchMove' | 'touchEnd'. points = 지금 닿아 있는 손가락 전부 [{ id, x, y }]. touchEnd는 모두 뗀다.
+   * open(url, { mobile: true })로 연 페이지에서 쓴다.
+   */
+  async touch(type, points = []) {
+    await this.send('Input.dispatchTouchEvent', { type, touchPoints: points.map((p) => ({ id: p.id || 0, x: p.x, y: p.y })) });
+  }
+
   async press(code, { holdMs = 0, text } = {}) {
     await this.key(code, 'down', { text });
     if (holdMs > 0) await sleep(holdMs);

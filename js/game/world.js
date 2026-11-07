@@ -33,6 +33,7 @@ import { createDrops, DROP_WINDOW_MS } from './drops.js';
 const STEEL_MATS = new Set(['steel', 'rust', 'deck', 'tank', 'pipe', 'container_red', 'yellow', 'white', 'glass', 'metal_dark']);
 const SPECTATE_DELAY_MS = 1600;
 const LOCK_HINT = '🖱️ 화면을 클릭하면 조작을 시작해요';
+const TOUCH_LOCK_HINT = '👆 화면을 누르면 조작을 시작해요';
 const BODY_R = 0.3;
 const CROUCH_H = PLAYER.CROUCH_HEIGHT || 1.25;   // 앉은 키(core consts)
 const FFA_KEYS = Object.freeze(['kills', 'rank', 'total', 'leaderName', 'leaderKills', 'target', 'killTarget']);
@@ -140,7 +141,8 @@ function buildWorld(ctx, opts) {
     if (typeof vm.prewarm === 'function') vm.prewarm(R.three);   // 셰이더·텍스처까지 미리 준비해 첫 교체에서 끊기지 않게 한다
   } catch (e) { /* 첫 교체 때 만든다 */ }
   vm.setVisible(false);
-  const zoomModeOf = () => (settings.get('zoomMode') === 'toggle' ? 'toggle' : 'hold');
+  // 휴대폰은 조준 버튼을 누르고 있을 손가락이 없어서 누를 때마다 켜고 끈다
+  const zoomModeOf = () => (input.touchMode || settings.get('zoomMode') === 'toggle' ? 'toggle' : 'hold');
   /** 지금 장비 { primary, secondary, melee }. 계정이 있으면 계정 것, 없거나 빈 칸은 기본값 */
   function accountLoadout() {
     const acc = ctx.account && ctx.account.loadout;
@@ -259,9 +261,11 @@ function buildWorld(ctx, opts) {
   const removeUnlock = () => {
     window.removeEventListener('pointerdown', unlock, true);
     window.removeEventListener('keydown', unlock, true);
+    window.removeEventListener('touchend', unlock, true);
   };
   window.addEventListener('pointerdown', unlock, true);
   window.addEventListener('keydown', unlock, true);
+  window.addEventListener('touchend', unlock, true);   // iOS Safari는 손을 뗄 때만 소리를 켜 준다
 
   /* ---------- 입력 래치 ---------- */
   const onMouseDown = (e) => { if (e.button === 2 && input.locked && input.enabled && !emoteBusy()) { rmbDown = true; latch.rmb = true; } };
@@ -282,6 +286,10 @@ function buildWorld(ctx, opts) {
   offs.push(bus.on('player:view', (e) => { if (active && e && e.mode === 'third') vm.setVisible(false); }));
   offs.push(bus.on('player:emote-denied', (e) => onEmoteDenied(e)));
   offs.push(bus.on('input:aim', (e) => { if (e && e.active && e.source === 'user' && !input.locked) latch.rmb = true; }));  // autoplay 테스트용
+  offs.push(bus.on('input:zoom', (e) => {   // 터치 조준 버튼. 마우스 우클릭과 같다
+    if (!e || !e.down) { rmbDown = false; return; }
+    if (input.locked && input.enabled && !emoteBusy()) { rmbDown = true; latch.rmb = true; }
+  }));
   offs.push(bus.on('input:reload', () => { latch.reload = true; }));
   offs.push(bus.on('input:drop', () => { dropLocalPrimary(); }));
   offs.push(bus.on('input:slot', (e) => { latch.slot = e && e.slot; }));
@@ -338,7 +346,11 @@ function buildWorld(ctx, opts) {
     if (uiPaused) { uiPaused = false; emit('pause', { paused: false }); }
   }
   if (ui) {
-    offs.push(ui.on('needCursor', (need) => { if (need && input.locked) input.exitLock(); }));
+    offs.push(ui.on('needCursor', (need) => {
+      if (need && input.locked) input.exitLock();
+      // 휴대폰에는 포인터 잠금 제한이 없다. 무기 선택 같은 화면이 닫히면 다시 누르게 하지 않고 조작을 돌려준다
+      else if (!need && input.touchMode && active && !uiPaused) input.requestLock();
+    }));
     offs.push(ui.on('pause:resume', () => {
       if (!active) return;
       closePause();
@@ -810,7 +822,9 @@ function buildWorld(ctx, opts) {
   function dropHint() {
     const left = dropWindowLeft();
     const gun = left > 0 ? droppablePrimary() : null;
-    return gun ? `G 키로 ${getDef(gun.id).short} 버리기 · ${Math.ceil(left / 1000)}초` : '';
+    if (!gun) return '';
+    const how = input.touchMode ? '여기를 눌러' : 'G 키로';
+    return `${how} ${getDef(gun.id).short} 버리기 · ${Math.ceil(left / 1000)}초`;
   }
   /** 총 위에 섰는데 탄이 남아 있어 줍지 못할 때의 안내 */
   function pickHint() {
@@ -1343,7 +1357,7 @@ function buildWorld(ctx, opts) {
 
   function lockHint() {
     if (!active || input.locked || (ctx.flags && ctx.flags.autoplay) || (ui && ui.needsCursor())) return '';
-    return LOCK_HINT;
+    return input.touchMode ? TOUCH_LOCK_HINT : LOCK_HINT;
   }
 
   function hudFrame(dt) {

@@ -53,9 +53,10 @@ const QUALITY = {
   low: { maxPR: 1, shadows: false, shadowSize: 512, antialias: false }
 };
 
-export function createRenderer({ container, settings, bus } = {}) {
+export function createRenderer({ container, settings, bus, preferLow = false } = {}) {
   const qSetting = (settings && settings.get('quality')) || 'auto';
-  let level = qSetting === 'low' ? 'low' : 'high';
+  // 휴대폰(preferLow)은 '자동'이면 저사양으로 시작한다. 자동 품질은 낮추기만 하고 올리지 않는다
+  let level = qSetting === 'low' || (preferLow && qSetting === 'auto') ? 'low' : 'high';
   const dpr = window.devicePixelRatio || 1;
   // 고해상도 화면은 MSAA 대신 pixelRatio로 (비용 절약)
   const antialias = QUALITY[level].antialias && dpr < 1.5;
