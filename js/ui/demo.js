@@ -31,7 +31,7 @@ const WEAPONS = [
     bars: { power: 45, rate: 85, accuracy: 60, mobility: 75 },
   },
   { id: 'pt_std', slot: 2, name: 'P-9 권총', short: 'P-9', icon: '🔫' },
-  { id: 'ml_knife', slot: 3, name: '컴뱃 나이프', short: 'KNIFE', icon: '🔪' },
+  { id: 'ml_knife', slot: 3, name: '호크빌 나이프', short: 'HAWKBILL', icon: '🔪' },
   { id: 'gr_frag', slot: 4, name: '수류탄', short: 'FRAG', icon: '💣' },
 ];
 const MAG = { sr_bolt: [5, 20], ar_std: [30, 90], pt_std: [12, 36], ml_knife: [null, null], gr_frag: [1, 0] };

@@ -51,7 +51,7 @@ HTML은 `<!DOCTYPE html>` 다음 줄에 `<!-- ... -->`, SQL은 `--`, YAML은 `#`
   burst: { count: 3, gap: 0.065 },        // fire:'burst'
   pellets: 8,                             // 산탄. fire 이벤트의 pellets[]
   zoom: { levels: [4, 9], inTime, outTime, accurateAt, overlay, hideViewmodelAt, moveMul, unzoomOnFire },
-  melee: { slash: {...}, stab: {...} },   // 칼 2종 모두 같은 구조
+  melee: { slash: {...}, stab: {...} },   // 칼은 모두 같은 구조
 }
 ```
 `zoom.mag`(단일 배율)도 계속 읽는다. `levels`가 있으면 그 무기는 설정과 관계없이 **우클릭을 누를 때마다 0 → 1단 → 2단 → 0으로 순환**한다.
