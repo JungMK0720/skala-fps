@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<!--
+  Date: 06NOV2026
+  Author: Minkyu Jung
+  Purpose: 게임 진입 페이지. importmap, 스타일, 배포 설정, main.js를 불러오고 core 기본 화면(.core-*) 스타일을 둔다.
+-->
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#05080f">
+  <meta name="description" content="SKALA FPS — 설치 없이 브라우저에서 바로 즐기는 빠른 멀티플레이 FPS.">
+  <title>SKALA FPS</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none' stroke='%2335e0ff' stroke-width='2.5' stroke-linecap='round'%3E%3Ccircle cx='16' cy='16' r='9'/%3E%3Cpath d='M16 2v8M16 22v8M2 16h8M22 16h8'/%3E%3Ccircle cx='16' cy='16' r='1.5' fill='%23ff4d8d' stroke='none'/%3E%3C/svg%3E">
+  <script type="importmap">{"imports":{
+    "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+    "cannon-es":"https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+  }}</script>
+  <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" crossorigin>
+  <!-- 게임 UI(메뉴·HUD·로드아웃…) 스타일: 처음부터 붙여 두면 UI가 뜰 때 깜빡이지 않는다(ui/dom.js ensureStyles는 이 link를 보고 건너뜀) -->
+  <link rel="stylesheet" href="css/fps.css">
+  <!-- game 플러그인(UI·무기·FX·연습장)을 core 부팅과 나란히 미리 받아 둔다 -->
+  <link rel="modulepreload" href="js/game/index.js">
+  <style>
+    /* ===== core 기본 스타일 (&plugins=0일 때의 기본 메뉴·HUD·오류 화면용) ===== */
+    :root {
+      --c-navy: #05080f; --c-owner: #22407a; --c-owner-l: #5b82d6; --c-char: #35e0ff; --c-char-l: #8df0ff;
+      --c-accent: #ff8ab4; --c-text: #eaf1fb; --c-dim: #9dabc2; --c-panel: rgba(12, 17, 30, 0.86);
+      --f-ui: 'Pretendard', 'Noto Sans KR', 'Malgun Gothic', 'Apple SD Gothic Neo', system-ui, sans-serif;
+    }
+    html, body { margin: 0; height: 100%; background: #05080f; color: var(--c-text); font-family: var(--f-ui); overflow: hidden; }
+    body { user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+    #pc-app { position: fixed; inset: 0; overflow: hidden; }
+    #pc-view { position: absolute; inset: 0; }
+    #pc-view canvas { display: block; width: 100%; height: 100%; outline: none; }
+    #pc-ui { position: absolute; inset: 0; pointer-events: none; }
+    #pc-ui [hidden] { display: none !important; }
+    .core-fatal { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; padding: 24px; pointer-events: auto; background: #05080f; }
+    .core-fatal pre { max-width: 80vw; overflow: auto; font-size: 12px; color: #ffb4a8; text-align: left; }
+
+    /* 메뉴 */
+    .core-menu { position: absolute; inset: 0; overflow: auto; pointer-events: auto; padding: 4vh 16px;
+      background: radial-gradient(1200px 600px at 70% -10%, rgba(255,77,141,0.18), transparent 60%),
+                  radial-gradient(900px 500px at 10% 110%, rgba(53,224,255,0.14), transparent 60%),
+                  linear-gradient(180deg, #0a0f1c 0%, #05080f 70%); }
+    .core-card { max-width: 860px; margin: 0 auto; background: var(--c-panel); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 18px; padding: 26px 28px; box-shadow: 0 20px 60px rgba(0,0,0,0.45); backdrop-filter: blur(6px); }
+    .core-card.small { max-width: 460px; text-align: center; }
+    .core-title { margin: 0; font-size: clamp(28px, 4.4vw, 42px); letter-spacing: -0.02em; }
+    .core-title small { font-size: 0.45em; color: var(--c-accent); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin-left: 6px; }
+    .core-sub { color: var(--c-dim); margin: 8px 0 18px; line-height: 1.5; }
+    .core-h2 { font-size: 15px; color: var(--c-accent); margin: 18px 0 10px; letter-spacing: 0.04em; }
+    .core-row { display: flex; align-items: center; gap: 12px; }
+    .core-label { color: var(--c-dim); font-size: 14px; min-width: 52px; }
+    .core-input { flex: 1; max-width: 260px; font: inherit; color: var(--c-text); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 10px; padding: 9px 12px; outline: none; user-select: text; }
+    .core-input:focus { border-color: var(--c-owner-l); }
+    .core-maps { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+    .core-map { position: relative; text-align: left; font: inherit; color: var(--c-text); cursor: pointer; padding: 14px 14px 12px; border-radius: 14px;
+      background: rgba(255,255,255,0.045); border: 1.5px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; gap: 4px; transition: transform .12s, border-color .12s; }
+    .core-map:hover { transform: translateY(-2px); border-color: rgba(255,255,255,0.25); }
+    .core-map.on { border-color: var(--c-char); background: rgba(53,224,255,0.12); }
+    .core-map b { font-size: 17px; }
+    .core-map-en { font-size: 12px; color: var(--c-accent); letter-spacing: 0.05em; }
+    .core-map-desc { font-size: 12.5px; color: var(--c-dim); line-height: 1.45; }
+    .core-badge { font-style: normal; font-size: 11px; color: var(--c-accent); margin-top: 4px; }
+    .core-badge.test { color: #9ed3ff; }
+    .core-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; justify-content: inherit; }
+    .core-card.small .core-actions { justify-content: center; }
+    .core-btn { font: inherit; font-weight: 700; cursor: pointer; color: var(--c-text); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.16);
+      padding: 11px 18px; border-radius: 12px; pointer-events: auto; }
+    .core-btn:hover { background: rgba(255,255,255,0.14); }
+    .core-btn.primary { background: linear-gradient(180deg, #62e9ff, #22c6ea); border-color: transparent; color: #03141b; box-shadow: 0 0 18px rgba(53,224,255,0.3); }
+    .core-btn.primary:hover { filter: brightness(1.08); }
+    .core-btn:disabled { opacity: 0.55; cursor: progress; }
+    .core-note { min-height: 1.2em; color: var(--c-accent); font-size: 13px; margin: 10px 0 0; }
+    .core-settings { margin-top: 16px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px; }
+    .core-settings summary { cursor: pointer; color: var(--c-dim); font-weight: 700; }
+    .core-set-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px 18px; margin-top: 12px; }
+    .core-set { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--c-dim); }
+    .core-set span { min-width: 92px; }
+    .core-set input[type=range] { flex: 1; accent-color: var(--c-char); }
+    .core-set select { font: inherit; color: var(--c-text); background: #141c2e; border: 1px solid rgba(255,255,255,0.16); border-radius: 8px; padding: 5px 8px; }
+    .core-out { min-width: 36px; text-align: right; color: var(--c-text); font-variant-numeric: tabular-nums; }
+    .core-help { color: var(--c-dim); font-size: 12.5px; line-height: 1.6; margin: 16px 0 0; }
+
+    /* 로딩 · 오버레이 · 오류 */
+    .core-loading { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; background: rgba(5,8,16,0.78); pointer-events: auto; }
+    .core-spinner { width: 44px; height: 44px; border-radius: 50%; border: 4px solid rgba(255,255,255,0.15); border-top-color: var(--c-char); animation: core-spin 0.9s linear infinite; }
+    @keyframes core-spin { to { transform: rotate(360deg); } }
+    .core-overlay { position: absolute; inset: 0; display: grid; place-content: center; padding: 16px; background: rgba(6,12,22,0.55); pointer-events: auto; cursor: pointer; }
+    .core-overlay .core-card { cursor: default; }
+    .core-overlay h2 { margin: 0 0 6px; font-size: 26px; }
+    .core-error { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); max-width: 80vw; background: rgba(150,30,20,0.92); color: #fff;
+      padding: 10px 16px; border-radius: 10px; font-size: 14px; pointer-events: auto; }
+
+    /* HUD */
+    .core-hud { position: absolute; inset: 0; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,0.7); }
+    .core-crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+    .core-crosshair i { position: absolute; background: rgba(255,255,255,0.92); box-shadow: 0 0 0 1px rgba(0,0,0,0.45); transition: transform .1s; }
+    .core-crosshair i:nth-child(1) { width: 2px; height: 8px; left: -1px; top: -15px; }
+    .core-crosshair i:nth-child(2) { width: 2px; height: 8px; left: -1px; top: 7px; }
+    .core-crosshair i:nth-child(3) { width: 8px; height: 2px; left: -15px; top: -1px; }
+    .core-crosshair i:nth-child(4) { width: 8px; height: 2px; left: 7px; top: -1px; }
+    .core-crosshair b { position: absolute; width: 2px; height: 2px; left: -1px; top: -1px; background: #fff; }
+    .core-crosshair.aim i:nth-child(1) { transform: translateY(5px); } .core-crosshair.aim i:nth-child(2) { transform: translateY(-5px); }
+    .core-crosshair.aim i:nth-child(3) { transform: translateX(5px); } .core-crosshair.aim i:nth-child(4) { transform: translateX(-5px); }
+    .core-hitmarker { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; }
+    .core-hitmarker.show { opacity: 1; }
+    .core-hitmarker i { position: absolute; width: 10px; height: 2px; background: #fff; left: -5px; top: -1px; }
+    .core-hitmarker i:nth-child(1) { transform: rotate(45deg) translateX(10px); } .core-hitmarker i:nth-child(2) { transform: rotate(135deg) translateX(10px); }
+    .core-hitmarker i:nth-child(3) { transform: rotate(225deg) translateX(10px); } .core-hitmarker i:nth-child(4) { transform: rotate(315deg) translateX(10px); }
+    .core-hitmarker.head i, .core-hitmarker.kill i { background: #ff5a3c; }
+    .core-hitmarker.kill i { width: 14px; }
+    .core-toast { position: absolute; left: 50%; top: calc(50% + 46px); transform: translateX(-50%); font-weight: 800; font-size: 15px; opacity: 0; transition: opacity .15s; white-space: nowrap; }
+    .core-toast.show { opacity: 1; } .core-toast.head { color: #ff8a6b; }
+    .core-feed { position: absolute; right: 18px; top: 16px; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+    .core-feed-row { background: rgba(9,20,36,0.7); padding: 6px 10px; border-radius: 8px; font-size: 13.5px; border-left: 3px solid var(--c-char); transition: opacity .8s; }
+    .core-feed-row.fade { opacity: 0; }
+    .core-stats { position: absolute; left: 18px; top: 16px; background: rgba(9,20,36,0.62); padding: 8px 12px; border-radius: 10px; font-size: 13px; display: flex; flex-direction: column; gap: 3px; }
+    .core-stats b { color: var(--c-accent); }
+    .core-mapname { position: absolute; left: 18px; bottom: 84px; font-size: 12px; color: var(--c-dim); }
+    .core-perf { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); font: 12px/1.2 ui-monospace, Consolas, monospace; background: rgba(0,0,0,0.45); padding: 4px 8px; border-radius: 6px; }
+    .core-bottom { position: absolute; left: 18px; right: 18px; bottom: 18px; display: flex; justify-content: space-between; align-items: flex-end; }
+    .core-hp, .core-ammo { background: rgba(9,20,36,0.62); padding: 8px 14px; border-radius: 12px; display: flex; align-items: center; gap: 10px; }
+    .core-hp small, .core-ammo small { color: var(--c-dim); font-size: 13px; }
+    .core-hp b, .core-ammo b { font-size: 28px; font-variant-numeric: tabular-nums; min-width: 2ch; }
+    .core-bar { display: block; width: 140px; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.15); overflow: hidden; }
+    .core-bar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #4ccf7c, #a6f08d); transition: width .2s; }
+    .core-hp.low b { color: #ff7a5c; } .core-hp.low .core-bar i { background: #ff5a3c; }
+    .core-ammo.low b { color: #ffb05c; }
+    .core-wname { font-size: 12px; color: var(--c-dim); margin-right: 4px; }
+    .core-board { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); min-width: min(460px, 90vw); background: var(--c-panel);
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 14px 18px; }
+    .core-board h3 { margin: 0 0 10px; color: var(--c-accent); font-size: 15px; }
+    .core-board-row { display: grid; grid-template-columns: 1fr auto 80px; gap: 12px; padding: 6px 0; border-top: 1px solid rgba(255,255,255,0.06); font-size: 14px; }
+    .core-board-row b { text-align: right; } .core-board-row.down { opacity: 0.5; }
+    /* 이모트 휠(core 기본 — UI 플러그인이 없을 때) */
+    .core-emote-wheel { position: absolute; left: 50%; top: 50%; width: 320px; height: 320px; margin: -160px 0 0 -160px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(9,20,36,0.35) 0 22%, rgba(9,20,36,0.72) 23% 100%); border: 1px solid rgba(255,255,255,0.12); }
+    .core-emote-slot { position: absolute; width: 74px; margin: -30px 0 0 -37px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 2px;
+      padding: 6px 2px; border-radius: 12px; transition: transform .08s, background .08s; }
+    .core-emote-slot.on { background: rgba(53,224,255,0.45); transform: scale(1.12); }
+    .core-emote-ico { font-size: 26px; line-height: 1; }
+    .core-emote-slot small { font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .core-emote-hub { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 13px; color: var(--c-dim); }
+    .core-emote-dot { position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px rgba(0,0,0,0.4); }
+    .core-emote-tag { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); background: rgba(9,20,36,0.7); padding: 6px 14px; border-radius: 999px; font-weight: 700; }
+    @media (max-width: 640px) { .core-card { padding: 18px; } .core-stats { font-size: 12px; } }
+  </style>
+</head>
+<body>
+  <div id="pc-app">
+    <div id="pc-view"></div>
+    <div id="pc-ui"></div>
+  </div>
+  <noscript><p style="padding:24px">SKALA FPS를 실행하려면 JavaScript와 WebGL이 필요해요.</p></noscript>
+  <!-- 배포 설정: window.SKALA_CONFIG(Supabase 접속 정보) -->
+  <script src="js/config.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
