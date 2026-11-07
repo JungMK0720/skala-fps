@@ -73,6 +73,8 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
   function onCanvasDown(e) {
     if (!input.locked) return;     // 잠기기 전의 터치는 click으로 조작을 시작한다
     if (e.cancelable) e.preventDefault();
+    // 죽어 있으면 발사 버튼이 숨어 있다. 화면을 누르면 PC의 좌클릭처럼 관전 대상을 바꾼다
+    if (layer.classList.contains('is-dead')) { t.fire(true); t.fire(false); return; }
     if (stick.id == null && isStickSide(e.clientX, window.innerWidth)) {
       stick.id = e.pointerId; stick.x = e.clientX; stick.y = e.clientY;
       stickBase.classList.add('is-held');

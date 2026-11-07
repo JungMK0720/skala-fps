@@ -143,11 +143,12 @@ export default {
 
     t.setSection('점프와 앉기');
     const jump = await center(page, '.pc-tb--jump');
+    // 꾹 누르면 착지한 틱에 바로 다시 뛰어 땅에 닿은 순간을 폴링으로는 못 본다. 점프 이벤트를 센다
+    await page.eval(`window.__jumps = 0; window.__jumpOff = __qa.ctx.bus.on('player:jump', () => { window.__jumps++; }); 0`);
     await page.touch('touchStart', [{ id: 1, x: jump.x, y: jump.y }]);
-    await page.waitFor('__qa.ctx.player.state.onGround === false', 2000, { intervalMs: 20, label: '뛰어오름' });
-    await page.waitFor('__qa.ctx.player.state.onGround === true', 3000, { intervalMs: 20, label: '착지' });
-    await page.waitFor('__qa.ctx.player.state.onGround === false', 1500, { intervalMs: 20, label: '꾹 누르면 다시 뜀' });
+    await page.waitFor('window.__jumps >= 2', 5000, { intervalMs: 30, label: '꾹 누르면 다시 뜀' });
     await page.touch('touchEnd', []);
+    await page.eval('window.__jumpOff(); 0');
     t.check(true, '점프를 꾹 누르면 착지하자마자 다시 뛴다');
     await page.waitFor('__qa.ctx.player.state.onGround === true', 3000, { intervalMs: 20, label: '착지' });
     await tapButton(page, 'crouch');
@@ -228,6 +229,10 @@ export default {
     await waitTicks(page, 2);
     t.check(/여기를 눌러 RX-4 버리기/.test(await page.eval(`__qa.text('.sk-hint') || ''`)), '죽으면 눌러서 버리라고 알려 준다', await page.eval(`__qa.text('.sk-hint')`));
     t.check(!(await page.eval(visible('.pc-tb--fire'))), '죽어 있는 동안 전투 버튼이 숨는다');
+    await page.eval(`window.__fireSeen = 0; window.__fireOff = __qa.ctx.bus.on('input:fire', () => { window.__fireSeen++; }); 0`);
+    await tap(page, { x: 600, y: 300 });
+    t.check((await page.eval('window.__fireSeen')) > 0, '죽어 있을 때 화면을 누르면 관전 대상을 바꾼다');
+    await page.eval('window.__fireOff(); 0');
     await sleep(250);
     await t.shot('dead');
     await tap(page, await center(page, '.sk-hint'));
@@ -237,6 +242,22 @@ export default {
     await waitTicks(page, 2);
     t.check(await page.eval(visible('.pc-tb--fire')), '부활하면 전투 버튼이 돌아온다');
     t.errorsOk('총 버리기');
+
+    t.setSection('좁은 휴대폰');
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 667, height: 375, deviceScaleFactor: 1, mobile: true });
+    await sleep(300);
+    const overlap = await page.fn(() => {
+      const rect = (el) => el.getBoundingClientRect();
+      const hits = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      const buttons = [...document.querySelectorAll('.pc-tb')].filter((b) => b.offsetWidth > 0);
+      const hud = [...document.querySelectorAll('.sk-slot:not([hidden]), .sk-ammo, .sk-hp')].filter((e) => e.offsetWidth > 0);
+      const out = [];
+      for (const b of buttons) for (const h of hud) if (hits(rect(b), rect(h))) out.push(b.dataset.act + ' ↔ ' + h.className);
+      return out;
+    });
+    t.check(overlap.length === 0, '667x375에서 버튼이 HUD와 겹치지 않는다', overlap);
+    await t.shot('narrow');
+    await page.send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 1, mobile: true });
 
     t.setSection('세로 화면');
     t.check(!(await page.eval(visible('.pc-rotate'))), '가로 화면에는 안내가 없다');
