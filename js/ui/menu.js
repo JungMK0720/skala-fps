@@ -46,7 +46,7 @@ export function createMenu(ctx) {
     settingsPanel.refresh();
     modal.open(settingsPanel.el);
   }, 'sk-menu-btn--sub');
-  const controlsBtn = menuBtn('keys', '조작법', '키 배치와 이동 기술', () => modal.open(controlsPanel.el), 'sk-menu-btn--sub');
+  const controlsBtn = menuBtn('keys', '조작법', document.documentElement.classList.contains('pc-touch') ? '터치 조작과 이동 기술' : '키 배치와 이동 기술', () => modal.open(controlsPanel.el), 'sk-menu-btn--sub');
   const multiNote = h('p', { class: 'sk-menu-note', role: 'status' });
 
   const el = h('section', { class: 'sk-screen sk-page sk-menu', hidden: true, 'aria-label': '메인 메뉴' },

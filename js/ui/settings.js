@@ -108,13 +108,15 @@ function segRow(ctx, { key, label, hint, options }) {
 
 /** 메뉴·일시정지가 각자 하나씩 만든다. 열 때 refresh()로 현재 값을 다시 읽는다. */
 export function createSettingsPanel(ctx, { onClose }) {
+  const isTouch = document.documentElement.classList.contains('pc-touch');
   const rows = [
-    rangeRow(ctx, { key: 'sensitivity', label: '마우스 감도', min: 0.1, max: 5, step: 0.05, fmt: (v) => `${Number(v).toFixed(2)}×` }),
-    segRow(ctx, {
+    rangeRow(ctx, { key: 'sensitivity', label: isTouch ? '시점 감도' : '마우스 감도', min: 0.1, max: 5, step: 0.05, fmt: (v) => `${Number(v).toFixed(2)}×` }),
+    // 휴대폰의 조준 버튼은 언제나 누를 때마다 켜고 끈다
+    ...(isTouch ? [] : [segRow(ctx, {
       key: 'zoomMode', label: '줌 방식',
       options: [['hold', '누르고 있기'], ['toggle', '토글']],
       hint: (v) => (v === 'toggle' ? '우클릭 한 번에 줌, 다시 누르면 해제' : '우클릭을 누르고 있는 동안만 줌'),
-    }),
+    })]),
     rangeRow(ctx, { key: 'fov', label: '시야각', hint: '수직 시야각. 넓을수록 많이 보이고 멀리 있는 적은 작아져요.', min: 60, max: 100, step: 1, fmt: (v) => `${Math.round(v)}°` }),
     rangeRow(ctx, {
       key: 'volume', label: '볼륨', min: 0, max: 100, step: 1,

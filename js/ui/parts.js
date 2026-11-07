@@ -152,7 +152,7 @@ export function weaponSummary(d) {
   if (d.kind === 'sniper') rows.push({ label: '손·발', value: d.damage.hand });
   if (d.pellets > 1) rows.push({ label: '펠릿', value: `${d.pellets}발` });
   rows.push(rateSummary(d));
-  if (rows.length < 4) rows.push({ label: '탄', value: `${d.mag}/${d.reserve}` });
+  if (rows.length < 4) rows.push({ label: '탄', value: `${d.mag}/${d.premium ? '∞' : d.reserve}` });
   return rows;
 }
 

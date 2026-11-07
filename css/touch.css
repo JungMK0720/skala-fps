@@ -105,3 +105,8 @@ html.pc-touch input, html.pc-touch textarea, html.pc-touch select { font-size: 1
   .pc-tb--crouch { right: calc(190px + env(safe-area-inset-right)); bottom: 84px; }
   html.pc-touch .sk-slot { min-width: 38px; padding: 2px 4px; }
 }
+
+/* 세로 화면: 경기는 가로 안내가 덮지만 부활 패널과 겹치지 않게 안내 줄을 무기 칸 바로 위에 둔다 */
+@media (orientation: portrait) {
+  html.pc-touch .sk-hint { bottom: calc(76px + env(safe-area-inset-bottom)); max-width: 86vw; }
+}
