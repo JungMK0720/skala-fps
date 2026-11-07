@@ -7,7 +7,7 @@
  */
 window.SKALA_CONFIG = {
   supabase: {
-    url: '',
-    anonKey: ''
+    url: 'https://tvsoacvbjvggqdgnzijc.supabase.co',
+    anonKey: 'sb_publishable_rJg-uWBapq4V37XcAzLpZQ_Gp4p2Zb4'
   }
 };

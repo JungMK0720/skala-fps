@@ -2,6 +2,8 @@
 
 브라우저에서 바로 하는 빠른 FPS입니다. 빌드 없이 three.js와 ES 모듈로 돌아가고, GitHub Pages에 그대로 올릴 수 있습니다.
 
+**플레이: <https://jungmk0720.github.io/skala-fps/>**
+
 ## 실행
 
 ```bash
@@ -52,9 +54,9 @@ npm run serve
 
 ## 배포
 
-**GitHub Pages**: 저장소 **Settings > Pages**에서 **Deploy from a branch**, `main`, `/ (root)`를 고릅니다. 빌드 과정은 없습니다.
+**GitHub Pages**: `main`의 루트를 그대로 배포합니다. 빌드 과정은 없고, `main`에 올리면 1~2분 뒤 반영됩니다.
 
-**Supabase**: 멀티플레이와 전역 닉네임 중복 검사에 필요합니다. 절차는 [docs/SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md)에 있습니다. `js/config.js`가 비어 있으면 연습장만 오프라인으로 동작합니다.
+**Supabase**: 멀티플레이와 전역 닉네임 중복 검사에 씁니다. 운영 프로젝트는 서울 리전의 `skala-fps`이고, 절차는 [docs/SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md)에 있습니다. `js/config.js`를 비우면 연습장만 오프라인으로 동작합니다.
 
 ## 개발
 
