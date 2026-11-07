@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<!--
+  Date: 06NOV2026
+  Author: Minkyu Jung
+  Purpose: 물리 소품(js/engine/props.js) 개발용 데모. 바닥·벽·경사로·기둥과 소품 20개, 키보드로 움직이는 플레이어, 폭발·사격 버튼.
+           ?nocannon=1 은 cannon-es 불러오기 실패를, ?quality=low 는 저사양을 재현한다.
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>SKALA FPS — 물리 소품 데모</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --bg: #0b1622; --panel: rgba(9, 22, 36, 0.92); --line: #23415e; --fg: #e7eef5; --mut: #8fa6bb; --cyan: #35e0ff; --pink: #ff4d8d; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg); font: 13px/1.45 system-ui, "Malgun Gothic", sans-serif; }
+  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
+  #panel { position: fixed; left: 12px; top: 12px; width: 268px; max-width: calc(100vw - 24px); padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+  h1 { margin: 0 0 2px; font-size: 15px; }
+  .hint { margin: 0 0 10px; color: var(--mut); font-size: 12px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  button { padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; background: #12304c; color: var(--fg); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+  button:hover { background: #1b4468; }
+  button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
+  button.blast { border-color: var(--pink); color: #ffd2e1; }
+  button.shot { border-color: var(--cyan); color: #c9f6ff; }
+  kbd { padding: 0 4px; border: 1px solid var(--line); border-radius: 3px; color: var(--mut); font: 11px ui-monospace, Consolas, monospace; }
+  #stats { margin: 10px 0 0; color: #cfe3f5; font: 11.5px/1.5 ui-monospace, Consolas, monospace; white-space: pre; }
+  #note { min-height: 1.4em; margin: 8px 0 0; color: var(--cyan); font-size: 12px; }
+  #help { margin: 8px 0 0; color: var(--mut); font-size: 12px; }
+</style>
+<script type="importmap">{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "cannon-es":"https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+}}</script>
+</head>
+<body>
+<canvas id="view" tabindex="0" aria-label="물리 소품 3D 장면"></canvas>
+<section id="panel" aria-label="데모 조작">
+  <h1>물리 소품 데모</h1>
+  <p class="hint">소품은 표시 전용입니다. 판정과 이동에 영향이 없어요.</p>
+  <div class="row">
+    <button type="button" class="blast" id="btn-blast">폭발 <kbd>X</kbd></button>
+    <button type="button" class="shot" id="btn-shot">사격 <kbd>F</kbd></button>
+    <button type="button" id="btn-reset">다시 놓기 <kbd>R</kbd></button>
+    <button type="button" id="btn-quality">저사양 전환 <kbd>L</kbd></button>
+  </div>
+  <pre id="stats" aria-live="off"></pre>
+  <p id="note" role="status"></p>
+  <p id="help"><kbd>W A S D</kbd> 이동 · <kbd>Shift</kbd> 천천히 · <kbd>Q E</kbd> 시점 · <kbd>P</kbd> 멈춤 · 화면 클릭 = 그 지점으로 사격</p>
+</section>
+<script type="module">
+import * as THREE from 'three';
+import { PLAYER } from '../js/core/consts.js';
+import { createWorld, makeBox, solidToCollider } from '../js/engine/physics.js';
+import { createProps, rampWedge } from '../js/engine/props.js';
+
+const params = new URLSearchParams(location.search);
+const canvas = document.getElementById('view');
+const statsEl = document.getElementById('stats');
+const noteEl = document.getElementById('note');
+
+/* ---------- 장면 ---------- */
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x13202e);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
+scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x28303a, 1.5));
+const sun = new THREE.DirectionalLight(0xfff1d6, 2.4);
+sun.position.set(12, 22, 9);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 70 });
+sun.shadow.bias = -0.0006;
+sun.shadow.normalBias = 0.04;
+scene.add(sun);
+
+function floorTexture() {
+  const S = 256, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.fillStyle = '#2a3744';
+  g.fillRect(0, 0, S, S);
+  g.fillStyle = '#25313d';
+  g.fillRect(0, 0, S / 2, S / 2);
+  g.fillRect(S / 2, S / 2, S / 2, S / 2);
+  g.strokeStyle = 'rgba(53, 224, 255, 0.22)';
+  g.lineWidth = 2;
+  g.strokeRect(0, 0, S, S);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(11, 11);
+  t.anisotropy = 8;
+  return t;
+}
+const floorMesh = new THREE.Mesh(new THREE.PlaneGeometry(44, 44), new THREE.MeshLambertMaterial({ map: floorTexture() }));
+floorMesh.rotation.x = -Math.PI / 2;
+floorMesh.receiveShadow = true;
+scene.add(floorMesh);
+
+/* ---------- 정적 세계: 벽 · 기둥 · 경사로 (physics 충돌체 그대로) ---------- */
+const WALL = 0.5, EDGE_HEIGHT = 40, EDGE_VISIBLE = 2;   // 외곽 벽은 맵 빌더처럼 높은 'bounds'. 눈에는 낮게 그린다
+const edge = { tag: 'bounds' };
+const colliders = [
+  makeBox(-22, 0, -22, 22, EDGE_HEIGHT, -22 + WALL, 'concrete', edge), makeBox(-22, 0, 22 - WALL, 22, EDGE_HEIGHT, 22, 'concrete', edge),
+  makeBox(-22, 0, -22, -22 + WALL, EDGE_HEIGHT, 22, 'concrete', edge), makeBox(22 - WALL, 0, -22, 22, EDGE_HEIGHT, 22, 'concrete', edge),
+  makeBox(6.5, 0, -5, 7, 2.4, 3),
+  makeBox(-5, 0, -8, 5, 3, -7.5),
+  solidToCollider({ type: 'cyl', x: -7, y: 0, z: -3, r: 0.8, h: 2.6 }),
+  solidToCollider({ type: 'ramp', x: -8, y: 0, z: 4, w: 5, h: 1.5, d: 3.6, dir: '-x' })
+];
+const physicsWorld = createWorld(colliders, { floorY: 0 });
+const wallMaterial = new THREE.MeshLambertMaterial({ color: 0x5c6b7a });
+const staticGeometries = [];
+function addStaticMesh(c) {
+  let geo;
+  if (c.kind === 'cyl') {
+    geo = new THREE.CylinderGeometry(c.r, c.r, c.maxY - c.minY, 24);
+    geo.translate(c.x, (c.minY + c.maxY) / 2, c.z);
+  } else if (c.kind === 'ramp') {
+    const { center, vertices, faces } = rampWedge(c);
+    const pos = [];
+    for (const f of faces) for (let i = 1; i < f.length - 1; i++) for (const k of [f[0], f[i], f[i + 1]]) pos.push(...vertices[k]);
+    geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.computeVertexNormals();
+    geo.translate(center[0], center[1], center[2]);
+  } else {
+    const top = c.tag === 'bounds' ? EDGE_VISIBLE : c.maxY;
+    geo = new THREE.BoxGeometry(c.maxX - c.minX, top - c.minY, c.maxZ - c.minZ);
+    geo.translate((c.minX + c.maxX) / 2, (c.minY + top) / 2, (c.minZ + c.maxZ) / 2);
+  }
+  staticGeometries.push(geo);
+  const mesh = new THREE.Mesh(geo, wallMaterial);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+}
+colliders.forEach(addStaticMesh);
+
+/* ---------- 소품 20개: 3단 탑, 피라미드, 드럼통 줄, 낙하, 경사로 ---------- */
+const MAP = {
+  props: [
+    { type: 'crate', x: 0, y: 0, z: 0 }, { type: 'crate', x: 0, y: 0.9, z: 0 }, { type: 'crate', x: 0, y: 1.8, z: 0 },
+    { type: 'crate', x: 3, y: 0, z: -2 }, { type: 'crate', x: 3.95, y: 0, z: -2 }, { type: 'crate', x: 3.48, y: 0.9, z: -2 },
+    { type: 'barrel', x: -2.2, y: 0, z: -2.6 }, { type: 'barrel', x: -3.1, y: 0, z: -2.6 }, { type: 'barrel', x: -2.65, y: 1, z: -2.6 },
+    { type: 'barrel', x: -4.2, y: 0, z: -1.2 }, { type: 'barrel', x: 2.6, y: 0, z: 1.8, size: 0.7 },
+    { type: 'crate', x: 1.6, y: 3.5, z: 2.6 }, { type: 'crate', x: -1.5, y: 5, z: 2.2, size: 0.6 }, { type: 'barrel', x: 0.1, y: 6, z: 3.4 },
+    { type: 'crate', x: -7.2, y: 3, z: 4 }, { type: 'barrel', x: -8.8, y: 3, z: 4.6 },
+    { type: 'crate', x: 4.8, y: 0, z: 1.5, size: 1.3, mass: 90 },
+    { type: 'crate', x: -1.2, y: 0, z: 1, size: 0.5 }, { type: 'crate', x: 9.5, y: 0, z: 0 }, { type: 'crate', x: 9.5, y: 0.9, z: 0 }
+  ]
+};
+
+/* ---------- 플레이어: physics.moveCharacter로만 움직인다(소품은 이 값을 건드리지 않는다) ---------- */
+const body = { pos: [0, 0, 7.5], vel: [0, 0, 0], onGround: true };
+const playerMesh = new THREE.Group();
+const capsule = new THREE.Mesh(new THREE.CapsuleGeometry(PLAYER.RADIUS, PLAYER.HEIGHT - PLAYER.RADIUS * 2, 4, 16), new THREE.MeshLambertMaterial({ color: 0x35e0ff, transparent: true, opacity: 0.65 }));
+capsule.position.y = PLAYER.HEIGHT / 2;
+capsule.castShadow = true;
+const nose = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.5), new THREE.MeshLambertMaterial({ color: 0xff4d8d }));
+nose.position.set(0, PLAYER.EYE, -0.4);
+playerMesh.add(capsule, nose);
+scene.add(playerMesh);
+
+const keys = new Set();
+let yaw = 0;       // 0 = -Z를 본다 (consts.js 좌표계)
+const forward = () => [-Math.sin(yaw), 0, -Math.cos(yaw)];
+
+/* ---------- 소품 모듈 ---------- */
+let quality = params.get('quality') === 'low' ? 'low' : 'high';
+const props = createProps({
+  THREE,
+  scene,
+  getMapData: () => MAP,
+  getColliders: () => colliders,
+  getPlayerPos: () => body.pos,
+  quality,
+  ...(params.has('nocannon') ? { loadCannon: () => Promise.reject(new Error('데모: cannon-es 불러오기 실패 재현')) } : {})
+});
+const ready = props.load();
+
+/* ---------- 효과: 폭발 표시 · 탄도선 ---------- */
+const flash = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), new THREE.MeshBasicMaterial({ color: 0xff8a3c, transparent: true, opacity: 0, depthWrite: false }));
+flash.visible = false;
+scene.add(flash);
+let flashTime = 0;
+const tracer = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0x35e0ff, transparent: true }));
+tracer.frustumCulled = false;
+tracer.visible = false;
+scene.add(tracer);
+let tracerTime = 0;
+
+function say(text) { noteEl.textContent = text; }
+
+const BLAST_RADIUS = 6;
+function explode(center) {
+  const f = forward();
+  const c = center || [body.pos[0] + f[0] * 3, 0.15, body.pos[2] + f[2] * 3];
+  props.explode(c, BLAST_RADIUS);
+  flash.position.set(c[0], c[1], c[2]);
+  flash.visible = true;
+  flashTime = 0.35;
+  say(`폭발: (${c[0].toFixed(1)}, ${c[2].toFixed(1)}) 반경 ${BLAST_RADIUS} m`);
+}
+
+/** world.localFire와 같은 순서: 먼저 벽·바닥까지 거리를 재고, 그 안쪽 소품만 맞힌다 */
+function shoot(origin, dir) {
+  const range = 120;
+  const wall = physicsWorld.raycastWorld(origin, dir, range);
+  const dist = wall ? wall.dist : range;
+  const hit = props.bulletHit(origin, dir, dist);
+  const p = tracer.geometry.attributes.position;
+  p.setXYZ(0, origin[0], origin[1], origin[2]);
+  p.setXYZ(1, origin[0] + dir[0] * dist, origin[1] + dir[1] * dist, origin[2] + dir[2] * dist);
+  p.needsUpdate = true;
+  tracer.material.color.set(hit ? 0xff4d8d : 0x35e0ff);
+  tracer.visible = true;
+  tracerTime = 0.18;
+  say(hit ? '사격: 소품 명중' : '사격: 빗나감');
+  return hit;
+}
+
+/** 눈높이에서 정면, 크로스헤어처럼 살짝 아래로 */
+function shootForward() {
+  const f = forward();
+  const len = Math.hypot(f[0], -0.22, f[2]);
+  return shoot([body.pos[0], body.pos[1] + PLAYER.EYE, body.pos[2]], [f[0] / len, -0.22 / len, f[2] / len]);
+}
+
+async function reset() {
+  body.pos[0] = 0; body.pos[1] = 0; body.pos[2] = 7.5;
+  body.vel[0] = body.vel[1] = body.vel[2] = 0;
+  await props.load();
+  say('소품을 다시 놓았습니다');
+}
+
+function toggleQuality() {
+  quality = quality === 'low' ? 'high' : 'low';
+  props.setQuality(quality);
+  document.getElementById('btn-quality').firstChild.textContent = quality === 'low' ? '고사양 전환 ' : '저사양 전환 ';
+  say(quality === 'low' ? '저사양: 활성 수와 솔버 반복을 줄였습니다' : '고사양으로 돌아왔습니다');
+}
+
+document.getElementById('btn-blast').addEventListener('click', () => explode());
+document.getElementById('btn-shot').addEventListener('click', shootForward);
+document.getElementById('btn-reset').addEventListener('click', reset);
+document.getElementById('btn-quality').addEventListener('click', toggleQuality);
+
+const MOVE_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight'];
+window.addEventListener('keydown', (e) => {
+  if (MOVE_KEYS.includes(e.code)) { keys.add(e.code); e.preventDefault(); return; }
+  if (e.repeat) return;
+  if (e.code === 'KeyX') explode();
+  else if (e.code === 'KeyF') shootForward();
+  else if (e.code === 'KeyR') reset();
+  else if (e.code === 'KeyL') toggleQuality();
+  else if (e.code === 'KeyP') setPaused(!paused);
+});
+window.addEventListener('keyup', (e) => keys.delete(e.code));
+window.addEventListener('blur', () => keys.clear());
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+canvas.addEventListener('pointerdown', (e) => {
+  canvas.focus();
+  mouse.set((e.clientX / canvas.clientWidth) * 2 - 1, -(e.clientY / canvas.clientHeight) * 2 + 1);
+  raycaster.setFromCamera(mouse, camera);
+  const { origin: o, direction: d } = raycaster.ray;
+  shoot([o.x, o.y, o.z], [d.x, d.y, d.z]);
+});
+
+/* ---------- 루프 ---------- */
+function movePlayer(dt) {
+  if (keys.has('KeyQ')) yaw += dt * 1.8;
+  if (keys.has('KeyE')) yaw -= dt * 1.8;
+  const f = forward();
+  const fwd = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
+  const side = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
+  const speed = keys.has('ShiftLeft') || keys.has('ShiftRight') ? PLAYER.SLOW_WALK : PLAYER.WALK;
+  let wx = f[0] * fwd - f[2] * side, wz = f[2] * fwd + f[0] * side;
+  const len = Math.hypot(wx, wz);
+  if (len > 0) { wx = (wx / len) * speed; wz = (wz / len) * speed; }
+  physicsWorld.moveCharacter(body, { x: wx, z: wz }, dt);
+}
+
+const camPos = new THREE.Vector3(0, 6, 16);
+const camTarget = new THREE.Vector3();
+function placeCamera(dt) {
+  const f = forward();
+  camTarget.set(body.pos[0] - f[0] * 9, body.pos[1] + 5.2, body.pos[2] - f[2] * 9);
+  camPos.lerp(camTarget, dt > 0 ? 1 - Math.exp(-dt * 8) : 1);
+  camera.position.copy(camPos);
+  camera.lookAt(body.pos[0] + f[0] * 2.5, body.pos[1] + 0.7, body.pos[2] + f[2] * 2.5);
+}
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / Math.max(1, h);
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+let fps = 0, fpsFrames = 0, fpsTime = 0, propsMs = 0;
+function frame(dt) {
+  movePlayer(dt);
+  playerMesh.position.set(body.pos[0], body.pos[1], body.pos[2]);
+  playerMesh.rotation.y = yaw;
+  const t0 = performance.now();
+  props.update(dt);
+  propsMs += (performance.now() - t0 - propsMs) * 0.05;
+  if (flashTime > 0) {
+    flashTime -= dt;
+    const k = Math.max(0, flashTime / 0.35);
+    flash.scale.setScalar(BLAST_RADIUS * (1 - k * k) + 0.2);
+    flash.material.opacity = k * 0.45;
+    if (flashTime <= 0) flash.visible = false;
+  }
+  if (tracerTime > 0) {
+    tracerTime -= dt;
+    if (tracerTime <= 0) tracer.visible = false;
+  }
+  placeCamera(dt);
+  renderer.render(scene, camera);
+  fpsFrames++;
+  fpsTime += dt;
+  if (fpsTime >= 0.5) {
+    fps = fpsFrames / fpsTime;
+    fpsFrames = 0;
+    fpsTime = 0;
+    const s = props.stats();
+    statsEl.textContent = [
+      `모드        ${s.mode}${quality === 'low' ? ' (저사양)' : ''}`,
+      `소품        ${s.total}`,
+      `활성 / 잠듦 ${s.active} / ${s.sleeping} (최대 ${s.maxActive})`,
+      `정적 강체   ${s.statics}`,
+      `드로우콜    ${s.drawCalls} (인스턴싱)`,
+      `스텝 / 복귀 ${s.steps} / ${s.respawns}`,
+      `소품 시간   ${propsMs.toFixed(2)} ms · ${fps.toFixed(0)} fps`
+    ].join('\n');
+  }
+}
+
+let paused = false;
+function setPaused(on) {
+  paused = !!on;
+  say(paused ? '멈춤: P로 다시 시작합니다' : '');
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.25, (now - last) / 1000);
+  last = now;
+  if (!paused) frame(dt);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+window.addEventListener('pagehide', () => {
+  props.dispose();
+  staticGeometries.forEach((g) => g.dispose());
+  renderer.dispose();
+});
+
+// 자동 확인용 손잡이
+window.__propsDemo = { props, body, keys, ready, explode, shoot, shootForward, reset, frame, setPaused, scene, camera, renderer };
+</script>
+</body>
+</html>

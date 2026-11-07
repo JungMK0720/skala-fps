@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<!--
+  Date: 06NOV2026
+  Author: Minkyu Jung
+  Purpose: 효과음과 이펙트를 버튼으로 실행해 보는 개발용 데모. ?smoke=1을 붙이면 자가 테스트를 돌린다.
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SKALA FPS — FX 데모 (효과음·이펙트)</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --bg: #0b1622; --panel: rgba(9, 22, 36, 0.92); --line: #23415e; --fg: #e7eef5; --mut: #8fa6bb; --acc: #f4a261; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, "Malgun Gothic", sans-serif; overflow: hidden; }
+  #view { position: fixed; inset: 0; display: block; }
+  #panel { position: fixed; top: 0; left: 0; bottom: 0; width: 330px; overflow-y: auto; padding: 12px 14px 20px;
+    background: var(--panel); border-right: 1px solid var(--line); }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  .hint { color: var(--mut); font-size: 12px; margin: 0 0 8px; }
+  h2 { font-size: 12px; color: var(--acc); margin: 12px 0 6px; letter-spacing: .02em; }
+  .grid { display: flex; flex-wrap: wrap; gap: 4px; }
+  button { background: #12304c; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px;
+    font: inherit; font-size: 12px; cursor: pointer; }
+  button:hover { background: #1b4468; }
+  button[aria-pressed="true"] { background: #6b3f17; border-color: var(--acc); }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+  .row { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: wrap; }
+  label { color: var(--mut); font-size: 12px; }
+  select, input[type=range] { accent-color: var(--acc); }
+  select { background: #12304c; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 3px 4px; font: inherit; font-size: 12px; }
+  #stats { position: fixed; right: 10px; top: 10px; margin: 0; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; font: 11px/1.45 ui-monospace, Consolas, monospace; color: #cfe3f5; white-space: pre; pointer-events: none; }
+  #cross { position: fixed; left: calc(50% + 165px); top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; pointer-events: none;
+    border: 1px solid rgba(255,255,255,.7); border-radius: 50%; }
+  @media (max-width: 700px) { #panel { width: 100%; bottom: auto; max-height: 45vh; } #cross { left: 50%; } }
+</style>
+<script type="importmap">{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+}}</script>
+</head>
+<body>
+<canvas id="view" aria-label="이펙트 미리보기 3D 장면"></canvas>
+<div id="cross" aria-hidden="true"></div>
+<aside id="panel">
+  <h1>SKALA FPS — FX 데모</h1>
+  <p class="hint">버튼으로 효과음·이펙트를 실행합니다. 장면을 클릭하면 그 지점 재질에 맞는 피격 이펙트가 납니다. 드래그로 시점 회전.</p>
+  <div class="row">
+    <label for="vol">볼륨</label><input id="vol" type="range" min="0" max="1" step="0.01" value="0.8">
+  </div>
+  <div class="row">
+    <label for="where">소리 위치</label>
+    <select id="where">
+      <option value="self">내 소리(2D)</option><option value="front">앞</option><option value="left">왼쪽</option>
+      <option value="right">오른쪽</option><option value="behind">뒤</option>
+    </select>
+    <label for="dist">거리 <span id="distv">15</span>m</label><input id="dist" type="range" min="2" max="200" step="1" value="15">
+  </div>
+  <div id="sounds"></div>
+  <h2>이모트 소리 (다시 누르면 멈춤 · 위치가 "내 소리"가 아니면 3D)</h2>
+  <div class="grid" id="emotes"></div>
+  <h2>이펙트</h2>
+  <div class="grid" id="effects"></div>
+  <h2>설정</h2>
+  <div class="row">
+    <label for="qual">품질</label>
+    <select id="qual"><option value="high">high</option><option value="low">low</option></select>
+    <label for="rm">동작 줄이기</label>
+    <select id="rm"><option value="os">OS 설정</option><option value="on">켜기</option><option value="off">끄기</option></select>
+  </div>
+  <div class="row">
+    <label for="speed">속도 줄기 <span id="speedv">0</span></label><input id="speed" type="range" min="0" max="1" step="0.01" value="0">
+  </div>
+</aside>
+<pre id="stats" aria-live="off"></pre>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { createAudio, SOUND_NAMES, EMOTE_SOUNDS, EMOTE_BPM } from '../js/fx/audio.js';
+import { createEffects } from '../js/fx/effects.js';
+
+const PARAMS = new URLSearchParams(location.search);
+const SMOKE = PARAMS.has('smoke');
+// 테스트용: ?emoteManifest=<같은 출처 경로> 로 다른 manifest를 쓴다(기본은 audio/emotes/manifest.json)
+const EMOTE_MANIFEST = (() => {
+  const p = PARAMS.get('emoteManifest');
+  if (!p) return undefined;
+  try { const u = new URL(p, location.href); return u.origin === location.origin ? u.href : undefined; } catch { return undefined; }
+})();
+const canvas = document.getElementById('view');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+renderer.setSize(innerWidth, innerHeight);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9fb4c4);
+scene.fog = new THREE.Fog(0x9fb4c4, 40, 160);
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 400);
+camera.position.set(0, 1.6, 7);
+scene.add(new THREE.HemisphereLight(0xdfeaf5, 0x3a3a3a, 1.4));
+const sun = new THREE.DirectionalLight(0xffe2bd, 1.6); sun.position.set(-6, 10, 4); scene.add(sun);
+
+// 간단한 바닥·벽: userData.mat = ARCHITECTURE 재질 팔레트
+const solids = [];
+function box(w, h, d, x, y, z, color, mat, extra = {}) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color, ...extra }));
+  m.position.set(x, y + h / 2, z); m.userData.mat = mat; scene.add(m); solids.push(m); return m;
+}
+box(60, 0.2, 60, 0, -0.2, 0, 0x8d8a84, 'concrete');
+box(10, 4, 0.4, 0, 0, -9, 0x56687a, 'steel');
+box(0.5, 3, 8, -9, 0, -3, 0xa7a199, 'concrete');
+box(2.4, 2.6, 6, 7, 0, -7, 0xa63d2f, 'container_red');
+box(1.2, 1.2, 1.2, 3, 0, -4, 0x9a7148, 'wood');
+box(2, 1.6, 0.06, -3, 0.6, -5, 0xbfe3f0, 'glass', { transparent: true, opacity: 0.35 });
+const water = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), new THREE.MeshLambertMaterial({ color: 0x1d3557 }));
+water.rotation.x = -Math.PI / 2; water.position.set(0, 0.02, 9); water.userData.mat = 'water';
+scene.add(water); solids.push(water);
+
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 1.2, -3); controls.enableDamping = true; controls.update();
+
+const audio = createAudio({ volume: 0.8, emoteManifest: EMOTE_MANIFEST });
+const fx = createEffects(scene, camera, { renderer });
+
+/* ── 유틸 ── */
+const fwd = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(), eul = new THREE.Euler();
+function basis() {
+  camera.getWorldDirection(fwd);
+  right.crossVectors(fwd, camera.up).normalize();
+  up.crossVectors(right, fwd).normalize();
+}
+function gunPos() { basis(); return camera.position.clone().addScaledVector(right, 0.22).addScaledVector(up, -0.18).addScaledVector(fwd, 0.6); }
+const ray = new THREE.Raycaster();
+function aimHit(ndc = new THREE.Vector2(0, 0)) {
+  ray.setFromCamera(ndc, camera);
+  const h = ray.intersectObjects(solids, false)[0];
+  if (!h) return null;
+  const n = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : new THREE.Vector3(0, 1, 0);
+  return { point: h.point, normal: n, mat: h.object.userData.mat };
+}
+function soundPos() {
+  const where = document.getElementById('where').value, d = +document.getElementById('dist').value;
+  if (where === 'self') return undefined;
+  basis();
+  const dir = { front: fwd, left: right.clone().negate(), right, behind: fwd.clone().negate() }[where];
+  return camera.position.clone().addScaledVector(dir, d);
+}
+const unlock = () => audio.unlock();
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ── 효과음 버튼 ── */
+const GROUPS = [
+  ['사격·무기', ['rifle', 'sniper', 'pistol', 'smg', 'shotgun', 'magnum', 'dmr', 'grenade_pin', 'grenade_bounce', 'explosion',
+    'reload_mag_out', 'reload_mag_in', 'bolt', 'dry_fire', 'switch']],
+  ['근접', ['knife_slash', 'knife_hit', 'katana_swing', 'katana_heavy', 'katana_hit']],
+  ['이동·발판·포털', ['footstep_concrete', 'footstep_steel', 'bhop_land', 'pad_boost', 'portal']],
+  ['피드백', ['hit_marker', 'headshot', 'kill', 'half_shot']],
+  ['보상·메뉴', ['secret_found', 'purchase', 'ui_click']],
+  ['라운드·상태', ['round_start', 'round_win', 'round_lose', 'low_hp_heartbeat']]
+];
+const ungrouped = SOUND_NAMES.filter((n) => !GROUPS.some((g) => g[1].includes(n)));
+if (ungrouped.length) GROUPS.push(['기타', ungrouped]);     // 표에 없는 새 소리도 버튼은 나온다
+const sbox = document.getElementById('sounds');
+for (const [title, names] of GROUPS) {
+  const h = document.createElement('h2'); h.textContent = title; sbox.appendChild(h);
+  const g = document.createElement('div'); g.className = 'grid'; sbox.appendChild(g);
+  for (const n of names) {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = n; b.dataset.sound = n;
+    b.addEventListener('click', async () => { await unlock(); audio.play(n, { pos: soundPos() }); });
+    g.appendChild(b);
+  }
+}
+
+/* ── 이모트 소리 ── */
+const EMOTE_LABEL = { takeL: 'L을 가져가', veggie: '새싹 댄스', sideToSide: '사이드 스텝', crissCross: 'X 점프',
+  tango: '탱고', salute: '경례', wave: '손 흔들기', cheer: '환호 박수' };
+const emoteOn = new Map(), emoteAll = new Set();
+const embox = document.getElementById('emotes');
+function track(h) { emoteAll.add(h); return h; }
+EMOTE_SOUNDS.forEach((id, i) => {
+  const b = document.createElement('button'); b.type = 'button'; b.dataset.emote = id;
+  b.textContent = `${i + 1} ${EMOTE_LABEL[id] || id}`; b.setAttribute('aria-pressed', 'false');
+  b.addEventListener('click', async () => {
+    await unlock();
+    const cur = emoteOn.get(id);
+    if (cur && cur.playing) { cur.stop(); emoteOn.delete(id); b.setAttribute('aria-pressed', 'false'); return; }
+    const h = track(audio.emote(id, { pos: soundPos() }));
+    emoteOn.set(id, h); b.setAttribute('aria-pressed', String(h.playing));
+  });
+  embox.appendChild(b);
+});
+async function crowdEmotes() {                              // 4명이 둘러서서 동시에 이모트(3D)
+  const ids = ['takeL', 'veggie', 'tango', 'cheer'];
+  const hs = ids.map((id, i) => {
+    const a = (i / ids.length) * Math.PI * 2;
+    return track(audio.emote(id, { pos: camera.position.clone().add(new THREE.Vector3(Math.sin(a) * 8, -1, -Math.cos(a) * 8)) }));
+  });
+  await wait(8000); hs.forEach((h) => h.stop(400));
+}
+async function movingEmote() {                              // 원격 플레이어가 주위를 돌며 이모트(setPos)
+  const h = track(audio.emote('sideToSide', { pos: camera.position }));
+  const t0 = performance.now();
+  while (h.playing && performance.now() - t0 < 6000) {
+    const a = ((performance.now() - t0) / 1000) * 1.2;
+    h.setPos(camera.position.clone().add(new THREE.Vector3(Math.sin(a) * 6, 0, Math.cos(a) * 6)));
+    await wait(50);
+  }
+  h.stop(300);
+}
+for (const [label, fn] of [['4명 동시(3D)', crowdEmotes], ['이동하며(3D)', movingEmote],
+  ['이모트 모두 멈춤', () => { emoteAll.forEach((h) => h.stop(200)); emoteAll.clear(); }]]) {
+  const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+  b.addEventListener('click', async () => { await unlock(); fn(); });
+  embox.appendChild(b);
+}
+function syncEmoteButtons() {                               // 한 번형이 끝나면 눌림 표시 해제
+  for (const [id, h] of emoteOn) if (!h.playing) { emoteOn.delete(id); embox.querySelector(`[data-emote="${id}"]`)?.setAttribute('aria-pressed', 'false'); }
+  for (const h of emoteAll) if (!h.playing) emoteAll.delete(h);
+}
+
+/* ── 이펙트 버튼 ── */
+function shoot(kind, withSound = true) {
+  basis();
+  const g = gunPos(), hit = aimHit();
+  fx.muzzleFlash(g, fwd, kind);
+  const to = hit ? hit.point : camera.position.clone().addScaledVector(fwd, 120);
+  fx.tracer(g, to, kind);
+  if (hit) fx.impact(hit.point, hit.normal, hit.mat);
+  if (kind !== 'sniper') fx.shellEject(g, fwd, { groundY: 0 });
+  if (withSound) audio.play(kind);
+}
+async function burst() { for (let i = 0; i < 10; i++) { shoot('rifle'); await wait(100); } }
+// 무기별 사격. sound와 kind는 weapons/defs.js의 sound·fxKind 조합이다. spread: 조준점 주위로 벌어지는 정도(화면 좌표)
+function fire(sound, kind, pellets = 1, spread = 0) {
+  basis();
+  const g = gunPos();
+  fx.muzzleFlash(g, fwd, kind);
+  for (let i = 0; i < pellets; i++) {
+    const hit = aimHit(new THREE.Vector2(rnd(-spread, spread), rnd(-spread, spread)));
+    fx.tracer(g, hit ? hit.point : camera.position.clone().addScaledVector(fwd, 120), kind);
+    if (hit) fx.impact(hit.point, hit.normal, hit.mat);
+  }
+  fx.shellEject(g, fwd, { groundY: 0, kind });
+  audio.play(sound, { pos: soundPos() });
+}
+async function rapid(sound, kind, rpm, sec) {
+  for (let i = 0, n = Math.round((rpm / 60) * sec); i < n; i++) { fire(sound, kind); await wait(60000 / rpm); }
+}
+const NEW_MATS = ['stone', 'brick', 'plaster', 'tile', 'sand', 'moss', 'wood_dark', 'bamboo', 'paper', 'metal_dark', 'neon_cyan', 'neon_pink'];
+const shell = (kind) => { basis(); fx.shellEject(gunPos(), fwd, { groundY: 0, kind }); };
+const floorPoint = () => new THREE.Vector3(rnd(-2.5, 2.5), 0, rnd(-2, 2));
+function padDemo(color) { const p = floorPoint(); fx.padBurst(p, color); audio.play('pad_boost', { pos: p }); }
+function portalDemo(color) { const p = floorPoint(); fx.portalFlash(p, color); audio.play('portal', { pos: p }); }
+function secretDemo() { fx.secretSparkle(floorPoint()); audio.play('secret_found'); }
+function bladeSpark() {                                    // 눈앞 2 m에서 칼날이 맞은 것처럼
+  basis();
+  const p = camera.position.clone().addScaledVector(fwd, 2).addScaledVector(up, -0.25);
+  fx.slashSpark(p, fwd.clone().negate());
+  return p;
+}
+async function slash(heavy) {                              // 휘두름 소리가 가장 커지는 때에 맞춘다
+  audio.play(heavy ? 'katana_heavy' : 'katana_swing');
+  await wait(heavy ? 330 : 170);
+  audio.play('katana_hit', { pos: bladeSpark() });
+}
+function setSpeed(v) {
+  document.getElementById('speed').value = String(v);
+  document.getElementById('speedv').textContent = (+v).toFixed(2);
+  fx.setSpeedAmount(+v);
+}
+async function grenade() {
+  const p = new THREE.Vector3(1.5, 0, -3);
+  audio.play('grenade_pin');
+  await wait(450); audio.play('grenade_bounce', { pos: p.clone().setY(0.1) });
+  await wait(380); audio.play('grenade_bounce', { pos: p, gain: 0.6 });
+  await wait(900); fx.explosion(p); audio.play('explosion', { pos: p });
+}
+async function orbit() {                                  // HRTF 확인: 소리가 머리 주위를 한 바퀴 돈다
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    audio.play('footstep_steel', { pos: camera.position.clone().add(new THREE.Vector3(Math.sin(a) * 4, -1.5, -Math.cos(a) * 4)) });
+    await wait(260);
+  }
+}
+const EFFECTS = [
+  ['총구 섬광: 소총', () => { basis(); fx.muzzleFlash(gunPos(), fwd, 'rifle'); }],
+  ['총구 섬광: 저격', () => { basis(); fx.muzzleFlash(gunPos(), fwd, 'sniper'); }],
+  ['총구 섬광: 권총', () => { basis(); fx.muzzleFlash(gunPos(), fwd, 'pistol'); }],
+  ['사격: 소총', () => shoot('rifle')], ['사격: 저격', () => shoot('sniper')], ['사격: 권총', () => shoot('pistol')],
+  ['연사 1초', burst],
+  ['사격: SMG 1초', () => rapid('smg', 'pistol', 950, 1)],
+  ['사격: 샷건', () => fire('shotgun', 'rifle', 8, 0.07)],
+  ['사격: 매그넘', () => fire('magnum', 'pistol')],
+  ['사격: DMR', () => fire('dmr', 'rifle')],
+  ['사격: 모르는 이름', () => fire('없는소리', 'plasma')],
+  ['탄피: 소총', () => shell('rifle')], ['탄피: 저격', () => shell('sniper')], ['탄피: 권총', () => shell('pistol')],
+  ['발판: 시안', () => padDemo('#35e0ff')], ['발판: 핑크', () => padDemo('#ff4d8d')],
+  ['포털: 기본색', () => portalDemo()], ['포털: 시안', () => portalDemo('#35e0ff')],
+  ['비밀 스팟', secretDemo],
+  ['칼날 불꽃', bladeSpark], ['칼 베기', () => slash(false)], ['칼 강타', () => slash(true)],
+  ['속도 줄기 켜기·끄기', () => setSpeed(+document.getElementById('speed').value > 0 ? 0 : 0.8)],
+  ['피격: 강판',() => fx.impact(new THREE.Vector3(rnd(-3, 3), rnd(0.5, 3), -8.8), new THREE.Vector3(0, 0, 1), 'steel')],
+  ['피격: 콘크리트', () => fx.impact(new THREE.Vector3(-8.75, rnd(0.5, 2.5), rnd(-6, 0)), new THREE.Vector3(1, 0, 0), 'concrete')],
+  ['피격: 물', () => fx.impact(new THREE.Vector3(rnd(-3, 3), 0.02, rnd(5, 8)), new THREE.Vector3(0, 1, 0), 'water')],
+  ['피격: 나무', () => fx.impact(new THREE.Vector3(3, rnd(0.2, 1.1), -3.4), new THREE.Vector3(0, 0, 1), 'wood')],
+  ['피격: 유리', () => fx.impact(new THREE.Vector3(-3, rnd(0.8, 2), -4.97), new THREE.Vector3(0, 0, 1), 'glass')],
+  ['피격: 플레이어', () => fx.impact(new THREE.Vector3(0, 1.3, -2), new THREE.Vector3(0, 0, 1), 'player')],
+  ['피격: 새 재질 12종', () => NEW_MATS.forEach((m, i) => {                 // 강판 벽 위쪽에 왼쪽부터 한 줄로(유리판에 가리지 않게)
+    fx.impact(new THREE.Vector3(-4.4 + i * 0.8, 3, -8.8), new THREE.Vector3(0, 0, 1), m);
+  })],
+  ['폭발', () => { const p = new THREE.Vector3(rnd(-2, 2), 0, -4); fx.explosion(p); audio.play('explosion', { pos: p }); }],
+  ['수류탄 시퀀스', grenade],
+  ['탄피', () => { basis(); fx.shellEject(gunPos(), fwd, { groundY: 0 }); }],
+  ['3D 발소리 회전', orbit],
+  ['모두 지우기', () => { fx.clear(); setSpeed(0); }]
+];
+function rnd(a, b) { return a + (b - a) * Math.random(); }
+const ebox = document.getElementById('effects');
+for (const [label, fn] of EFFECTS) {
+  const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+  b.addEventListener('click', async () => { await unlock(); fn(); });
+  ebox.appendChild(b);
+}
+
+/* ── 설정 ── */
+document.getElementById('vol').addEventListener('input', (e) => audio.setVolume(+e.target.value));
+document.getElementById('dist').addEventListener('input', (e) => { document.getElementById('distv').textContent = e.target.value; });
+document.getElementById('qual').addEventListener('change', (e) => { fx.setQuality(e.target.value); audio.setQuality(e.target.value); });
+document.getElementById('rm').addEventListener('change', (e) => fx.setReducedMotion(e.target.value === 'os' ? null : e.target.value === 'on'));
+document.getElementById('speed').addEventListener('input', (e) => setSpeed(e.target.value));
+let downAt = null;
+canvas.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; unlock(); });
+canvas.addEventListener('pointerup', (e) => {                                          // 드래그가 아닌 클릭 → 피격
+  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
+  const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  const h = aimHit(ndc);
+  if (h) { fx.impact(h.point, h.normal, h.mat); audio.play('hit_marker'); }
+});
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+/* ── 루프 ── */
+const statsEl = document.getElementById('stats');
+let last = performance.now(), acc = 0, frames = 0, fps = 0;
+function frame(now) {
+  if (!running) return;
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  controls.update();
+  eul.setFromQuaternion(camera.quaternion, 'YXZ');
+  audio.setListener(camera.position, eul.y, eul.x);
+  fx.update(dt);
+  renderer.render(scene, camera);
+  frames++; acc += dt;
+  if (acc >= 0.25) {
+    fps = Math.round(frames / acc); frames = 0; acc = 0;
+    const s = fx.getStats(), a = audio.getStats();
+    statsEl.textContent = `fps ${fps}\nparticles ${s.particles}/${s.particleCap}  streaks ${s.streaks}/${s.streakCap}\n` +
+      `flash ${s.flashes} tracer ${s.tracers} ring ${s.rings} burst ${s.bursts}\nlights ${s.lights}/2 shells ${s.shells} decals ${s.decals}\n` +
+      `speed ${s.speedAmount.toFixed(2)}  lines ${s.speedLines}/${s.speedLineCap}\n` +
+      `dropped ${s.dropped}  quality ${s.quality}  rm ${s.reducedMotion}\n` +
+      `audio ${a.state}  3D ${a.voices3d}/${a.pool3d}  2D ${a.voices2d}/${a.pool2d}  cached ${a.variants}/${a.variantsTotal}\n` +
+      `emote ${a.emotes}  3D ${a.emoteVoices3d}/${a.emotePool3d}  2D ${a.emoteVoices2d}/${a.emotePool2d}  cached ${a.emoteCached}\n` +
+      `emote files ${a.emoteFiles.length ? a.emoteFiles.join(',') : '(없음 → 합성음)'}\n` +
+      `draw calls ${renderer.info.render.calls}`;
+    syncEmoteButtons();
+  }
+  requestAnimationFrame(frame);
+}
+let running = !SMOKE;
+if (running) requestAnimationFrame(frame);
+if (PARAMS.has('debug')) window.__fxDemo = { audio, fx, THREE, camera };   // ?debug 에서만: 외부 테스트용 핸들
+
+/* ── 스모크 테스트(?smoke): 오류 0건 · 풀 누수 없음 확인 ── */
+async function smoke() {
+  const res = { ok: false, checks: [] };
+  const check = (name, ok, info) => res.checks.push({ name, ok: !!ok, info });
+  const logged = [];                                        // manifest {} 처리까지 콘솔이 조용한지 본다
+  for (const m of ['info', 'warn', 'error']) {
+    const orig = console[m].bind(console);
+    console[m] = (...a) => { logged.push(`${m}: ${a.join(' ')}`); orig(...a); };
+  }
+  const step = (sec) => { for (let i = 0, n = Math.round(sec * 60); i < n; i++) { fx.update(1 / 60); if (i % 20 === 0) renderer.render(scene, camera); } };
+  const zero = (s) => s.particles === 0 && s.streaks === 0 && s.flashes === 0 && s.tracers === 0 && s.rings === 0 &&
+    s.bursts === 0 && s.lights === 0 && s.shells === 0;
+  const MATS = ['steel', 'rust', 'deck', 'tank', 'pipe', 'container_red', 'yellow', 'white', 'concrete', 'asphalt', 'grass', 'wood', 'glass', 'water', 'player', 'unknown', 'constructor', ...NEW_MATS];
+  const spawnAll = (k = 1) => {
+    basis();
+    for (let i = 0; i < 10 * k; i++) for (const kind of ['rifle', 'sniper', 'pistol', 'sr_bolt']) {
+      fx.muzzleFlash(gunPos(), fwd, kind); fx.tracer(gunPos(), new THREE.Vector3(rnd(-4, 4), rnd(0.2, 3), -8.8), kind);
+    }
+    for (let i = 0; i < 6 * k; i++) for (const m of MATS) fx.impact(new THREE.Vector3(rnd(-4, 4), rnd(0, 3), -8.8), new THREE.Vector3(0, 0, 1), m);
+    for (let i = 0; i < 4 * k; i++) fx.explosion(new THREE.Vector3(rnd(-3, 3), 0, rnd(-6, -2)));
+    for (let i = 0; i < 30 * k; i++) fx.shellEject(gunPos(), fwd, { groundY: 0 });
+    for (let i = 0; i < 6 * k; i++) {
+      fx.padBurst([rnd(-3, 3), 0, rnd(-6, -2)], '#35e0ff'); fx.portalFlash([rnd(-3, 3), 0, rnd(-6, -2)], 0xff4d8d);
+      fx.secretSparkle([rnd(-3, 3), 0, rnd(-6, -2)]); fx.slashSpark([rnd(-3, 3), 1, rnd(-6, -2)], [0, 0, 1]);
+    }
+    fx.impact([0, 0, 0], null, 'concrete'); fx.tracer({ x: 0, y: 1, z: 0 }, [0, 1, 0]); // 경계 입력
+  };
+  const countLights = () => { let n = 0; scene.traverse((o) => { if (o.isLight) n++; }); return n; };
+  const spawnNew = () => {
+    fx.padBurst([0, 0, -2], '#35e0ff'); fx.portalFlash([1, 0, -2], 0xff4d8d);
+    fx.secretSparkle([-1, 0, -2]); fx.slashSpark([0, 1, -3], [0, 0, 1]);
+  };
+  try {
+    renderer.render(scene, camera);
+    const objs0 = scene.children.length, fxObjs0 = fx.getStats().objects, rot0 = camera.rotation.clone();
+    const mem = [];
+    for (let cycle = 0; cycle < 3; cycle++) {
+      spawnAll(cycle === 2 ? 4 : 1);                       // 3번째는 상한을 넘기는 과부하
+      const peak = fx.getStats();
+      check(`c${cycle} caps`, peak.particles <= peak.particleCap && peak.streaks <= peak.streakCap && peak.lights <= 2, peak);
+      step(7);
+      const after = fx.getStats();
+      check(`c${cycle} drained`, zero(after), after);
+      mem.push({ geo: renderer.info.memory.geometries, tex: renderer.info.memory.textures, prog: renderer.info.programs.length });
+    }
+    check('no GPU resource growth', mem[1].geo === mem[0].geo && mem[2].geo === mem[0].geo && mem[2].tex === mem[0].tex && mem[2].prog === mem[0].prog, mem);
+    check('overload dropped (cap enforced)', fx.getStats().dropped > 0, fx.getStats().dropped);
+    check('scene children stable', scene.children.length === objs0 && fx.getStats().objects === fxObjs0, scene.children.length);
+    check('decals ring-buffer capped', fx.getStats().decals <= 96, fx.getStats().decals);
+    check('shake restored camera', Math.abs(camera.rotation.x - rot0.x) < 1e-9 && Math.abs(camera.rotation.y - rot0.y) < 1e-9 &&
+      Math.abs(camera.rotation.z - rot0.z) < 1e-9, [camera.rotation.x - rot0.x, camera.rotation.y - rot0.y]);
+    fx.setQuality('low'); spawnAll(2);
+    const low = fx.getStats();
+    check('low quality caps', low.particles <= 1000 && low.streaks <= 96 && low.decals <= 32, low);
+    step(7); check('low drained', zero(fx.getStats()), fx.getStats()); fx.setQuality('high');
+    fx.setReducedMotion(true); fx.explosion([0, 0, -3]); check('reduced motion flag', fx.getStats().reducedMotion, true);
+    step(7); fx.setReducedMotion(null); check('rm drained', zero(fx.getStats()), fx.getStats());
+
+    // 새 이펙트: 라이트를 쓰지 않고, 풀로 돌아오고, low에서 줄고, 잘못된 입력을 견딘다
+    const lights0 = countLights();
+    spawnNew();
+    const newHi = fx.getStats();
+    check('new effects spawn', newHi.particles > 0 && newHi.streaks > 0 && newHi.rings > 0, newHi);
+    check('new effects use no real lights', newHi.lights === 0 && countLights() === lights0, { active: newHi.lights, inScene: countLights() });
+    step(3); check('new effects drained', zero(fx.getStats()), fx.getStats());
+    fx.setQuality('low'); spawnNew();
+    const newLo = fx.getStats();
+    check('new effects respect low quality', newLo.particles < newHi.particles && newLo.streaks < newHi.streaks && newLo.rings < newHi.rings,
+      { hi: [newHi.particles, newHi.streaks, newHi.rings], lo: [newLo.particles, newLo.streaks, newLo.rings] });
+    step(3); fx.setQuality('high');
+    fx.padBurst(); fx.padBurst([0, 0, 0], NaN); fx.portalFlash(null, 'not-a-color'); fx.portalFlash([0, 0, 0], new THREE.Color(0x00ff00));
+    fx.padBurst([0, 0, 0], '#abc'); fx.secretSparkle(undefined); fx.slashSpark(null, [0, 0, 0]); fx.slashSpark({ x: 0, y: 1, z: 0 });
+    step(3); check('bad effect input tolerated', zero(fx.getStats()), fx.getStats());
+
+    // 새 재질: 금속은 불꽃 줄기, 네온·먼지 계열은 줄기 없이 입자만. 탄흔은 모두 남고, core MATS는 빠짐없이 처리된다
+    const hitBy = (m) => {
+      fx.clear(); fx.impact([0, 1, -3], [0, 0, 1], m);
+      const s = fx.getStats(); fx.clear();
+      return { streaks: s.streaks, particles: s.particles, decals: s.decals };
+    };
+    const metalHit = hitBy('metal_dark');
+    check('metal_dark throws sparks', metalHit.streaks > 0 && metalHit.decals === 1, metalHit);
+    const softHits = NEW_MATS.filter((m) => m !== 'metal_dark').map((m) => [m, hitBy(m)]);
+    check('other new materials: particles and a mark, no sparks', softHits.every(([, h]) => h.streaks === 0 && h.particles > 0 && h.decals === 1), softHits);
+    const { MATS: coreMats } = await import('../js/core/consts.js');
+    let matThrew = null;
+    for (const m of coreMats) { try { fx.impact([0, 1, -3], [0, 0, 1], m); } catch (err) { matThrew = `${m}: ${err}`; } }
+    check('every core material handled without error', !matThrew && coreMats.length >= NEW_MATS.length, matThrew);
+    step(3); fx.clear();
+
+    // fxKind: 세 종류와 모르는 값(칼의 fxKind는 null)
+    basis();
+    for (const kind of ['rifle', 'sniper', 'pistol', 'smg', 'plasma', '', null, undefined, 42, {}]) {
+      fx.muzzleFlash(gunPos(), fwd, kind); fx.tracer(gunPos(), [0, 1, -8], kind); fx.shellEject(gunPos(), fwd, { groundY: 0, kind });
+    }
+    fx.shellEject(gunPos(), fwd); fx.shellEject(gunPos(), fwd, null);
+    const kinds = fx.getStats();
+    check('fxKind: known and unknown kinds all spawn', kinds.flashes > 0 && kinds.tracers > 0 && kinds.shells === 12, kinds);
+    step(3); check('fxKind effects drained', zero(fx.getStats()), fx.getStats());
+
+    // 속도 줄기: 세기·품질·동작 줄이기에 따라 줄고 0이면 그리지 않는다
+    fx.setReducedMotion(false);
+    const speedObj = scene.getObjectByName('fx-speed');
+    fx.setSpeedAmount(1); step(1.5); renderer.render(scene, camera);
+    let sp = fx.getStats();
+    check('speed lines on at full amount', sp.speedLines === sp.speedLineCap && sp.speedLines > 0 && speedObj.visible, sp.speedLines);
+    const geoWithSpeed = renderer.info.memory.geometries;    // 줄기 지오메트리는 처음 보일 때 한 번 올라간다
+    check('speed lines share the spark shader (no compile hitch)', renderer.info.programs.length === mem[0].prog,
+      [renderer.info.programs.length, mem[0].prog]);
+    fx.setQuality('low'); step(0.1); sp = fx.getStats();
+    check('speed lines respect low quality', sp.speedLines === sp.speedLineCap && sp.speedLineCap < 44, sp.speedLines);
+    fx.setQuality('high');
+    fx.setReducedMotion(true); step(1.5);
+    check('reduced motion hides speed lines', fx.getStats().speedLines === 0 && !speedObj.visible, fx.getStats().speedLines);
+    fx.setReducedMotion(false);
+    fx.setSpeedAmount(5); step(1.5);
+    check('speed amount clamped', fx.getStats().speedAmount <= 1, fx.getStats().speedAmount);
+    fx.setSpeedAmount(NaN); step(1.5);
+    check('speed lines off at 0 or NaN', fx.getStats().speedLines === 0 && !speedObj.visible, fx.getStats().speedLines);
+    fx.setSpeedAmount(1); step(0.5); fx.clear(true);
+    check('clear() stops speed lines', fx.getStats().speedLines === 0 && !speedObj.visible, fx.getStats().speedLines);
+    fx.setSpeedAmount(0.7); spawnNew(); step(1.5); fx.setSpeedAmount(0); step(3);
+    fx.setReducedMotion(null);
+    check('no GPU growth after new effects', renderer.info.memory.geometries === geoWithSpeed && renderer.info.programs.length === mem[0].prog,
+      { geo: renderer.info.memory.geometries, geoWithSpeed, prog: renderer.info.programs.length, base: mem[0] });
+
+    const gl = renderer.getContext();
+    check('gl.getError() == 0', gl.getError() === 0, gl.getError());
+
+    // 오디오
+    const unlocked = await audio.unlock();
+    check('audio unlock', unlocked, audio.getStats());
+    let p2 = 0, p3 = 0;
+    for (const n of SOUND_NAMES) if (audio.play(n)) p2++;
+    const s2 = audio.getStats();
+    check('2D voices capped', s2.voices2d <= s2.pool2d && p2 >= s2.pool2d, { played: p2, ...s2 });
+    for (const n of SOUND_NAMES) if (audio.play(n, { pos: [rnd(-30, 30), 1, rnd(-60, -5)] })) p3++;
+    for (let i = 0; i < 40; i++) audio.play('footstep_steel', { pos: [rnd(-5, 5), 0, rnd(-5, 5)] });
+    for (let i = 0; i < 40; i++) audio.play('rifle', { pos: [rnd(-150, 150), 1, -200] });
+    const s3 = audio.getStats();
+    check('3D voices capped', s3.voices3d <= s3.pool3d, { played3d: p3, ...s3 });
+    check('out-of-range culled', audio.play('footstep_concrete', { pos: [0, 0, -500] }) === null, null);
+    check('unknown sound ignored', audio.play('nope') === null, null);
+    const NEW_SOUNDS = ['smg', 'shotgun', 'magnum', 'dmr', 'katana_swing', 'katana_heavy', 'katana_hit', 'half_shot', 'pad_boost',
+      'portal', 'secret_found', 'purchase', 'ui_click', 'bhop_land'];
+    check('new sounds listed', NEW_SOUNDS.every((n) => SOUND_NAMES.includes(n)), NEW_SOUNDS.filter((n) => !SOUND_NAMES.includes(n)));
+    check('every sound has a button', SOUND_NAMES.every((n) => sbox.querySelector(`[data-sound="${n}"]`)), null);
+    check('every sound button is a real sound', [...sbox.querySelectorAll('[data-sound]')].every((b) => SOUND_NAMES.includes(b.dataset.sound)), null);
+    let weirdThrew = null, weirdNull = true;                // Object.prototype에 있는 이름까지 조용히 무시한다
+    for (const n of ['nope', '', 'constructor', '__proto__', 'toString', 'hasOwnProperty', undefined, null, 42, {}, [], true]) {
+      try {
+        if (audio.play(n) !== null || audio.play(n, { pos: [0, 0, 0] }) !== null || audio.play(n, null) !== null) weirdNull = false;
+      } catch (err) { weirdThrew = String(err); }
+    }
+    check('unknown names never throw', !weirdThrew && weirdNull, weirdThrew);
+    let nullOptOk = true;
+    try { audio.play('ui_click', null); } catch (err) { nullOptOk = false; }
+    check('null options tolerated', nullOptOk, null);
+    audio.setListener({ x: 0, y: 1.6, z: 0 }, 0.5, -0.2); audio.setVolume(0.5);
+
+    // 이모트: 2D/3D, 번호 지정, 가까운 6개 상한, 거리 컬링 후 재배정, 한 번형 자동 정리, 정지 후 해제
+    const local = audio.emote('takeL');
+    let es = audio.getStats();
+    check('emote 2D starts', local.playing && es.emoteVoices2d === 1 && es.emoteSources >= 1, es);
+    const byNum = audio.emote(4, { pos: [3, 1, -3] });
+    check('emote by number', byNum.name === 'crissCross' && byNum.playing, byNum.name);
+    check('emote 0/unknown → no-op handle', !audio.emote(0).playing && !audio.emote('nope').playing && !audio.emote('constructor').playing, null);
+    const remote = [];
+    for (let i = 0; i < 12; i++) remote.push(audio.emote(EMOTE_SOUNDS[i % 8], { pos: [i * 5, 1.6, 0] }));   // 0~55 m
+    es = audio.getStats();
+    check('emote 3D capped to nearest 6', es.emoteVoices3d === 6 && es.emotes >= 12, es);   // 짧은 wave(0.3s)는 이미 끝났을 수 있음
+    audio.setListener({ x: 500, y: 1.6, z: 500 }); await wait(300); audio.setListener({ x: 500, y: 1.6, z: 500 });
+    es = audio.getStats();
+    check('emote culled by distance (handles kept)', es.emoteVoices3d === 0 && es.emotes >= 12, es);
+    audio.setListener({ x: 0, y: 1.6, z: 0 }); await wait(300); audio.setListener({ x: 0, y: 1.6, z: 0 });
+    es = audio.getStats();
+    check('emote voices reassigned on return', es.emoteVoices3d >= 1 && es.emoteVoices3d <= 6, es);
+    remote[1].setPos([2, 1.6, 2]); remote[1].setPos(new THREE.Vector3(1, 1.6, 1)); local.setPos([9, 9, 9]);
+    const wv = audio.emote('wave'), sl = audio.emote('salute');
+    check('2D emote pool newest-first', audio.getStats().emoteVoices2d === 2, audio.getStats());
+    await wait(2700); audio.setListener({ x: 0, y: 1.6, z: 0 });
+    es = audio.getStats();
+    check('one-shot emotes auto-finish, loop regains voice', !wv.playing && !sl.playing && local.playing && es.emoteVoices2d === 1, es);
+    local.stop(100); byNum.stop(100); remote.forEach((h) => h.stop(100));
+    await wait(700);
+    es = audio.getStats();
+    check('emotes stopped → voices & sources freed', es.emotes === 0 && es.emoteVoices3d === 0 && es.emoteVoices2d === 0 &&
+      es.emoteSources === 0, es);
+    audio.emote('cheer'); audio.stopAll(0.05); await wait(400);
+    check('stopAll ends emotes', audio.getStats().emotes === 0 && audio.getStats().emoteSources === 0, audio.getStats());
+    if (!EMOTE_MANIFEST) {                                  // 기본 manifest(기본값 {}) → 목록에 있는 이모트만 파일, 나머지는 합성음
+      const files = await audio.emoteFilesReady();
+      let listed = [];
+      try { listed = Object.keys(await (await fetch('../audio/emotes/manifest.json', { cache: 'no-store' })).json()); } catch (e) { listed = []; }
+      const unlisted = ['takeL', 'veggie', 'sideToSide', 'crissCross', 'tango', 'cheer'].find((id) => !listed.includes(id));
+      const sameSet = Array.isArray(files) && files.length === listed.length && listed.every((id) => files.includes(id));
+      const hf = listed.length ? audio.emote(listed[0]) : null;
+      const hs = unlisted ? audio.emote(unlisted) : null;
+      check('manifest → listed emotes use files, others synth', sameSet && (!hf || hf.source === 'file') && (!hs || hs.source === 'synth'), { files, listed });
+      if (hf) hf.stop(20);
+      if (hs) hs.stop(20);
+    }
+    try {                                                   // 춤(core EMOTES.bpm)과 음악 템포·번호가 같은지(데모는 core 없이도 동작)
+      const { EMOTES } = await import('../js/core/consts.js');
+      const diff = (EMOTES || []).filter((e) => EMOTE_SOUNDS[e.code - 1] !== e.id || (e.loop && EMOTE_BPM[e.id] !== e.bpm))
+        .map((e) => `${e.code}:${e.id} anim ${e.bpm} / audio ${EMOTE_BPM[e.id]}`);
+      check('emote ids & tempo match core EMOTES', diff.length === 0 && EMOTES.length >= EMOTE_SOUNDS.length, diff);
+    } catch (err) { check('emote ids & tempo match core EMOTES (consts 불러오기)', false, String(err)); }
+
+    await wait(4200);                                      // 가장 긴 소리(폭발 3.6s)보다 길게
+    const s4 = audio.getStats();
+    check('audio voices released', s4.voices3d === 0 && s4.voices2d === 0, s4);
+    check('all sounds synthesized', s4.cached === SOUND_NAMES.length, s4.cached);
+    // play는 소리마다 변형 하나만 합성하므로, 전부 차 있으면 미리 합성(prewarm)이 모든 변형을 돌았다는 뜻이다
+    check('all sound variants prewarmed', s4.variants === s4.variantsTotal, [s4.variants, s4.variantsTotal]);
+    let slowest = 0;                                        // 미리 합성이 끝나면 첫 발도 합성 없이 바로 재생된다
+    for (const n of NEW_SOUNDS) {
+      const t0 = performance.now();
+      audio.play(n, { gain: 0 });
+      slowest = Math.max(slowest, performance.now() - t0);
+    }
+    check('play after prewarm has no render hitch', slowest < 8, slowest);
+    audio.stopAll(0.02);
+    check('all emote sounds synthesized', s4.emoteCached === EMOTE_SOUNDS.length, s4.emoteCached);
+
+    fx.dispose(); audio.dispose();
+    check('fx disposed', !scene.getObjectByName('fx-root'), scene.children.length);
+    check('audio disposed', audio.getStats().state === 'locked' && audio.play('rifle') === null && !audio.emote('takeL').playing,
+      audio.getStats());
+    if (!EMOTE_MANIFEST) check('console silent (manifest {} included)', logged.length === 0, logged);
+    res.ok = res.checks.every((c) => c.ok);
+  } catch (err) {
+    check('exception', false, String(err && err.stack || err));
+  }
+  res.renderInfo = { ...renderer.info.memory, programs: renderer.info.programs.length };
+  window.__fxSmoke = res;                                   // ?smoke 모드에서만 노출
+  document.title = res.ok ? 'SMOKE PASS' : 'SMOKE FAIL';
+}
+if (SMOKE) smoke();
+</script>
+</body>
+</html>
