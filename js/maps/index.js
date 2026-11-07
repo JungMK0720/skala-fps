@@ -148,7 +148,8 @@ const KNOWN = {
   longshot: { name: '협곡 저격장', nameEn: 'Canyon Range', rulesets: ['sniper'], tag: '스나 전용' },
   nexus: { name: '넥서스', nameEn: 'Nexus', rulesets: ['classic', 'knife', 'sniper'], tag: '통합' },
   jetty: { name: '원유 부두', nameEn: 'Crude Jetty' },
-  tankfarm: { name: '탱크 팜', nameEn: 'Tank Farm' },
+  // 탱크 사이가 막혀 저격 시야가 짧다. 스나전 봇끼리 만나지 못해 무승부만 나와서 클래식 전용으로 둔다
+  tankfarm: { name: '탱크 팜', nameEn: 'Tank Farm', rulesets: ['classic'] },
   vlcc: { name: 'VLCC 갑판', nameEn: 'Tanker Deck' }
 };
 
