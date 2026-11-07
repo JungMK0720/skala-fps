@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<!--
+  Date: 06NOV2026
+  Author: Minkyu Jung
+  Purpose: 무기 1인칭 모형과 아바타를 눈으로 확인하는 개발용 페이지. 게임과 같은 렌더러로 그리고 버튼으로 동작을 재생한다.
+-->
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>SKALA FPS — 뷰모델 데모</title>
+  <link rel="icon" href="data:,">
+  <script type="importmap">{"imports":{
+    "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+    "cannon-es":"https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+  }}</script>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1624; color: #e8eef5; font: 13px/1.4 'Malgun Gothic', system-ui, sans-serif; }
+    #stage { position: fixed; inset: 0; }
+    #stage canvas { display: block; width: 100%; height: 100%; }
+    #cross { position: fixed; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; pointer-events: none; opacity: .75;
+      background: linear-gradient(#fff, #fff) center/2px 100% no-repeat, linear-gradient(#fff, #fff) center/100% 2px no-repeat; }
+    #panel { position: fixed; left: 10px; top: 10px; width: 236px; padding: 10px; border-radius: 10px; background: rgba(6, 14, 26, .86); box-shadow: 0 0 0 1px rgba(255, 255, 255, .12); }
+    #panel h2 { margin: 0 0 6px; font-size: 13px; color: #35e0ff; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 10px; }
+    button { font: inherit; color: inherit; cursor: pointer; border: 0; border-radius: 5px; padding: 5px 2px; background: rgba(255, 255, 255, .1); }
+    button:hover { background: rgba(255, 255, 255, .2); }
+    button.on { background: #35e0ff; color: #04202a; font-weight: 700; }
+    #now { margin: 2px 0 8px; color: #ffd166; font-weight: 700; }
+    #err { color: #ff8a80; white-space: pre-wrap; word-break: break-all; }
+    #labels { position: fixed; inset: 0; display: none; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 1fr); pointer-events: none; }
+    #labels span { padding: 6px 10px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px #000; }
+  </style>
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="cross"></div>
+  <div id="labels"></div>
+  <div id="panel">
+    <h2>무기</h2>
+    <div id="now"></div>
+    <div class="grid" id="weapons"></div>
+    <h2>동작</h2>
+    <div class="grid" id="actions"></div>
+    <h2>보기</h2>
+    <div class="grid" id="views"></div>
+    <div id="err"></div>
+  </div>
+  <noscript>이 페이지는 JavaScript(ES 모듈)가 필요합니다.</noscript>
+  <script type="module">
+    import * as THREE from 'three';
+    import { createRenderer } from '../js/engine/renderer.js';
+    import { createViewmodel, VIEWMODEL_IDS } from '../js/weapons/viewmodel.js';
+    import { createAvatars } from '../js/engine/avatars.js';
+    import { getDef } from '../js/weapons/defs.js';
+    import { HITBOX, HITBOX_CROUCH } from '../js/core/consts.js';
+
+    const $ = (id) => document.getElementById(id);
+    const R = createRenderer({ container: $('stage') });
+    const vm = createViewmodel(R.viewCamera, { lookCamera: R.camera, team: 'owner' });
+    vm.preload();
+    vm.prewarm(R.three);
+
+    // 뒤 배경(바닥과 상자 몇 개)
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshLambertMaterial({ color: 0x69727d }));
+    ground.rotation.x = -Math.PI / 2;
+    R.scene.add(ground);
+    for (let i = 0; i < 14; i++) {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1 + (i % 4), 1.6), new THREE.MeshLambertMaterial({ color: i % 2 ? 0x8d8574 : 0x5d6b7c }));
+      b.position.set(Math.sin(i * 2.4) * (8 + i), 0.5 + (i % 4) / 2, -6 - i * 1.6);
+      R.scene.add(b);
+    }
+    R.camera.position.set(0, 1.6, 0);
+
+    const THEMES = {
+      day: { sky: '#a9cde8', skyTop: '#3f78b5', fog: [60, 240], sunDir: [-0.45, 0.8, -0.35], sunColor: '#fff1d8', ambient: 0.5 },
+      night: { sky: '#1b2533', skyTop: '#0a0f18', fog: [30, 160], sunDir: [0.3, 0.7, 0.4], sunColor: '#bcd0ff', ambient: 0.14, sunIntensity: 0.45 },
+    };
+
+    let id = 'ml_katana';
+    let paused = false, speedMul = 1, walking = false, adsOn = false, zoom = 0, gridMode = false, avatarMode = false, swingIndex = 0;
+    let scheduled = [];
+    const later = (sec, fn) => scheduled.push({ t: sec, fn });
+    const defOf = () => getDef(id) || {};
+
+    function setWeapon(next) {
+      id = next;
+      scheduled = [];
+      adsOn = false;
+      zoom = 0;
+      vm.play({ type: 'switch', to: id, drawTime: defOf().drawTime ?? 0.5 });
+      $('now').textContent = `${defOf().name || id} (${id})`;
+      for (const b of $('weapons').children) b.classList.toggle('on', b.dataset.id === id);
+    }
+
+    const ACT = {
+      fire() {
+        const d = defOf();
+        if (d.melee) return ACT.slash();
+        if (d.fire === 'throw') {
+          vm.play({ type: 'prime', kind: 'overhand', primeTime: d.primeTime });
+          later(0.6, () => vm.play({ type: 'throw', kind: 'overhand' }));
+          later(1.0, () => vm.play({ type: 'switch', from: id, to: id, drawTime: d.drawTime ?? 0.5 }));
+          return undefined;
+        }
+        vm.play({ type: 'fire', weaponId: id });
+        if (d.fire === 'bolt') vm.play({ type: 'boltCycle', duration: d.bolt });
+        if (d.fire === 'burst') {
+          later(d.burst.gap, () => vm.play({ type: 'fire', weaponId: id }));
+          later(d.burst.gap * 2, () => vm.play({ type: 'fire', weaponId: id }));
+        }
+        return undefined;
+      },
+      slash() {
+        const m = defOf().melee;
+        if (m) vm.play({ type: 'swing', kind: 'slash', index: swingIndex++, duration: m.slash.cooldown, windup: m.slash.windup });
+      },
+      heavy() {
+        const m = defOf().melee;
+        if (m) vm.play({ type: 'swing', kind: 'stab', index: swingIndex++, duration: m.stab.cooldown, windup: m.stab.windup });
+      },
+      reload(empty = false) {
+        const d = defOf();
+        if (d.mag == null) return;
+        const duration = empty && d.reloadEmpty ? d.reloadEmpty : d.reload;
+        vm.play({ type: 'reloadStart', duration, empty });
+        later(duration, () => vm.play({ type: 'reloadEnd' }));
+      },
+      reloadEmpty() { ACT.reload(true); },
+      inspect() { vm.play({ type: 'inspect' }); },
+      draw() { vm.play({ type: 'switch', from: id, to: id, drawTime: defOf().drawTime ?? 0.5 }); },
+      ads() { adsOn = !adsOn; return adsOn; },
+    };
+
+    // 아바타 보기: 총·칼·나이프, 서기·앉기·이모트. 초록 구 = HITBOX.HANDS
+    let avatars = null;
+    const hitMarks = [];
+    const AV = [
+      { id: 'gun', x: -3, team: 'owner', slot: 1, weaponId: 'ar_std' },
+      { id: 'katana', x: -1.5, team: 'charterer', slot: 3, weaponId: 'ml_katana' },
+      { id: 'knife', x: 0, team: 'owner', slot: 3, weaponId: 'ml_knife' },
+      { id: 'frag', x: 1.5, team: 'charterer', slot: 4, weaponId: 'gr_frag' },
+      { id: 'crouch', x: 3, team: 'owner', slot: 1, weaponId: 'ar_std', crouch: true },
+      { id: 'crouchK', x: 4.5, team: 'charterer', slot: 3, weaponId: 'ml_katana', crouch: true },
+      { id: 'emote', x: 6, team: 'owner', slot: 3, weaponId: 'ml_katana', emote: 3 },
+    ];
+    let camA = 0.5, camD = 5.5, camY = 1.5, camT = 0;
+    function enterAvatars(on) {
+      avatarMode = on;
+      vm.setVisible(!on);
+      $('cross').style.display = on ? 'none' : '';
+      if (on && !avatars) {
+        avatars = createAvatars({ scene: R.scene, camera: R.camera, delay: 0 });
+        const sm = new THREE.MeshBasicMaterial({ color: 0x35ff7a, wireframe: true });
+        for (const a of AV) {
+          avatars.add(a.id, { name: a.id, team: a.team });
+          const H = a.crouch ? HITBOX_CROUCH.HANDS : HITBOX.HANDS;
+          for (const h of H) {
+            const s = new THREE.Mesh(new THREE.SphereGeometry(h.r, 10, 8), sm);
+            s.position.set(a.x + h.x, h.y, h.z);
+            R.scene.add(s);
+            hitMarks.push(s);
+          }
+        }
+      }
+      for (const s of hitMarks) s.visible = on;
+      if (avatars) for (const a of avatars.list()) a.root.visible = on;
+      if (!on) { R.camera.position.set(0, 1.6, 0); R.camera.rotation.set(0, 0, 0); }
+    }
+
+    function pushAvatars(dt) {
+      const now = performance.now();
+      for (const a of AV) avatars.push(a.id, now, { pos: [a.x, 0, 0], yaw: 0, pitch: 0, alive: true, crouch: !!a.crouch, emote: a.emote || 0, slot: a.slot, weaponId: a.weaponId });
+      avatars.update(now, dt);
+      R.camera.position.set(camT + Math.sin(camA) * camD, camY, -Math.cos(camA) * camD);
+      R.camera.lookAt(camT, 1.1, 0);
+    }
+
+    // 16칸 전체 보기
+    function renderGrid() {
+      const r = R.three, { width, height } = R.size;
+      const cols = 4, rows = 4, w = width / cols, h = height / rows;
+      r.info.reset();
+      r.setScissorTest(true);
+      VIEWMODEL_IDS.forEach((wid, i) => {
+        const x = (i % cols) * w, y = height - h * (1 + Math.floor(i / cols));
+        r.setViewport(x, y, w, h);
+        r.setScissor(x, y, w, h);
+        r.setClearColor(i % 2 === (Math.floor(i / cols) % 2) ? 0x8fb6d6 : 0x76a0c4, 1);
+        r.clear(true, true, false);
+        R.viewCamera.aspect = (w / h);
+        R.viewCamera.updateProjectionMatrix();
+        vm.update(0, { weaponId: wid, phase: 'idle', zoom: 0 });
+        r.render(R.viewScene, R.viewCamera);
+      });
+      r.setScissorTest(false);
+      r.setViewport(0, 0, width, height);
+      R.setTheme(R.theme);
+      R.resize();
+      vm.update(0, { weaponId: id, phase: 'idle', zoom: 0 });
+    }
+
+    function tick(dt) {
+      scheduled = scheduled.filter((s) => { s.t -= dt; if (s.t <= 0) { s.fn(); return false; } return true; });
+      const z = defOf().zoom;
+      if (z) zoom = adsOn ? Math.min(1, zoom + dt / z.inTime) : Math.max(0, zoom - dt / z.outTime);
+      else zoom = 0;
+      vm.update(dt, { weaponId: id, speed: walking ? 5.2 : 0, onGround: true, zoom, level: adsOn ? 1 : 0, mag: 5 });
+      if (avatarMode) pushAvatars(dt);
+      R.update(dt);
+    }
+
+    let lastT = performance.now();
+    function frame(t) {
+      requestAnimationFrame(frame);
+      const dt = Math.min(0.1, (t - lastT) / 1000);
+      lastT = t;
+      try {
+        if (!paused) tick(dt * speedMul);
+        if (gridMode) renderGrid();
+        else R.render();
+      } catch (e) {
+        $('err').textContent = String((e && e.stack) || e);
+        throw e;
+      }
+    }
+
+    // 버튼
+    function addBtn(parent, label, fn, data) {
+      const b = document.createElement('button');
+      b.textContent = label;
+      if (data) b.dataset.id = data;
+      b.addEventListener('click', () => { const on = fn(); if (typeof on === 'boolean') b.classList.toggle('on', on); });
+      parent.appendChild(b);
+      return b;
+    }
+    for (const wid of VIEWMODEL_IDS) addBtn($('weapons'), (getDef(wid) && getDef(wid).short) || wid, () => setWeapon(wid), wid);
+    addBtn($('actions'), '발사', ACT.fire);
+    addBtn($('actions'), '베기', ACT.slash);
+    addBtn($('actions'), '강타', ACT.heavy);
+    addBtn($('actions'), '재장전', () => ACT.reload(false));
+    addBtn($('actions'), '빈 탄창', ACT.reloadEmpty);
+    addBtn($('actions'), '점검', ACT.inspect);
+    addBtn($('actions'), '꺼내기', ACT.draw);
+    addBtn($('actions'), '조준', ACT.ads);
+    addBtn($('actions'), '걷기', () => { walking = !walking; return walking; });
+    addBtn($('views'), '느리게', () => { speedMul = speedMul === 1 ? 0.2 : 1; return speedMul !== 1; });
+    addBtn($('views'), '멈춤', () => { paused = !paused; return paused; });
+    let night = false;
+    addBtn($('views'), '밤', () => { night = !night; R.setTheme(night ? THEMES.night : THEMES.day); ground.visible = !night; return night; });
+    addBtn($('views'), '전체', () => {
+      gridMode = !gridMode;
+      $('labels').style.display = gridMode ? 'grid' : 'none';
+      $('cross').style.display = gridMode ? 'none' : '';
+      return gridMode;
+    });
+    addBtn($('views'), '아바타', () => { enterAvatars(!avatarMode); return avatarMode; });
+    for (const wid of VIEWMODEL_IDS) {
+      const s = document.createElement('span');
+      s.textContent = wid;
+      $('labels').appendChild(s);
+    }
+
+    addEventListener('error', (e) => { $('err').textContent = String(e.message); });
+    setWeapon(id);
+    requestAnimationFrame(frame);
+
+    // 자동 확인용: 시간을 직접 밀어 같은 장면을 다시 볼 수 있다
+    window.__demo = {
+      R, vm, THREE, ACT,
+      set: setWeapon,
+      pause(v = true) { paused = v; },
+      step(seconds, h = 1 / 120) { for (let t = 0; t < seconds - 1e-6; t += h) tick(h); },
+      speed(v) { speedMul = v; },
+      night(v) { R.setTheme(v ? THEMES.night : THEMES.day); ground.visible = !v; },
+      grid(v = true) { gridMode = v; $('labels').style.display = v ? 'grid' : 'none'; $('cross').style.display = v ? 'none' : ''; },
+      avatars(v = true) { enterAvatars(v); },
+      camera(a, d, y, t = 0) { camA = a; camD = d; camY = y; camT = t; },
+      panel(v) { $('panel').style.display = v ? '' : 'none'; },
+      /** 동작 하나의 여러 순간을 한 장에 모아 보여 준다. start()로 시작하고 times(초)마다 찍는다 */
+      film(start, times, cols = 3) {
+        paused = true;
+        const src = R.domElement, rows = Math.ceil(times.length / cols);
+        let c = $('film');
+        if (!c) { c = document.createElement('canvas'); c.id = 'film'; c.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:5'; document.body.appendChild(c); }
+        c.style.display = '';
+        c.width = src.width; c.height = src.height;
+        const g = c.getContext('2d'), w = c.width / cols, h = c.height / rows;
+        start();
+        let t = 0;
+        times.forEach((tt, i) => {
+          if (tt > t) { this.step(tt - t); t = tt; }
+          R.render();
+          g.drawImage(src, (i % cols) * w, Math.floor(i / cols) * h, w, h);
+          g.fillStyle = '#fff'; g.font = `${Math.round(h * 0.09)}px sans-serif`;
+          g.fillText(`${tt.toFixed(3)}s`, (i % cols) * w + 8, Math.floor(i / cols) * h + h * 0.12);
+        });
+        return times.length;
+      },
+      filmOff() { const c = $('film'); if (c) c.style.display = 'none'; },
+      get avatarsApi() { return avatars; },
+    };
+  </script>
+</body>
+</html>
