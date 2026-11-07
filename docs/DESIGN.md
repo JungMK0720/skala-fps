@@ -122,13 +122,17 @@ export function moveQuake(world, body, wish, dt, opt) → ev   // moveCharacter�
 ```
 수평 속도를 계산한 뒤 `physics.moveCharacter(world, body, {…}, dt, { ...opt, rawVelocity: true })`로 충돌·수직 이동을 맡긴다. `rawVelocity`면 기존 가속 블록을 건너뛴다.
 
-- **지면**: 마찰(`FRICTION`, `STOP_SPEED`) → 가속(`GROUND_ACCEL × speed`). 기존 조작감(5.2 m/s까지 약 0.1초)을 유지한다. 지면에서 `speed`보다 빠르면 마찰로 자연히 줄어든다.
-- **스페이스 홀드 = 자동 점프**: `input.state.jump`가 눌려 있으면 착지 즉시 다시 뛴다. 눌림 직후 0.12초 버퍼도 유지.
-- **버니합**: 뛰려고 한 틱, 또는 착지 후 `HOP_GRACE` 안의 점프는 마찰을 먹지 않아 속도가 유지된다.
+값과 이유는 `consts.MOVE`의 주석에 있고, 동작은 `tests/movement.test.mjs`가 고정한다.
+
+- **지면**: 마찰(`FRICTION`, 입력이 없을 때만 `STOP_SPEED`) → 가속(`GROUND_ACCEL × speed`). 기존 조작감(5.2 m/s까지 약 0.1초)을 유지한다. 지면에서 `speed`보다 빠르면 마찰로 자연히 줄어든다.
+- **스페이스 홀드 = 자동 점프**: `input.state.jump`가 눌려 있으면 착지 즉시 다시 뛴다. 눌림 직후 0.12초 버퍼도 유지. 스페이스를 누르고 있는 동안에는 이모트를 시작할 수 없다.
+- **버니합**: 뛰려고 한 틱, 또는 착지 후 `HOP_GRACE` 안의 점프는 마찰을 먹지 않아 속도가 유지된다. 뛰는 틱에 걷기 속도보다 느리면 지면 가속을 한 번 받는다.
 - **공중 스트레이프**: Quake `PM_AirAccelerate` 공식. `wishspeed = min(speed, AIR_WISH_CAP)`, `add = wishspeed − vel·wishdir`, `accel = AIR_ACCEL × wishspeed × dt`. 마우스를 스트레이프 방향으로 돌리면 가속된다.
-- **A/D 교체 보너스**: 공중에서 `strafeSign`이 바뀔 때마다 `SWAP_BONUS`를 현재 진행 방향으로 더한다(`SWAP_BONUS_MAX`까지). 마우스 없이 좌우로 흔들어도 가속감을 준다.
-- **상한**: 수평 속도 `MAX_SPEED`.
-- 앉기·이모트·`frozen`·`speedScale`은 기존 동작 유지. `player:land`의 카메라 출렁임은 버니합 착지 때 줄인다. `state.speed`(수평 속력)를 쓸 수 있게 둔다.
+- **느릴 때 공중 조작**: 수평 속도가 `AIR_LOW_SPEED`보다 느리면 상한을 그 값까지 올려, 제자리 점프 뒤 W로 약 2.3 m를 갈 수 있게 한다.
+- **A/D 교체 보너스**: 공중에서 `strafeSign`이 바뀔 때마다 `SWAP_BONUS`를 현재 진행 방향으로 더한다(`SWAP_BONUS_MAX`까지, 최소 간격 `SWAP_GAP`). 마우스 없이 좌우로 흔들어도 가속감을 준다.
+- **상한**: 입력으로 늘릴 수 있는 수평 속도는 `MAX_SPEED`까지. 발판으로 이미 넘은 속도는 깎지 않는다(착지 지점이 어긋나므로).
+- **계단**: `moveCharacter`의 `nearFloor`가 뛰어오르기 직전의 낮은 턱을 처리해, 스페이스를 누른 채 0.3 m 계단에서 멈추지 않는다.
+- 앉기·이모트·`frozen`·`speedScale`은 기존 동작 유지. `player:land`의 카메라 출렁임은 버니합 착지 때 줄인다. `state.speed`(수평 속력)를 쓸 수 있게 둔다. `player:jump`, `player:land`에 `hopped`가 실린다.
 - `input.js`: `KeyF` → `input:inspect` (`LOCK_KEYS`에도 추가). `input.state.jump`는 이미 있다.
 
 탄퍼짐의 공중 페널티는 유지한다. 뛰면서 쏘면 부정확하다.
@@ -147,10 +151,10 @@ export default {
   ],
   portals: [ { x, y, z, w, h, d, to: { x, y, z, rotY }, color } ],   // 특수 장소 이동(순간이동, 속도 0)
   secrets: [ { id, name, x, y, z, w, h, d, points: 100 } ],          // 비밀 스팟 판정 상자. 들어가면 1회 보상
-  props: [ { type: 'crate'|'barrel', x, y, z, size?, mass? } ]       // 물리 소품(cannon-es, 표시 전용)
+  props: [ { type: 'crate'|'barrel', x, y, z, size?, mass? } ]       // 물리 소품(cannon-es, 표시 전용). y = 밑면 높이, size = 상자 모서리 또는 드럼통 높이
 };
 ```
-- `js/engine/triggers.js`(순수): `buildTriggers(data)` → `world.triggers`, `stepTriggers(world, body, height, state)` → `{ pad, portal, secrets: [] }`. 발판은 발이 사각형 안이고 높이 차 0.35 이내일 때, 재발동 대기 0.35초. `padVelocity(from, target, apex, g)`도 여기.
+- `js/engine/triggers.js`(순수): `buildTriggers(data)` → `world.triggers`, `stepTriggers(world, body, height, state, dt = TICK_DT)` → `{ pad, portal, secrets: [] }`. 발판은 발이 사각형 안이고 높이 차 0.35 이내일 때, 재발동 대기 0.35초. `padVelocity(from, target, apex, g)`도 여기.
 - `player.tick`이 호출하고 bus로 알린다: `player:pad {pad, pos}`, `player:portal {portal, pos}`, `player:secret {secret, pos}`. 연습장 봇도 `stepTriggers`로 발판을 탄다.
 - `js/maps/builder.js`: 발판·포털을 자동으로 그린다(빛나는 원판, 위로 흐르는 화살표, 포인트 라이트 없이 emissive). `map.update`에서 움직인다.
 - `validateMap`이 새 필드를 검사하고, `tools/check-maps.mjs`가 **스폰이 벽에 박히지 않는지, 발판 궤적이 target 근처에 실제로 착지하는지, 비밀 스팟이 발판·점프로 갈 수 있는지(시뮬레이션)**를 확인한다.

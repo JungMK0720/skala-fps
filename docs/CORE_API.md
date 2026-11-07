@@ -141,6 +141,7 @@ ctx.registerScreen('match', {
 | `input:fire` | `{ down }` — 좌클릭(잠금 중) |
 | `input:aim` | `{ active, source: 'user'\|'reset'\|'release' }` — 우클릭(hold/toggle 설정 반영) |
 | `input:reload` / `input:jump` | `{}` |
+| `input:inspect` | `{}` — F(무기 살펴보기) |
 | `input:slot` | `{ slot: 1..4 }` |
 | `input:cycle` | `{ dir: 1\|-1 }` — 휠(1 = 다음) |
 | `input:walk` | `{ down }` — Shift |
