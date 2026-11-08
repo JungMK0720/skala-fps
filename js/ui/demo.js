@@ -38,9 +38,9 @@ const MAG = { sr_bolt: [5, 20], ar_std: [30, 90], pt_std: [12, 36], ml_knife: [n
 // 이모트 목록(MODES.md 4.1) — core/consts.js의 EMOTES가 있으면 그것을 쓴다
 const EMOTES_MOCK = [
   { id: 'takeL', n: 1, name: 'L을 가져가', icon: '🫵' },
-  { id: 'veggie', n: 2, name: '새싹 댄스', icon: '🥬' },
+  { id: 'veggie', n: 2, name: '야채', icon: '🥬' },
   { id: 'sideToSide', n: 3, name: '사이드 스텝', icon: '↔️' },
-  { id: 'crissCross', n: 4, name: 'X 점프', icon: '❌' },
+  { id: 'crissCross', n: 4, name: '크리스 크로스', icon: '❌' },
   { id: 'tango', n: 5, name: '탱고', icon: '💃' },
   { id: 'salute', n: 6, name: '경례', icon: '🫡' },
   { id: 'wave', n: 7, name: '손 흔들기', icon: '👋' },

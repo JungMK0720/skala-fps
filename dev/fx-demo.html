@@ -175,8 +175,8 @@ for (const [title, names] of GROUPS) {
 }
 
 /* ── 이모트 소리 ── */
-const EMOTE_LABEL = { takeL: 'L을 가져가', veggie: '새싹 댄스', sideToSide: '사이드 스텝', crissCross: 'X 점프',
-  tango: '탱고', salute: '경례', wave: '손 흔들기', cheer: '환호 박수' };
+const EMOTE_LABEL = { takeL: 'L을 가져가', veggie: '야채', sideToSide: '사이드 스텝', crissCross: '크리스 크로스',
+  tango: '탱고', salute: '경례', wave: '손 흔들기', cheer: '환호 박수', creamCheese: '크림치즈 허니', fromYou: '당신에게서', selfie: '셀카' };
 const emoteOn = new Map(), emoteAll = new Set();
 const embox = document.getElementById('emotes');
 function track(h) { emoteAll.add(h); return h; }
@@ -601,7 +601,8 @@ async function smoke() {
     check('fx disposed', !scene.getObjectByName('fx-root'), scene.children.length);
     check('audio disposed', audio.getStats().state === 'locked' && audio.play('rifle') === null && !audio.emote('takeL').playing,
       audio.getStats());
-    if (!EMOTE_MANIFEST) check('console silent (manifest {} included)', logged.length === 0, logged);
+    // 기본 manifest의 묶음을 모두 읽으면 안내 한 줄('[fx] 이모트 음원 — 파일: …')만 남는다. 대체(합성음)·경고·오류는 없어야 한다
+    if (!EMOTE_MANIFEST) check('console quiet (only the emote file line)', logged.filter((l) => !l.startsWith('info: [fx] 이모트 음원 — 파일: ') || l.includes('합성음 대체')).length === 0, logged);
     res.ok = res.checks.every((c) => c.ok);
   } catch (err) {
     check('exception', false, String(err && err.stack || err));

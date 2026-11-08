@@ -15,7 +15,7 @@
  * 루프 순서: 틱 -90(core 플레이어 이동 -100 다음) · 프레임 -40(아바타 -50 다음, 카메라 보정) · 500(FX, 렌더 1000 전)
  */
 import * as THREE from 'three';
-import { PLAYER, MOVE } from '../core/consts.js';
+import { PLAYER, MOVE, DEFAULT_EMOTE_WHEEL } from '../core/consts.js';
 import { traceShot, raycastWorld, raycastPlayers, lineOfSight, findFloor } from '../engine/physics.js';
 import { lerpAngle } from '../engine/interp.js';
 import { createProps } from '../engine/props.js';
@@ -631,6 +631,28 @@ function buildWorld(ctx, opts) {
     if (!h || typeof h.stop !== 'function') return;
     try { h.stop(150); } catch (err) { /* ignore */ }            // fadeMs
   }
+  /* 상점 미리 듣기: 내 소리(2D)로 잠깐 재생한다. 음원 묶음을 읽는 중이면 조금(최대 1.5초) 기다렸다가 파일로 들려준다 */
+  const PREVIEW_MS = 4000;
+  let previewSnd = null, previewTimer = 0, previewSeq = 0;
+  function stopEmotePreview() {
+    previewSeq++;
+    clearTimeout(previewTimer);
+    stopSound(previewSnd);
+    previewSnd = null;
+  }
+  async function previewEmote(id) {
+    stopEmotePreview();
+    const e = emoteInfo(id);
+    if (!e || typeof audio.emote !== 'function') return false;
+    const seq = previewSeq;
+    if (typeof audio.emoteFilesReady === 'function') {
+      try { await Promise.race([audio.emoteFilesReady(), new Promise((r) => setTimeout(r, 1500))]); } catch (err) { /* 합성음으로 */ }
+    }
+    if (seq !== previewSeq) return false;
+    previewSnd = emoteSound(e.code, null);
+    previewTimer = setTimeout(stopEmotePreview, PREVIEW_MS);
+    return !!previewSnd;
+  }
   /** 내 이모트를 취소(피해·죽음·스폰). core가 player.cancelEmote를 준다 */
   function cancelLocalEmote(reason) {
     if (localEmoteNow() && typeof player.cancelEmote === 'function') { try { player.cancelEmote(reason); } catch (err) { /* ignore */ } }
@@ -655,7 +677,22 @@ function buildWorld(ctx, opts) {
    * World는 core 'input:emoteWheel' {open, cursor, selected, ...}를 UI 'emotes' 화면에 그대로 옮기고,
    * 시작이 거절되면('player:emote-denied') 안내를 띄운다. */
   const NOT_STILL = '멈춘 상태에서만 할 수 있어요';
-  function wheelItems() { return emoteList().slice(0, 8).map((e) => ({ id: e.id, code: e.code, name: e.name, icon: e.icon, loop: e.loop })); }
+  /** 휠 8칸의 이모트 id: 계정 장비(상점에서 고른 순서), 계정이 없으면 기본 휠 */
+  function wheelIdsNow() {
+    const ids = ctx.account && ctx.account.emoteWheel;
+    return Array.isArray(ids) && ids.length ? ids : DEFAULT_EMOTE_WHEEL;
+  }
+  function wheelItems() {
+    const list = emoteList();
+    return wheelIdsNow().map((id) => list.find((e) => e.id === id)).filter(Boolean)
+      .map((e) => ({ id: e.id, code: e.code, name: e.name, icon: e.icon, loop: e.loop }));
+  }
+  /** 입력(core)이 칸 → 이모트를 같은 목록으로 고르게 한다. 상점에서 바꾸면 account:change로 다시 맞춘다 */
+  function syncWheelInput() {
+    if (typeof input.setEmoteWheel === 'function') input.setEmoteWheel(wheelIdsNow().slice());
+  }
+  offs.push(bus.on('account:change', syncWheelInput));
+  syncWheelInput();
   function onEmoteWheel(e) {
     if (!active || !ui || !e) return;
     const open = !!e.open && local.spawned && local.alive;
@@ -1528,6 +1565,9 @@ function buildWorld(ctx, opts) {
     setScoreboard(fn) { scoreboardProvider = typeof fn === 'function' ? fn : null; },
     setHint(text) { customHint = text ? String(text) : ''; },
     sound: (name, o) => play(name, o),
+    /** 상점 미리 듣기(이모트 id). 반복형은 4초 뒤 멈춘다. 다시 부르면 앞의 것을 멈춘다 */
+    previewEmote,
+    stopEmotePreview,
     getLocalState,
     getActor(id) { const a = actors.get(String(id)); return a ? { id: a.id, name: a.name, team: a.team, kind: a.kind, alive: a.alive, state: a.state } : null; },
     getActors() { return Array.from(actors.values(), (a) => ({ id: a.id, name: a.name, team: a.team, kind: a.kind, alive: a.alive, state: a.state })); },

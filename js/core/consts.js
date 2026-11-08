@@ -144,25 +144,53 @@ export function toRad(v) {
   return Math.abs(n) > Math.PI * 2 + 0.01 ? n * Math.PI / 180 : n;
 }
 
+/** 한 소절(sec초)에 beats박이 들어가는 템포(BPM) */
+const perBar = (beats, sec) => (60 * beats) / sec;
+
 /**
- * 이모트(감정 표현) 목록 — MODES.md 4.1. code = 전송 번호(1~15, 0 = 없음), 휠 칸 = 배열 순서(12시부터 시계 방향).
- * loop: 반복형이면 true(duration 0), 한 번만 하면 false(duration 초). bpm: 동작·소리 박자(fx가 맞춰 쓸 수 있음).
- * 동작은 engine/emoteanim.js의 절차적 키프레임(직접 설계)으로 그린다.
+ * 이모트(감정 표현) 목록 — MODES.md 4.1. code = 전송 번호(1~15, 0 = 없음). 휠의 8칸에 무엇을 둘지는 계정 장비(loadout.emotes)가 정하고,
+ * 처음 휠은 DEFAULT_EMOTE_WHEEL이다. loop: 반복형이면 true(duration 0), 한 번만 하면 false(duration 초).
+ * bpm: 춤 박자. 음원 묶음(audio/emotes)이 있는 이모트는 한 소절 길이에 정수 박이 들어가게 정해서 춤과 소리가 어긋나지 않는다
+ *      (예: L을 가져가는 소절 1.95초에 4박). fx/audio.js의 합성음도 같은 bpm을 쓴다.
+ * price: 상점 가격(0 = 기본 지급). desc: 상점에 보이는 동작 설명. 동작은 engine/emoteanim.js의 절차적 키프레임(직접 설계)으로 그린다.
  */
 export const EMOTES = Object.freeze([
-  Object.freeze({ code: 1, id: 'takeL', name: 'L을 가져가', icon: '🫵', loop: true, duration: 0, bpm: 150 }),
-  Object.freeze({ code: 2, id: 'veggie', name: '새싹 댄스', icon: '🥬', loop: true, duration: 0, bpm: 73.7 }),
-  Object.freeze({ code: 3, id: 'sideToSide', name: '사이드 스텝', icon: '↔️', loop: true, duration: 0, bpm: 129.7 }),
-  Object.freeze({ code: 4, id: 'crissCross', name: 'X 점프', icon: '❌', loop: true, duration: 0, bpm: 104.9 }),
-  Object.freeze({ code: 5, id: 'tango', name: '탱고', icon: '💃', loop: true, duration: 0, bpm: 96 }),
-  Object.freeze({ code: 6, id: 'salute', name: '경례', icon: '🫡', loop: false, duration: 2.5, bpm: 0 }),
-  Object.freeze({ code: 7, id: 'wave', name: '손 흔들기', icon: '👋', loop: false, duration: 2.5, bpm: 0 }),
-  Object.freeze({ code: 8, id: 'cheer', name: '환호 박수', icon: '👏', loop: true, duration: 0, bpm: 128 })
+  Object.freeze({ code: 1, id: 'takeL', name: 'L을 가져가', icon: '🫵', loop: true, duration: 0, bpm: perBar(4, 1.95), price: 0, desc: '이마에 L을 대고 깡충깡충 다리를 번갈아 찬다' }),
+  Object.freeze({ code: 2, id: 'veggie', name: '야채', icon: '🥬', loop: true, duration: 0, bpm: perBar(2, 1.45), price: 0, desc: '두 팔을 머리 위로 모아 새싹처럼 살랑살랑' }),
+  Object.freeze({ code: 3, id: 'sideToSide', name: '사이드 스텝', icon: '↔️', loop: true, duration: 0, bpm: 129.7, price: 0, desc: '좌우로 한 걸음씩, 팔은 반대쪽으로 크게' }),
+  Object.freeze({ code: 4, id: 'crissCross', name: '크리스 크로스', icon: '❌', loop: true, duration: 0, bpm: perBar(3, 1.65), price: 0, desc: '제자리에서 뛰며 팔다리를 X자로 엇갈렸다 벌린다' }),
+  Object.freeze({ code: 5, id: 'tango', name: '탱고', icon: '💃', loop: true, duration: 0, bpm: 96, price: 0, desc: '상대를 안은 자세로 큰 두 걸음, 고개를 휙' }),
+  Object.freeze({ code: 6, id: 'salute', name: '경례', icon: '🫡', loop: false, duration: 2.5, bpm: 0, price: 0, desc: '차렷 자세에서 오른손 경례' }),
+  Object.freeze({ code: 7, id: 'wave', name: '손 흔들기', icon: '👋', loop: false, duration: 2.5, bpm: 0, price: 0, desc: '오른팔을 높이 들어 크게 흔든다' }),
+  Object.freeze({ code: 8, id: 'cheer', name: '환호 박수', icon: '👏', loop: true, duration: 0, bpm: 128, price: 0, desc: '머리 위에서 박수 치며 깡충' }),
+  Object.freeze({ code: 9, id: 'creamCheese', name: '크림치즈 허니', icon: '🍯', loop: true, duration: 0, bpm: perBar(5, 1.8), price: 0, desc: '주먹을 볼에 대고 갸웃갸웃 통통 튀다가 두 팔을 번쩍' }),
+  Object.freeze({ code: 10, id: 'fromYou', name: '당신에게서', icon: '💌', loop: true, duration: 0, bpm: perBar(2, 1.65), price: 600, desc: '손을 가슴에 얹었다가 두 손을 앞으로 내밀며 흔들린다' }),
+  Object.freeze({ code: 11, id: 'selfie', name: '셀카', icon: '🤳', loop: true, duration: 0, bpm: perBar(2, 1.3), price: 400, desc: '휴대폰을 들고 찰칵, 각도와 손 모양을 바꿔 한 번 더' })
 ]);
 export const EMOTE_IDS = Object.freeze(EMOTES.map((e) => e.id));
 
 /** 이모트 휠: 가운데에서 DEADZONE(px) 벗어나야 칸 선택, 가상 커서는 RADIUS(px) 테두리에서 멈춤 */
 export const EMOTE_WHEEL = Object.freeze({ DEADZONE: 40, RADIUS: 160, SLOTS: 8 });
+
+/** 처음 휠(12시부터 시계 방향). 모두 기본 지급 이모트다. 사이드 스텝은 빼 두었고 상점에서 다시 넣을 수 있다 */
+export const DEFAULT_EMOTE_WHEEL = Object.freeze(['takeL', 'veggie', 'creamCheese', 'crissCross', 'tango', 'salute', 'wave', 'cheer']);
+
+/**
+ * 휠 목록 정리: 가진 이모트만, 겹치지 않게, 정확히 SLOTS칸. 빈 칸은 기본 휠 → 가진 이모트 순서로 채운다.
+ * owns(id) → boolean. 없으면 기본 지급(price 0)만 가진 것으로 본다.
+ */
+export function normalizeEmoteWheel(list, owns = (id) => (emoteById(id) || {}).price === 0) {
+  const src = Array.isArray(list) ? list : [];
+  const ok = (id) => typeof id === 'string' && EMOTE_IDS.includes(id) && owns(id);
+  const out = [];
+  for (let i = 0; i < EMOTE_WHEEL.SLOTS; i++) {
+    const id = src[i];
+    out.push(ok(id) && !out.includes(id) ? id : null);
+  }
+  const pool = [...DEFAULT_EMOTE_WHEEL, ...EMOTE_IDS].filter(ok);
+  for (let i = 0; i < out.length; i++) if (!out[i]) out[i] = pool.find((id) => !out.includes(id)) || null;
+  return out.filter(Boolean);
+}
 
 /** 이모트 전환(시작·끝, 3인칭 카메라·아바타 자세) 시간(초) */
 export const EMOTE_BLEND = 0.15;

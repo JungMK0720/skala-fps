@@ -17,7 +17,7 @@ FPS 장르 관습(WASD, 우클릭 조준, 1~4 무기 슬롯, 라운드제)만 �
 - 멀티플레이: Supabase Realtime(Broadcast + Presence). 접속 정보는 `js/config.js`의
   `window.SKALA_CONFIG.supabase.{url, anonKey}` (publishable key, 공개 가능).
 - 플레이어 이름: 설정 저장소의 `name` → 없으면 `플레이어NNN`(메뉴에서 바꿀 수 있음).
-- 모든 코드·에셋은 이 저장소 안에만. 외부 이미지·사운드 파일 금지(도형·캔버스 텍스처·WebAudio 합성).
+- 모든 코드·에셋은 이 저장소 안에만. 외부 이미지 파일 금지(도형·캔버스 텍스처). 소리는 WebAudio 합성, 이모트 6종만 음원 묶음(`audio/emotes/*.bin`, 브라우저에서 풀어 재생).
 
 ## 2. 좌표·단위·상수 (`js/core/consts.js`)
 - 1 단위 = 1 m, y 위쪽, 지면 y = 0, 맵 원점은 맵 중앙.

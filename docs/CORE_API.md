@@ -390,18 +390,22 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 ## 16. 이모트 (3차 확장, MODES.md 4절)
 
 ### 목록 — `core/consts.js`
-- `EMOTES`: `[{ code, id, name, icon, loop, duration, bpm }]`. 배열 순서 = 휠 칸 순서(12시부터 시계 방향).
+- `EMOTES`: `[{ code, id, name, icon, loop, duration, bpm, price, desc }]`. 휠 칸 순서는 계정 장비(`loadout.emotes`), 처음은 `DEFAULT_EMOTE_WHEEL`(12시부터 시계 방향).
+  `normalizeEmoteWheel(list, owns)`가 가진 이모트만 겹치지 않게 8칸으로 정리한다. `input.setEmoteWheel(ids)`로 휠 칸 → 이모트를 바꾼다.
 
-  | code | id | 이름 | 길이 | bpm |
-  |---|---|---|---|---|
-  | 1 | `takeL` | L을 가져가 🫵 | 반복 | 120 |
-  | 2 | `veggie` | 새싹 댄스 🥬 | 반복 | 100 |
-  | 3 | `sideToSide` | 사이드 스텝 ↔️ | 반복 | 110 |
-  | 4 | `crissCross` | X 점프 ❌ | 반복 | 140 |
-  | 5 | `tango` | 탱고 💃 | 반복 | 96 |
-  | 6 | `salute` | 경례 🫡 | 2.5초 | — |
-  | 7 | `wave` | 손 흔들기 👋 | 2.5초 | — |
-  | 8 | `cheer` | 환호 박수 👏 | 반복 | 128 |
+  | code | id | 이름 | 길이 | bpm | 가격 |
+  |---|---|---|---|---|---|
+  | 1 | `takeL` | L을 가져가 🫵 | 반복 | 123.1 | 기본 |
+  | 2 | `veggie` | 야채 🥬 | 반복 | 82.8 | 기본 |
+  | 3 | `sideToSide` | 사이드 스텝 ↔️ | 반복 | 129.7 | 기본 |
+  | 4 | `crissCross` | 크리스 크로스 ❌ | 반복 | 109.1 | 기본 |
+  | 5 | `tango` | 탱고 💃 | 반복 | 96 | 기본 |
+  | 6 | `salute` | 경례 🫡 | 2.5초 | — | 기본 |
+  | 7 | `wave` | 손 흔들기 👋 | 2.5초 | — | 기본 |
+  | 8 | `cheer` | 환호 박수 👏 | 반복 | 128 | 기본 |
+  | 9 | `creamCheese` | 크림치즈 허니 🍯 | 반복 | 166.7 | 기본 |
+  | 10 | `fromYou` | 당신에게서 💌 | 반복 | 72.7 | 600 P |
+  | 11 | `selfie` | 셀카 🤳 | 반복 | 92.3 | 400 P |
 
 - 그 밖의 export:
   - `EMOTE_IDS`

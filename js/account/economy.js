@@ -2,9 +2,10 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 포인트 규칙(순수 함수). docs/DESIGN.md 7절의 표를 데이터로 두고 경기 보상과 비밀 스팟 보상을 계산한다.
- *          가격은 weapons/defs.js가 정본이다. 값이 바뀌면 이 표와 설계 문서를 함께 고친다.
+ *          가격은 weapons/defs.js(무기)와 core/consts.js EMOTES(이모트)가 정본이다. 값이 바뀌면 서버 가격표(supabase/schema.sql)와 설계 문서를 함께 고친다.
  */
 import { WEAPON_IDS, getDef } from '../weapons/defs.js';
+import { EMOTE_IDS, emoteById } from '../core/consts.js';
 
 export const START_POINTS = 500;
 /** supabase/schema.sql의 fps_save_profile과 같은 상한 */
@@ -78,15 +79,25 @@ export function secretReward(secret) {
   return typeof n === 'number' && Number.isFinite(n) && n >= 0 ? Math.floor(n) : SECRET_POINTS_DEFAULT;
 }
 
-/** 무기 가격. 모르는 무기는 null. */
-export function priceOf(id) {
-  const def = getDef(id);
-  return def ? Math.max(0, Number(def.price) || 0) : null;
+/** 상점 물건 id: 무기 다음에 이모트. 프로필의 owned는 이 순서로 정리한다 */
+export const ITEM_IDS = Object.freeze([...WEAPON_IDS, ...EMOTE_IDS]);
+
+/** 이모트 id인가(번호는 아니다) */
+export function isEmoteId(id) {
+  return typeof id === 'string' && EMOTE_IDS.includes(id);
 }
 
-/** 기본 지급 무기(price === 0) */
+/** 무기·이모트 가격. 모르는 물건은 null. */
+export function priceOf(id) {
+  const def = getDef(id);
+  if (def) return Math.max(0, Number(def.price) || 0);
+  const e = isEmoteId(id) ? emoteById(id) : null;
+  return e ? Math.max(0, Number(e.price) || 0) : null;
+}
+
+/** 기본 지급 무기·이모트(price === 0) */
 export function defaultOwned() {
-  return WEAPON_IDS.filter((id) => priceOf(id) === 0);
+  return ITEM_IDS.filter((id) => priceOf(id) === 0);
 }
 
 export function clampPoints(n) {

@@ -192,6 +192,7 @@ export async function install(ctx) {
     ui.show('shop');
   }
   function leaveShop() {
+    if (typeof world.stopEmotePreview === 'function') world.stopEmotePreview();
     if (shopReturn === 'mypage') ui.show('mypage');
     else showMenu();
   }
@@ -221,6 +222,7 @@ export async function install(ctx) {
     ui.on('mypage:back', showMenu),
     ui.on('mypage:shop', () => openShop('mypage')),
     ui.on('shop:back', leaveShop),
+    ui.on('shop:preview', (e) => { if (e && e.id && typeof world.previewEmote === 'function') world.previewEmote(e.id); }),
     ui.on('loadout:equip', equipFromLoadout),
     ui.on('ui:sound', (e) => { if (e && e.name && world.sound) world.sound(e.name); }),
   );

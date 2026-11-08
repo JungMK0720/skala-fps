@@ -4,8 +4,9 @@
  * Purpose: 프로필과 기기 토큰의 localStorage 저장, 저장 형식 정규화, 서버 프로필 병합 규칙.
  *          값이 깨졌거나 없거나 저장소를 쓸 수 없어도 예외 없이 기본값으로 동작한다.
  */
-import { DEFAULT_LOADOUT, WEAPON_IDS, getDef } from '../weapons/defs.js';
-import { START_POINTS, clampPoints, defaultOwned } from './economy.js';
+import { DEFAULT_LOADOUT, getDef } from '../weapons/defs.js';
+import { normalizeEmoteWheel } from '../core/consts.js';
+import { ITEM_IDS, START_POINTS, clampPoints, defaultOwned } from './economy.js';
 import { validateNickname } from './nickname.js';
 
 export const PROFILE_KEY = 'skalafps.profile.v1';
@@ -24,11 +25,11 @@ const SECRET_NAME_MAX = 40;
 const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const isRecord = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
-/** 있는 무기만 정의 순서대로. 기본 지급 무기는 항상 포함한다. */
+/** 있는 무기·이모트만 정의 순서대로(무기 → 이모트). 기본 지급 물건은 항상 포함한다. */
 export function normalizeOwned(list) {
   const have = new Set(Array.isArray(list) ? list : []);
   for (const id of defaultOwned()) have.add(id);
-  return WEAPON_IDS.filter((id) => have.has(id));
+  return ITEM_IDS.filter((id) => have.has(id));
 }
 
 function normalizeLoadout(raw, owned) {
@@ -39,6 +40,8 @@ function normalizeLoadout(raw, owned) {
     const def = typeof id === 'string' ? getDef(id) : null;
     out[key] = def && def.slot === LOADOUT_SLOTS[key] && owned.includes(id) ? id : DEFAULT_LOADOUT[key];
   }
+  // 이모트 휠 8칸(12시부터 시계 방향). 가진 이모트만, 빈 칸은 기본 휠로 채운다
+  out.emotes = normalizeEmoteWheel(src.emotes, (id) => owned.includes(id));
   return out;
 }
 
