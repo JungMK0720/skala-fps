@@ -4,7 +4,7 @@
  * Purpose: three.js 렌더러 래퍼. 씬, 카메라, 뷰모델 패스, 하늘, 그림자, 자동 품질을 관리한다.
  */
 /**
- * SKALA FPS — 렌더러 (three.js 0.170)
+ * SKALA 작전 — 렌더러 (three.js 0.170)
  *
  *   const R = createRenderer({ container, settings, bus });
  *   R.scene / R.camera(원근, FOV 75, rotation.order 'YXZ')

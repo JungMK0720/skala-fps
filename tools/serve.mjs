@@ -36,4 +36,4 @@ createServer((req, res) => {
   if (!file) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Not found'); return; }
   res.writeHead(200, { 'Content-Type': TYPES[extname(file).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-store' });
   createReadStream(file).pipe(res);
-}).listen(PORT, () => console.log(`SKALA FPS dev server: http://localhost:${PORT}/`));
+}).listen(PORT, () => console.log(`SKALA 작전 dev server: http://localhost:${PORT}/`));

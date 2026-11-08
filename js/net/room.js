@@ -31,6 +31,7 @@
  *   최근 8개 중 delay가 가장 작은 표본을 쓴다(오차 ≤ delay/2).
  */
 import { NET } from '../core/consts.js';
+import { roomSecret } from './secret.js';
 import { Emitter, netError, plainFields, randomId, sanitizeName } from './realtime.js';
 import { TokenBucket, frameCost, autoTopology, clampHz, DEFAULT_BUDGET } from './limits.js';
 import { lobbyEntry } from './lobby.js';
@@ -83,9 +84,13 @@ export class Room extends Emitter {
   /* ---------- 생성 / 참가 ---------- */
 
   static async create(net, opts = {}) {
-    const { name, mapId = 'jetty', max = 8, topology, ...extra } = opts || {};
-    const room = new Room(net, randomId(8), topology ? { topology } : {});
+    // password는 meta에 넣지 않는다(meta는 방 사람 모두와 로비에 간다). 채널 이름에만 비밀 값으로 들어간다
+    const { name, mapId = 'jetty', max = 8, topology, password, ...extra } = opts || {};
+    const id = randomId(8);
+    const secret = await roomSecret(id, password);
+    const room = new Room(net, id, { ...(topology ? { topology } : {}), ...(secret ? { secret } : {}) });
     const meta = room._meta;
+    meta.locked = !!secret;
     meta.name = sanitizeName(name, 32) || (net.me.name + '의 방');
     meta.mapId = sanitizeName(mapId, 32) || 'jetty';
     meta.max = Math.max(2, Math.min(16, max | 0 || 8));
@@ -111,10 +116,12 @@ export class Room extends Emitter {
 
   static async join(net, roomId, opts = {}) {
     if (!ROOM_ID_RE.test(String(roomId || ''))) throw netError('BAD_ROOM_ID', '잘못된 방 ID입니다');
-    const room = new Room(net, String(roomId), opts);
+    const { password, ...rest } = opts || {};
+    const secret = await roomSecret(String(roomId), password);
+    const room = new Room(net, String(roomId), { ...rest, ...(secret ? { secret } : {}) });
     const hint = net.lobby.rooms().find((r) => r.roomId === roomId);
     if (hint) {
-      Object.assign(room._meta, { name: hint.name, mapId: hint.mapId, max: hint.max, status: hint.status, mode: hint.mode, ruleset: hint.ruleset });
+      Object.assign(room._meta, { name: hint.name, mapId: hint.mapId, max: hint.max, status: hint.status, mode: hint.mode, ruleset: hint.ruleset, locked: !!hint.locked });
       room._hostId = hint.hostId || null;
     }
     try {
@@ -128,7 +135,11 @@ export class Room extends Emitter {
       if (!ok) {
         await room._waitPresence(1500);
         const ids = room._presenceIds();
-        if (!ids.length) throw netError('ROOM_NOT_FOUND', '방을 찾을 수 없습니다');
+        // 비밀번호 방은 비밀번호가 틀리면 다른(빈) 채널에 들어가므로 아무도 없다
+        if (!ids.length) {
+          if (hint && hint.locked) throw secret ? netError('BAD_PASSWORD', '비밀번호가 맞지 않습니다') : netError('NEED_PASSWORD', '비밀번호가 필요한 방입니다');
+          throw netError('ROOM_NOT_FOUND', '방을 찾을 수 없습니다');
+        }
         if (!room._hostId || !ids.includes(room._hostId)) room._hostId = room._earliest(ids);
         room._term = Math.max(room._term, 1);
       }
@@ -157,7 +168,8 @@ export class Room extends Emitter {
     this.net = net;
     this.id = roomId;
     this.opt = { ...ROOM_DEFAULTS, ...((net.opts && net.opts.room) || {}), ...opt };
-    this.topic = ROOM_TOPIC_PREFIX + roomId;
+    // 비밀번호 방은 비밀 값(net/secret.js)을 채널 이름에 붙인다. 비밀번호를 모르면 같은 채널을 찾을 수 없다
+    this.topic = ROOM_TOPIC_PREFIX + roomId + (this.opt.secret ? ':' + this.opt.secret : '');
     this._meId = net.me.id;
     this._my = { id: net.me.id, name: net.me.name, team: null, ready: false, joinedAt: 0, ping: 0, v: 1 };
     this._meta = { roomId, name: '', mapId: '', max: 8, status: 'waiting', topo: this.opt.topology, net: 'mesh', hz: 0 };
@@ -241,6 +253,20 @@ export class Room extends Emitter {
     this._checkEvent(event);
     if (this._closed) return false;
     this._push(event, payload, null, !!(opts && opts.merge));
+    this._schedule();
+    return true;
+  }
+
+  /**
+   * (방장) 한 사람을 내보낸다. 받은 쪽은 'closed' { reason: 'kicked:<reason>' }로 나간다.
+   * 고친 클라이언트는 이 메시지를 무시할 수 있으므로 게임 쪽에서도 그 사람의 메시지를 버려야 한다.
+   */
+  kick(playerId, reason = 'host') {
+    if (this._closed || !this.isHost()) return false;
+    const to = String(playerId || '');
+    if (!to || to === this._meId) return false;
+    this._kickedAt.set(to, nowMs());
+    this._push('_kick', { reason: String(reason || 'host').slice(0, 16) }, to, true);
     this._schedule();
     return true;
   }

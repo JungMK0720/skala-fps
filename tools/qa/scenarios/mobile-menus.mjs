@@ -444,7 +444,7 @@ export default {
       t.setSection(`${phone.id}: 부활 대기 패널`);
       await page.fn(() => {
         const ui = window.__qa.ui;
-        ui.hud.set({ hp: 0, maxHp: 100, ammo: 22, mag: 30, reserve: 60, slot: 1, weaponName: 'RX-4 돌격소총', roundTime: 247, hint: 'G 키로 RX-4 버리기 · 4초', respawn: { seconds: 3, killer: '호랑이', weaponName: 'H-50 타이탄' } });
+        ui.hud.set({ hp: 0, maxHp: 100, ammo: 22, mag: 30, reserve: 60, slot: 1, weaponName: 'RX-4 돌격소총', roundTime: 247, hint: '관전 중 — 다음 라운드부터 참가해요', respawn: { seconds: 3, killer: '호랑이', weaponName: 'H-50 타이탄' } });
       });
       for (const [name, props] of [
         ['many', { ruleset: 'classic', selected: 'sr_heavy' }],
@@ -565,7 +565,7 @@ export default {
       t.check(inside(d.lc, d.vw, d.vh) && inside(d.rsp, d.vw, d.vh), `${phone.id} 실제 경기: 패널과 부활 안내가 화면 안에 있다`, d);
       t.check(!overlaps(d.lc, d.rsp), `${phone.id} 실제 경기: 패널이 부활 안내를 가리지 않는다`, d);
       t.check(!overlaps(d.lc, d.hint), `${phone.id} 실제 경기: 패널이 아래 안내를 가리지 않는다`, d);
-      t.check(/버리기/.test(await page.eval(`__qa.text('.sk-hint') || ''`)), `${phone.id} 실제 경기: 총 버리기 안내가 떠 있다`, await page.eval(`__qa.text('.sk-hint')`));
+      t.check((await page.eval('__qa.world.internals.drops.size')) >= 1, `${phone.id} 실제 경기: 죽으면 들고 있던 총이 떨어진다`);
       await page.waitFor('__qa.world.localAlive', 12000, { intervalMs: 50, label: '부활' });
       await page.waitFor('!__qa.ui.isVisible("loadout")', 3000, { label: '부활하면 패널이 닫힌다' });
       await page.press('Escape');

@@ -159,6 +159,12 @@ const WORLD_CALLS = [
   'unloadMap', 'setRuleset', 'reset', 'spawnLocal', 'setLocalLoadout', 'setLocalHp', 'killLocal', 'addActor', 'removeActor', 'setActorState',
   'actorFire', 'actorGrenade', 'actorDeath', 'feedbackDamage', 'setRound', 'setControlsEnabled', 'setScoreboard', 'setHint', 'setPauseOptions',
   'setMode', 'setRespawn', 'setProtect', 'setActorProtect', 'sound', 'addDrop', 'removeDrop'];
+/** 방장은 위치로 사격 거리를 다시 잰다: 쏘는 사람을 상대 옆(d m)에 세우고 위치가 방장에게 퍼질 때까지 기다린다 */
+async function standNear(env, shooter, victim, d = 1.2) {
+  shooter.world.pos = [victim.world.pos[0] + d, victim.world.pos[1], victim.world.pos[2]];
+  await env.run(400);
+}
+
 function fakeWorld() {
   const log = [];
   const handlers = new Map();
@@ -352,7 +358,8 @@ describe('세션 연결', () => {
     assert.equal(a.world.last('setActorState')[1].weaponId, 'pt_magnum');
     b.world.slot = 1;
 
-    // 샷건 한 발: 펠릿 5개가 몸에 맞았다
+    // 샷건 한 발: 펠릿 5개가 몸에 맞았다(방장이 잰 거리도 5 m 안이어야 한다)
+    await standNear(env, b, a, 3);
     b.world.fire('hitClaim', { victimId: 'a', part: 'body', weaponId: 'sg_bx12', dist: 5, kind: 'shot', t: env.clock.t, count: 5, shotId: 7, point: [0, 0, 0], origin: [0, 0, 0] });
     await env.run(200);
     const claim = env.hub.decoded(EV.hit, 'b').at(-1);
@@ -446,7 +453,8 @@ describe('세션 연결', () => {
     assert.equal(drawn.slot, 3, '칼전 아바타는 칼 슬롯');
     assert.equal(drawn.weaponId, 'ml_knife');
 
-    // 찌르기 킬
+    // 찌르기 킬(칼은 실제로 붙어 있어야 한다)
+    await standNear(env, b, a);
     b.world.fire('hitClaim', { victimId: 'a', part: 'body', weaponId: 'ml_knife', dist: 1, kind: 'stab', t: env.clock.t, count: 1, shotId: 2 });
     await env.run(200);
     assert.equal(a.world.calls('killLocal').length, 1);
@@ -544,6 +552,28 @@ describe('세션 연결', () => {
     env.dispose();
   });
 
+  test('방장 검증: 멀리서 칼로 찔렀다는 주장은 방장이 잰 거리로 거절하고, 반복하면 경기에서 빼고 내보낸다', async (t) => {
+    const env = stage(t);
+    const a = env.client('a', '하늘');
+    const b = env.client('b', '구름');
+    await startMatch(env, [a, b], { mapId: 'alley', ruleset: 'knife' });
+    await env.run(1500);
+    assert.equal(a.session.state.matchPhase, 'live');
+    // 30 m 떨어져 있으면서 1 m에서 찔렀다고 우긴다
+    b.world.pos = [a.world.pos[0] + 30, 0, a.world.pos[2]];
+    await env.run(400);
+    for (let i = 0; i < 8; i++) {
+      b.world.fire('hitClaim', { victimId: 'a', part: 'body', weaponId: 'ml_knife', dist: 1, kind: 'stab', t: env.clock.t, count: 1, shotId: 20 + i });
+      await env.run(1100);
+    }
+    assert.equal(a.world.calls('killLocal').length, 0, '한 번도 맞지 않는다');
+    assert.ok(a.logs.some((l) => l[0] === 'ban' && l[1] === 'b'), '반복하면 내보낸다');
+    const m = a.session.match;   // 상대가 하나뿐이면 빠지는 순간 기권승으로 경기가 끝난다
+    const gone = m && m.state.players.find((p) => p.id === 'b');
+    assert.ok(!gone || gone.connected === false, '경기에서 빠진다');
+    env.dispose();
+  });
+
   test('방장 이전(승부가 난 라운드 끝): 새 방장이 끝내고 기록은 사람마다 한 번', async (t) => {
     const env = stage(t, { rules: { roundEndMs: 1000 } });
     const a = env.client('a', '하늘');
@@ -553,6 +583,7 @@ describe('세션 연결', () => {
     await env.run(1500);
     assert.equal(a.session.state.matchPhase, 'live');
     const stab = { weaponId: 'ml_katana', part: 'body', dist: 1, kind: 'stab', count: 1 };
+    await standNear(env, c, b);
     c.world.fire('hitClaim', { ...stab, victimId: 'b', t: env.clock.t, shotId: 1 });
     await env.run(150);
     assert.equal(a.session.state.matchPhase, 'roundEnd');
@@ -782,9 +813,11 @@ describe('로비 메타', () => {
   });
 
   test('규칙이 없는 옛 항목은 클래식으로 읽는다', () => {
-    assert.deepEqual(unpackRoomKind('ffa'), { mode: 'ffa', ruleset: 'classic' });
-    assert.deepEqual(unpackRoomKind(undefined), { mode: 'team', ruleset: 'classic' });
-    assert.deepEqual(unpackRoomKind('team:<b>'), { mode: 'team', ruleset: 'classic' });
+    assert.deepEqual(unpackRoomKind('ffa'), { mode: 'ffa', ruleset: 'classic', locked: false });
+    assert.deepEqual(unpackRoomKind(undefined), { mode: 'team', ruleset: 'classic', locked: false });
+    assert.deepEqual(unpackRoomKind('team:<b>'), { mode: 'team', ruleset: 'classic', locked: false });
+    assert.equal(packRoomKind('team', 'classic', true), 'team:classic:p', '비밀번호 방은 규칙까지 적고 :p를 붙인다');
+    assert.deepEqual(unpackRoomKind('ffa:knife:p'), { mode: 'ffa', ruleset: 'knife', locked: true });
     assert.equal(packRoomKind('team', 'classic'), 'team');
     assert.equal(packRoomKind('ffa', 'sniper'), 'ffa:sniper');
     assert.equal(packRoomKind('team', undefined), 'team');
@@ -969,11 +1002,11 @@ describe('믿을 수 없는 값', () => {
 
   test('로비 한 줄이 목록을 망가뜨리지 않는다', () => {
     const e = readLobbyEntry({ roomId: 'r1', name: BAD, mapId: BAD, hostId: BAD, hostName: BAD, players: BAD, max: BAD, status: BAD, mode: BAD });
-    assert.deepEqual(e, { roomId: 'r1', name: '', mapId: '', hostId: '', hostName: '', players: 0, max: 8, status: 'waiting', mode: 'team', ruleset: 'classic' });
+    assert.deepEqual(e, { roomId: 'r1', name: '', mapId: '', hostId: '', hostName: '', players: 0, max: 8, status: 'waiting', mode: 'team', ruleset: 'classic', locked: false });
     assert.equal(readLobbyEntry({ roomId: 'r', max: 1e9, players: 1 }).max, 16, '방 인원 상한');
     assert.equal(readLobbyEntry({ roomId: 'r', name: 'x'.repeat(500), hostName: 'y'.repeat(500), players: 1 }).name.length, 32);
     assert.equal(readLobbyEntry({ roomId: BAD, players: 1 }).roomId, '');
-    assert.deepEqual(unpackRoomKind(BAD), { mode: 'team', ruleset: 'classic' });
+    assert.deepEqual(unpackRoomKind(BAD), { mode: 'team', ruleset: 'classic', locked: false });
   });
 
   test('규칙·무기 조회는 문자열이 아니면 던지지 않고 기본값이다', () => {
@@ -1160,6 +1193,23 @@ describe('로비·대기실 화면', () => {
     assert.deepEqual(lastEmit(ctx, 'lobby:join').payload, { roomId: 'f1' });
     lobby.show({ name: '하늘', rooms: [readLobbyEntry({ ...base, roomId: 'f2', mode: 'ffa', players: 6 })] });
     assert.equal(lobby.el.all((k) => k.classList.contains('sk-room-join'))[0].disabled, true, '개인전도 가득 차면 못 들어간다');
+    lobby.dispose();
+  });
+
+  test('로비: 비밀번호 방은 자물쇠가 보이고, 참가를 누르면 비밀번호를 물은 뒤 함께 보낸다', () => {
+    const ctx = uiCtx();
+    const lobby = createLobby(ctx);
+    lobby.show({ name: '하늘', rooms: [readLobbyEntry({ roomId: 'k1', name: '친구 방', mapId: 'alley', hostName: '방장', players: 1, max: 4, status: 'waiting', mode: packRoomKind('team', 'classic', true) })] });
+    assert.ok(lobby.el.all((k) => k.classList.contains('sk-room-name'))[0].textContent.startsWith('🔒'));
+    lobby.el.all((k) => k.classList.contains('sk-room-join'))[0].fire('click');
+    assert.equal(lastEmit(ctx, 'lobby:join'), undefined, '바로 들어가지 않는다');
+    const form = lobby.el.all((k) => k.classList.contains('sk-pw-form'))[0];
+    assert.ok(form, '비밀번호를 묻는다');
+    form.fire('submit');
+    assert.equal(lastEmit(ctx, 'lobby:join'), undefined, '비어 있으면 보내지 않는다');
+    form.all((k) => k.tagName === 'INPUT')[0].value = ' 1234 ';
+    form.fire('submit');
+    assert.deepEqual(lastEmit(ctx, 'lobby:join').payload, { roomId: 'k1', password: '1234' });
     lobby.dispose();
   });
 

@@ -335,11 +335,28 @@ export default {
       await host.waitFor(`!!document.querySelector('.sk-create-sheet')`, 3000, { label: '방 만들기 시트' });
       await host.fn(() => { const el = document.querySelector('.sk-create-sheet input'); el.focus(); el.select(); });
       await host.type('둘째 방');
+      // 둘째 방은 비밀번호 방이다. 비밀번호는 채널 이름에만 섞이고 어디에도 보내지 않는다
+      await host.fn(() => { document.querySelectorAll('.sk-create-sheet input')[1].focus(); });
+      await host.type('1234');
       await host.clickText('.sk-create-sheet .sk-form-actions .sk-btn', '방 만들기');
       await host.waitFor('__qa.ctx.screen === "room" && __qa.ui.isVisible("room")', 10000, { label: '둘째 방 대기실' });
       await guest.waitFor(`document.querySelectorAll('.sk-room-row').length === 1 && /둘째 방/.test(document.querySelector('.sk-room-row').textContent)`, 10000, { label: '목록에 둘째 방만 있다' });
-      await guest.click('.sk-room-join');
-      await guest.waitFor('__qa.ctx.screen === "room" && __qa.ui.isVisible("room")', 10000, { label: '손님 둘째 방' });
+      t.check(/🔒/.test(await guest.eval(`document.querySelector('.sk-room-row').textContent`)), '비밀번호 방은 목록에 자물쇠가 보인다');
+      const enter = async (pw) => {
+        await guest.click('.sk-room-join');
+        await guest.waitFor(`!!document.querySelector('.sk-pw-sheet')`, 3000, { label: '비밀번호를 묻는다' });
+        await guest.fn(() => { document.querySelector('.sk-pw-sheet input').focus(); });
+        await guest.type(pw);
+        await guest.clickText('.sk-pw-sheet .sk-form-actions .sk-btn', '들어가기');
+      };
+      await enter('9999');
+      await eventually(t, guest, `/비밀번호가 맞지 않아요/.test(document.querySelector('.sk-lobby').textContent)`, '틀린 비밀번호는 들어가지 못하고 이유를 알려 준다', 15000);
+      t.check(await guest.eval('__qa.ctx.screen === "lobby"'), '틀리면 로비에 남는다');
+      await t.shot('password-wrong');
+      await guest.waitFor(`document.querySelectorAll('.sk-room-row').length === 1`, 10000, { label: '목록이 다시 보인다' });
+      await enter('1234');
+      await guest.waitFor('__qa.ctx.screen === "room" && __qa.ui.isVisible("room")', 15000, { label: '맞는 비밀번호로 들어간다' });
+      t.check(true, '맞는 비밀번호로 들어간다');
       await host.waitFor(`inRoster('손님')`, 8000, { label: '방장 명단에 다시 손님' });
       await t.shot('second-room');
       await guest.click('.sk-room .sk-bar .sk-btn--ghost');

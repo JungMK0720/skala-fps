@@ -4,7 +4,7 @@
  * Purpose: 멀티플레이 세션. 로비, 대기실, 경기, 결과 흐름을 묶고 방장이 경기 규칙을 돌린다.
  */
 /**
- * SKALA FPS — 멀티플레이 세션: 로비 → 방(대기실) → 경기(팀전·개인전 × 클래식·칼전·스나전) → 결과
+ * SKALA 작전 — 멀티플레이 세션: 로비 → 방(대기실) → 경기(팀전·개인전 × 클래식·칼전·스나전) → 결과
  *
  *   import { createSession } from './game/session.js';
  *   const mp = createSession({ ctx, world, ui, settings, bus, playerName });  // net을 생략하면 open() 때 직접 연결
@@ -26,6 +26,9 @@
  * 계약서: js/game/SESSION_API.md
  */
 import { createSync } from './sync.js';
+import { cleanPassword } from '../net/secret.js';
+import { checkHitClaim, createMoveGuard, createStrikes, GUARD } from './anticheat.js';
+import { lineOfSight } from '../engine/physics.js';
 import { createMatch, applySnapshot, standings, REASON_LABELS, DEFAULT_RULES, TEAM_IDS, normalizeWeaponId } from './match.js';
 import { getDef, GRENADE_IDS, DEFAULT_LOADOUT as DEFAULT_GEAR } from '../weapons/defs.js';
 import { RULESETS, DEFAULT_RULESET, normalizeRuleset, rulesetOf, isWeaponAllowed, pickableWeapons, defaultPick } from './modes.js';
@@ -66,14 +69,20 @@ const ERROR_TEXT = Object.freeze({
   JOIN_ERROR: '방에 들어가지 못했어요. 다시 시도해 주세요.',
   TRACK_FAILED: '방 등록에 실패했어요. 잠시 후 다시 시도해 주세요.',
   BAD_ROOM_ID: '잘못된 방 번호예요.',
+  BAD_PASSWORD: '비밀번호가 맞지 않아요.',
+  NEED_PASSWORD: '비밀번호가 필요한 방이에요.',
+  NO_CRYPTO: '이 브라우저는 비밀번호 방을 지원하지 않아요.',
   CONNECT_TIMEOUT: '서버 연결이 늦어지고 있어요. 다시 시도해 주세요.',
   NO_CONFIG: '멀티플레이 서버 설정이 없어요.',
   NO_WEBSOCKET: '이 브라우저는 실시간 연결을 지원하지 않아요.',
   CLOSED: '서버 연결이 끊겼어요. 다시 시도해 주세요.',
   NO_NET: '멀티플레이 서버에 연결할 수 없어요.'
 });
+/** 내보낸 사람에게서 오면 버리는 이벤트 */
+const BANNED_DROP = new Set(['fire', 'hitClaim', 'grenade', 'loadout', 'chat', 'drop', 'pick']);
 const CLOSE_TEXT = Object.freeze({
   'kicked:full': '방이 가득 차서 들어가지 못했어요.',
+  'kicked:cheat': '비정상 플레이가 반복돼 방장이 방에서 내보냈어요.',
   'net-closed': '서버 연결이 끊겼어요.'
 });
 const ABORT_TEXT = Object.freeze({
@@ -558,6 +567,11 @@ export function createSession(options = {}) {
   let known = new Map();    // 방 명단 id → 이름 (입장/퇴장 안내)
   let current = null;       // 진행 중인 경기(이 클라이언트 관점)
   let hm = null;            // 방장 경기
+  // (방장) 치트 대비: 받은 히트 주장과 위치를 방장이 아는 위치로 다시 확인한다(game/anticheat.js). 방장 자신의 조작은 막지 못한다
+  const moveGuard = createMoveGuard({ getMap: () => call(world, 'getMap') });
+  const strikes = createStrikes({ now: () => now() });
+  const banned = new Set();       // 이 방에서 내보낸 사람(방장만 채운다). 방에 새로 들어가면 비운다
+  const selfTrail = [];           // (방장) 내 위치 기록 [{ t, pos, crouch }]: 원격이 나를 맞혔다는 주장을 확인할 때 쓴다
   let finishedMid = null;   // 결과까지 본(또는 취소된) 경기 id
   const recordedMids = new Set(); // 계정에 기록한 경기 id. 방장이 바뀌어도 경기 id는 그대로라 두 번 기록하지 않는다
   const lastPicks = new Map();    // 규칙 id → 이번 세션에서 마지막으로 고른 무기
@@ -772,7 +786,7 @@ export function createSession(options = {}) {
     try {
       const r = await net.createRoom({
         name: cleanText(p && p.name, 24) || `${playerName}의 방`, mapId: validMapFor(ruleset, (p && p.mapId) || o.mapId), max,
-        mode: modeOf(p && p.mode), ruleset
+        mode: modeOf(p && p.mode), ruleset, password: cleanPassword(p && p.password) || undefined
       });
       await attachRoom(r);
     } catch (e) {
@@ -783,15 +797,16 @@ export function createSession(options = {}) {
     } finally { busy = false; }
   }
 
-  async function joinRoom(roomId) {
-    if (phase === 'connecting' && roomId) { pendingAction = () => joinRoom(roomId); U('update', 'lobby', { joining: String(roomId) }); return; }
+  async function joinRoom(roomId, password) {
+    if (phase === 'connecting' && roomId) { pendingAction = () => joinRoom(roomId, password); U('update', 'lobby', { joining: String(roomId) }); return; }
     if (phase !== 'lobby' || busy || !roomId) return;
     if (!net) { noNet(); return; }
     busy = true;
     phase = 'joining';
     U('update', 'lobby', { error: null, joining: String(roomId) });
     try {
-      const r = await net.joinRoom(String(roomId));
+      const pw = cleanPassword(password);
+      const r = await net.joinRoom(String(roomId), pw ? { password: pw } : undefined);
       await attachRoom(r);
     } catch (e) {
       if (disposed) return;
@@ -810,6 +825,7 @@ export function createSession(options = {}) {
     leaving = false;
     finishedMid = null;
     remoteGear.clear();
+    banned.clear(); strikes.reset(); moveGuard.resetAll(); selfTrail.length = 0;
     chat = [{ system: true, text: ROOM_NOTE }];
     known = new Map(r.players().map((x) => [x.id, x.name]));
     sync = createSync({
@@ -1181,7 +1197,7 @@ export function createSession(options = {}) {
     const evs = [];
     const ffa = h.mode === 'ffa';
     for (const x of list) {
-      if (h.members.has(x.id) || (!ffa && !TEAM_IDS.includes(x.team))) continue;
+      if (h.members.has(x.id) || banned.has(x.id) || (!ffa && !TEAM_IDS.includes(x.team))) continue;
       // FFA: 늦게 온 사람도 바로 참가(match가 죽은 상태로 넣고 respawnMs 뒤 spawn)
       const ev = h.m.addPlayer(ffa ? { id: x.id, name: x.name } : { id: x.id, name: x.name, team: x.team });
       if (ev.length && ev[0].type === 'join') h.members.add(x.id);
@@ -1211,6 +1227,8 @@ export function createSession(options = {}) {
       // 이벤트마다 경기 id: sync는 최근 3초 이벤트를 다음 스냅샷에도 다시 싣는다 → 바로 이어진 새 경기에
       // 지난 경기의 matchEnd가 섞여 갈 수 있으므로 받는 쪽이 mid로 거른다
       if (e.type === 'reject') trace('reject', e); else evs.push({ ...e, mid: h.mid });
+      if (e.type === 'spawn' && e.id != null) moveGuard.reset(e.id);      // 부활 자리로 옮겨지는 것은 정상
+      else if (e.type === 'roundStart') moveGuard.resetAll();
     }
     const snap = { ...h.m.snapshot(), mid: h.mid, map: h.mapId, gm: h.mode || 'team' };
     if (h.preparing) snap.prep = 1;
@@ -1227,13 +1245,72 @@ export function createSession(options = {}) {
 
   function hostReady() { return !!(hm && hm.m && !hm.preparing); }
 
-  /** (방장) 히트 주장 → match.claimHit */
+  /**
+   * (방장) 히트 주장 → 위치로 다시 확인(거리·벽) → match.claimHit.
+   * 쏜 사람이 적어 보낸 거리는 믿지 않고 방장이 잰 거리를 쓴다. 벽에 막혀 볼 수 없었으면 버린다. 내 주장은 확인하지 않는다.
+   */
   function hostClaim(e) {
     if (!hostReady()) return;
-    publishReal(hm.m.claimHit({
-      attackerId: e.from, victimId: e.victimId, weaponId: e.weaponId, part: e.part, dist: e.dist, kind: e.kind, t: e.shotT,
+    const from = String(e.from);
+    if (banned.has(from)) return;
+    let dist = e.dist;
+    if (from !== me) {
+      const v = verifyHit(e);
+      if (!v.ok) { trace('claim', v.reason, from, e.victimId); strike(from, v.reason); return; }
+      dist = v.dist;
+    }
+    const ev = hm.m.claimHit({
+      attackerId: e.from, victimId: e.victimId, weaponId: e.weaponId, part: e.part, dist, kind: e.kind, t: e.shotT,
       count: e.count, shotId: e.shotId
-    }));
+    });
+    const rej = ev.find((x) => x && x.type === 'reject');
+    if (rej && from !== me && (rej.reason === 'too_fast' || rej.reason === 'out_of_range')) strike(from, rej.reason);
+    publishReal(ev);
+  }
+
+  /** (방장) 히트 주장의 위치 확인: 쏜 사람·맞은 사람이 그 시각 있었을 자리 후보를 모아 anticheat.checkHitClaim에 넘긴다 */
+  function verifyHit(e) {
+    const shotT = isNum(e.shotT) ? e.shotT : now();
+    const def = getDef(e.weaponId);
+    const vid = String(e.victimId);
+    const shooter = GUARD.SHOOTER_LAG_MS.map((lag) => remoteAt(e.from, shotT - lag)).filter(Boolean);
+    const victim = GUARD.VICTIM_LAG_MS.map((lag) => (vid === me ? selfAt(shotT - lag) : remoteAt(vid, shotT - lag))).filter(Boolean);
+    const m = call(world, 'getMap');
+    const los = m && m.world ? (a, b) => lineOfSight(m.world, a, b) : null;
+    return checkHitClaim({ dist: e.dist, melee: !!(def && def.slot === 3), shooter, victim, los });
+  }
+  /** 방장 시계 t에 그 사람이 있던 자리(그 사람이 보낸 위치 기록에서) */
+  function remoteAt(id, t) {
+    const s = sync && typeof sync.getRemoteAtHost === 'function' ? sync.getRemoteAtHost(String(id), t) : null;
+    return s && Array.isArray(s.pos) ? { pos: s.pos, crouch: !!s.crouch } : null;
+  }
+  /** 방장 시계 t에 내가 있던 자리 */
+  function selfAt(t) {
+    let best = null;
+    for (const s of selfTrail) if (!best || Math.abs(s.t - t) < Math.abs(best.t - t)) best = s;
+    return best && Math.abs(best.t - t) < 400 ? best : null;
+  }
+  /** (방장) 위반 점수를 더하고, 한도를 넘으면 내보낸다 */
+  function strike(id, reason) {
+    const pid = String(id);
+    if (!hm || pid === me || banned.has(pid)) return;
+    if (strikes.add(pid, reason)) banPlayer(pid, reason);
+  }
+  /** (방장) 경기에서 빼고 방에서 내보낸다. 고친 클라이언트는 강퇴를 무시할 수 있으므로 그 사람의 주장·장비·채팅도 계속 버린다 */
+  function banPlayer(pid, reason) {
+    banned.add(pid);
+    strikes.clear(pid);
+    moveGuard.reset(pid);
+    trace('ban', pid, reason);
+    const text = `${nameOf(pid)}님을 내보냈어요 · 비정상 플레이가 반복됐어요`;
+    if (hm && hm.m) {
+      hm.members.delete(pid);
+      hm.missing.delete(pid);
+      try { publishReal(hm.m.removePlayer(pid)); } catch (err) { report(err, 'ban removePlayer'); }
+    }
+    try { if (room && typeof room.kick === 'function') room.kick(pid, 'cheat'); } catch (err) { report(err, 'kick'); }
+    pushChat({ system: true, text });
+    try { if (sync) sync.sendChat(`[방장 알림] ${text}`); } catch (err) { report(err, 'ban chat'); }
   }
 
   /** (방장) world가 계산한 폭발 피해(로컬·원격 수류탄 모두, 방장 화면 기준) → match.claimExplosion */
@@ -2130,6 +2207,8 @@ export function createSession(options = {}) {
   /* ---------------------------------------------------------------- sync 이벤트 */
   function onSyncEvent(e) {
     if (disposed || !e) return;
+    // (방장) 내보낸 사람이 강퇴를 무시하고 남아 있어도 그 사람의 사격·수류탄·장비·채팅은 받지 않는다
+    if (hm && e.from != null && banned.has(String(e.from)) && BANNED_DROP.has(e.type)) return;
     switch (e.type) {
       case 'match':
         onMatchData({ from: e.from, snapshot: e.snapshot, events: e.events });
@@ -2175,7 +2254,16 @@ export function createSession(options = {}) {
     }
   }
 
-  function onRemoteState() { /* 최신 원본은 sync가 들고 있다(getRemote/remote) */ }
+  /** 최신 원본은 sync가 들고 있다(getRemote/remote). (방장) 교전 중이면 그 이동이 물리적으로 가능한지 본다 */
+  function onRemoteState(id, state) {
+    if (!state || !hostReady()) return;
+    const pid = String(id);
+    if (pid === me || banned.has(pid) || !hm.members.has(pid)) return;
+    const c = current;
+    if (!c || c.phase !== 'live') { moveGuard.reset(pid); return; }
+    const bad = moveGuard.feed(pid, { t: state.t, pos: state.pos, alive: state.alive !== false });
+    if (bad) { trace('move', pid, bad.reason, Math.round(bad.moved * 10) / 10, bad.dt); strike(pid, bad.reason); }
+  }
 
   /** sync 전송용 로컬 상태(경기 중 참가자만). 생존은 방장 판정을 따른다 */
   function localState() {
@@ -2183,6 +2271,11 @@ export function createSession(options = {}) {
     if (phase !== 'match' || !c || !c.loaded || !c.playing || !c.round) return null;
     const st = call(world, 'getLocalState');
     if (!st || typeof st !== 'object' || !st.pos) return null;
+    if (hm) {
+      const t = now();
+      selfTrail.push({ t, pos: [st.pos[0], st.pos[1], st.pos[2]], crouch: !!st.crouch });
+      while (selfTrail.length > 48 || (selfTrail.length && t - selfTrail[0].t > 2500)) selfTrail.shift();
+    }
     return { ...st, zoom: st.zoom !== undefined ? !!st.zoom : !!st.aiming, alive: !!c.localAlive && st.alive !== false };
   }
 
@@ -2324,7 +2417,7 @@ export function createSession(options = {}) {
     ui.on('lobby:refresh', () => refreshLobby()),
     ui.on('lobby:back', () => exitToMenu()),
     ui.on('lobby:create', (p) => { createRoom(p || {}); }),
-    ui.on('lobby:join', (p) => { joinRoom(p && p.roomId); }),
+    ui.on('lobby:join', (p) => { joinRoom(p && p.roomId, p && p.password); }),
     ui.on('room:team', (p) => setTeam(p && p.team)),
     ui.on('room:ready', (p) => setReady(!!(p && p.ready))),
     ui.on('room:start', () => hostStart()),

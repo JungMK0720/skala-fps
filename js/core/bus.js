@@ -4,7 +4,7 @@
  * Purpose: 모듈 사이를 잇는 이벤트 버스. three.js 의존이 없다.
  */
 /**
- * SKALA FPS — 이벤트 버스. three.js 의존 없음.
+ * SKALA 작전 — 이벤트 버스. three.js 의존 없음.
  *
  *   import { on, once, emit } from './core/bus.js';
  *   const off = on('hit:player', (e) => { ... });   // → off() 로 해제

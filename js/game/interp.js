@@ -4,7 +4,7 @@
  * Purpose: 원격 플레이어 보간 버퍼. 멀티에서 네트워크 지터를 흡수해 부드러운 위치를 내는 순수 모듈이다.
  */
 /**
- * SKALA FPS — 원격 플레이어 보간 버퍼 (순수 모듈: 엔진·three.js·DOM 없음, node 테스트 가능)
+ * SKALA 작전 — 원격 플레이어 보간 버퍼 (순수 모듈: 엔진·three.js·DOM 없음, node 테스트 가능)
  *
  *   const ip = createInterp({ intervalHint: () => 1000 / Math.min(10, room.rate) });
  *   ip.push({ seq, t, pos:[x,y,z], vel:[...], yaw, pitch, alive, onGround, ... }, arrivalLocalMs);

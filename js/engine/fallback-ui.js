@@ -4,7 +4,7 @@
  * Purpose: UI 플러그인이 없을 때만 쓰는 core 기본 화면. 메뉴·로딩·일시정지 오버레이와 조준선·체력·킬피드 HUD를 그린다.
  */
 /**
- * SKALA FPS — core 기본 UI (UI 플러그인이 없을 때만 쓰는 최소 화면)
+ * SKALA 작전 — core 기본 UI (UI 플러그인이 없을 때만 쓰는 최소 화면)
  *   createFallbackMenu(ctx)  : 메인 메뉴(닉네임·맵 선택·설정) + 로딩 + 일시정지/클릭해서 시작 오버레이
  *   createFallbackHud(ctx)   : 조준선 · 히트마커 · 체력 · 탄약 · 연습장 기록 · 킬피드 · 점수판(Tab) · FPS
  * 모든 사용자 문자열은 textContent로만 넣는다. 클래스는 'core-' 접두사(index.html <style>).
@@ -34,7 +34,7 @@ export function createFallbackMenu(ctx) {
   const menu = el('section', 'core-menu');
   menu.hidden = true;
   const card = el('div', 'core-card');
-  const title = el('h1', 'core-title', 'SKALA FPS');
+  const title = el('h1', 'core-title', 'SKALA 작전');
   card.append(title, el('p', 'core-sub', '빠르게 달리고, 정확하게 쏘는 브라우저 FPS — 블루 팀 vs 오렌지 팀'));
 
   const nameRow = el('label', 'core-row');

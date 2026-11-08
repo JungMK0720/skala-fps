@@ -31,6 +31,15 @@ export const RULESETS = Object.freeze({
 });
 
 /** 모르는 값은 클래식으로 */
+/**
+ * 총알이 맞을 수 있는 사람. 팀전에서는 아군 몸을 통과해 뒤의 적에게 맞는다(아군 사격은 원래 꺼져 있다).
+ * 개인전이거나 내 팀을 모르면 그대로 돌려준다. 목록의 각 항목은 { team } 을 가진다.
+ */
+export function shotTargets(list, mode, team) {
+  if (mode === 'ffa' || !team || !Array.isArray(list)) return list;
+  return list.filter((t) => !t || t.team !== team);
+}
+
 export function normalizeRuleset(id) {
   return typeof id === 'string' && Object.prototype.hasOwnProperty.call(RULESETS, id) ? id : DEFAULT_RULESET;
 }

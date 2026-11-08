@@ -161,7 +161,7 @@ export function createNicknameGate(ctx) {
     h('div', { class: 'sk-nick-card sk-steel' },
       h('div', { class: 'sk-hazard', 'aria-hidden': 'true' }),
       h('div', { class: 'sk-nick-body' },
-        h('p', { class: 'sk-nick-kicker', text: 'SKALA FPS' }),
+        h('p', { class: 'sk-nick-kicker', text: 'SKALA 작전' }),
         titleEl, leadEl, explain, form)));
 
   // 배경을 눌러도 입력칸의 포커스를 뺏기지 않는다(닫히지 않는 화면이다)

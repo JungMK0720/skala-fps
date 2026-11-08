@@ -3,8 +3,9 @@
  * Author: Minkyu Jung
  * Purpose: 로비 화면. 방 목록(규칙·모드 배지)과 방 만들기 시트(규칙·모드·맵·인원)를 그린다.
  */
-// SKALA FPS UI — 로비(방 목록 + 방 만들기)
+// SKALA 작전 UI — 로비(방 목록 + 방 만들기)
 import { h, btn, setText, clamp, num, modeKey, modeLabel, MODE_ICON, MODE_NAME } from './dom.js';
+import { PASSWORD_MAX } from '../net/secret.js';
 import { makeScreen, createModal, sheet, mapCard, createChoiceRow } from './parts.js';
 import { mapIcon, mapList, mapInfo } from './icons.js';
 import { RULESETS, RULESET_IDS, DEFAULT_RULESET, normalizeRuleset } from '../game/modes.js';
@@ -53,6 +54,11 @@ export function createLobby(ctx) {
     class: 'sk-input', type: 'text', maxlength: ROOM_NAME_MAX, placeholder: '예: 오늘 밤 3:3',
     autocomplete: 'off', spellcheck: 'false', 'aria-label': '방 이름', 'data-autofocus': '',
   });
+  // 비밀번호는 친구에게 알려 주는 값이라 가리지 않는다(type=text). 브라우저 비밀번호 저장도 뜨지 않는다
+  const pwIn = h('input', {
+    class: 'sk-input', type: 'text', maxlength: PASSWORD_MAX, placeholder: '비워 두면 누구나 들어와요',
+    autocomplete: 'off', spellcheck: 'false', 'aria-label': '비밀번호(선택)',
+  });
   const mapBox = h('div', { class: 'sk-mapcards', role: 'radiogroup', 'aria-label': '맵 선택' });
   const modeBtns = ['team', 'ffa'].map((m) => btn([
     h('span', { class: 'sk-mode-ico', text: MODE_ICON[m], 'aria-hidden': 'true' }),
@@ -70,6 +76,7 @@ export function createLobby(ctx) {
   const formErr = h('p', { class: 'sk-field-err', role: 'alert' });
   const form = h('form', { class: 'sk-create', novalidate: true, onsubmit: (e) => { e.preventDefault(); doCreate(); } },
     h('label', { class: 'sk-field' }, h('span', { class: 'sk-field-label', text: '방 이름' }), nameIn),
+    h('label', { class: 'sk-field' }, h('span', { class: 'sk-field-label', text: '비밀번호 (선택)' }), pwIn),
     h('div', { class: 'sk-field' },
       h('span', { class: 'sk-field-label', text: '규칙' }),
       ruleRow.el,
@@ -136,8 +143,34 @@ export function createLobby(ctx) {
   function doCreate() {
     const name = cleanRoomName(nameIn.value) || cleanRoomName(`${myName()}의 방`);
     if (!formMap) { setText(formErr, '맵을 골라 주세요.'); return; }
+    const password = pwIn.value.trim().slice(0, PASSWORD_MAX);
     modal.close();
-    ctx.emit('lobby:create', { name, mapId: formMap, max: formMax, mode: formMode, ruleset: formRule });
+    ctx.emit('lobby:create', { name, mapId: formMap, max: formMax, mode: formMode, ruleset: formRule, ...(password ? { password } : {}) });
+  }
+
+  // ---------- 비밀번호 입력 ----------
+  function askPassword(r) {
+    const input = h('input', {
+      class: 'sk-input', type: 'text', maxlength: PASSWORD_MAX, placeholder: '방장에게 받은 비밀번호',
+      autocomplete: 'off', spellcheck: 'false', 'aria-label': '비밀번호', 'data-autofocus': '',
+    });
+    const err = h('p', { class: 'sk-field-err', role: 'alert' });
+    const form = h('form', {
+      class: 'sk-create sk-pw-form', novalidate: true,
+      onsubmit: (e) => {
+        e.preventDefault();
+        const password = input.value.trim().slice(0, PASSWORD_MAX);
+        if (!password) { setText(err, '비밀번호를 입력해 주세요.'); return; }
+        modal.close();
+        ctx.emit('lobby:join', { roomId: r.roomId, password });
+      },
+    },
+    h('label', { class: 'sk-field' }, h('span', { class: 'sk-field-label', text: r.name || '이름 없는 방' }), input),
+    err,
+    h('div', { class: 'sk-form-actions' },
+      btn('취소', () => modal.close(), 'sk-btn--ghost'),
+      h('button', { type: 'submit', class: 'sk-btn sk-btn--primary' }, '들어가기')));
+    modal.open(sheet({ title: '🔒 비밀번호 방', onClose: () => modal.close(), body: form, cls: 'sk-pw-sheet' }));
   }
 
   // ---------- 방 목록 ----------
@@ -157,7 +190,7 @@ export function createLobby(ctx) {
     return h('div', { class: 'sk-room-row sk-steel' + (locked || full ? ' is-locked' : ''), role: 'listitem' },
       h('div', { class: 'sk-room-ico' }, mapIcon(r.mapId)),
       h('div', { class: 'sk-room-main' },
-        h('div', { class: 'sk-room-name', text: r.name || '이름 없는 방' }),
+        h('div', { class: 'sk-room-name', text: (r.locked ? '🔒 ' : '') + (r.name || '이름 없는 방'), title: r.locked ? '비밀번호가 있는 방' : null }),
         h('div', { class: 'sk-room-meta' },
           h('span', { class: `sk-mode-badge sk-mode-badge--${modeKey(r.mode)}`, text: ruleBadge(r.ruleset, r.mode), title: modeLabel(r.mode, { killTarget: r.killTarget }) }),
           h('span', { class: 'sk-room-map', text: m ? [m.name, m.tag].filter(Boolean).join(' · ') : '맵 미정' }),
@@ -166,7 +199,7 @@ export function createLobby(ctx) {
         h('b', { text: `${n}/${max}` }),
         h('span', { class: 'sk-meter' }, h('i', { style: { transform: `scaleX(${clamp(n / max, 0, 1)})` } }))),
       h('span', { class: 'sk-badge ' + (playing ? 'sk-badge--live' : 'sk-badge--wait'), text: playing ? '게임 중' : '대기' }),
-      btn(label, () => ctx.emit('lobby:join', { roomId: r.roomId }), 'sk-btn--primary sk-room-join', {
+      btn(label, () => (r.locked ? askPassword(r) : ctx.emit('lobby:join', { roomId: r.roomId })), 'sk-btn--primary sk-room-join', {
         disabled: locked || full || joining,
         'aria-label': `${r.name || '방'} ${label}`,
         title: locked ? '팀전은 경기가 끝나면 들어갈 수 있어요' : playing && !full ? '진행 중인 개인전에 들어가 곧 출격해요' : null,

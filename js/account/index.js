@@ -44,7 +44,10 @@ const MESSAGE = Object.freeze({
   saved: '닉네임을 저장했어요.'
 });
 
-/** 서버 오류 코드 → 화면에 알릴 이유 */
+/**
+ * 서버 오류 코드 → 화면에 알릴 이유. 여기 없는 코드(RATE_LIMITED: 같은 IP에서 등록이 너무 많음 등)는
+ * 거절이 아니라 잠시 뒤 다시 시도할 실패로 다룬다(로컬에 두고 재시도).
+ */
 const REFUSALS = new Map([
   ['NAME_TAKEN', { reason: 'taken', message: '이미 사용 중인 닉네임이에요.' }],
   ['NAME_INVALID', { reason: 'format', message: '닉네임 형식이 맞지 않아요.' }],
@@ -150,6 +153,7 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
       retryDelay = RETRY_MIN_MS;
       if (sent === revision) {
         dirty = false;
+        if (r.profile) adoptSaved(r.profile);
         persist();
       }
     } else if (r.reason === 'network') {
@@ -254,6 +258,24 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
   }
 
   // ───────────── 서버 동기화 ─────────────
+  /**
+   * 저장 응답의 서버 값(포인트·무기·전적)을 따른다. 서버는 늘어나는 속도와 무기 가격을 확인해 넘는 만큼을 버린다.
+   * 정상 플레이에서는 보낸 값과 같아 아무것도 바뀌지 않는다.
+   */
+  function adoptSaved(raw) {
+    const srv = raw && typeof raw === 'object' ? raw : {};
+    const next = normalizeProfile({
+      ...profile,
+      points: srv.points ?? profile.points,
+      owned: Array.isArray(srv.owned) ? srv.owned : profile.owned,
+      stats: { ...profile.stats, ...(srv.stats && typeof srv.stats === 'object' ? srv.stats : null) }
+    });
+    if (sameProfile(next, profile)) return;
+    profile = next;
+    revision += 1;
+    announce();
+  }
+
   function adoptServerProfile(raw) {
     const src = raw && typeof raw === 'object' ? raw : {};
     const server = normalizeProfile({ ...src, nickname: src.name });

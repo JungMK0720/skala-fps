@@ -1,4 +1,4 @@
-# SKALA FPS — 무기 모듈 (`js/weapons/`)
+# SKALA 작전 — 무기 모듈 (`js/weapons/`)
 
 담당: **weapons**. 계약은 `docs/DESIGN.md` 3절, 수치의 이유와 고칠 곳은 `docs/BALANCE.md`에 있다.
 

@@ -5,7 +5,7 @@
  *          three.js·DOM에 의존하지 않는 순수 모듈이다.
  */
 /**
- * SKALA FPS — 봇 내비게이션 그리드 (2.5D 걷기 셀 + A* + 시야선 평탄화)
+ * SKALA 작전 — 봇 내비게이션 그리드 (2.5D 걷기 셀 + A* + 시야선 평탄화)
  *
  * 순수 ES 모듈: three.js·DOM 의존 없음 → node에서 그대로 테스트할 수 있다.
  * 입력은 ARCHITECTURE.md 4절 맵 데이터(solids: box / cyl / ramp, 바닥 y=0). 해석은 maps/collision.js의 buildCollision을 따른다.

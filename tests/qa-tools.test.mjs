@@ -18,7 +18,7 @@ describe('시험용 정적 서버', () => {
   test('/skala-fps/ 아래에서 저장소를 내려준다', async () => {
     const home = await fetch(server.base);
     assert.equal(home.status, 200);
-    assert.match(await home.text(), /<title>SKALA FPS<\/title>/);
+    assert.match(await home.text(), /<title>SKALA 작전<\/title>/);
     const js = await fetch(`${server.base}js/main.js`);
     assert.equal(js.status, 200);
     assert.match(js.headers.get('content-type'), /javascript/);

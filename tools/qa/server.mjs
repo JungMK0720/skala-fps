@@ -32,6 +32,11 @@ function notFound(res) {
  * @returns {Promise<{ url:string, base:string, port:number, requests:{url:string,status:number}[], setConfig(text):void, close():Promise<void> }>}
  *   base는 끝에 /가 붙은 게임 주소, requests는 지금까지 받은 요청이다.
  */
+/** CSP의 connect-src에 로컬 주소를 더한다(QA 전용). 운영 페이지의 CSP는 그대로다 */
+export function relaxCsp(html) {
+  return html.replace("connect-src 'self' ", () => "connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:* ");
+}
+
 export async function startServer({ root = ROOT, config = OFFLINE_CONFIG } = {}) {
   let configText = config;
   const requests = [];
@@ -54,7 +59,9 @@ export async function startServer({ root = ROOT, config = OFFLINE_CONFIG } = {})
     }
     try {
       if ((await stat(full)).isDirectory()) full = join(full, 'index.html');
-      const body = await readFile(full);
+      let body = await readFile(full);
+      // 가짜 서버·오프라인 설정으로 시험할 때는 index.html의 CSP가 127.0.0.1의 가짜 Supabase를 막지 않게 로컬 주소를 더한다
+      if (configText != null && extname(full).toLowerCase() === '.html') body = Buffer.from(relaxCsp(body.toString('utf8')), 'utf8');
       res.writeHead(200, { 'Content-Type': TYPES[extname(full).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-store' });
       res.end(body);
       return 200;

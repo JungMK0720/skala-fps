@@ -7,22 +7,22 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
+  <!-- 보안: 이 사이트와 jsDelivr(three.js·cannon-es, 아래 importmap의 integrity로 내용까지 확인), Supabase 프로젝트 말고는 스크립트를 받거나 접속하지 않는다.
+       importmap을 바꾸면 script-src의 sha256도 바꿔야 한다(tests/web-security.test.mjs가 확인). Supabase 프로젝트를 바꾸면 connect-src도 바꾼다 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-qf5YcinHJcNKJQ14NoW09k3ui1WC8mZLwfpMnBxtJSc='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://tvsoacvbjvggqdgnzijc.supabase.co wss://tvsoacvbjvggqdgnzijc.supabase.co; media-src 'self' blob: data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#05080f">
   <!-- 홈 화면에 추가하면 주소창 없이 연다. iPhone Safari는 전체 화면 API가 없어서 이것이 유일한 방법이다 -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="SKALA FPS">
-  <meta name="description" content="SKALA FPS — 설치 없이 브라우저에서 바로 즐기는 빠른 멀티플레이 FPS.">
-  <title>SKALA FPS</title>
+  <meta name="apple-mobile-web-app-title" content="SKALA 작전">
+  <meta name="description" content="SKALA 작전 — 설치 없이 브라우저에서 바로 즐기는 빠른 멀티플레이 FPS.">
+  <title>SKALA 작전</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none' stroke='%2335e0ff' stroke-width='2.5' stroke-linecap='round'%3E%3Ccircle cx='16' cy='16' r='9'/%3E%3Cpath d='M16 2v8M16 22v8M2 16h8M22 16h8'/%3E%3Ccircle cx='16' cy='16' r='1.5' fill='%23ff4d8d' stroke='none'/%3E%3C/svg%3E">
-  <script type="importmap">{"imports":{
-    "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-    "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
-    "cannon-es":"https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
-  }}</script>
-  <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" crossorigin>
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/","cannon-es":"https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"},"integrity":{"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js":"sha384-GY5FqjttLCFRt/McQbyaVdCk2O1IQtOeX8Py6NfD89BIAsIyJFRl4UgSXrk2vXAk","https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js":"sha384-LDCkTUkpgO4r4LtCJLXk5kwgo36GMMbF99L04+unS4RQdoKCAhj6jZ2B+2CkdSyo"}}</script>
+  <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" crossorigin integrity="sha384-GY5FqjttLCFRt/McQbyaVdCk2O1IQtOeX8Py6NfD89BIAsIyJFRl4UgSXrk2vXAk">
   <!-- 게임 UI(메뉴·HUD·로드아웃…) 스타일: 처음부터 붙여 두면 UI가 뜰 때 깜빡이지 않는다(ui/dom.js ensureStyles는 이 link를 보고 건너뜀) -->
   <link rel="stylesheet" href="css/fps.css">
   <link rel="stylesheet" href="css/touch.css">
@@ -161,7 +161,7 @@
     <div id="pc-view"></div>
     <div id="pc-ui"></div>
   </div>
-  <noscript><p style="padding:24px">SKALA FPS를 실행하려면 JavaScript와 WebGL이 필요해요.</p></noscript>
+  <noscript><p style="padding:24px">SKALA 작전을 실행하려면 JavaScript와 WebGL이 필요해요.</p></noscript>
   <!-- 배포 설정: window.SKALA_CONFIG(Supabase 접속 정보) -->
   <script src="js/config.js"></script>
   <script type="module" src="js/main.js"></script>

@@ -159,14 +159,27 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
   layer.addEventListener('pointerup', onButtonUp);
   layer.addEventListener('pointercancel', onButtonUp);
 
-  /* ---------- HUD 위의 누를 수 있는 것: 무기 칸과 안내 줄 ---------- */
+  /* ---------- HUD 위의 누를 수 있는 것: 무기 칸과 안내 줄 ----------
+   * 무기 칸을 누르면 그 무기를 꺼내고, 주무기·보조무기 칸을 0.45초 길게 누르면 꺼낸 총을 버린다(PC의 G). */
+  const LONG_PRESS_MS = 450;
+  let slotPress = null;   // { id, timer }
+  function cancelSlotPress(e) {
+    if (!slotPress || (e && e.pointerId !== slotPress.id)) return;
+    clearTimeout(slotPress.timer);
+    slotPress = null;
+  }
   function onHudDown(e) {
     const target = e.target && e.target.closest ? e.target : null;
     if (!target) return;
     const slot = target.closest('.sk-slot');
     if (slot && input.locked) {
       e.preventDefault();
-      t.slot([...slot.parentElement.children].indexOf(slot) + 1);
+      const n = [...slot.parentElement.children].indexOf(slot) + 1;
+      t.slot(n);
+      cancelSlotPress();
+      if (n === 1 || n === 2) {
+        slotPress = { id: e.pointerId, timer: setTimeout(() => { slotPress = null; if (input.locked) t.drop(); }, LONG_PRESS_MS) };
+      }
       return;
     }
     if (target.closest('.sk-hint')) {
@@ -176,6 +189,8 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
     }
   }
   document.addEventListener('pointerdown', onHudDown, true);
+  document.addEventListener('pointerup', cancelSlotPress, true);
+  document.addEventListener('pointercancel', cancelSlotPress, true);
 
   /* ---------- 보이고 숨기기 ---------- */
   function clearPointers() {
@@ -232,6 +247,9 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
       canvas.removeEventListener('pointerup', onCanvasUp);
       canvas.removeEventListener('pointercancel', onCanvasUp);
       document.removeEventListener('pointerdown', onHudDown, true);
+      document.removeEventListener('pointerup', cancelSlotPress, true);
+      document.removeEventListener('pointercancel', cancelSlotPress, true);
+      cancelSlotPress();
       document.removeEventListener('pointerup', onPointerUp, true);
       document.removeEventListener('gesturestart', onGesture);
       layer.remove();

@@ -4,7 +4,7 @@
  * Purpose: 맵 목록과 동적 불러오기. MAP_IDS에 적힌 파일을 불러오고, 없거나 깨진 맵은 테스트 맵으로 대신한다.
  */
 /**
- * SKALA FPS — 맵 목록
+ * SKALA 작전 — 맵 목록
  *
  *   const { MAPS, MAP_LIST, getMap, mapsForRuleset } = await import('./maps/index.js');
  *   MAPS[id]                → 맵 데이터 (불러오기 실패 시 TEST_MAP 복제본, fallback:true)

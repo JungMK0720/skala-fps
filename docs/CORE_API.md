@@ -1,4 +1,4 @@
-# SKALA FPS — CORE API (엔진 코어 계약서)
+# SKALA 작전 — CORE API (엔진 코어 계약서)
 
 다른 담당(무기·네트워크·UI·FX·맵·2차 웨이브)이 core에 붙는 방법을 정리한다. 경로는 모두 저장소 루트 기준이다.
 ARCHITECTURE.md가 우선하며, 이 문서는 그 위의 구현 계약이다.

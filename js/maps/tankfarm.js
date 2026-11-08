@@ -3,7 +3,7 @@
  * Author: Minkyu Jung
  * Purpose: 맵 데이터: 탱크 팜. 원통형 탱크와 파이프 랙 사이를 도는 항만 테마 클래식 맵이다.
  */
-// SKALA FPS — 맵: 탱크 팜 (Tank Farm)                       [담당: map-tankfarm]
+// SKALA 작전 — 맵: 탱크 팜 (Tank Farm)                       [담당: map-tankfarm]
 // 순수 데이터. 형식은 ARCHITECTURE.md 4절. 1 = 1 m, y 위, 원점 = 맵 중앙.
 // 방위: 북 = -z (선주 Owner · 트럭 출하장), 남 = +z (용선자 Charterer · 펌프하우스).
 //

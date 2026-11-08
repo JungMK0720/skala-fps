@@ -5,7 +5,7 @@
  *          믿을 수 없는 입력을 받아도 던지지 않고 null을 돌려준다. 엔진·three.js·DOM에 의존하지 않는다.
  */
 /**
- * SKALA FPS — 게임 동기화 프로토콜 (메시지 스키마 + 압축 직렬화). 순수 모듈(엔진·three.js·DOM 없음).
+ * SKALA 작전 — 게임 동기화 프로토콜 (메시지 스키마 + 압축 직렬화). 순수 모듈(엔진·three.js·DOM 없음).
  *
  * net의 room.send(event, payload)에 논리 메시지 하나씩 싣는다. net이 같은 JS 턴의 메시지를
  * 프레임 하나로 묶고(Supabase 계수 = 프레임 수), { merge:true }는 다음 프레임 전까지 마지막 값만 남긴다.

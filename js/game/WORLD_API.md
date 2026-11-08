@@ -1,4 +1,4 @@
-# SKALA FPS — WORLD API (게임 화면 공용 무대)
+# SKALA 작전 — WORLD API (게임 화면 공용 무대)
 
 > 파일: `js/game/world.js` · 싱글(연습장 `practice.js`)과 멀티(`session.js`)가 **같은 World**를 쓴다.
 > World는 "그리고, 듣고, 쏘는" 쪽만 맡는다. **누가 맞았고 몇 점인지는 match(방장)가 정한다.**
@@ -62,7 +62,7 @@ const world = await createWorld({ root, ui, settings, ctx });
 |---|---|---|
 | `fire` | `{ id, weaponId, origin:[x,y,z], dir:[x,y,z], hitPoint:[x,y,z]\|null, hitKind:'player'\|'world'\|'none', victimId?, part?, dist, normal?, mat?, t, quickscope, noscope, spread(°), shotId, pellets }` | 로컬 플레이어가 쏠 때 한 번(산탄도 한 번). 방향·명중은 사람을 맞힌 첫 펠릿, 없으면 첫 펠릿이다. 칼 휘두르기는 든 칼의 `weaponId`에 `kind`, `hitKind:'none'` — 원격에 `actorFire`로 재생 |
 | `hitClaim` | `{ victimId, part, weaponId, dist, kind, t, point, origin, count, shotId }` | 로컬 판정에 액터가 맞았을 때 **맞은 사람마다 한 번**. `kind`: 총 `'shot'`, 칼 `'slash'`·`'stab'`. `part`: `head`·`body`·`legs`·`hand`·`foot`. 산탄은 그 사람에게 맞은 펠릿 중 가장 좋은 부위(머리 > 몸 > 다리 > 손 > 발). `count` = 맞은 펠릿 수. 같은 발의 주장은 `t`와 `shotId`가 같다. `t` = `performance.now()` ms. **데미지는 match가 확정** → `match.claimHit({ attackerId: myId, ...payload })` |
-| `weaponDrop` | `{ dropId, weaponId, pos, mag, reserve }` | 죽은 뒤 4초 안에 G로 주무기를 버렸다. `reserve`가 `Infinity`면 프리미엄 총이다 |
+| `weaponDrop` | `{ dropId, weaponId, pos, mag, reserve }` | 살아 있을 때 G로 손에 든 총을 버렸거나, 총을 든 채 죽었다. `reserve`가 `Infinity`면 프리미엄 총이다 |
 | `weaponPick` | `{ dropId, weaponId }` | 주무기 탄약이 다 떨어져 닿은 총을 주웠다. 총은 이미 슬롯 1에 들어갔다 |
 | `grenade` | `{ id, grenadeId, pos:[x,y,z], vel:[x,y,z], fuse, t, kind }` | 로컬 투척 직후 — 원격은 `actorGrenade(payload)`로 같은 궤적 재생 |
 | `explosion` | `{ ownerId, local, grenadeId, center:{x,y,z}, victims:[{ id, dmg, dist }] }` | **모든** 수류탄 폭발(엄폐·거리 감쇠 끝난 값, 로컬 플레이어 포함). 멀티는 `local:true`만 `match.claimExplosion({ attackerId: ownerId, center, victims })`, 연습장은 전부 |

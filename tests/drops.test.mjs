@@ -148,6 +148,68 @@ describe('총 줍기(arsenal)', () => {
   });
 });
 
+describe('들고 있는 총 버리기와 빈 칸 줍기(arsenal)', () => {
+  const fresh = () => {
+    const a = createArsenal({ primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
+    a.update(DT, {});
+    return a;
+  };
+
+  test('주무기를 버리면 남은 탄을 돌려주고 칸이 비며 보조무기를 꺼낸다', () => {
+    const a = fresh();
+    a.update(DT, { fireDown: true, firePressed: true });
+    const left = a.getAmmo('ar_std');
+    const out = a.dropHeld();
+    assert.deepEqual(out, { id: 'ar_std', slot: 1, mag: left.mag, reserve: left.reserve });
+    assert.equal(a.isSlotEmpty(1), true);
+    a.update(DT, {});
+    assert.equal(a.getWeapon().id, 'pt_std');
+    assert.equal(a.getSlots()[0].id, null, 'HUD에는 빈 칸');
+    assert.equal(a.getSlots()[0].dropped, true);
+    assert.equal(a.update(DT, { slot: 1 }).some((e) => e.type === 'switch'), false, '빈 칸으로는 바꿀 수 없다');
+  });
+
+  test('보조무기도 버리면 칼이 남고, 칼과 수류탄은 버리지 않는다', () => {
+    const a = fresh();
+    a.dropHeld();
+    a.update(DT, {});
+    assert.equal(a.dropHeld().id, 'pt_std');
+    a.update(DT, {});
+    assert.equal(a.getWeapon().id, 'ml_knife');
+    assert.equal(a.dropHeld(), null);
+    assert.ok(a.getMoveMul() > WEAPONS.ar_std.moveMul, '칼을 들면 더 빠르다');
+  });
+
+  test('빈 칸이어야 줍는다: 그 칸에 무기가 있으면 거절하고, 비어 있으면 남은 탄 그대로 꺼낸다', () => {
+    const a = fresh();
+    assert.equal(a.takeWeapon('ar_rapid', { mag: 9, reserve: 20 }), false, '주무기 칸에 총이 있다');
+    a.dropHeld();
+    assert.equal(a.takeWeapon('pt_magnum', { mag: 2, reserve: 3 }), false, '보조 칸은 비지 않았다');
+    assert.equal(a.takeWeapon('ar_rapid', { mag: 9, reserve: 20 }), true);
+    a.update(DT, {});
+    assert.equal(a.getWeapon().id, 'ar_rapid');
+    assert.deepEqual([a.getAmmo().mag, a.getAmmo().reserve], [9, 20]);
+    assert.equal(a.isSlotEmpty(1), false);
+    assert.equal(a.takeWeapon('ml_tanto', {}), false, '칼은 줍지 않는다');
+  });
+
+  test('다음 목숨에는 버린 칸이 자기 장비로 돌아온다', () => {
+    const a = fresh();
+    a.dropHeld();
+    a.resetRound({ primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
+    assert.equal(a.isSlotEmpty(1), false);
+    assert.equal(a.getSlots()[0].id, 'ar_std');
+  });
+
+  test('주울 수 있는 총만 고르는 조건을 nearest에 줄 수 있다', () => {
+    const d = createDrops({ now: () => 0 });
+    d.add({ id: 'mine', weaponId: 'ar_std', pos: [0.2, 0, 0], mag: 1, reserve: 0 });
+    d.add({ id: 'other', weaponId: 'ar_rapid', pos: [0.6, 0, 0], mag: 1, reserve: 0 });
+    assert.equal(d.nearest([0, 0, 0]).id, 'mine');
+    assert.equal(d.nearest([0, 0, 0], (x) => x.id !== 'mine').id, 'other');
+  });
+});
+
 describe('바닥의 총 목록(drops.js)', () => {
   const gun = (over = {}) => ({ id: 'a#1', weaponId: 'ar_std', pos: [1, 0, 2], mag: 10, reserve: 20, ...over });
 
@@ -164,11 +226,12 @@ describe('바닥의 총 목록(drops.js)', () => {
     const bad = [
       null, 'x', 7, {},
       gun({ id: '' }), gun({ id: 'x'.repeat(65) }), gun({ id: 5 }),
-      gun({ weaponId: 'pt_std' }), gun({ weaponId: 'ml_knife' }), gun({ weaponId: '없는무기' }), gun({ weaponId: {} }), gun({ weaponId: '__proto__' }),
+      gun({ weaponId: 'ml_knife' }), gun({ weaponId: 'gr_frag' }), gun({ weaponId: '없는무기' }), gun({ weaponId: {} }), gun({ weaponId: '__proto__' }),
       gun({ pos: null }), gun({ pos: [1, 2] }), gun({ pos: [1, Number.NaN, 3] }), gun({ pos: [1, Infinity, 3] }), gun({ pos: { x: 1 } }),
       gun({ mag: 0, reserve: 0 }), gun({ mag: -3, reserve: -3 }), gun({ mag: 'many', reserve: null }),
     ];
     for (const v of bad) assert.equal(normalizeDrop(v), null, JSON.stringify(v));
+    assert.equal(normalizeDrop(gun({ weaponId: 'pt_std' })).weaponId, 'pt_std', '보조무기(권총)도 바닥에 놓을 수 있다');
   });
 
   test('같은 id는 한 번만 들어가고, 없는 id를 빼도 괜찮다', () => {

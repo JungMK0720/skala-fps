@@ -1,4 +1,4 @@
-# SKALA FPS — SESSION API (멀티플레이 세션)
+# SKALA 작전 — SESSION API (멀티플레이 세션)
 
 > 파일: `js/game/session.js` · 로비 → 방(대기실) → 경기 → 결과까지 이어지는 멀티플레이 진행을 맡는다.
 > 모드: **팀전**(블루 vs 오렌지, 5판 3선승) · **개인전 FFA**(모두가 적, 목표 킬 · 부활) — MODES.md 3.5. FFA는 4절.

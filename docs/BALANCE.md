@@ -1,4 +1,4 @@
-# SKALA FPS 무기 밸런스
+# SKALA 작전 무기 밸런스
 
 수치의 정본은 `js/weapons/defs.js`이고, 초기값의 계약은 `docs/DESIGN.md` 3.2절이다. 체력은 100이다.
 

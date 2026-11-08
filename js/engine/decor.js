@@ -4,7 +4,7 @@
  * Purpose: 충돌 없는 장식 모형과 발판·포털 표시. 재질별 배치와 인스턴싱으로 드로우콜을 줄이고 실제 조명은 쓰지 않는다.
  */
 /**
- * SKALA FPS — 장식(decor) 모형: 충돌 없음, 총알 통과.
+ * SKALA 작전 — 장식(decor) 모형: 충돌 없음, 총알 통과.
  *   pipe · sign · light · loadingArm · flare · buoy · tree · bamboo · lantern · banner · rope · vent · crateStack
  *
  * 정적인 부품은 builder가 넘겨준 재질별 GeoBatch에 합쳐 드로우콜을 줄이고,

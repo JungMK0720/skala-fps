@@ -13,7 +13,7 @@ import {
   WEAPONS, WEAPON_IDS, PRIMARY_IDS, MELEE_IDS, SECONDARY_IDS, computeDamage, isHalfShot, minShotInterval
 } from '../js/weapons/defs.js';
 import { createArsenal } from '../js/weapons/logic.js';
-import { RULESET_IDS, pickableWeapons, defaultPick, isWeaponAllowed } from '../js/game/modes.js';
+import { RULESET_IDS, pickableWeapons, defaultPick, isWeaponAllowed, shotTargets } from '../js/game/modes.js';
 import {
   createMatch, applySnapshot, standings, normalizeWeaponId, damageFor, rulesFromDefs, WEAPON_RULES,
   DEFAULT_LOADOUT, DEFAULT_RULES, TEAM_IDS, PRIMARY_IDS as MATCH_PRIMARY_IDS, PARTS
@@ -245,6 +245,15 @@ describe('raycastPlayers: 다섯 부위', () => {
     assert.equal(hit.kind, 'player');
     assert.equal(hit.part, 'body');
     assert.equal(traceShot(null, [50, 1, 0], [0, 0, -1], 30, [target]).kind, 'none');
+  });
+
+  test('팀전: 총알은 아군 몸을 통과해 뒤의 적에게 맞는다. 개인전은 앞사람이 맞는다', () => {
+    const mate = { id: 'm', team: 'owner', pos: [0, 0, -5], yaw: 0 };
+    const enemy = { id: 'e', team: 'charterer', pos: [0, 0, -10], yaw: Math.PI };
+    const eye = [0, 1.25, 0];
+    assert.equal(traceShot(null, eye, [0, 0, -1], 100, shotTargets([mate, enemy], 'team', 'owner')).id, 'e', '팀전');
+    assert.equal(traceShot(null, eye, [0, 0, -1], 100, shotTargets([mate, enemy], 'ffa', 'owner')).id, 'm', '개인전');
+    assert.equal(traceShot(null, eye, [0, 0, -1], 100, shotTargets([mate, enemy], 'team', null)).id, 'm', '팀을 모르면 그대로');
   });
 });
 

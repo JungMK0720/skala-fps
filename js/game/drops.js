@@ -6,10 +6,8 @@
  */
 import { getDef } from '../weapons/defs.js';
 
-/** 죽은 뒤 G를 받는 시간(ms) */
-export const DROP_WINDOW_MS = 4000;
 /** 아무도 줍지 않으면 사라지는 시간(ms). 팀전은 라운드가 바뀔 때도 사라진다 */
-export const DROP_TTL_MS = 60000;
+export const DROP_TTL_MS = 4000;
 /** 바닥에 동시에 있는 총 상한. 넘으면 오래된 것부터 사라진다(남이 보낸 메시지로 화면이 차지 않게) */
 export const DROP_MAX = 16;
 /** 줍는 거리(수평, m) */
@@ -20,7 +18,7 @@ export const DROP_HEIGHT = 2;
 const MAX_ID = 64;
 
 /**
- * 믿을 수 없는 입력을 온전한 항목으로 바꾼다. 주무기가 아니거나, 위치가 틀렸거나, 탄이 하나도 없으면 null.
+ * 믿을 수 없는 입력을 온전한 항목으로 바꾼다. 총(주무기·보조무기)이 아니거나, 위치가 틀렸거나, 탄이 하나도 없으면 null.
  * 탄약은 그 무기의 최대를 넘지 못한다. 프리미엄 총의 예비는 보낸 값과 관계없이 무제한이다.
  * @returns {{ id:string, weaponId:string, pos:number[], mag:number, reserve:number } | null}
  */
@@ -29,7 +27,7 @@ export function normalizeDrop(raw) {
   const id = typeof raw.id === 'string' ? raw.id : '';
   if (!id || id.length > MAX_ID) return null;
   const def = getDef(raw.weaponId);
-  if (!def || def.slot !== 1) return null;
+  if (!def || (def.slot !== 1 && def.slot !== 2)) return null;
   const p = raw.pos;
   if (!Array.isArray(p) || p.length < 3 || !p.slice(0, 3).every(Number.isFinite)) return null;
   const left = (v, max) => (Number.isFinite(v) ? Math.min(max, Math.max(0, Math.floor(v))) : 0);
@@ -83,11 +81,12 @@ export function createDrops({ now = () => performance.now() } = {}) {
       for (const d of gone) items.delete(d.id);
       return gone;
     },
-    /** pos([x,y,z])에서 주울 수 있는 가장 가까운 항목. 없으면 null */
-    nearest(pos) {
+    /** pos([x,y,z])에서 주울 수 있는 가장 가까운 항목. accept(d)가 false인 항목은 건너뛴다. 없으면 null */
+    nearest(pos, accept = null) {
       let best = null, bestD = Infinity;
       for (const d of items.values()) {
         if (Math.abs(d.pos[1] - pos[1]) > DROP_HEIGHT) continue;
+        if (accept && !accept(d)) continue;
         const dist = Math.hypot(d.pos[0] - pos[0], d.pos[2] - pos[2]);
         if (dist <= DROP_RADIUS && dist < bestD) { best = d; bestD = dist; }
       }

@@ -4,7 +4,7 @@
  * Purpose: 경기 상태 동기화 모듈. 상태 전송, 원격 보간 입력, 방장 시계, 히트 주장 전달을 맡는 순수 모듈이다.
  */
 /**
- * SKALA FPS — 상태 동기화 접착제 (순수 모듈: 엔진·three.js·DOM 없음, node 테스트 가능)
+ * SKALA 작전 — 상태 동기화 접착제 (순수 모듈: 엔진·three.js·DOM 없음, node 테스트 가능)
  *
  *   import { createSync } from './game/sync.js';
  *   const sync = createSync({ room, getLocalState, onRemoteState, onEvent, rateHz: 10 });

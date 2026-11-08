@@ -3,7 +3,7 @@
  * Author: Minkyu Jung
  * Purpose: 이모트 휠 화면. B를 누르는 동안 8칸 원형 휠을 표시하고, 입력은 World에서 넘겨받는다.
  */
-// SKALA FPS UI — 이모트 휠(MODES.md 4.2). B를 누르고 있는 동안 화면 가운데 8칸 원형 휠.
+// SKALA 작전 UI — 이모트 휠(MODES.md 4.2). B를 누르고 있는 동안 화면 가운데 8칸 원형 휠.
 //   - 표시 전용: 입력(B·마우스·클릭)은 엔진(World)이 받아 props로 넘긴다. 커서를 요구하지 않는다(포인터 잠금 유지).
 //   - props: { items:[{ id, n, name, icon }], selected: index|null, cursor?: { x, y } (화면 중앙 기준 px) }
 //   - update는 마우스가 움직일 때마다 와도 된다: 칸 모양은 items가 바뀔 때만 다시 만든다.

@@ -4,7 +4,7 @@
  * Purpose: 로컬 플레이어. 입력을 이동(moveQuake)·앉기·이모트·발판/포털 판정으로 옮기고 카메라(보간·흔들림·3인칭)를 움직인다.
  */
 /**
- * SKALA FPS — 로컬 플레이어
+ * SKALA 작전 — 로컬 플레이어
  *
  *   const player = createLocalPlayer({ bus, input, camera, getWorld: () => map && map.world });
  *   player.state            // PlayerState (아래)

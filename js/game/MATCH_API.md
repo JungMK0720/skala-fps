@@ -1,4 +1,4 @@
-# SKALA FPS — MATCH API (경기 규칙 엔진 계약서)
+# SKALA 작전 — MATCH API (경기 규칙 엔진 계약서)
 
 > 파일: `js/game/match.js` · 순수 ES 모듈(three.js·DOM·네트워크 의존 없음, node에서 테스트 가능)
 > 기준: DESIGN.md 2·3.4·6절, ARCHITECTURE.md 7절(멀티플레이). 무기 수치와 피해 계산은 `js/weapons/defs.js`(`computeDamage`)만 읽고, 규칙은 `js/game/modes.js`만 읽는다. 전송 크기는 `js/game/protocol.js` 한도에 맞췄다.

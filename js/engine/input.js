@@ -4,7 +4,7 @@
  * Purpose: 입력(Pointer Lock·키보드·마우스·휠·터치)을 폴링 상태와 bus 이벤트로 바꾼다. 이동·점프·앉기·무기 키와 이모트 휠을 다룬다.
  */
 /**
- * SKALA FPS — 입력 (Pointer Lock · 키보드 · 마우스 · 휠)
+ * SKALA 작전 — 입력 (Pointer Lock · 키보드 · 마우스 · 휠)
  *
  *   const input = createInput({ element: canvas, bus, settings, touch });   // touch = 휴대폰 조작(engine/touch.js가 input.touch로 넣는다)
  *   input.state.forward / back / left / right / jump / walk / crouch / fire / aim / scoreboard   (boolean, 폴링용)
@@ -17,7 +17,7 @@
  *   input.emoteWheel       // { open, cursor:{x,y}, selected, id, code } (이모트 휠 폴링용)
  *   input.setEmoteLock(b)  // 이모트 중: 좌·우클릭을 사격·줌 대신 input:emoteCancel로 (player가 켜고 끔)
  *
- * 키는 e.code 기준(한/영 상태와 무관): WASD(+화살표) · Space · Shift · Ctrl/C(앉기) · R · F(무기 살펴보기) · G(죽은 뒤 총 버리기) · 1~4 · Tab · Esc
+ * 키는 e.code 기준(한/영 상태와 무관): WASD(+화살표) · Space · Shift · Ctrl/C(앉기) · R · F(무기 살펴보기) · G(들고 있는 총 버리기) · 1~4 · Tab · Esc
  * Space: input.state.jump = 누르는 동안 true(player가 착지 즉시 다시 뛰는 데 쓴다), input:jump는 누른 순간 1번.
  *        잠금을 잃거나 창 포커스를 잃으면 풀리고, 키 반복으로는 다시 켜지지 않는다.
  * bus 이벤트: input:lock{locked} · input:fire{down} · input:aim{active,source} · input:zoom{down}(터치 조준 버튼) · input:reload · input:inspect · input:drop · input:slot{slot}

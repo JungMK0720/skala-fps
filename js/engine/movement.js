@@ -5,7 +5,7 @@
  *          수평 속도만 정하고 충돌과 수직 이동은 physics.moveCharacter에 맡긴다. three.js·DOM 의존 없음.
  */
 /**
- * SKALA FPS — 플레이어 이동 (docs/DESIGN.md 4절). 봇은 이 파일을 쓰지 않는다.
+ * SKALA 작전 — 플레이어 이동 (docs/DESIGN.md 4절). 봇은 이 파일을 쓰지 않는다.
  *
  *   const ev = moveQuake(world, body, wish, dt, opt);
  *   wish = { dirX, dirZ, speed, jump, strafeSign }

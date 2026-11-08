@@ -1,4 +1,4 @@
-# SKALA FPS 설계 계약 (v2)
+# SKALA 작전 설계 계약 (v2)
 
 이 문서는 모듈 사이의 약속이다. 코드가 이 문서와 달라지면 코드를 고치거나 이 문서를 함께 고친다.
 기존 엔진 문서는 `docs/ARCHITECTURE.md`, `docs/CORE_API.md`, `docs/MODES.md`, `js/*/README.md`, `js/game/*_API.md`에 있다.

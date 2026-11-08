@@ -4,7 +4,7 @@
  * Purpose: 맵 제작 도우미(순수 함수). 맵 파일을 짧고 대칭으로 쓰게 도형 생성과 좌우·앞뒤·180° 뒤집기를 제공한다.
  */
 /**
- * SKALA FPS — 맵 제작 도우미. 사용법은 docs/MAP_GUIDE.md.
+ * SKALA 작전 — 맵 제작 도우미. 사용법은 docs/MAP_GUIDE.md.
  *
  * 하나를 돌려주는 함수: box, ramp, cyl, wall, pillar
  * 배열을 돌려주는 함수: stairs, platform, doorwayWall, clipAbove, mirrorX, mirrorZ, rotate180

@@ -1,9 +1,10 @@
 -- Date: 06NOV2026
 -- Author: Minkyu Jung
--- Purpose: SKALA FPS 전용 Supabase 프로젝트의 계정 스키마. SQL Editor에서 처음부터 끝까지 실행하며, 여러 번 실행해도 안전하다.
+-- Purpose: SKALA 작전 전용 Supabase 프로젝트의 계정 스키마. SQL Editor에서 처음부터 끝까지 실행하며, 여러 번 실행해도 안전하다.
 --          테이블은 직접 접근을 막고 fps_* RPC(SECURITY DEFINER)로만 쓴다. 기기 토큰은 원문 대신 sha256만 저장한다.
 --          닉네임 규칙은 js/account/nickname.js와 글자 단위로 같아야 한다(tests/account.test.mjs가 대조한다).
---          포인트와 전적은 클라이언트가 계산해 보낸 값을 범위만 확인해 저장한다. 치트를 막는 장치가 아니다.
+--          포인트와 전적은 클라이언트가 계산해 보내지만, 서버가 늘어나는 속도(통으로 채우는 한도)와 새로 산 무기의 가격을 확인해
+--          한도를 넘는 만큼은 버린다. 닉네임 등록은 같은 IP에서 한 시간에 60번까지다. 경기 판정은 방장 브라우저가 한다(js/game/anticheat.js).
 --          멀티 채널(skalafps:lobby, skalafps:room:<id>)은 Realtime Broadcast·Presence만 쓰므로 테이블이 필요 없다.
 
 create schema if not exists extensions;
@@ -30,6 +31,23 @@ create table if not exists public.fps_players (
 alter table public.fps_players enable row level security;
 revoke all on public.fps_players from public, anon, authenticated;
 revoke all on sequence public.fps_players_id_seq from public, anon, authenticated;
+
+-- 치트 대비(2026-11-08): 늘어나는 양을 제한하는 통. 처음 실행하면 기존 행에도 기본값이 채워진다.
+alter table public.fps_players add column if not exists earn_bucket double precision not null default 5000;   -- 지금 더 벌 수 있는 포인트
+alter table public.fps_players add column if not exists kill_bucket double precision not null default 300;    -- 지금 더 올릴 수 있는 킬
+alter table public.fps_players add column if not exists win_bucket double precision not null default 10;      -- 지금 더 올릴 수 있는 승리
+alter table public.fps_players add column if not exists bucket_at timestamptz not null default now();         -- 통을 마지막으로 채운 시각
+alter table public.fps_players add column if not exists day_key date not null default current_date;           -- 하루 한도의 날짜
+alter table public.fps_players add column if not exists day_gain int not null default 0;                      -- 그날 번 포인트
+
+-- 같은 IP에서 온 요청 수. IP 원문은 저장하지 않고 해시만 쓴다. 줄은 지우지 않고 창이 지나면 다시 센다.
+create table if not exists public.fps_rate (
+  bucket text primary key,
+  window_start timestamptz not null default now(),
+  hits int not null default 0
+);
+alter table public.fps_rate enable row level security;
+revoke all on public.fps_rate from public, anon, authenticated;
 
 -- ───────────── 내부 함수 (외부 호출 불가) ─────────────
 -- 공백 목록을 직접 적어 Postgres 로캘과 상관없이 JS의 \s와 같게 동작시킨다. 안 보이는 글자는 정규식의 \u로 적어 붙여 넣기에 망가지지 않게 한다.
@@ -69,9 +87,46 @@ begin
   );
 end $$;
 
+-- 서버 가격표. js/weapons/defs.js의 price와 같아야 한다(tests/account.test.mjs가 대조한다). 모르는 id는 null이라 살 수 없다.
+create or replace function public.fps_item_price(p_id text) returns int
+language sql immutable set search_path = public, extensions as $$
+  select case p_id
+    when 'ar_std' then 0 when 'ar_rapid' then 800 when 'ar_line' then 1200 when 'ar_burst' then 1000 when 'dm_mark' then 1500
+    when 'sm_vx3' then 600 when 'sg_bx12' then 700
+    when 'sr_bolt' then 0 when 'sr_twin' then 1500 when 'sr_swift' then 1000 when 'sr_heavy' then 2500
+    when 'pt_std' then 0 when 'pt_magnum' then 500
+    when 'ml_knife' then 0 when 'ml_tanto' then 500 when 'ml_gurkha' then 800 when 'ml_katana' then 1200
+    when 'gr_frag' then 0
+  end
+$$;
+
+-- 요청을 보낸 IP의 해시. Supabase API 게이트웨이가 넣는 헤더를 읽고 원문은 남기지 않는다. SQL Editor처럼 헤더가 없으면 'unknown'.
+create or replace function public.fps_client_key() returns text
+language sql stable set search_path = public, extensions as $$
+  select encode(digest(coalesce(
+    nullif(btrim(split_part(coalesce(nullif(current_setting('request.headers', true), '')::json ->> 'x-forwarded-for', ''), ',', 1)), ''),
+    nullif(nullif(current_setting('request.headers', true), '')::json ->> 'cf-connecting-ip', ''),
+    'unknown') || ':skala-fps', 'sha256'), 'hex')
+$$;
+
+-- 한도 안이면 한 번 세고 true. 창(p_window)이 지나면 1부터 다시 센다.
+create or replace function public.fps_rate_ok(p_action text, p_limit int, p_window interval) returns boolean
+language plpgsql volatile set search_path = public, extensions as $$
+declare
+  v_hits int;
+begin
+  insert into public.fps_rate as r (bucket, window_start, hits)
+  values (p_action || ':' || public.fps_client_key(), now(), 1)
+  on conflict (bucket) do update
+    set hits = case when r.window_start < now() - p_window then 1 else r.hits + 1 end,
+        window_start = case when r.window_start < now() - p_window then now() else r.window_start end
+  returning hits into v_hits;
+  return v_hits <= p_limit;
+end $$;
+
 -- ───────────── 사용자 함수 (RPC) ─────────────
 -- 결과 모양: { ok: true, ... } 또는 { ok: false, error: 코드 }
--- 코드: NAME_INVALID, NAME_RESERVED, NAME_TAKEN, TOKEN_INVALID, NOT_FOUND, PROFILE_INVALID, PROFILE_TOO_LARGE
+-- 코드: NAME_INVALID, NAME_RESERVED, NAME_TAKEN, TOKEN_INVALID, NOT_FOUND, PROFILE_INVALID, PROFILE_TOO_LARGE, RATE_LIMITED
 
 create or replace function public.fps_check_nickname(p_name text) returns jsonb
 language plpgsql stable security definer set search_path = public, extensions as $$
@@ -96,6 +151,10 @@ declare
 begin
   if v_hash is null then return jsonb_build_object('ok', false, 'error', 'TOKEN_INVALID'); end if;
   if v_err is not null then return jsonb_build_object('ok', false, 'error', v_err); end if;
+  -- 같은 IP에서 한 시간에 60번까지(교실처럼 여러 명이 한 IP를 써도 넉넉하게). 넘으면 잠시 뒤 다시 시도하게 한다
+  if not public.fps_rate_ok('claim', 60, interval '1 hour') then
+    return jsonb_build_object('ok', false, 'error', 'RATE_LIMITED');
+  end if;
   begin
     insert into public.fps_players (token_hash, name, name_key)
     values (v_hash, v_name, lower(v_name))
@@ -128,13 +187,38 @@ begin
 end $$;
 
 -- 행은 fps_claim_nickname이 만든다. 행이 없으면 NOT_FOUND. 이름은 여기서 바꾸지 않는다.
--- stats는 숫자 항목만 남기고 0~10억으로 자른다. fps_top_players가 숫자로 읽으므로 잘못된 값이 순위표를 깨뜨리지 못한다.
+-- 클라이언트가 보낸 포인트·무기·전적을 그대로 믿지 않는다.
+--   새 무기는 서버 가격표(fps_item_price)로 값을 매기고 모르는 id는 버린다. 가진 무기는 저장으로 줄지 않는다.
+--   포인트가 늘어나는 양은 통(1초에 5점, 최대 5,000점)과 하루 50,000점으로 제한하고 넘는 만큼은 버린다.
+--   살 돈이 모자라면 새 무기를 받지 않고 그 값도 쓰지 않은 것으로 본다.
+--   킬은 1초에 1번(최대 300), 승리는 30초에 1번(최대 10)씩 차는 통으로, 다른 전적은 한 번에 1,000까지만 늘린다.
+--   stats는 숫자 항목만 남기고 0~10억으로 자른다. fps_top_players가 숫자로 읽으므로 잘못된 값이 순위표를 깨뜨리지 못한다.
+--   결과에 서버가 저장한 포인트·무기·전적을 돌려준다(clamped면 깎였다). 클라이언트는 이 값을 따른다.
 create or replace function public.fps_save_profile(
   p_token text, p_points int, p_owned jsonb, p_loadout jsonb, p_stats jsonb, p_secrets jsonb)
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
 declare
   v_hash text := public.fps_token_hash(p_token);
-  v_stats jsonb;
+  v public.fps_players%rowtype;
+  v_secs double precision;
+  v_earn_bucket double precision;
+  v_kill_bucket double precision;
+  v_win_bucket double precision;
+  v_day int;
+  v_item text;
+  v_price int;
+  v_new jsonb := '[]'::jsonb;
+  v_spent int := 0;
+  v_allow int;
+  v_want bigint;
+  v_earn int;
+  v_points bigint;
+  v_stats jsonb := '{}'::jsonb;
+  v_key text;
+  v_val numeric;
+  v_old numeric;
+  v_room numeric;
+  v_clamped boolean := false;
 begin
   if v_hash is null then return jsonb_build_object('ok', false, 'error', 'TOKEN_INVALID'); end if;
   if not public.fps_owned_ok(p_owned)
@@ -148,20 +232,71 @@ begin
      or octet_length(p_secrets::text) > 32768 then
     return jsonb_build_object('ok', false, 'error', 'PROFILE_TOO_LARGE');
   end if;
-  select coalesce(jsonb_object_agg(s.key, least(greatest(trunc((s.value #>> '{}')::numeric), 0), 1000000000)), '{}'::jsonb)
-    into v_stats
-    from jsonb_each(p_stats) as s
-   where jsonb_typeof(s.value) = 'number';
+  select * into v from public.fps_players where token_hash = v_hash for update;
+  if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
+
+  -- 통 채우기: 마지막으로 채운 뒤 지난 시간만큼
+  v_secs := greatest(0, extract(epoch from (now() - v.bucket_at)));
+  v_earn_bucket := least(5000, v.earn_bucket + v_secs * 5);
+  v_kill_bucket := least(300, v.kill_bucket + v_secs);
+  v_win_bucket := least(10, v.win_bucket + v_secs / 30);
+  v_day := case when v.day_key = current_date then v.day_gain else 0 end;
+
+  -- 새로 산 무기
+  for v_item in select distinct e.item #>> '{}' from jsonb_array_elements(p_owned) as e(item) loop
+    if v.owned ? v_item then continue; end if;
+    v_price := public.fps_item_price(v_item);
+    if v_price is null then v_clamped := true; continue; end if;
+    v_new := v_new || to_jsonb(v_item);
+    v_spent := v_spent + v_price;
+  end loop;
+
+  -- 포인트: 클라이언트가 주장하는 순수익 = 보낸 포인트 - 저장된 포인트 + 산 값
+  v_allow := greatest(0, least(floor(v_earn_bucket), 50000 - v_day))::int;
+  v_want := coalesce(p_points, v.points)::bigint - v.points + v_spent;
+  v_earn := least(v_want, v_allow)::int;
+  if v_want > v_allow then v_clamped := true; end if;
+  v_points := v.points::bigint + v_earn - v_spent;
+  if v_points < 0 then
+    v_new := '[]'::jsonb;
+    v_spent := 0;
+    v_clamped := true;
+    v_points := v.points::bigint + v_earn;
+  end if;
+  v_points := least(greatest(v_points, 0), 10000000);
+
+  -- 전적
+  for v_key, v_val in
+    select s.key, trunc((s.value #>> '{}')::numeric) from jsonb_each(p_stats) as s where jsonb_typeof(s.value) = 'number'
+  loop
+    v_val := least(greatest(v_val, 0), 1000000000);
+    v_old := case when jsonb_typeof(v.stats -> v_key) = 'number' then (v.stats ->> v_key)::numeric else 0 end;
+    v_room := case v_key when 'kills' then floor(v_kill_bucket) when 'wins' then floor(v_win_bucket) else 1000 end;
+    if v_val - v_old > v_room then
+      v_val := v_old + v_room;
+      v_clamped := true;
+    end if;
+    if v_key = 'kills' and v_val > v_old then v_kill_bucket := v_kill_bucket - (v_val - v_old); end if;
+    if v_key = 'wins' and v_val > v_old then v_win_bucket := v_win_bucket - (v_val - v_old); end if;
+    v_stats := v_stats || jsonb_build_object(v_key, v_val);
+  end loop;
+
   update public.fps_players
-     set points = least(greatest(coalesce(p_points, points), 0), 10000000),
-         owned = p_owned,
+     set points = v_points,
+         owned = v.owned || v_new,
          loadout = p_loadout,
          stats = v_stats,
          secrets = p_secrets,
+         earn_bucket = v_earn_bucket - greatest(v_earn, 0),
+         kill_bucket = v_kill_bucket,
+         win_bucket = v_win_bucket,
+         bucket_at = now(),
+         day_key = current_date,
+         day_gain = v_day + greatest(v_earn, 0),
          updated_at = now()
-   where token_hash = v_hash;
-  if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
-  return jsonb_build_object('ok', true);
+   where id = v.id;
+  return jsonb_build_object('ok', true, 'clamped', v_clamped,
+    'profile', jsonb_build_object('points', v_points, 'owned', v.owned || v_new, 'stats', v_stats));
 end $$;
 
 -- 순위표에는 이름, 킬, 승리, 포인트만 내보낸다.
@@ -188,6 +323,9 @@ revoke all on function public.fps_clean_name(text) from public, anon, authentica
 revoke all on function public.fps_name_error(text) from public, anon, authenticated;
 revoke all on function public.fps_token_hash(text) from public, anon, authenticated;
 revoke all on function public.fps_owned_ok(jsonb) from public, anon, authenticated;
+revoke all on function public.fps_item_price(text) from public, anon, authenticated;
+revoke all on function public.fps_client_key() from public, anon, authenticated;
+revoke all on function public.fps_rate_ok(text, int, interval) from public, anon, authenticated;
 
 revoke all on function public.fps_check_nickname(text) from public;
 revoke all on function public.fps_claim_nickname(text, text) from public;

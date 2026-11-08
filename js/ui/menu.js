@@ -53,7 +53,7 @@ export function createMenu(ctx) {
     menuBackdrop(),
     h('div', { class: 'sk-menu-wrap' },
       h('header', { class: 'sk-brand' },
-        h('h1', { class: 'sk-brand-title', text: 'SKALA FPS' }),
+        h('h1', { class: 'sk-brand-title', text: 'SKALA 작전' }),
         h('p', { class: 'sk-brand-tag', text: '빠르게 달리고, 정확하게 쏘는 브라우저 FPS' })),
       h('section', { class: 'sk-player sk-steel', 'aria-label': '플레이어' },
         h('div', { class: 'sk-name-view' },

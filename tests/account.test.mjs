@@ -79,8 +79,10 @@ function fakeServer() {
     fps_save_profile({ p_token, p_points, p_owned, p_loadout, p_stats, p_secrets }) {
       const row = rows.get(p_token);
       if (!row) return { ok: false, error: 'NOT_FOUND' };
-      rows.set(p_token, { ...row, points: p_points, owned: p_owned, loadout: p_loadout, stats: p_stats, secrets: p_secrets });
-      return { ok: true };
+      // 진짜 서버처럼 받아들인 값을 돌려준다. capPoints를 넣으면 포인트를 그만큼으로 깎는다(늘어나는 속도 한도 흉내)
+      const points = server.capPoints == null ? p_points : Math.min(p_points, server.capPoints);
+      rows.set(p_token, { ...row, points, owned: p_owned, loadout: p_loadout, stats: p_stats, secrets: p_secrets });
+      return { ok: true, clamped: points !== p_points, profile: { points, owned: p_owned, stats: p_stats } };
     },
     fps_top_players() {
       return { ok: true, players: [...rows.values()].map((r) => ({ name: r.name, kills: r.stats.kills || 0, wins: r.stats.wins || 0, points: r.points })) };
@@ -89,6 +91,8 @@ function fakeServer() {
   const server = {
     rows,
     down: false,
+    /** 숫자를 넣으면 저장할 때 포인트를 그 값으로 깎는다 */
+    capPoints: null,
     /** Promise를 넣으면 풀릴 때까지 응답을 미룬다 */
     gate: null,
     calls: [],
@@ -659,6 +663,26 @@ describe('createAccount 닉네임', () => {
 });
 
 describe('createAccount 네트워크 실패와 충돌', () => {
+  test('서버가 저장할 때 깎은 포인트를 따른다(늘어나는 속도 한도)', async (t) => {
+    const server = fakeServer();
+    const { account, bus } = makeAccount(t, { server });
+    await account.ready;
+    assert.equal((await account.setNickname('철수')).ok, true);
+    await account.flush();
+    server.capPoints = 600;
+    account.recordMatch({ kills: 40, headshots: 40, win: true });
+    assert.ok(account.profile.points > 600, '로컬에서는 일단 늘었다');
+    const changes = bus.of('account:change').length;
+    await account.flush();
+    assert.equal(account.profile.points, 600, '서버 값을 따른다');
+    assert.equal([...server.rows.values()][0].points, 600);
+    assert.ok(bus.of('account:change').length > changes, '화면에도 알린다');
+    server.capPoints = null;
+    account.recordMatch({ kills: 1 });
+    await account.flush();
+    assert.equal(account.profile.points, 615, '한도 안이면 보낸 값 그대로');
+  });
+
   test('네트워크 실패: 로컬에 저장하고 offline으로 돌려준다, 재시도가 성공하면 끝난다', async (t) => {
     const server = fakeServer();
     server.down = true;
@@ -1497,7 +1521,10 @@ describe('supabase/schema.sql', () => {
     fps_save_profile: 'text, int, jsonb, jsonb, jsonb, jsonb',
     fps_top_players: 'int'
   };
-  const INTERNAL = { fps_clean_name: 'text', fps_name_error: 'text', fps_token_hash: 'text', fps_owned_ok: 'jsonb' };
+  const INTERNAL = {
+    fps_clean_name: 'text', fps_name_error: 'text', fps_token_hash: 'text', fps_owned_ok: 'jsonb',
+    fps_item_price: 'text', fps_client_key: '', fps_rate_ok: 'text, int, interval'
+  };
 
   function functionHead(name) {
     const m = code.match(new RegExp(`create or replace function public\\.${name}\\([\\s\\S]*?\\$\\$`));
@@ -1546,8 +1573,30 @@ describe('supabase/schema.sql', () => {
   test('상한과 시작 포인트가 JS와 같다', () => {
     assert.ok(code.includes(`points int not null default ${START_POINTS}`));
     assert.ok(code.includes(`check (points between 0 and ${MAX_POINTS})`));
-    assert.ok(code.includes(`least(greatest(coalesce(p_points, points), 0), ${MAX_POINTS})`));
+    assert.ok(code.includes(`least(greatest(v_points, 0), ${MAX_POINTS})`));
     assert.ok(code.includes(`, 0), ${STAT_MAX})`));
+  });
+
+  test('서버 가격표가 defs.js의 가격과 같다', () => {
+    const m = code.match(/function public\.fps_item_price[\s\S]*?\$\$;/);
+    assert.ok(m, 'fps_item_price 정의');
+    const listed = Object.fromEntries([...m[0].matchAll(/when '([a-z0-9_]+)' then (\d+)/g)].map((x) => [x[1], Number(x[2])]));
+    assert.deepEqual(listed, Object.fromEntries(WEAPON_IDS.map((id) => [id, getDef(id).price])));
+  });
+
+  test('저장은 늘어나는 양을 통으로 제한하고 받아들인 값을 돌려준다. 등록은 IP별로 센다', () => {
+    const save = functionHead('fps_save_profile') + code.split('function public.fps_save_profile')[1].split('end $$;')[0];
+    for (const part of ['public.fps_item_price(', 'v_earn_bucket', 'v_kill_bucket', 'v_win_bucket', "'clamped', v_clamped", "'profile', jsonb_build_object('points', v_points"]) {
+      assert.ok(save.includes(part), part);
+    }
+    const claim = code.match(/function public\.fps_claim_nickname[\s\S]*?end \$\$;/)[0];
+    assert.match(claim, /fps_rate_ok\('claim', \d+, interval '1 hour'\)/);
+    assert.match(claim, /'RATE_LIMITED'/);
+    for (const col of ['earn_bucket', 'kill_bucket', 'win_bucket', 'bucket_at', 'day_key', 'day_gain']) {
+      assert.match(code, new RegExp(`alter table public\\.fps_players add column if not exists ${col} `), col);
+    }
+    assert.match(code, /alter table public\.fps_rate enable row level security;/);
+    assert.match(code, /revoke all on public\.fps_rate from public, anon, authenticated;/);
   });
 
   test('처음부터 끝까지 다시 실행해도 안전한 형태다', () => {

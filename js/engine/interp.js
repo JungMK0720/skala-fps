@@ -4,7 +4,7 @@
  * Purpose: 코어 아바타용 스냅샷 보간 버퍼. 지연 렌더 시각의 위치와 자세를 계산하는 순수 모듈이다.
  */
 /**
- * SKALA FPS — 스냅샷 보간 버퍼 (순수, three.js 의존 없음)
+ * SKALA 작전 — 스냅샷 보간 버퍼 (순수, three.js 의존 없음)
  *
  *   const buf = new SnapshotBuffer();
  *   buf.push(t, { pos:[x,y,z], yaw, pitch, alive, moving, ... });   // t: ms (sample과 같은 시계)

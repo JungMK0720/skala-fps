@@ -3,7 +3,7 @@
  * Author: Minkyu Jung
  * Purpose: dev/ui-demo.html에서 불러오는 QA 전용 UI 데모다. 목 데이터로 모든 화면을 띄우고 가짜 게임 루프로 HUD를 움직인다.
  */
-// SKALA FPS UI 데모(QA 전용) — dev/ui-demo.html 에서 로드
+// SKALA 작전 UI 데모(QA 전용) — dev/ui-demo.html 에서 로드
 // 목 데이터로 모든 화면을 띄우고, HUD는 가짜 게임 루프로 움직인다.
 // URL: ?screen=menu|menu-account|settings|controls|lobby|lobby-empty|lobby-loading|lobby-error|create|
 //              room|room-guest|loadout|hud|hud-low|scope|scoreboard|results|pause

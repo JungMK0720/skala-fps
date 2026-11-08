@@ -61,6 +61,8 @@ window.SKALA_CONFIG = {
 
 칸 이름은 `anonKey`지만 Publishable key를 넣으면 됩니다. 이 파일은 커밋해도 됩니다. Publishable key는 브라우저에 공개하도록 만들어진 키입니다.
 
+**프로젝트를 바꾸면 `index.html`의 CSP(`connect-src`)에 있는 Supabase 주소도 함께 바꾸세요.** 그대로 두면 브라우저가 새 프로젝트로의 접속을 막습니다(`tests/web-security.test.mjs`가 둘이 같은지 확인합니다).
+
 ## 5. Realtime 공개 채널 확인
 
 멀티플레이는 Realtime의 공개 채널을 씁니다. `https://supabase.com/dashboard/project/<project-ref>/realtime/settings`(Realtime의 Settings)에서 다음 두 항목이 켜져 있는지 봅니다. 둘 다 기본값이 켜짐입니다.
@@ -132,8 +134,9 @@ const c = SKALA_CONFIG.supabase; await (await fetch(`${c.url}/rest/v1/rpc/fps_ch
 - **Security Advisor 경고**: **Advisors > Security Advisor**에 아래 항목이 보이는 것은 의도한 결과입니다.
   - `0008_rls_enabled_no_policy`(INFO): 정책을 일부러 만들지 않았습니다. 테이블은 API로 직접 접근할 수 없습니다.
   - `0028_anon_security_definer_function_executable`, `0029_authenticated_security_definer_function_executable`(WARN): `fps_*` RPC 다섯 개가 대상입니다. 게임이 로그인 없이 부르는 유일한 통로이고, 각 함수가 입력을 검사합니다.
-- **포인트와 전적은 치트를 막지 못합니다.** 브라우저가 계산해 보낸 값을 범위만 확인해 저장합니다. 순위표는 재미용으로 보세요.
-- **RPC에는 속도 제한이 없습니다.** 마음먹으면 닉네임을 대량으로 선점할 수 있습니다. 문제가 생기면 10단계의 SQL로 정리하세요.
+- **포인트와 전적은 한도 안에서만 늡니다.** 브라우저가 계산해 보내지만, 서버가 늘어나는 속도(포인트 1초 5점·최대 5,000·하루 50,000, 킬 1초 1번, 승리 30초 1번)와 새로 산 무기의 가격을 확인해 넘는 만큼은 버립니다. 자세한 내용은 [docs/SECURITY.md](SECURITY.md).
+- **닉네임 등록은 같은 IP에서 한 시간에 60번까지입니다.** 넘으면 `RATE_LIMITED`를 돌려주고, 게임은 잠시 뒤 다시 시도합니다. IP 원문은 저장하지 않고 해시만 셉니다(`fps_rate`).
+- **`schema.sql`을 고친 뒤에는 SQL Editor에서 전부 다시 실행하세요.** 여러 번 실행해도 안전하고, 기존 행에는 새 칸의 기본값이 채워집니다.
 - **계정은 기기 토큰입니다.** 브라우저 저장소의 `skalafps.token`이 곧 소유 증명이고, 서버에는 sha256만 저장합니다. 사이트 데이터를 지우면 토큰이 사라져 이전 닉네임을 되찾을 수 없습니다. 이때는 아래처럼 운영자가 풀어 줄 수 있습니다.
 
 ## 10. 운영에 쓰는 SQL

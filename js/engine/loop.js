@@ -4,7 +4,7 @@
  * Purpose: 게임 루프. 60 Hz 고정 틱 물리와 가변 프레임 렌더를 순서대로 돌린다.
  */
 /**
- * SKALA FPS — 게임 루프: 고정 틱(기본 60 Hz) 물리 + 가변 렌더(rAF)
+ * SKALA 작전 — 게임 루프: 고정 틱(기본 60 Hz) 물리 + 가변 렌더(rAF)
  *
  *   const loop = createLoop({ tickRate: 60 });
  *   const off1 = loop.onTick((dt, tick, time) => { ... }, order?);    // dt = 1/60 고정

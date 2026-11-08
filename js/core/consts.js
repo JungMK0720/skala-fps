@@ -4,7 +4,7 @@
  * Purpose: 플레이어·히트박스·이모트·네트워크처럼 여러 모듈이 함께 쓰는 상수와 작은 도우미 함수를 모은다. three.js에 의존하지 않아 node에서도 불러올 수 있다.
  */
 /**
- * SKALA FPS — 공용 상수 (ARCHITECTURE.md 2절). three.js 의존 없음(node에서도 import 가능).
+ * SKALA 작전 — 공용 상수 (ARCHITECTURE.md 2절). three.js 의존 없음(node에서도 import 가능).
  *
  * 좌표계: 1 단위 = 1 m, y 위쪽, 지면 y = 0, 맵 원점 = 맵 중앙.
  * 방향: yaw = Y축 회전(라디안, three.js rotation.y와 동일). yaw 0 → -Z를 바라봄,

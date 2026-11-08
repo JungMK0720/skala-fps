@@ -5,7 +5,7 @@
  *          경기가 끝나면 계정에 전적을 한 번 기록한다. 시작 설정 시트와 저장된 설정도 여기 있다.
  */
 /**
- * SKALA FPS — 연습장 봇전 (싱글플레이): 팀전(5판 3선승) · 개인전(FFA) · 규칙(클래식 · 칼전 · 스나전)
+ * SKALA 작전 — 연습장 봇전 (싱글플레이): 팀전(5판 3선승) · 개인전(FFA) · 규칙(클래식 · 칼전 · 스나전)
  *
  *   const practice = createPractice({ ctx, world, ui });
  *   ctx.registerScreen('sandbox', { enter: (p) => practice.enter(p), exit: () => practice.exit() });
@@ -23,13 +23,13 @@
  *   (팀전에서 bots = 팀당 인원, 개인전에서 bots = 봇 수)
  */
 import { PLAYER } from '../core/consts.js';
-import { moveCharacter, traceShot, lineOfSight, findFloor, overlapsCapsule } from '../engine/physics.js';
+import { moveCharacter, traceShot, lineOfSight, findFloor, overlapsCapsule, getGroundY } from '../engine/physics.js';
 import { stepTriggers } from '../engine/triggers.js';
 import { createArsenal, shotDirection, dirFromYawPitch } from '../weapons/logic.js';
 import { getDef } from '../weapons/defs.js';
 import { throwVelocity } from '../weapons/grenade.js';
 import { createMatch, standings, REASON_LABELS } from './match.js';
-import { RULESETS, RULESET_IDS, normalizeRuleset, rulesetOf, pickableWeapons, defaultPick } from './modes.js';
+import { RULESETS, RULESET_IDS, normalizeRuleset, rulesetOf, pickableWeapons, defaultPick, shotTargets } from './modes.js';
 import { createBot, pickBotWeapon, botLoadout, loadoutKey } from './bots.js';
 import { buildNavGrid } from './navgrid.js';
 import { meleeTrace } from './world.js';
@@ -273,12 +273,25 @@ export function createPractice({ ctx, world, ui }) {
       const b = botById.get(id);
       return b ? b.body.pos : null;
     }
-    /** 봇 b가 쏠 수 있는 대상(자기 제외, 살아 있는 모두 — 아군 사격·보호는 match가 거른다). crouch = 앉은 히트박스 */
+    /** 봇이 총을 든 채 죽으면 그 총이 바닥에 떨어진다(남은 탄 그대로). 봇은 줍지 않는다 */
+    let botDropSeq = 0;
+    function botDropGun(b) {
+      if (!b.alive || typeof world.addDrop !== 'function') return;
+      const held = b.arsenal.getWeapon();
+      const def = getDef(held.id);
+      if (!def || (def.slot !== 1 && def.slot !== 2)) return;
+      const a = b.arsenal.getAmmo(held.id);
+      if (!(a.mag > 0 || a.reserve > 0)) return;
+      const [x, y, z] = b.body.pos;
+      const fy = getGroundY(map.world, x, z, y + 0.5);
+      world.addDrop({ id: `${b.id}#${++botDropSeq}`, weaponId: held.id, pos: [x, Number.isFinite(fy) ? fy : y, z], mag: a.mag, reserve: a.reserve });
+    }
+    /** 봇 b가 쏠 수 있는 대상(자기 제외, 살아 있는 모두. 팀전이면 아군 몸은 통과한다 — 보호는 match가 거른다). crouch = 앉은 히트박스 */
     function targetsFor(b) {
       const out = [];
-      if (meAlive()) out.push({ id: me.id, pos: ctx.player.state.pos, yaw: ctx.player.state.yaw, alive: true, crouch: !!ctx.player.state.crouch });
-      for (const o of bots) if (o !== b && o.alive) out.push({ id: o.id, pos: o.body.pos, yaw: o.yaw, alive: true, crouch: o.crouch });
-      return out;
+      if (meAlive()) out.push({ id: me.id, team: me.team, pos: ctx.player.state.pos, yaw: ctx.player.state.yaw, alive: true, crouch: !!ctx.player.state.crouch });
+      for (const o of bots) if (o !== b && o.alive) out.push({ id: o.id, team: o.team, pos: o.body.pos, yaw: o.yaw, alive: true, crouch: o.crouch });
+      return shotTargets(out, ffa ? 'ffa' : 'team', b.team);
     }
     function botView(b) {
       const enemies = [], allies = [];
@@ -496,7 +509,7 @@ export function createPractice({ ctx, world, ui }) {
         }
       } else {
         const b = botById.get(ev.victim);
-        if (b) { b.alive = false; b.hp = 0; endBotEmote(b); world.actorDeath(b.id, { dir }); }
+        if (b) { botDropGun(b); b.alive = false; b.hp = 0; endBotEmote(b); world.actorDeath(b.id, { dir }); }
       }
       if (ffa && ev.killer !== ev.victim) { const kb = botById.get(ev.killer); if (kb && kb.alive && rng() < opts.botEmote) startBotEmote(kb); }
       pushRound();

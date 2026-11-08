@@ -4,7 +4,7 @@
  * Purpose: 정적 지오메트리를 재질별로 한 메시에 합치는 배치와 파이프 변환 행렬 도우미.
  */
 /**
- * SKALA FPS — 정적 지오메트리 배치 (재질별로 한 메시에 합쳐 드로우콜 절약)
+ * SKALA 작전 — 정적 지오메트리 배치 (재질별로 한 메시에 합쳐 드로우콜 절약)
  *
  *   const batch = new GeoBatch();
  *   batch.addBox(minX,minY,minZ,maxX,maxY,maxZ, scale, { skipBottom:true });

@@ -5,7 +5,7 @@
  *          solids를 재질별로 합치고 바닥·바깥 경치·장식·발판·포털을 만든다.
  */
 /**
- * SKALA FPS — 맵 빌더
+ * SKALA 작전 — 맵 빌더
  *
  *   const map = buildMap(data, scene);
  *   map.colliders / map.world (physics) / map.spawns / map.bounds / map.theme

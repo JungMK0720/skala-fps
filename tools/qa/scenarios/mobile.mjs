@@ -245,7 +245,7 @@ export default {
     await page.waitFor('__qa.world.localEmote === 0', 2000, { intervalMs: 30, label: '발사 버튼으로 이모트 취소' });
     t.errorsOk('이모트');
 
-    t.setSection('죽은 뒤 총 버리기');
+    t.setSection('죽으면 든 총이 떨어진다');
     await page.fn((s) => {
       const qa = window.__qa;
       qa.teleport(s.a.x, 0, s.a.z);
@@ -260,7 +260,7 @@ export default {
     await page.waitFor('!__qa.world.localAlive', 20000, { intervalMs: 50, label: '봇에게 쓰러짐' });
     await page.eval('__qa.freezeBots()');
     await waitTicks(page, 2);
-    t.check(/여기를 눌러 RX-4 버리기/.test(await page.eval(`__qa.text('.sk-hint') || ''`)), '죽으면 눌러서 버리라고 알려 준다', await page.eval(`__qa.text('.sk-hint')`));
+    t.check((await page.eval('__qa.world.internals.drops.size')) === 1, '들고 있던 총이 바닥에 떨어진다');
     t.check(!(await page.eval(visible('.pc-tb--fire'))), '죽어 있는 동안 전투 버튼이 숨는다');
     await page.eval(`window.__fireSeen = 0; window.__fireOff = __qa.ctx.bus.on('input:fire', () => { window.__fireSeen++; }); 0`);
     await tap(page, { x: 600, y: 300 });
@@ -268,13 +268,29 @@ export default {
     await page.eval('window.__fireOff(); 0');
     await sleep(250);
     await t.shot('dead');
-    await tap(page, await center(page, '.sk-hint'));
-    await page.waitFor('__qa.world.internals.drops.size === 1', 2000, { intervalMs: 30, label: '총이 떨어진다' });
-    t.check(true, '안내를 누르면 총이 떨어진다');
     await page.waitFor('__qa.world.localAlive', 12000, { intervalMs: 50, label: '부활' });
     await waitTicks(page, 2);
     t.check(await page.eval(visible('.pc-tb--fire')), '부활하면 전투 버튼이 돌아온다');
-    t.errorsOk('총 버리기');
+    t.errorsOk('죽음');
+
+    t.setSection('무기 칸을 길게 눌러 버리기');
+    await page.waitFor('__qa.world.internals.drops.size === 0', 6000, { intervalMs: 100, label: '앞의 총이 사라진다' });
+    await page.waitFor(`__qa.arsenal.getWeapon().id === 'ar_std' && __qa.arsenal.getWeapon().state === 'idle'`, 3000, { intervalMs: 30, label: '주무기 준비' });
+    const slot1 = await center(page, '.sk-slot:nth-child(1)');
+    await page.touch('touchStart', [{ id: 1, x: slot1.x, y: slot1.y }]);
+    await sleep(650);
+    await page.touch('touchEnd', []);
+    await page.waitFor('__qa.world.internals.drops.size === 1', 2000, { intervalMs: 30, label: '길게 누르면 총을 버린다' })
+      .then(() => t.check(true, '무기 칸을 길게 누르면 그 총을 버린다'), (err) => t.check(false, '무기 칸을 길게 누르면 그 총을 버린다', err.message));
+    t.check(await page.eval('__qa.arsenal.isSlotEmpty(1)'), '주무기 칸이 빈다');
+    await page.waitFor(`__qa.arsenal.getWeapon().state === 'idle'`, 3000, { intervalMs: 30, label: '보조무기 준비' });
+    await tap(page, await center(page, '.sk-slot:nth-child(3)'));
+    await waitTicks(page, 3);
+    await tap(page, await center(page, '.sk-slot:nth-child(2)'));
+    await waitTicks(page, 3);
+    const shortTap = await page.eval(`({ drops: __qa.world.internals.drops.size, slot2Empty: __qa.arsenal.isSlotEmpty(2), held: __qa.arsenal.getWeapon().id, list: __qa.world.internals.drops.list().map((x) => x.weaponId) })`);
+    t.check(!shortTap.slot2Empty && !shortTap.list.includes('pt_std'), '짧게 누르면 무기만 바꾸고 버리지 않는다', shortTap);   // 바닥의 총은 4초면 사라지므로 개수 대신 권총이 남았는지 본다
+    t.errorsOk('길게 눌러 버리기');
 
     t.setSection('좁은 휴대폰');
     await page.send('Emulation.setDeviceMetricsOverride', { width: 667, height: 375, deviceScaleFactor: 1, mobile: true });

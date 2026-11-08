@@ -5,7 +5,7 @@
  *          규칙(클래식·칼전·스나전)에 맞는 무기만 쥐어 주고, 발판·포털·비밀 스팟 연출과 표시 전용 물리 소품도 여기서 붙인다.
  */
 /**
- * SKALA FPS — World: 게임 화면의 공용 무대 (연습장·멀티 공통). 계약: ./WORLD_API.md
+ * SKALA 작전 — World: 게임 화면의 공용 무대 (연습장·멀티 공통). 계약: ./WORLD_API.md
  *
  * core(renderer·input·loop·player·avatars)는 그대로 쓰고, 여기서는 그 위에
  *   오디오(fx/audio) · 이펙트(fx/effects) · 1인칭 뷰모델 · 로컬 arsenal · 수류탄 시스템 · HUD/스코프/일시정지 연결
@@ -27,8 +27,8 @@ import { createAudio } from '../fx/audio.js';
 import { createEffects } from '../fx/effects.js';
 import { relativeAngle } from '../ui/dom.js';
 import { droppedGunMesh } from '../engine/avatars.js';
-import { DEFAULT_RULESET, normalizeRuleset, rulesetOf, pickableWeapons, isWeaponAllowed } from './modes.js';
-import { createDrops, DROP_WINDOW_MS } from './drops.js';
+import { DEFAULT_RULESET, normalizeRuleset, rulesetOf, pickableWeapons, isWeaponAllowed, shotTargets } from './modes.js';
+import { createDrops, DROP_RADIUS } from './drops.js';
 
 const STEEL_MATS = new Set(['steel', 'rust', 'deck', 'tank', 'pipe', 'container_red', 'yellow', 'white', 'glass', 'metal_dark']);
 const SPECTATE_DELAY_MS = 1600;
@@ -173,7 +173,7 @@ function buildWorld(ctx, opts) {
 
   /* ---------- 상태 ---------- */
   // loadout = 이 규칙에서 직접 고른 무기(pickSlot). 아직 안 골랐으면 null이고 계정 장비를 쓴다
-  const local = { id: String(ctx.session.id), name: String(ctx.session.name || ''), team: 'owner', alive: false, spawned: false, deadAt: 0, loadout: null, dropped: false };
+  const local = { id: String(ctx.session.id), name: String(ctx.session.name || ''), team: 'owner', alive: false, spawned: false, deadAt: 0, loadout: null, ownDrops: new Set() };
   const spec = { id: null, idx: 0, yaw: 0, name: '' };
   const actors = new Map();
   const rnd = { phase: null, round: 0, score: { owner: 0, charterer: 0 }, timeLeftMs: null, elapsed: 0, alive: null, teamSize: null, target: 3, bestOf: 5, ffa: null };
@@ -295,7 +295,7 @@ function buildWorld(ctx, opts) {
     if (input.locked && input.enabled && !emoteBusy()) { rmbDown = true; latch.rmb = true; }
   }));
   offs.push(bus.on('input:reload', () => { latch.reload = true; }));
-  offs.push(bus.on('input:drop', () => { dropLocalPrimary(); }));
+  offs.push(bus.on('input:drop', () => { dropHeldGun(); }));
   offs.push(bus.on('input:slot', (e) => { latch.slot = e && e.slot; }));
   offs.push(bus.on('input:cycle', (e) => { latch.wheel = (e && e.dir) || 0; }));
   offs.push(bus.on('input:lock', (e) => { if (e && !e.locked) rmbDown = false; }));
@@ -516,7 +516,7 @@ function buildWorld(ctx, opts) {
     local.loadout = lo[SLOT_KEYS[rulesetOf(ruleset).pickSlot]];
     local.alive = true;
     local.spawned = true;
-    local.dropped = false;
+    local.ownDrops.clear();
     spec.id = null; spec.name = '';
     latch.fire = latch.rmb = latch.reload = false; latch.slot = null; latch.wheel = 0;
     vm.setVisible(true);
@@ -710,8 +710,9 @@ function buildWorld(ctx, opts) {
   function killLocal(info = {}) {
     if (!local.spawned || !local.alive) return;
     cancelLocalEmote('death');
+    dropOnDeath();     // 총을 든 채 죽으면 그 총이 떨어진다(남은 탄 그대로)
     local.alive = false;
-    local.dropped = false;
+    local.ownDrops.clear();
     local.deadAt = performance.now();
     rmbDown = false;   // 누른 채 죽었으면 부활하자마자 조준 사격을 이어 가지 않는다
     if (ctx.renderer.applyPendingQuality) ctx.renderer.applyPendingQuality();   // 미뤄 둔 자동 품질 변경은 죽었을 때 치른다
@@ -724,7 +725,8 @@ function buildWorld(ctx, opts) {
   }
 
   /* ---------- 바닥에 버린 총 ----------
-   * 죽은 뒤 DROP_WINDOW_MS 안에 G를 누르면 주무기를 그 자리에 버린다. 탄약이 다 떨어진 사람이 닿으면 주워서 바로 쓴다.
+   * 살아 있을 때 G를 누르면 손에 든 주무기·보조무기를 앞 발밑에 버린다(칼로 바꿔 빨리 달리는 재미). 총을 든 채 죽으면 그 총이 떨어진다.
+   * 그 총의 칸(주무기·보조)이 빈 사람이 닿으면 주워서 남은 탄 그대로 쓴다. 방금 내가 버린 총은 한 번 벗어난 뒤부터 줍는다.
    * 받은 총은 이번 목숨에만 쓴다. 다음 스폰은 자기 장비로 돌아간다(spawnLocal → resetRound). */
   function dropLabel(text, premium) {
     const c = document.createElement('canvas');
@@ -789,53 +791,73 @@ function buildWorld(ctx, opts) {
   function clearDrops() {
     for (const d of drops.clear()) removeDropView(d.id);
   }
-  /** G를 받을 수 있는 남은 시간(ms). 살아 있거나, 이미 버렸거나, 교전 중이 아니면 0 */
-  function dropWindowLeft() {
-    if (!active || !local.spawned || local.alive || local.dropped || rnd.phase !== 'live') return 0;
-    return Math.max(0, DROP_WINDOW_MS - (displayNow() - local.deadAt));
+  /** 발밑 바닥 높이. 공중에서 죽었어도 바닥에 놓는다 */
+  function floorUnder(p) {
+    const h = map ? raycastWorld(map.world, [p[0], p[1] + 0.5, p[2]], [0, -1, 0], 60) : null;
+    return h ? p[1] + 0.5 - h.dist : p[1];
   }
-  /** 버릴 수 있는 내 주무기 { id, mag, reserve }. 규칙이 막았거나 탄이 하나도 없으면 null */
-  function droppablePrimary() {
-    if (!rulesetOf(ruleset).slots.includes(1)) return null;
-    const a = arsenal.getAmmo(arsenal.getPrimary());
-    return a && (a.mag > 0 || a.reserve > 0) ? { id: a.weaponId, mag: a.mag, reserve: a.reserve } : null;
+  /** 내 총 { id, mag, reserve }를 pos에 놓고 모두에게 알린다. 탄이 하나도 없는 총은 쓸모가 없어 놓지 않는다 */
+  function placeLocalDrop(gun, pos) {
+    if (!gun || !(gun.mag > 0 || gun.reserve > 0)) return null;
+    const dropId = `${local.id}#${++dropSeq}`;
+    const drop = addDrop({ id: dropId, weaponId: gun.id, pos: r2(pos), mag: gun.mag, reserve: gun.reserve });
+    if (!drop) return null;
+    emit('weaponDrop', { dropId, weaponId: gun.id, pos: drop.pos, mag: gun.mag, reserve: gun.reserve });
+    return drop;
   }
-  function dropLocalPrimary() {
-    if (!(dropWindowLeft() > 0) || !map) return false;
-    const gun = droppablePrimary();
+  /** (살아 있을 때 G) 손에 든 주무기·보조무기를 앞 발밑에 버린다. 앞이 벽이면 발밑에 둔다 */
+  function dropHeldGun() {
+    if (!active || !map || !local.spawned || !local.alive || rnd.phase !== 'live' || !localCanAct()) return false;
+    const gun = arsenal.dropHeld();
     if (!gun) return false;
     const p = player.state.pos;
-    const h = raycastWorld(map.world, [p[0], p[1] + 0.5, p[2]], [0, -1, 0], 60);   // 공중에서 죽었어도 바닥에 놓는다
-    const pos = r2([p[0], h ? p[1] + 0.5 - h.dist : p[1], p[2]]);
-    const dropId = `${local.id}#${++dropSeq}`;
-    if (!addDrop({ id: dropId, weaponId: gun.id, pos, mag: gun.mag, reserve: gun.reserve })) return false;
-    local.dropped = true;
+    const aim = player.getAimDir();
+    const len = Math.hypot(aim[0], aim[2]) || 1;
+    let at = [p[0] + (aim[0] / len) * 0.9, p[1], p[2] + (aim[2] / len) * 0.9];
+    if (!lineOfSight(map.world, [p[0], p[1] + 0.5, p[2]], [at[0], p[1] + 0.5, at[2]])) at = [p[0], p[1], p[2]];
+    at[1] = floorUnder(at);
+    const d = placeLocalDrop(gun, at);
+    if (d) local.ownDrops.add(d.id);   // 방금 버린 총은 한 번 벗어날 때까지 다시 줍지 않는다
     play('switch', { gain: 0.7 });
-    emit('weaponDrop', { dropId, weaponId: gun.id, pos, mag: gun.mag, reserve: gun.reserve });
+    if (ui) ui.hud.callout(`${getDef(gun.id).short} 버림`);
     return true;
   }
-  /** 내 주무기가 비었으면 닿은 총을 줍는다 */
+  /** 총을 든 채 죽으면 그 총이 바닥에 떨어진다(남은 탄 그대로). killLocal이 상태를 바꾸기 전에 부른다 */
+  function dropOnDeath() {
+    if (!active || !map || rnd.phase !== 'live') return;
+    const held = arsenal.getWeapon();
+    const def = getDef(held.id);
+    if (!def || (def.slot !== 1 && def.slot !== 2) || !isWeaponAllowed(ruleset, held.id)) return;
+    const a = arsenal.getAmmo(held.id);
+    const p = player.state.pos;
+    placeLocalDrop({ id: held.id, mag: a.mag, reserve: a.reserve }, [p[0], floorUnder(p), p[2]]);
+  }
+  /** 그 총의 칸이 비어 있어 주울 수 있는가 */
+  const canTake = (d) => { const def = getDef(d.weaponId); return !!def && arsenal.isSlotEmpty(def.slot); };
+  /** 닿은 총을 줍는다: 그 총의 칸(주무기·보조)이 비어 있을 때만. 방금 내가 버린 총은 한 번 벗어난 뒤부터 */
   function pickNearbyGun() {
-    if (!drops.size || !arsenal.isPrimaryEmpty()) return;
-    const d = drops.nearest(player.state.pos);
-    if (!d || !arsenal.takePrimary(d.weaponId, { mag: d.mag, reserve: d.reserve })) return;
+    if (!drops.size) { local.ownDrops.clear(); return; }
+    const p = player.state.pos;
+    for (const id of local.ownDrops) {
+      const own = drops.list().find((d) => d.id === id);
+      if (!own || Math.hypot(own.pos[0] - p[0], own.pos[2] - p[2]) > DROP_RADIUS + 0.4) local.ownDrops.delete(id);
+    }
+    const d = drops.nearest(p, (x) => !local.ownDrops.has(x.id) && canTake(x));
+    if (!d || !arsenal.takeWeapon(d.weaponId, { mag: d.mag, reserve: d.reserve })) return;
     removeDrop(d.id);
     play('switch');
     if (ui) ui.hud.callout(`${getDef(d.weaponId).short} 획득`);
     emit('weaponPick', { dropId: d.id, weaponId: d.weaponId });
   }
-  function dropHint() {
-    const left = dropWindowLeft();
-    const gun = left > 0 ? droppablePrimary() : null;
-    if (!gun) return '';
-    const how = input.touchMode ? '여기를 눌러' : 'G 키로';
-    return `${how} ${getDef(gun.id).short} 버리기 · ${Math.ceil(left / 1000)}초`;
-  }
-  /** 총 위에 섰는데 탄이 남아 있어 줍지 못할 때의 안내 */
+  /** 총 위에 섰는데 그 칸에 무기가 있어 줍지 못할 때의 안내 */
   function pickHint() {
     if (!local.spawned || !local.alive || !drops.size || rnd.phase !== 'live') return '';
-    const d = drops.nearest(player.state.pos);
-    return d ? `${getDef(d.weaponId).short}: 주무기 탄약을 다 쓰면 주울 수 있어요` : '';
+    const d = drops.nearest(player.state.pos, (x) => !local.ownDrops.has(x.id));
+    if (!d || canTake(d)) return '';
+    const def = getDef(d.weaponId);
+    const slotName = def.slot === 1 ? '주무기' : '보조무기';
+    const how = input.touchMode ? '무기 칸을 길게 눌러' : '들고 G를 눌러';
+    return `${def.short}: ${slotName}를 ${how} 버리면 주울 수 있어요`;
   }
 
   /* ---------- 로컬 무기 ---------- */
@@ -896,7 +918,7 @@ function buildWorld(ctx, opts) {
     const def = getDef(ev.weaponId);
     const fxKind = (def && def.fxKind) || 'rifle';
     const range = num(ev.maxRange, def ? def.maxRange : 300);
-    const list = targets();
+    const list = shotTargets(targets(), mode, local.team);   // 팀전: 아군 몸은 통과한다
     const m = vm.getMuzzleWorld(tmpV, R.camera);
     const pellets = ev.pellets && ev.pellets.length ? ev.pellets.length : 1;
     const byVictim = new Map();
@@ -1293,6 +1315,7 @@ function buildWorld(ctx, opts) {
       for (const ev of evs) onWeaponEvent(ev);
       player.setSpeedScale(arsenal.getMoveMul());
       if (rnd.phase === 'live') pickNearbyGun();
+      else local.ownDrops.clear();
     }
     for (const d of drops.expire()) removeDropView(d.id);
     if (nades) for (const ge of nades.update(dt)) onGrenadeEvent(ge);
@@ -1404,7 +1427,7 @@ function buildWorld(ctx, opts) {
       p.respawn = null;
       p.protect = false;
     }
-    p.hint = lockHint() || dropHint() || pickHint() || customHint || '';
+    p.hint = lockHint() || pickHint() || customHint || '';
     p.spectate = !alive && local.spawned ? spec.name : '';
     ui.hud.set(p);
   }

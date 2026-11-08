@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "SKALA FPS: browser multiplayer FPS with no build step (three.js + Supabase Realtime)",
+  "description": "SKALA 작전: browser multiplayer FPS with no build step (three.js + Supabase Realtime)",
   "scripts": {
     "serve": "node tools/serve.mjs",
     "test": "node --test \"tests/**/*.test.mjs\"",

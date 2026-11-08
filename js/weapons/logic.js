@@ -125,6 +125,8 @@ export function createArsenal(opts = {}) {
     4: GRENADE_ID,
   };
   let allowed = normSlots(opts.allowedSlots) || SLOTS;
+  /** 이번 목숨에 바닥에 버려 비어 있는 칸(1·2). 다음 목숨(resetRound)에 자기 장비로 돌아온다 */
+  const emptied = new Set();
 
   const fresh = (id) => {
     const d = WEAPONS[id];
@@ -137,7 +139,7 @@ export function createArsenal(opts = {}) {
   for (const id of WEAPON_IDS) inv[id] = fresh(id);
 
   /** 금지된 슬롯이면 null */
-  const slotWeapon = (slot) => (allowed.includes(slot) ? loadout[slot] || null : null);
+  const slotWeapon = (slot) => (allowed.includes(slot) && !emptied.has(slot) ? loadout[slot] || null : null);
   /** 지금 로드아웃에 있고 허용된 슬롯의 무기인가 */
   function carried(id) {
     const d = getDef(id);
@@ -744,6 +746,59 @@ export function createArsenal(opts = {}) {
       reloading: id === cur && state === 'reload' };
   }
 
+  /**
+   * 손에 든 주무기·보조무기를 이번 목숨 동안 내려놓는다(바닥에 버리기). 그 칸은 비고 다른 무기를 꺼낸다.
+   * 재장전·점사·줌은 끊긴다. 탄약은 지금 남은 그대로 돌려준다(바닥의 총이 이어받는다).
+   * @returns {{ id:string, slot:number, mag:number, reserve:number } | null} 총을 들고 있지 않거나 꺼낼 다른 무기가 없으면 null
+   */
+  function dropHeld() {
+    const d = WEAPONS[cur];
+    if (!d || (d.slot !== 1 && d.slot !== 2) || state === 'throw' || state === 'prime') return null;
+    const next = otherWeapon(cur, [1, 2, 3, 4].filter((s) => s !== d.slot));
+    if (!next) return null;
+    const w = inv[cur];
+    const out = { id: cur, slot: d.slot, mag: Math.max(0, w.mag ?? 0), reserve: w.reserve === Infinity ? Infinity : Math.max(0, w.reserve ?? 0) };
+    emptied.add(d.slot);
+    drawWeapon(next);
+    prev = otherWeapon(cur, [2, 1, 3, 4]);
+    return out;
+  }
+
+  /** 이 칸을 이번 목숨에 버려서 비어 있는가(그래야 바닥의 총을 주울 수 있다) */
+  function isSlotEmpty(slot) {
+    return allowed.includes(slot) && emptied.has(slot);
+  }
+
+  /** 칸 slot에 총 id를 넣고 바로 꺼낸다. 탄약은 남은 만큼 이어받되 정의의 최대를 넘지 못한다(프리미엄 예비는 무제한 그대로) */
+  function putInSlot(slot, id, ammo, draw = true) {
+    const d = WEAPONS[id];
+    const left = (v, max) => (Number.isFinite(v) ? clamp(Math.floor(v), 0, max) : max);
+    const w = fresh(id);
+    w.mag = left(ammo && ammo.mag, d.mag);
+    if (d.reserve !== Infinity) w.reserve = left(ammo && ammo.reserve, d.reserve);
+    emptied.delete(slot);
+    loadout[slot] = id;
+    inv[id] = w;
+    if (state === 'throw' || !draw) { prev = id; return true; }
+    if (cur !== id) prev = cur;
+    drawWeapon(id);
+    return true;
+  }
+
+  /**
+   * 바닥에서 주운 총을 그 총의 칸(주무기 1, 보조 2)에 넣는다. 그 칸이 비어 있을 때만 된다(먼저 버려야 줍는다).
+   * 다음 목숨은 resetRound가 자기 장비로 되돌린다.
+   * @returns {boolean} 총이 아니거나, 칸이 막혔거나, 칸에 이미 무기가 있으면 false
+   */
+  function takeWeapon(id, ammo = {}) {
+    const d = WEAPONS[id];
+    if (!d || (d.slot !== 1 && d.slot !== 2) || !isSlotEmpty(d.slot)) return false;
+    // 칼·수류탄을 들고 있거나 권총을 들고 주무기를 주웠을 때만 바로 꺼낸다. 싸우는 중에 권총을 주웠다고 소총이 바뀌지 않게 한다
+    const held = WEAPONS[cur];
+    const draw = !held || held.slot > 2 || d.slot < held.slot;
+    return putInSlot(d.slot, id, ammo, draw);
+  }
+
   /** 주무기를 더 쏠 수 없는가(탄창과 예비가 모두 비었다). 주무기 슬롯이 막힌 규칙에서는 false */
   function isPrimaryEmpty() {
     if (!allowed.includes(1)) return false;
@@ -758,17 +813,7 @@ export function createArsenal(opts = {}) {
    */
   function takePrimary(id, ammo = {}) {
     if (!PRIMARY_IDS.includes(id) || !allowed.includes(1)) return false;
-    const d = WEAPONS[id];
-    const left = (v, max) => (Number.isFinite(v) ? clamp(Math.floor(v), 0, max) : max);
-    const w = fresh(id);
-    w.mag = left(ammo && ammo.mag, d.mag);
-    if (d.reserve !== Infinity) w.reserve = left(ammo && ammo.reserve, d.reserve);
-    loadout[1] = id;
-    inv[id] = w;
-    if (state === 'throw') { prev = id; return true; }
-    if (cur !== id) prev = cur;
-    drawWeapon(id);
-    return true;
+    return putInSlot(1, id, ammo);
   }
 
   function stateProgress() {
@@ -788,7 +833,7 @@ export function createArsenal(opts = {}) {
   function getSlots() {
     return SLOTS.map((slot) => {
       const id = slotWeapon(slot);
-      if (!id) return { slot, id: null, name: null, short: null, icon: null, empty: true, active: false, allowed: false };
+      if (!id) return { slot, id: null, name: null, short: null, icon: null, empty: true, active: false, allowed: isSlotEmpty(slot), dropped: isSlotEmpty(slot) };
       const d = WEAPONS[id];
       return { slot, id, name: d.name, short: d.short, icon: d.icon, empty: !available(id), active: id === cur, allowed: true };
     });
@@ -856,6 +901,7 @@ export function createArsenal(opts = {}) {
   }
 
   function resetRound(o = {}) {
+    emptied.clear();
     for (const [key, slot, ids] of LOADOUT_KEYS) if (ids.includes(o[key])) loadout[slot] = o[key];
     for (const id of WEAPON_IDS) inv[id] = fresh(id);
     recoil.yaw = 0; recoil.pitch = 0; recoilCfg = null; lastShotAt = -1e9;
@@ -892,6 +938,9 @@ export function createArsenal(opts = {}) {
     getAmmo,
     isPrimaryEmpty,
     takePrimary,
+    takeWeapon,
+    dropHeld,
+    isSlotEmpty,
     getWeapon,
     getSlots,
     getMoveMul,

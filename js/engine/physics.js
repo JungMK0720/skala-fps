@@ -5,7 +5,7 @@
  *          three.js에 의존하지 않아 node에서 그대로 테스트한다.
  */
 /**
- * SKALA FPS — 물리 (순수 함수, three.js 의존 없음 → node에서 테스트 가능)
+ * SKALA 작전 — 물리 (순수 함수, three.js 의존 없음 → node에서 테스트 가능)
  *
  * 좌표: 1 = 1 m, y 위. 벡터는 [x, y, z] 배열.
  *

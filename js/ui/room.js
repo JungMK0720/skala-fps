@@ -3,7 +3,7 @@
  * Author: Minkyu Jung
  * Purpose: 대기실 화면. 팀 또는 개인전 명단, 준비와 시작, 모드·규칙·맵 변경, 채팅을 다룬다.
  */
-// SKALA FPS UI — 방(대기실): 팀 칼럼(팀전) / 한 줄 명단(개인전), 준비/시작, 모드·규칙·맵 변경, 채팅
+// SKALA 작전 UI — 방(대기실): 팀 칼럼(팀전) / 한 줄 명단(개인전), 준비/시작, 모드·규칙·맵 변경, 채팅
 import { h, btn, setText, num, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, modeLabel, MODE_ICON } from './dom.js';
 import { makeScreen, mapCard, createChoiceRow } from './parts.js';
 import { mapList, mapInfo } from './icons.js';

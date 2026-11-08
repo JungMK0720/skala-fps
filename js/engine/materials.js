@@ -4,7 +4,7 @@
  * Purpose: 맵 재질 팔레트. 텍스처는 전부 캔버스로 그린다(외부 이미지 없음). 이름 목록은 consts.MATS와 같다.
  */
 /**
- * SKALA FPS — 재질 팔레트 (캔버스로 그린 절차적 텍스처, 외부 이미지 없음)
+ * SKALA 작전 — 재질 팔레트 (캔버스로 그린 절차적 텍스처, 외부 이미지 없음)
  *
  *   getMaterial('concrete')  → 공유 THREE.Material (텍스처는 월드 좌표 UV 기준으로 MAT_INFO[name].scale m마다 반복)
  *   matColor('rust')         → 대표 색(hex number) — FX 파편 색 등에 사용

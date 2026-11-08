@@ -4,7 +4,7 @@
  * Purpose: 사용자 설정(감도, 줌 방식, 시야각, 볼륨 등)을 localStorage에 저장하고 변경을 bus로 알린다.
  */
 /**
- * SKALA FPS — 사용자 설정 저장소 (localStorage 'skalafps.settings.v1'). three.js 의존 없음.
+ * SKALA 작전 — 사용자 설정 저장소 (localStorage 'skalafps.settings.v1'). three.js 의존 없음.
  *
  *   const settings = createSettings(bus);
  *   settings.get('sensitivity'); settings.set('zoomMode', 'toggle');
