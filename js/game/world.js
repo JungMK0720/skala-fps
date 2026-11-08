@@ -631,7 +631,8 @@ function buildWorld(ctx, opts) {
     if (!h || typeof h.stop !== 'function') return;
     try { h.stop(150); } catch (err) { /* ignore */ }            // fadeMs
   }
-  /* 상점 미리 듣기: 내 소리(2D)로 잠깐 재생한다. 음원 묶음을 읽는 중이면 조금(최대 1.5초) 기다렸다가 파일로 들려준다 */
+  /* 상점 미리 듣기: 내 소리(2D)로 잠깐 재생한다. 음원 묶음을 읽는 중이면 조금(최대 3초) 기다렸다가 파일로 들려주고,
+   * 그래도 늦으면 합성음으로 시작했다가 파일이 준비되는 즉시 파일로 바뀐다(fx/audio.js) */
   const PREVIEW_MS = 4000;
   let previewSnd = null, previewTimer = 0, previewSeq = 0;
   function stopEmotePreview() {
@@ -646,7 +647,7 @@ function buildWorld(ctx, opts) {
     if (!e || typeof audio.emote !== 'function') return false;
     const seq = previewSeq;
     if (typeof audio.emoteFilesReady === 'function') {
-      try { await Promise.race([audio.emoteFilesReady(), new Promise((r) => setTimeout(r, 1500))]); } catch (err) { /* 합성음으로 */ }
+      try { await Promise.race([audio.emoteFilesReady(), new Promise((r) => setTimeout(r, 3000))]); } catch (err) { /* 합성음으로 */ }
     }
     if (seq !== previewSeq) return false;
     previewSnd = emoteSound(e.code, null);

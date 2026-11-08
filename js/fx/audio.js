@@ -748,7 +748,10 @@ export function createAudio(opts = {}) {
   const emoSynth = new Map();              // id → 합성음 묘사자
   const emoFiles = new Map();              // id → 파일 묘사자(manifest로 교체된 이모트만)
   const manifestUrl = opts.emoteManifest === false ? null : (opts.emoteManifest || DEFAULT_EMOTE_MANIFEST);
-  let emoLoad = null, emoAbort = null;
+  const emoRaw = new Map();                // id → { ent, data } 받아서 푼 음원 바이트(언락 전에도 채운다)
+  const emoBuilding = new Map();           // id → 버퍼 만들기 Promise(한 번만)
+  const emoBad = [];                       // 합성음으로 대체한 이유
+  let emoFetch = null, emoReady = null, emoAbort = null, emoPrefetchTimer = 0;
   const emoHandles = new Set();
   const emoCand = [], emoLocal = [];
   let emoSeq = 0, emoLast = -1e9;
@@ -981,13 +984,18 @@ export function createAudio(opts = {}) {
     return b;
   }
 
-  /* ── 이모트 음원 파일(manifest): 언락 뒤 한 번. 목록에 있는 파일만 요청, 실패는 console.info 한 줄 + 합성음 ── */
-  function loadEmoteFiles() {
-    if (emoLoad) return emoLoad;
-    if (!manifestUrl || typeof fetch !== 'function' || !ctx) { emoLoad = Promise.resolve([]); return emoLoad; }
+  /* ── 이모트 음원 파일(manifest). 목록에 있는 파일만 요청, 실패는 console.info 한 줄 + 합성음 ──
+   * 1) 받기·풀기(fetchEmoteFiles)는 오디오를 켜기 전에도 한다: 페이지를 열고 잠시 뒤, 또는 언락 때 중 먼저.
+   *    번호 순서(L을 가져가가 먼저)로 요청한다.
+   * 2) 버퍼 만들기(buildEmoteFile)는 오디오 컨텍스트가 생긴 뒤. 묶음의 WAV는 직접 읽어 곧바로 버퍼로 만든다.
+   * 3) 파일이 늦게 준비돼 합성음으로 시작한 이모트(상점 미리 듣기 포함)는 준비되는 즉시 같은 박자 위치에서 파일로 바꿔 튼다. */
+  function fetchEmoteFiles() {
+    if (emoFetch) return emoFetch;
+    clearTimeout(emoPrefetchTimer); emoPrefetchTimer = 0;
+    if (!manifestUrl || typeof fetch !== 'function' || disposed) { emoFetch = Promise.resolve(); return emoFetch; }
     emoAbort = typeof AbortController === 'function' ? new AbortController() : null;
     const signal = emoAbort ? emoAbort.signal : undefined;
-    emoLoad = (async () => {
+    emoFetch = (async () => {
       let list;
       try {
         const res = await fetch(manifestUrl, { cache: 'no-cache', signal });
@@ -995,40 +1003,97 @@ export function createAudio(opts = {}) {
         list = await res.json();
       } catch (e) {
         if (!disposed && e?.name !== 'AbortError') console.info('[fx] 이모트 음원 manifest를 읽지 못해 합성음을 씁니다 —', e?.message || String(e));
-        return [];
+        return;
       }
       if (!list || typeof list !== 'object' || Array.isArray(list)) {
         console.info('[fx] 이모트 음원 manifest가 객체가 아니라서 합성음을 씁니다.');
-        return [];
+        return;
       }
-      const bad = [], jobs = [];
-      for (const [id, ent] of Object.entries(list)) {
+      const rank = (id) => { const i = EMOTE_SOUNDS.indexOf(id); return i < 0 ? 99 : i; };
+      const ids = Object.keys(list).sort((a, b) => rank(a) - rank(b));
+      await Promise.all(ids.map(async (id) => {
+        const ent = list[id];
         const file = ent && typeof ent.file === 'string' ? ent.file.trim() : '';
-        if (!ownDef(EMOTE_DEFS, id)) { bad.push(`${id}: 모르는 이모트`); continue; }
-        if (!SAFE_FILE.test(file) || file.split('/').includes('..')) { bad.push(`${id}: 파일 이름`); continue; }
-        jobs.push(loadEmoteFile(id, ent, new URL(file, manifestUrl).href, signal)
-          .catch((e) => { if (e?.name !== 'AbortError') bad.push(`${id}: ${e?.message || e}`); }));
-      }
-      await Promise.all(jobs);
-      if (disposed) return [];
-      const ok = [...emoFiles.keys()];
-      if (ok.length || bad.length) {
-        console.info(`[fx] 이모트 음원 — 파일: ${ok.length ? ok.join(', ') : '없음'}${bad.length ? ` · 합성음 대체: ${bad.join(' / ')}` : ''}`);
-      }
-      return ok;
+        if (!ownDef(EMOTE_DEFS, id)) { emoBad.push(`${id}: 모르는 이모트`); return; }
+        if (!SAFE_FILE.test(file) || file.split('/').includes('..')) { emoBad.push(`${id}: 파일 이름`); return; }
+        try {
+          const res = await fetch(new URL(file, manifestUrl).href, { signal });
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          let ab = await res.arrayBuffer();
+          if (ab.byteLength > EMOTE_FILE_MAX_BYTES) throw new Error('파일이 너무 큼');
+          if (ent.enc === true) ab = await decryptEmote(ab);    // 음원 묶음(.bin, js/fx/emote-key.js)은 여기서 풀어 둔다
+          if (disposed) return;
+          emoRaw.set(id, { ent, data: ab });
+          if (ctx) await buildEmoteFile(id);                   // 이미 언락했으면 바로 버퍼로
+        } catch (e) {
+          if (e?.name !== 'AbortError') emoBad.push(`${id}: ${e?.message || e}`);
+        }
+      }));
     })();
-    return emoLoad;
+    return emoFetch;
   }
 
-  async function loadEmoteFile(id, ent, url, signal) {
-    const res = await fetch(url, { signal });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    let ab = await res.arrayBuffer();
-    if (ab.byteLength > EMOTE_FILE_MAX_BYTES) throw new Error('파일이 너무 큼');
-    if (ent.enc === true) ab = await decryptEmote(ab);    // 음원 묶음(.bin, js/fx/emote-key.js)은 여기서 풀어 쓴다
-    if (!ctx || disposed) return;
-    let buf;
-    try { buf = await ctx.decodeAudioData(ab); } catch { throw new Error('디코드 실패'); }
+  /** 언락 때 한 번: 받기를 시작(또는 이어서)하고, 받은 것을 모두 버퍼로 만든다. 끝나면 파일로 바뀐 id 목록 */
+  function loadEmoteFiles() {
+    if (emoReady) return emoReady;
+    if (!ctx) return Promise.resolve([]);
+    emoReady = fetchEmoteFiles()
+      .then(() => Promise.all([...emoRaw.keys()].map((id) => buildEmoteFile(id))))
+      .then(() => {
+        if (disposed) return [];
+        const ok = [...emoFiles.keys()];
+        if (ok.length || emoBad.length) {
+          console.info(`[fx] 이모트 음원 — 파일: ${ok.length ? ok.join(', ') : '없음'}${emoBad.length ? ` · 합성음 대체: ${emoBad.join(' / ')}` : ''}`);
+        }
+        return ok;
+      });
+    return emoReady;
+  }
+
+  /** 16비트 PCM WAV(묶는 도구가 만드는 형식)를 곧바로 AudioBuffer로. 다른 형식이면 null(→ decodeAudioData) */
+  function wavBuffer(ab) {
+    try {
+      const dv = new DataView(ab);
+      const tag = (o) => String.fromCharCode(dv.getUint8(o), dv.getUint8(o + 1), dv.getUint8(o + 2), dv.getUint8(o + 3));
+      if (ab.byteLength < 44 || tag(0) !== 'RIFF' || tag(8) !== 'WAVE') return null;
+      let o = 12, fmt = null, data = null;
+      while (o + 8 <= ab.byteLength) {
+        const id = tag(o), size = dv.getUint32(o + 4, true);
+        if (id === 'fmt ') fmt = { format: dv.getUint16(o + 8, true), ch: dv.getUint16(o + 10, true), rate: dv.getUint32(o + 12, true), bits: dv.getUint16(o + 22, true) };
+        else if (id === 'data') { data = { at: o + 8, size: Math.min(size, ab.byteLength - o - 8) }; break; }
+        o += 8 + size + (size & 1);
+      }
+      if (!fmt || !data || fmt.format !== 1 || fmt.bits !== 16 || fmt.ch < 1 || fmt.ch > 2 || fmt.rate < 8000 || fmt.rate > 96000) return null;
+      const frames = Math.floor(data.size / (2 * fmt.ch));
+      if (!frames) return null;
+      const buf = ctx.createBuffer(fmt.ch, frames, fmt.rate);
+      for (let c = 0; c < fmt.ch; c++) {
+        const out = buf.getChannelData(c);
+        for (let i = 0; i < frames; i++) out[i] = dv.getInt16(data.at + (i * fmt.ch + c) * 2, true) / 32768;
+      }
+      return buf;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 받아 둔 음원 하나를 버퍼로(한 번만). 합성음으로 돌던 같은 이모트는 파일로 바꾼다 */
+  function buildEmoteFile(id) {
+    if (!ctx || disposed) return Promise.resolve();
+    if (emoBuilding.has(id)) return emoBuilding.get(id);
+    const raw = emoRaw.get(id);
+    if (!raw) return Promise.resolve();
+    const job = makeEmoteFile(id, raw.ent, raw.data)
+      .catch((e) => { emoBad.push(`${id}: ${e?.message || e}`); });
+    emoBuilding.set(id, job);
+    return job;
+  }
+
+  async function makeEmoteFile(id, ent, ab) {
+    let buf = wavBuffer(ab);
+    if (!buf) {
+      try { buf = await ctx.decodeAudioData(ab.slice(0)); } catch { throw new Error('디코드 실패'); }
+    }
     if (!ctx || disposed || !buf) return;
     if (buf.duration > EMOTE_FILE_MAX_SEC) throw new Error(`${EMOTE_FILE_MAX_SEC}초 초과`);
     let pk = 0;                                            // 피크를 합성음과 같은 0.9로 맞춘다 → gain 1 ≈ 합성음 크기
@@ -1044,7 +1109,17 @@ export function createAudio(opts = {}) {
     let le = ent.loopEnd == null ? buf.duration : Number(ent.loopEnd);
     le = Number.isFinite(le) ? Math.min(buf.duration, le) : buf.duration;
     if (le - ls < 0.05) { ls = 0; le = buf.duration; }     // 구간이 잘못되면 파일 전체를 반복
-    emoFiles.set(id, { buf, ls, le, level: EMOTE_DEFS[id].level * gain * norm, source: 'file' });
+    const f = { buf, ls, le, level: EMOTE_DEFS[id].level * gain * norm, source: 'file' };
+    emoFiles.set(id, f);
+    // 파일보다 먼저 시작해 합성음으로 돌던 같은 이모트: 보이스를 짧게 줄이고 같은 박자 위치(t0 기준)에서 파일로 다시 받는다
+    let swapped = false;
+    for (const h of emoHandles) {
+      if (h.name !== id || h.dead || h.snd.source !== 'synth') continue;
+      h.snd = f;
+      dropEmote(h, 0.06);
+      swapped = true;
+    }
+    if (swapped) refreshEmotes(true);
   }
 
   // 이모트 소리 묘사자 { buf, ls, le(루프 구간 초), level, source: 'file'|'synth' }.
@@ -1207,6 +1282,13 @@ export function createAudio(opts = {}) {
     }
   }
 
+  // 음원 묶음은 페이지를 연 뒤 잠시(게임 로딩과 겹치지 않게) 기다렸다가 미리 받아 둔다. 언락이 먼저면 그때 바로 받는다.
+  // 그래서 상점 미리 듣기나 첫 이모트도 대개 처음부터 파일로 나온다. createAudio({ emotePrefetch: false })로 끌 수 있다
+  const prefetchMs = opts.emotePrefetch === false ? -1 : Math.max(0, Number(opts.emotePrefetchDelayMs ?? 1500) || 0);
+  if (prefetchMs >= 0 && manifestUrl && typeof setTimeout === 'function') {
+    emoPrefetchTimer = setTimeout(() => { emoPrefetchTimer = 0; if (!disposed) fetchEmoteFiles(); }, prefetchMs);
+  }
+
   return {
     names: SOUND_NAMES,
     /** 첫 사용자 입력(click/keydown/pointerdown) 핸들러 안에서 호출. 여러 번 불러도 안전. */
@@ -1245,8 +1327,10 @@ export function createAudio(opts = {}) {
     emote,
     /** 이모트 id 목록(인덱스 + 1 = 전송 번호) */
     emotes: EMOTE_SOUNDS,
-    /** manifest 음원 로드가 끝나면 파일로 바뀐 이모트 id 목록으로 resolve(언락 전이거나 파일이 없으면 []) */
-    emoteFilesReady() { return emoLoad || Promise.resolve([]); },
+    /** 언락 뒤 manifest 음원을 모두 버퍼로 만들면 파일로 바뀐 이모트 id 목록으로 resolve(언락 전이거나 파일이 없으면 []) */
+    emoteFilesReady() { return emoReady || Promise.resolve([]); },
+    /** 음원 받기·풀기를 지금 시작한다(언락 전에도 됨, 한 번만). 끝나면 resolve */
+    prefetchEmoteFiles: () => fetchEmoteFiles(),
     stopAll,
     /** 'low': HRTF→equalpower, 3D 보이스 12개, 잔향 절반, 동시 3D 이모트 3개 */
     setQuality(q) {
@@ -1265,7 +1349,10 @@ export function createAudio(opts = {}) {
         emotes: emoHandles.size, emoteVoices3d: held(emo3), emoteVoices2d: held(emo2),
         emotePool3d: emo3.length, emotePool2d: emo2.length, emoteCached: emoCache.size,
         emoteSources: emo3.concat(emo2).reduce((n, v) => n + (v.src ? 1 : 0), 0),
-        emoteFiles: [...emoFiles.keys()]
+        emoteFiles: [...emoFiles.keys()],
+        emoteFetched: [...emoRaw.keys()],
+        /** 재생 중인 이모트 핸들: 'id:file' 또는 'id:synth' */
+        emotePlaying: [...emoHandles].map((h) => `${h.name}:${h.snd.source}`)
       };
     },
     dispose() {
@@ -1280,7 +1367,9 @@ export function createAudio(opts = {}) {
         for (const n of [v.g, v.f, v.p, v.send]) if (n) { try { n.disconnect(); } catch { /* 무시 */ } }
       }
       emo3.length = 0; emo2.length = 0; emoCache.clear(); emoSynth.clear(); emoFiles.clear();
+      clearTimeout(emoPrefetchTimer); emoPrefetchTimer = 0;
       if (emoAbort) { try { emoAbort.abort(); } catch { /* 무시 */ } emoAbort = null; }
+      emoRaw.clear(); emoBuilding.clear();
       for (const v of pool3.concat(pool2)) {
         if (v.src) { try { v.src.stop(); } catch { /* 무시 */ } release(v); }
         for (const n of [v.g, v.f, v.p, v.send]) if (n) { try { n.disconnect(); } catch { /* 무시 */ } }
