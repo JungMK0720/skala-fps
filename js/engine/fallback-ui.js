@@ -10,7 +10,7 @@
  * 모든 사용자 문자열은 textContent로만 넣는다. 클래스는 'core-' 접두사(index.html <style>).
  */
 
-import { EMOTES, EMOTE_WHEEL } from '../core/consts.js';
+import { DEFAULT_EMOTE_WHEEL, EMOTES, EMOTE_WHEEL } from '../core/consts.js';
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -243,14 +243,25 @@ export function createFallbackHud(ctx) {
   wheel.hidden = true;
   const wheelDot = el('i', 'core-emote-dot');
   const wheelHub = el('b', 'core-emote-hub', 'B');
-  const slots = EMOTES.slice(0, EMOTE_WHEEL.SLOTS).map((e, i) => {
+  const slots = Array.from({ length: EMOTE_WHEEL.SLOTS }, (_, i) => {
     const a = (i / EMOTE_WHEEL.SLOTS) * Math.PI * 2;
     const it = el('div', 'core-emote-slot');
     it.style.left = `calc(50% + ${Math.sin(a) * 118}px)`;
     it.style.top = `calc(50% - ${Math.cos(a) * 118}px)`;
-    it.append(el('span', 'core-emote-ico', e.icon), el('small', null, e.name));
+    it.append(el('span', 'core-emote-ico', ''), el('small', null, ''));
     return it;
   });
+  /** 휠을 열 때 칸 이름을 지금 장착한 이모트(input.emoteWheelIds)로 맞춘다 */
+  function fillSlots() {
+    const ids = (ctx.input && ctx.input.emoteWheelIds) || DEFAULT_EMOTE_WHEEL;
+    slots.forEach((it, i) => {
+      const e = EMOTES.find((x) => x.id === ids[i]);
+      it.hidden = !e;
+      it.firstChild.textContent = e ? e.icon : '';
+      it.lastChild.textContent = e ? e.name : '';
+    });
+  }
+  fillSlots();
   wheel.append(...slots, wheelHub, wheelDot);
   const emoteTag = el('div', 'core-emote-tag');
   emoteTag.hidden = true;
@@ -327,6 +338,7 @@ export function createFallbackHud(ctx) {
   offs.push(bus.on('weapon:zoom', (e) => cross.classList.toggle('aim', !!e.active)));
   // 이모트: 휠 · 진행 표시 · 3인칭이면 조준선 숨김 · 거절 사유
   offs.push(bus.on('input:emoteWheel', (e) => {
+    if (e.open && wheel.hidden) fillSlots();
     wheel.hidden = !e.open || hud.hidden;
     slots.forEach((it, i) => it.classList.toggle('on', e.selected === i));
     wheelDot.style.transform = `translate(${e.cursor ? e.cursor.x : 0}px, ${e.cursor ? e.cursor.y : 0}px)`;

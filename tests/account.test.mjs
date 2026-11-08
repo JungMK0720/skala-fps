@@ -22,6 +22,12 @@ import {
   PROFILE_KEY, PROFILE_VERSION, STAT_KEYS, STAT_MAX, TOKEN_KEY, createStore, defaultProfile, generateToken, mergeProfiles, normalizeProfile
 } from '../js/account/store.js';
 import { DEFAULT_LOADOUT, WEAPON_IDS, getDef } from '../js/weapons/defs.js';
+import { DEFAULT_EMOTE_WHEEL, EMOTES, EMOTE_IDS } from '../js/core/consts.js';
+
+/** 처음 장비: 무기 3칸 + 기본 이모트 휠 */
+const DEFAULT_GEAR = Object.freeze({ ...DEFAULT_LOADOUT, emotes: [...DEFAULT_EMOTE_WHEEL] });
+const FREE_EMOTES = EMOTES.filter((e) => e.price === 0).map((e) => e.id);
+const PAID_EMOTES = EMOTES.filter((e) => e.price > 0).map((e) => e.id);
 
 const CONFIG = Object.freeze({ url: 'https://proj.supabase.co', anonKey: 'sb_publishable_test' });
 const VALID_TOKEN = 'a'.repeat(64);
@@ -211,10 +217,18 @@ describe('economy', () => {
 
   test('시작 포인트와 기본 지급', () => {
     assert.equal(START_POINTS, 500);
-    assert.deepEqual(defaultOwned(), WEAPON_IDS.filter((id) => getDef(id).price === 0));
+    assert.deepEqual(defaultOwned(), [...WEAPON_IDS.filter((id) => getDef(id).price === 0), ...FREE_EMOTES]);
     assert.ok(defaultOwned().includes(DEFAULT_LOADOUT.primary));
     assert.equal(priceOf('sr_heavy'), getDef('sr_heavy').price);
     assert.equal(priceOf('nope'), null);
+  });
+
+  test('이모트 가격: 기본 지급은 0, 상점 이모트는 EMOTES의 price', () => {
+    for (const e of EMOTES) assert.equal(priceOf(e.id), e.price, e.id);
+    for (const id of ['takeL', 'veggie', 'creamCheese']) assert.equal(priceOf(id), 0, `${id}는 기본 지급`);
+    assert.ok(PAID_EMOTES.length > 0);
+    for (const id of PAID_EMOTES) assert.ok(!defaultOwned().includes(id), id);
+    assert.equal(priceOf(1), null, '번호는 물건 id가 아니다');
   });
 
   test('DESIGN 7절의 표', () => {
@@ -340,7 +354,8 @@ describe('store', () => {
     assert.equal(p.loadout.primary, DEFAULT_LOADOUT.primary, '가지지 않은 무기');
     assert.equal(p.loadout.secondary, DEFAULT_LOADOUT.secondary, '칸이 맞지 않는 무기');
     assert.equal(p.loadout.melee, 'ml_knife');
-    assert.deepEqual(Object.keys(p.loadout).sort(), ['melee', 'primary', 'secondary']);
+    assert.deepEqual(Object.keys(p.loadout).sort(), ['emotes', 'melee', 'primary', 'secondary']);
+    assert.deepEqual(p.loadout.emotes, [...DEFAULT_EMOTE_WHEEL]);
     assert.equal(p.stats.kills, 3);
     assert.equal(p.stats.deaths, 0);
     assert.equal(p.stats.wins, 0);
@@ -365,7 +380,7 @@ describe('createAccount 첫 실행과 복구', () => {
     assert.equal(account.profile.nickname, '');
     assert.equal(account.profile.points, START_POINTS);
     assert.deepEqual([...account.profile.owned], defaultOwned());
-    assert.deepEqual({ ...account.loadout }, { ...DEFAULT_LOADOUT });
+    assert.deepEqual({ ...account.loadout }, { ...DEFAULT_GEAR });
     for (const key of STAT_KEYS) assert.equal(account.profile.stats[key], 0);
     assert.deepEqual({ ...account.profile.secrets }, {});
     assert.ok(account.profile.createdAt > 0);
@@ -418,7 +433,7 @@ describe('createAccount 첫 실행과 복구', () => {
     assert.equal(account.profile.nickname, '철수');
     assert.equal(account.profile.points, 1234);
     assert.deepEqual([...account.profile.owned], defaultOwned());
-    assert.deepEqual({ ...account.loadout }, { ...DEFAULT_LOADOUT });
+    assert.deepEqual({ ...account.loadout }, { ...DEFAULT_GEAR });
     assert.equal(account.nicknamePending, false);
   });
 
@@ -859,7 +874,38 @@ describe('createAccount 상점과 장비', () => {
   test('isOwned: 기본 지급 무기만 처음부터 가진다', (t) => {
     const { account } = makeAccount(t);
     for (const id of WEAPON_IDS) assert.equal(account.isOwned(id), getDef(id).price === 0, id);
+    for (const e of EMOTES) assert.equal(account.isOwned(e.id), e.price === 0, e.id);
     assert.equal(account.isOwned('no_such'), false);
+  });
+
+  test('이모트 구매와 휠 장착', (t) => {
+    const { account, bus } = makeAccount(t);
+    assert.deepEqual([...account.emoteWheel], [...DEFAULT_EMOTE_WHEEL]);
+    assert.deepEqual(account.equipEmote(0, 'selfie'), { ok: false, reason: 'unowned' }, '사지 않은 이모트');
+    assert.deepEqual(account.equipEmote(8, 'takeL'), { ok: false, reason: 'slot' }, '9번째 칸은 없다');
+    assert.deepEqual(account.equipEmote(-1, 'takeL'), { ok: false, reason: 'slot' });
+    assert.deepEqual(account.equipEmote('x', 'takeL'), { ok: false, reason: 'slot' });
+    assert.deepEqual(account.equipEmote(0, 'ar_std'), { ok: false, reason: 'unknown' }, '무기는 휠에 넣지 않는다');
+    assert.deepEqual(account.equipEmote(0, 1), { ok: false, reason: 'unknown' });
+    assert.equal(bus.of('account:change').length, 0);
+
+    assert.deepEqual(account.buy('selfie'), { ok: true, points: START_POINTS - 400 }, '셀카 400');
+    assert.deepEqual(account.buy('fromYou'), { ok: false, reason: 'points', points: START_POINTS - 400 }, '당신에게서 600');
+    assert.deepEqual(account.buy('takeL'), { ok: false, reason: 'owned', points: START_POINTS - 400 }, '기본 지급 이모트');
+    assert.ok(account.profile.owned.includes('selfie'));
+
+    assert.deepEqual(account.equipEmote(2, 'selfie'), { ok: true });
+    assert.equal(account.emoteWheel[2], 'selfie', '3번 칸(크림치즈 허니 자리)에 넣는다');
+    assert.ok(!account.emoteWheel.includes('creamCheese'), '빠진 이모트는 휠에 없다');
+    assert.deepEqual(account.equipEmote(0, 'selfie'), { ok: true }, '이미 휠에 있으면 맞바꾼다');
+    assert.equal(account.emoteWheel[0], 'selfie');
+    assert.equal(account.emoteWheel[2], 'takeL');
+    assert.equal(account.emoteWheel.length, 8);
+    const before = bus.of('account:change').length;
+    assert.deepEqual(account.equipEmote(0, 'selfie'), { ok: true });
+    assert.equal(bus.of('account:change').length, before, '같은 칸이면 바뀐 것이 없다');
+    assert.deepEqual([...account.loadout.emotes], [...account.emoteWheel]);
+    assert.equal(account.loadout.primary, DEFAULT_LOADOUT.primary, '무기 장비는 그대로');
   });
 
   test('equip 규칙', (t) => {
@@ -870,7 +916,7 @@ describe('createAccount 상점과 장비', () => {
     assert.deepEqual(account.equip('primary', 'pt_std'), { ok: false, reason: 'slot' }, '칸이 다른 무기');
     assert.deepEqual(account.equip('melee', 'ar_std'), { ok: false, reason: 'slot' });
     assert.deepEqual(account.equip('primary', 'sr_heavy'), { ok: false, reason: 'unowned' });
-    assert.deepEqual({ ...account.loadout }, { ...DEFAULT_LOADOUT });
+    assert.deepEqual({ ...account.loadout }, { ...DEFAULT_GEAR });
     assert.equal(bus.of('account:change').length, 0);
 
     assert.deepEqual(account.equip('primary', 'sr_bolt'), { ok: true });
@@ -1580,8 +1626,9 @@ describe('supabase/schema.sql', () => {
   test('서버 가격표가 defs.js의 가격과 같다', () => {
     const m = code.match(/function public\.fps_item_price[\s\S]*?\$\$;/);
     assert.ok(m, 'fps_item_price 정의');
-    const listed = Object.fromEntries([...m[0].matchAll(/when '([a-z0-9_]+)' then (\d+)/g)].map((x) => [x[1], Number(x[2])]));
-    assert.deepEqual(listed, Object.fromEntries(WEAPON_IDS.map((id) => [id, getDef(id).price])));
+    const listed = Object.fromEntries([...m[0].matchAll(/when '([A-Za-z0-9_]+)' then (\d+)/g)].map((x) => [x[1], Number(x[2])]));
+    assert.deepEqual(listed, Object.fromEntries([...WEAPON_IDS.map((id) => [id, getDef(id).price]), ...EMOTES.map((e) => [e.id, e.price])]));
+    assert.equal(Object.keys(listed).length, WEAPON_IDS.length + EMOTE_IDS.length);
   });
 
   test('저장은 늘어나는 양을 통으로 제한하고 받아들인 값을 돌려준다. 등록은 IP별로 센다', () => {

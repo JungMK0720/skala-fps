@@ -18,12 +18,15 @@
  *   checkNickname, setNickname, retryNickname → { ok, name, reason?, offline, message }. message는 화면에 그대로 보여 줘도 된다.
  *   네트워크 실패는 { ok:true, offline:true, reason:'network', message }다. 게임을 막지 않으려고 ok가 true다.
  *   equip의 reason: 'slot'(칸이 없거나 맞지 않음) | 'unknown' | 'unowned'
+ *   account.emoteWheel            휠 8칸의 이모트 id(12시부터 시계 방향). loadout.emotes와 같다
+ *   account.equipEmote(slot, id)  휠 칸(0~7)에 가진 이모트를 넣는다. 다른 칸에 이미 있으면 두 칸을 맞바꾼다. reason은 equip과 같다
  *   recordMatch의 summary에 knifeKills를 넣으면 전적에 쌓인다(선택).
  *
  * 닉네임 게이트는 'account:change'도 들어야 한다. 프로필을 잃어도 토큰이 남아 있으면 동기화가 끝난 뒤 닉네임이 돌아온다.
  */
 import { getDef } from '../weapons/defs.js';
-import { clampPoints, matchReward, priceOf, readSummary, secretReward } from './economy.js';
+import { EMOTE_WHEEL } from '../core/consts.js';
+import { clampPoints, isEmoteId, matchReward, priceOf, readSummary, secretReward } from './economy.js';
 import { nicknameKey, validateNickname } from './nickname.js';
 import { createRemote } from './remote.js';
 import {
@@ -31,7 +34,7 @@ import {
   normalizeProfile, normalizeStats, sameProfile, sameProgress, secretEntry
 } from './store.js';
 
-export { START_POINTS, matchReward, priceOf } from './economy.js';
+export { START_POINTS, isEmoteId, matchReward, priceOf } from './economy.js';
 export { cleanNickname, nicknameKey, validateNickname } from './nickname.js';
 
 export const SAVE_DEBOUNCE_MS = 2000;
@@ -352,6 +355,21 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     return { ok: true };
   }
 
+  function equipEmote(slot, id) {
+    const i = Number(slot);
+    if (!Number.isInteger(i) || i < 0 || i >= EMOTE_WHEEL.SLOTS) return { ok: false, reason: 'slot' };
+    if (!isEmoteId(id)) return { ok: false, reason: 'unknown' };
+    if (!isOwned(id)) return { ok: false, reason: 'unowned' };
+    const wheel = profile.loadout.emotes.slice();
+    const at = wheel.indexOf(id);
+    if (at === i) return { ok: true };
+    if (at >= 0) wheel[at] = wheel[i];
+    wheel[i] = id;
+    profile.loadout.emotes = wheel;
+    commit();
+    return { ok: true };
+  }
+
   // ───────────── 전적 · 보상 ─────────────
   function recordMatch(summary) {
     const s = readSummary(summary);
@@ -460,6 +478,7 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
   return Object.freeze({
     get profile() { return readProfile(); },
     get loadout() { return readProfile().loadout; },
+    get emoteWheel() { return readProfile().loadout.emotes; },
     get remoteEnabled() { return remote.enabled; },
     get nicknamePending() { return !!pendingClaim; },
     get nicknameConflict() { return conflictName; },
@@ -470,6 +489,7 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     retryNickname,
     buy,
     equip,
+    equipEmote,
     isOwned,
     recordMatch,
     findSecret,

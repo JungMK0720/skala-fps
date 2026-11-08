@@ -87,7 +87,8 @@ begin
   );
 end $$;
 
--- 서버 가격표. js/weapons/defs.js의 price와 같아야 한다(tests/account.test.mjs가 대조한다). 모르는 id는 null이라 살 수 없다.
+-- 서버 가격표. js/weapons/defs.js(무기)와 js/core/consts.js EMOTES(이모트)의 price와 같아야 한다(tests/account.test.mjs가 대조한다).
+-- 모르는 id는 null이라 살 수 없다.
 create or replace function public.fps_item_price(p_id text) returns int
 language sql immutable set search_path = public, extensions as $$
   select case p_id
@@ -97,6 +98,9 @@ language sql immutable set search_path = public, extensions as $$
     when 'pt_std' then 0 when 'pt_magnum' then 500
     when 'ml_knife' then 0 when 'ml_tanto' then 500 when 'ml_gurkha' then 800 when 'ml_katana' then 1200
     when 'gr_frag' then 0
+    when 'takeL' then 0 when 'veggie' then 0 when 'sideToSide' then 0 when 'crissCross' then 0 when 'tango' then 0
+    when 'salute' then 0 when 'wave' then 0 when 'cheer' then 0 when 'creamCheese' then 0
+    when 'fromYou' then 600 when 'selfie' then 400
   end
 $$;
 

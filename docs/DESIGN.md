@@ -7,7 +7,7 @@
 
 - 빌드 없음. 브라우저 ES 모듈 + importmap(CDN). GitHub Pages(`/skala-fps/` 하위 경로)에서 돌아야 하므로 **모든 경로는 상대 경로**다. `/js/...` 같은 절대 경로 금지.
 - 런타임 npm 의존성 없음. 외부 라이브러리는 importmap의 three, cannon-es만. Supabase는 `fetch`(REST RPC)와 `js/net`의 자체 Realtime 클라이언트로 접속한다.
-- 외부 이미지·음원 파일 금지. 도형, 캔버스 텍스처, WebAudio 합성만 쓴다.
+- 외부 이미지 파일 금지. 도형, 캔버스 텍스처를 쓴다. 소리는 WebAudio 합성이 기본이고, 이모트 음원은 사용 권리를 확인한 것만 묶음(`audio/emotes/*.bin`, docs/EMOTE_BGM.md)으로 넣는다. 원본 음원 파일은 올리지 않는다.
 - **상용 게임의 맵 구조·이름·캐릭터·모델·UI·사운드를 복제하지 않는다.** 장르 관습(좁은 교전 구역, 칼전, 공중 스트레이프 가속 같은 메커니즘)은 써도 되지만 레이아웃과 이름은 직접 설계한다.
 - 사용자 문자열은 `textContent`로만 넣는다. `innerHTML`에 넣지 않는다. `alert/confirm/prompt` 금지.
 - 모든 모듈은 `dispose()`로 리스너·rAF·채널을 정리한다.

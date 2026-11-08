@@ -1,0 +1,5 @@
+# 이모트 원본 음원은 올리지 않는다. 저장소에는 tools/pack-emote-audio.mjs로 묶은 audio/emotes/*.bin만 둔다
+audio/emotes/*.mp3
+audio/emotes/*.wav
+audio/emotes/*.m4a
+audio/emotes/*.ogg

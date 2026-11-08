@@ -15,6 +15,8 @@
  *   input.setEnabled(bool) // 메뉴 등에서 게임 입력 끄기
  *   input.setTouchZoomHold(b) // 터치 조준 버튼을 '누르는 동안 조준'으로 (라이플 조준 사격, world가 켜고 끔). 끄면 켜고 끄는 방식
  *   input.emoteWheel       // { open, cursor:{x,y}, selected, id, code } (이모트 휠 폴링용)
+ *   input.setEmoteWheel(ids) // 휠 8칸의 이모트 id(12시부터 시계 방향, 계정 장비). 모르는 id는 빼고, 비면 기본 휠
+ *   input.emoteWheelIds    // 지금 휠의 이모트 id 목록(복사본)
  *   input.setEmoteLock(b)  // 이모트 중: 좌·우클릭을 사격·줌 대신 input:emoteCancel로 (player가 켜고 끔)
  *
  * 키는 e.code 기준(한/영 상태와 무관): WASD(+화살표) · Space · Shift · Ctrl/C(앉기) · R · F(무기 살펴보기) · G(들고 있는 총 버리기) · 1~4 · Tab · Esc
@@ -38,7 +40,7 @@
  * 터치 모드: 휴대폰에는 Pointer Lock이 없으니 requestLock·exitLock이 잠금 상태만 바꾼다. input:lock·input:menu는 PC와 똑같이 나가서 게임 코드는 그대로다.
  * 탭 뒤에 브라우저가 흉내 내는 마우스 이벤트가 사격이 되지 않게 마우스 입력은 무시한다. 줌은 누를 때마다 켜고 끄는 방식으로 고정한다.
  */
-import { MOUSE, EMOTES, EMOTE_WHEEL, emoteSlotAt } from '../core/consts.js';
+import { MOUSE, DEFAULT_EMOTE_WHEEL, EMOTE_WHEEL, emoteById, emoteSlotAt } from '../core/consts.js';
 import { TOUCH } from './touch-logic.js';
 
 const MOVE_KEYS = {
@@ -64,6 +66,7 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
   const el = element || document.body;
   const state = { forward: false, back: false, left: false, right: false, jump: false, walk: false, crouch: false, fire: false, aim: false, scoreboard: false, emoteWheel: false };
   const wheel = { open: false, x: 0, y: 0, selected: null };
+  let wheelIds = DEFAULT_EMOTE_WHEEL.slice();   // 칸 → 이모트 id (world가 계정 장비로 맞춘다)
   let emoteLock = false;
   const crouchDown = new Set(); // 눌린 앉기 키(Ctrl·C 중 하나라도 눌려 있으면 앉음)
   let lookX = 0, lookY = 0;
@@ -90,11 +93,13 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
 
   /* ---------- 이모트 휠 ---------- */
   function wheelPayload(extra) {
-    const sel = wheel.selected, e = sel == null ? null : EMOTES[sel] || null;
+    const sel = wheel.selected, e = sel == null ? null : emoteById(wheelIds[sel]) || null;
     return Object.assign({ open: wheel.open, cursor: { x: Math.round(wheel.x), y: Math.round(wheel.y) }, selected: sel, id: e ? e.id : null, code: e ? e.code : 0 }, extra || null);
   }
+  let pendingWheel = null;
   function openWheel() {
     if (wheel.open) return;
+    if (pendingWheel) { wheelIds = pendingWheel.length ? pendingWheel : DEFAULT_EMOTE_WHEEL.slice(); pendingWheel = null; }
     wheel.open = true; wheel.x = 0; wheel.y = 0; wheel.selected = null;
     state.emoteWheel = true;
     lookX = lookY = 0;
@@ -104,7 +109,7 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     if (absolute) { wheel.x = x; wheel.y = y; } else { wheel.x += x; wheel.y += y; }
     const R = EMOTE_WHEEL.RADIUS, d = Math.hypot(wheel.x, wheel.y);
     if (d > R) { wheel.x *= R / d; wheel.y *= R / d; }
-    wheel.selected = emoteSlotAt(wheel.x, wheel.y, Math.min(EMOTE_WHEEL.SLOTS, EMOTES.length));
+    wheel.selected = emoteSlotAt(wheel.x, wheel.y, Math.min(EMOTE_WHEEL.SLOTS, wheelIds.length));
     emit('input:emoteWheel', wheelPayload());
   }
   /** 휠 닫기. pick = true면 input:emotePick(선택 없으면 id null)도 낸다 */
@@ -397,6 +402,13 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     },
     /** 이모트 휠 상태(폴링용) */
     get emoteWheel() { return wheelPayload(); },
+    /** 휠 칸의 이모트(계정 장비). 휠이 열려 있는 동안 바뀌면 다음에 열 때부터 쓴다 */
+    setEmoteWheel(ids) {
+      const list = Array.isArray(ids) ? ids.filter((id, i) => typeof id === 'string' && emoteById(id) && ids.indexOf(id) === i).slice(0, EMOTE_WHEEL.SLOTS) : [];
+      if (!wheel.open) wheelIds = list.length ? list : DEFAULT_EMOTE_WHEEL.slice();
+      else pendingWheel = list;
+    },
+    get emoteWheelIds() { return wheelIds.slice(); },
     /** 이모트 중이면 true: 좌·우클릭이 사격·줌 대신 input:emoteCancel { reason:'fire'|'aim' } */
     setEmoteLock(v) { emoteLock = !!v; if (emoteLock) { if (state.fire) { state.fire = false; emit('input:fire', { down: false }); } if (state.aim) setAim(false, 'release'); } },
     get emoteLock() { return emoteLock; },

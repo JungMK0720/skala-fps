@@ -1,1 +1,38 @@
-{}
+{
+  "creamCheese": {
+    "file": "creamCheese.bin",
+    "enc": true,
+    "loopStart": 0,
+    "loopEnd": 1.8
+  },
+  "crissCross": {
+    "file": "crissCross.bin",
+    "enc": true,
+    "loopStart": 0,
+    "loopEnd": 1.65
+  },
+  "fromYou": {
+    "file": "fromYou.bin",
+    "enc": true,
+    "loopStart": 0,
+    "loopEnd": 1.65
+  },
+  "selfie": {
+    "file": "selfie.bin",
+    "enc": true,
+    "loopStart": 0,
+    "loopEnd": 1.3
+  },
+  "takeL": {
+    "file": "takeL.bin",
+    "enc": true,
+    "loopStart": 0,
+    "loopEnd": 1.95
+  },
+  "veggie": {
+    "file": "veggie.bin",
+    "enc": true,
+    "loopStart": 0,
+    "loopEnd": 1.45
+  }
+}

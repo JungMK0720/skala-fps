@@ -1,11 +1,11 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 시나리오 2. 메인 메뉴, 마이페이지(이름 변경·전적·장비), 상점(구매·포인트 부족·장착·새로고침 유지), 빠른 시작, 연습장 설정 시트를 진짜 클릭으로 검사한다.
+ * Purpose: 시나리오 2. 메인 메뉴, 마이페이지(이름 변경·전적·장비), 상점(구매·포인트 부족·장착·새로고침 유지·이모트 휠), 빠른 시작, 연습장 설정 시트를 진짜 클릭으로 검사한다.
  */
 import { MAPS, mapsForRuleset } from '../../../js/maps/index.js';
 import { RULESET_IDS, RULESETS } from '../../../js/game/modes.js';
-import { LOW_QUALITY, NICK, openGame, readyGame, sleep, waitRun } from '../kit.mjs';
+import { LOW_QUALITY, NICK, lockPointer, openGame, readyGame, sleep, waitRun, waitTicks } from '../kit.mjs';
 
 const shown = (page, sel) => page.fn((s) => window.__qa.visible(s), sel);
 const textOf = (page, sel) => page.fn((s) => window.__qa.text(s), sel);
@@ -73,7 +73,7 @@ export default {
     await page.waitFor('__qa.ui.isVisible("shop") && !__qa.ui.isVisible("mypage")', 3000, { label: '상점' });
     t.check((await textOf(page, '.sk-shop .sk-points-val')) === '500 P', '상점 포인트');
     const tabs = await page.eval(`[...document.querySelectorAll('.sk-shop .sk-tab')].map((b) => b.textContent)`);
-    t.check(tabs.join() === '라이플,저격,SMG·샷건,권총,근접', '탭 5개', tabs);
+    t.check(tabs.join() === '라이플,저격,SMG·샷건,권총,근접,이모트', '탭 6개(무기 5 + 이모트)', tabs);
     const rapid = `.sk-shop-card[aria-label="RX-9 스톰"]`;
     t.check(await page.eval(`document.querySelector('${rapid} .sk-shop-action').disabled`), '비싼 무기는 살 수 없다');
     t.check((await textOf(page, `${rapid} .sk-shop-need`)) === '300 P 더 필요해요', '모자란 포인트 표시', await textOf(page, `${rapid} .sk-shop-need`));
@@ -237,5 +237,73 @@ export default {
     await page.waitFor('__qa.run.phase === "live"', 15000, { label: 'live 단계' });
     await leaveToMenu(t, page);
     t.errorsOk('연습장 시트');
+
+    t.setSection('상점: 이모트 휠');
+    page = await openGame(t, '', { profile: { nickname: NICK, points: 1000, createdAt: 1 }, settings: LOW_QUALITY, screen: 'menu' });
+    await page.waitFor('__qa.ui.isVisible("menu")', 5000, { label: '메뉴' });
+    await page.clickText('.sk-menu-btn--sub', '상점');
+    await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '상점' });
+    await page.clickText('.sk-shop .sk-tab', '이모트');
+    const emo = (id) => `.sk-emo-card[aria-label="${id}"]`;
+    const chipNames = () => page.eval(`[...document.querySelectorAll('.sk-emo-slot .sk-emo-slot-name')].map((n) => n.textContent)`);
+    const first = await chipNames();
+    t.check(first.join() === 'L을 가져가,야채,크림치즈 허니,크리스 크로스,탱고,경례,손 흔들기,환호 박수', '처음 휠 8칸', first);
+    t.check((await page.eval(`document.querySelectorAll('.sk-emo-card').length`)) === 11, '이모트 카드 11장');
+    for (const name of ['L을 가져가', '야채', '크림치즈 허니']) {
+      t.check(await page.eval(`!!document.querySelector('${emo(name)} .sk-emo-free')`), `${name}: 기본 지급 표시`);
+    }
+    t.check((await textOf(page, `${emo('당신에게서')} .sk-shop-action`)) === '구매 600 P', '당신에게서 600 P', await textOf(page, `${emo('당신에게서')} .sk-shop-action`));
+    t.check((await textOf(page, `${emo('셀카')} .sk-shop-action`)) === '구매 400 P', '셀카 400 P');
+    await page.click(`${emo('셀카')} .sk-shop-action`);
+    await page.waitFor(`document.querySelector('.sk-shop .sk-points-val').textContent === '600 P'`, 2000, { label: '셀카 구매' });
+    t.check((await textOf(page, `${emo('셀카')} .sk-shop-action`)) === '1번 칸에 넣기', '산 이모트는 고른 칸에 넣는 버튼', await textOf(page, `${emo('셀카')} .sk-shop-action`));
+    t.check((await textOf(page, `${emo('당신에게서')} .sk-shop-need`)) === '', '600 P 남으면 당신에게서도 살 수 있다');
+    await page.clickText('.sk-emo-slot', '경례');
+    t.check(await page.eval(`document.querySelectorAll('.sk-emo-slot')[5].classList.contains('is-on')`), '6번 칸을 고른다');
+    t.check((await textOf(page, `${emo('셀카')} .sk-shop-action`)) === '6번 칸에 넣기', '버튼이 고른 칸을 따른다');
+    await page.click(`${emo('셀카')} .sk-shop-action`);
+    t.check((await chipNames())[5] === '셀카', '6번 칸이 셀카로 바뀐다', await chipNames());
+    t.check((await textOf(page, `${emo('셀카')} .sk-shop-state`)) === '휠 6번', '카드에 휠 칸 표시');
+    t.check((await textOf(page, `${emo('경례')} .sk-shop-state`)) === '보유', '빠진 이모트는 보유로 남는다');
+    await page.click('.sk-emo-slot');
+    await page.click(`${emo('환호 박수')} .sk-shop-action`);
+    const swapped = await page.eval('__qa.profile().loadout.emotes');
+    t.check(swapped[0] === 'cheer' && swapped[7] === 'takeL' && swapped[5] === 'selfie', '이미 휠에 있는 이모트는 칸을 맞바꾼다', swapped);
+    t.check(/바꿨어요/.test(await textOf(page, '.sk-shop-note')), '맞바꿈 안내', await textOf(page, '.sk-shop-note'));
+    await t.shot('shop-emotes');
+
+    // 미리 듣기와 음원 묶음: 클릭이 오디오를 켜고 묶음 6개를 풀어 디코드한다
+    await page.click(`${emo('셀카')} .sk-emo-preview`);
+    await page.waitFor('__qa.world.internals.audio.getStats().emoteFiles.length === 6', 8000, { label: '음원 묶음 6개' });
+    const files = await page.eval('__qa.world.internals.audio.getStats().emoteFiles.slice().sort()');
+    t.check(files.join() === 'creamCheese,crissCross,fromYou,selfie,takeL,veggie', '묶음 6개를 읽는다', files);
+    await page.waitFor('__qa.world.internals.audio.getStats().emoteVoices2d >= 1', 3000, { label: '미리 듣기 재생' });
+    const src = await page.eval(`(() => { const a = __qa.world.internals.audio; const h = a.emote('takeL'), s = a.emote('sideToSide'); const r = [h.source, s.source]; h.stop(10); s.stop(10); return r; })()`);
+    t.check(src[0] === 'file' && src[1] === 'synth', '묶음이 있는 이모트는 파일, 나머지는 합성음', src);
+    await page.click('.sk-shop .sk-btn--ghost');
+    await page.waitFor('__qa.ui.isVisible("menu")', 3000, { label: '메뉴로 돌아옴' });
+    await page.waitFor('__qa.world.internals.audio.getStats().emoteVoices2d === 0', 3000, { label: '상점을 나가면 미리 듣기가 멈춘다' });
+
+    // 경기 휠이 장착한 순서를 따른다
+    await page.reload();
+    await readyGame(page, { screen: 'menu' });
+    t.check((await page.eval('__qa.profile().loadout.emotes'))[0] === 'cheer', '새로고침 뒤에도 휠 유지');
+    await page.click('.sk-menu-btn--main');
+    await waitRun(page);
+    await page.waitFor('__qa.run.phase === "live" && !__qa.ui.isVisible("loadout")', 20000, { label: 'live 단계' });
+    await lockPointer(page);
+    t.check((await page.eval('__qa.ctx.input.emoteWheelIds')).join() === swapped.join(), '입력의 휠 = 계정 휠', await page.eval('__qa.ctx.input.emoteWheelIds'));
+    await page.mouseMove(400, 225);
+    await waitTicks(page, 3);
+    await page.key('KeyB', 'down');
+    await page.waitFor('__qa.ui.isVisible("emotes")', 2000, { label: 'B 이모트 휠' });
+    await page.mouseMove(400, 125);
+    await page.waitFor('__qa.ctx.input.emoteWheel.selected === 0', 3000, { label: '12시 칸 강조' });
+    await waitTicks(page, 3);
+    t.check((await page.eval(`__qa.text('.sk-emo-hub-name')`)) === '환호 박수', '휠 1번 칸이 장착한 이모트다', await page.eval(`__qa.text('.sk-emo-hub-name')`));
+    await page.key('KeyB', 'up');
+    await page.waitFor('__qa.ctx.player.state.emoteId === "cheer"', 2000, { label: '고른 이모트 시작' });
+    await leaveToMenu(t, page);
+    t.errorsOk('이모트 휠');
   }
 };
