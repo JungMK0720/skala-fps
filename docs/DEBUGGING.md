@@ -127,7 +127,10 @@ npm run qa -- --list                 # 시나리오 이름 목록
 npm run qa -- --only menus,damage    # 고른 시나리오만
 npm run qa -- --only practice --filter knife/dojo   # 조합·무기·맵 이름으로 좁히기
 QA_NET_DELAY_MS=120 npm run qa -- --only multi-play  # 가짜 서버에 지연을 넣어 멀티를 돌린다
+npm run qa:hidden -- --only damage   # (Windows) 보이지 않는 별도 데스크톱에서 돌린다. 인자는 위와 같다
 ```
+
+다른 일을 하면서 돌릴 때는 `qa:hidden`을 쓴다. 브라우저는 원래 헤드리스라 창이 없지만, 브라우저를 닫을 때 쓰는 콘솔 프로그램 같은 것이 잠깐 창을 띄우면 작업 중인 창의 포커스를 가져갈 수 있다. `qa:hidden`은 QA 전체를 보이지 않는 데스크톱(`tools/qa/run-hidden.ps1`)에서 실행해 그런 창이 화면에 나타나지 못하게 하고, 진행 기록은 그대로 이 창에 찍는다. 다른 OS에서는 `npm run qa`와 같다.
 
 끝나면 통과·실패 표와 실패 내용을 찍고, 스크린샷을 모아 둔 임시 폴더 경로를 알려 준다. 스크린샷은 저장소 밖에 둔다.
 

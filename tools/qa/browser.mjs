@@ -72,7 +72,7 @@ export function findBrowser(env = process.env) {
 function killTreeSync(pid) {
   if (!pid) return;
   try {
-    if (process.platform === 'win32') spawnSync('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore', timeout: 10000 });
+    if (process.platform === 'win32') spawnSync('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore', timeout: 10000, windowsHide: true });
     else { try { process.kill(-pid, 'SIGKILL'); } catch (err) { process.kill(pid, 'SIGKILL'); } }
   } catch (err) { /* 이미 끝났다 */ }
 }
@@ -87,7 +87,7 @@ function startWatchdog(browserPid, dataDir) {
     setInterval(() => {
       if (!alive(browser)) { try { rmSync(dir, { recursive: true, force: true, maxRetries: 3 }); } catch (e) {} process.exit(0); }
       if (!alive(parent) || Date.now() > limit) {
-        if (process.platform === 'win32') spawnSync('taskkill', ['/T', '/F', '/PID', String(browser)], { stdio: 'ignore' });
+        if (process.platform === 'win32') spawnSync('taskkill', ['/T', '/F', '/PID', String(browser)], { stdio: 'ignore', windowsHide: true });
         else { try { process.kill(-browser, 'SIGKILL'); } catch (e) { try { process.kill(browser, 'SIGKILL'); } catch (e2) {} } }
       }
     }, 1000);

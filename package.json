@@ -8,6 +8,7 @@
     "serve": "node tools/serve.mjs",
     "test": "node --test \"tests/**/*.test.mjs\"",
     "qa": "node tools/qa/run.mjs",
+    "qa:hidden": "node tools/qa/hidden.mjs",
     "check:headers": "node tools/check-headers.mjs",
     "check:maps": "node tools/check-maps.mjs",
     "check:imports": "node tools/check-imports.mjs",
