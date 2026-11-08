@@ -94,6 +94,18 @@ describe('터치 모드 입력', () => {
     input.dispose();
   });
 
+  test('키보드를 붙인 태블릿은 Esc로 가상 잠금을 풀어 일시정지한다', async () => {
+    const { input, of } = stage();
+    const esc = () => globalThis.window.fire('keydown', { code: 'Escape', repeat: false, target: null, preventDefault() {} });
+    await input.requestLock();
+    esc();
+    assert.equal(input.locked, false);
+    assert.deepEqual(of('input:menu').at(-1), { reason: 'unlock' });
+    esc();
+    assert.deepEqual(of('input:menu').at(-1), { reason: 'esc' }, '풀린 뒤의 Esc는 PC와 같다');
+    input.dispose();
+  });
+
   test('조이스틱이 이동 키 상태가 된다', async () => {
     const { input } = stage();
     await input.requestLock();

@@ -132,6 +132,8 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     if (!e.repeat) emit('input:key', { code, down: true });
     if (code === 'Escape') {
       if (wheel.open) { closeWheel(false, { cancelled: true }); return; }
+      // 터치 조작의 잠금은 가상이라 브라우저가 풀어 주지 않는다. 키보드를 붙인 태블릿은 Esc로 직접 푼다(→ 일시정지)
+      if (locked && touch) { exitLock(); return; }
       if (!locked) emit('input:menu', { reason: 'esc' });
       return;
     }

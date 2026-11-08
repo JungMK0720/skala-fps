@@ -308,8 +308,10 @@ export default {
       const enemy = qa.run.bots.find((b) => b.team === 'charterer');
       qa.placeBot(qa.run.bots.indexOf(enemy), me.pos[0] + 2, me.pos[1], me.pos[2], Math.atan2(2, 0));
       enemy.pitch = -0.1;
+      // 봇 무기는 무작위다. 반자동·볼트 무기는 방아쇠를 뗐다 눌러야 다음 발이 나가므로 틱마다 눌렀다 뗀다.
       // 탄창이 비면 다시 넣는다. 탄퍼짐 때문에 한 탄창으로 끝나지 않을 수 있다
-      enemy.brain.think = (dt, view) => ({ forward: 0, strafe: 0, jump: false, walk: false, yawDelta: 0, pitchDelta: 0, fire: true, zoom: false, reload: view.self.ammo.mag === 0, slot: null });
+      let tick = 0;
+      enemy.brain.think = (dt, view) => ({ forward: 0, strafe: 0, jump: false, walk: false, yawDelta: 0, pitchDelta: 0, fire: (tick++ & 1) === 0, zoom: false, reload: view.self.ammo.mag === 0, slot: null });
     });
     await page.waitFor('!__qa.world.localAlive', 25000, { intervalMs: 100, label: '내가 쓰러진다' }).catch(async () => {
       // 탄이 빗나가면 판정을 직접 넣지 않고 실패로 남긴다
