@@ -40,6 +40,9 @@ html.pc-touch #pc-view canvas { touch-action: none; }
 }
 .pc-tb--fire.is-down { background: rgba(255, 77, 141, .78); }
 .pc-tb--zoom { right: calc(36px + env(safe-area-inset-right)); bottom: 160px; width: 60px; height: 60px; }
+/* 라이플의 조준 버튼은 누르는 동안 쏘기도 한다: 발사 버튼과 같은 색 테두리, 두 줄 글자 */
+.pc-tb--zoom.is-aimfire { width: 64px; height: 64px; padding: 0 8px; font-size: 13px; line-height: 1.15; box-shadow: inset 0 0 0 3px rgba(255, 170, 200, .8); }
+.pc-tb--zoom.is-aimfire.is-down { background: rgba(255, 77, 141, .6); }
 .pc-tb--reload { right: calc(120px + env(safe-area-inset-right)); bottom: 128px; width: 54px; height: 54px; }
 .pc-tb--jump { right: calc(120px + env(safe-area-inset-right)); bottom: 22px; width: 68px; height: 68px; font-size: 15px; }
 .pc-tb--crouch { right: calc(196px + env(safe-area-inset-right)); bottom: 18px; width: 54px; height: 54px; }

@@ -143,6 +143,10 @@ function buildWorld(ctx, opts) {
   vm.setVisible(false);
   // 휴대폰은 조준 버튼을 누르고 있을 손가락이 없어서 누를 때마다 켜고 끈다
   const zoomModeOf = () => (input.touchMode || settings.get('zoomMode') === 'toggle' ? 'toggle' : 'hold');
+  // 휴대폰의 라이플은 예외다: 이동·조준·사격을 한꺼번에 누를 손가락이 없으므로 조준 버튼을 누르는 동안 조준하며 자동으로 쏜다(조준 사격)
+  let aimFireOn = false;
+  let aimFirePrev = false;
+  const arsenalZoomMode = () => (aimFireOn ? 'hold' : zoomModeOf());
   /** 지금 장비 { primary, secondary, melee }. 계정이 있으면 계정 것, 없거나 빈 칸은 기본값 */
   function accountLoadout() {
     const acc = ctx.account && ctx.account.loadout;
@@ -299,7 +303,7 @@ function buildWorld(ctx, opts) {
   offs.push(bus.on('settings:change', (e) => {
     const k = e && e.key;
     if (k === 'volume' || k === '*') audio.setVolume(num(settings.get('volume'), 0.8));
-    if (k === 'zoomMode' || k === '*') arsenal.setZoomMode(zoomModeOf());
+    if (k === 'zoomMode' || k === '*') arsenal.setZoomMode(arsenalZoomMode());
   }));
   offs.push(bus.on('renderer:quality', (e) => {
     const low = e && e.level === 'low';
@@ -709,6 +713,7 @@ function buildWorld(ctx, opts) {
     local.alive = false;
     local.dropped = false;
     local.deadAt = performance.now();
+    rmbDown = false;   // 누른 채 죽었으면 부활하자마자 조준 사격을 이어 가지 않는다
     if (ctx.renderer.applyPendingQuality) ctx.renderer.applyPendingQuality();   // 미뤄 둔 자동 품질 변경은 죽었을 때 치른다
     player.kill(info || {});
     vm.setVisible(false);
@@ -1249,6 +1254,15 @@ function buildWorld(ctx, opts) {
    * 로드아웃 첫 틱에 Space를 누르고 있었다고 뛰거나 W 값을 받아 미끄러지지 않는다.
    */
   function syncFrozen() { player.setFrozen(!localCanMove()); }
+  /** 들고 있는 무기에 맞춰 조준 사격을 켜고 끈다(휴대폰 + 라이플). 무기 모듈과 입력의 줌 방식, 터치 버튼 글자를 함께 바꾼다 */
+  function syncAimFire() {
+    const on = !!input.touchMode && arsenal.getWeapon().def.category === 'rifle';
+    if (on === aimFireOn) return;
+    aimFireOn = on;
+    arsenal.setZoomMode(arsenalZoomMode());
+    if (input.setTouchZoomHold) input.setTouchZoomHold(on);
+    bus.emit('touch:aimFire', { on });
+  }
 
   function tick(dt) {
     if (!active || !map || simPaused) return;
@@ -1258,9 +1272,13 @@ function buildWorld(ctx, opts) {
     syncFrozen();
     syncLocalEmote();
     const canAct = localCanAct();
+    syncAimFire();
+    // 조준 사격: 누르는 동안 방아쇠도 당긴다. 반자동·점사는 손을 떼지 않아도 다음 발이 나가게 탄이 있는 동안 매 틱 다시 누른다
+    const aimFire = canAct && aimFireOn && rmbDown && local.alive;
+    const repress = aimFire && arsenal.getWeapon().def.fire !== 'auto' && arsenal.getAmmo().mag > 0;
     const wi = {
-      fireDown: canAct && !!input.state.fire,
-      firePressed: canAct && latch.fire,
+      fireDown: canAct && (!!input.state.fire || aimFire),
+      firePressed: canAct && (latch.fire || repress || (aimFire && !aimFirePrev)),
       zoomDown: canAct && (rmbDown || (!input.locked && !!input.state.aim)),
       zoomToggle: canAct && latch.rmb,
       reloadPressed: canAct && latch.reload,
@@ -1268,6 +1286,7 @@ function buildWorld(ctx, opts) {
       wheel: canAct ? latch.wheel : 0
     };
     latch.fire = latch.rmb = latch.reload = false; latch.slot = null; latch.wheel = 0;
+    aimFirePrev = aimFire;
     if (local.spawned && local.alive) {
       // crouch → 탄퍼짐 ×0.8(arsenal, 크로스헤어 getHud도 같이)
       const evs = arsenal.update(dt, wi, { speed: Math.hypot(st.vel[0], st.vel[2]), onGround: st.onGround, walking: st.walking, crouch: !!st.crouch });

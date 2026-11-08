@@ -151,6 +151,29 @@ describe('터치 모드 입력', () => {
     input.dispose();
   });
 
+  test('라이플 조준 사격: 조준 버튼이 누르는 동안만 줌이 되고, 끄면 켜고 끄는 방식으로 돌아간다', async () => {
+    const { input, of } = stage();
+    await input.requestLock();
+    input.setTouchZoomHold(true);
+    input.touch.zoom(true);
+    assert.equal(input.state.aim, true);
+    input.touch.zoom(false);
+    assert.equal(input.state.aim, false, '떼면 꺼진다');
+    assert.deepEqual(of('input:zoom').map((e) => e.down), [true, false]);
+    input.touch.zoom(true);
+    input.setTouchZoomHold(false);
+    assert.equal(input.state.aim, false, '방식이 바뀌면 켜 둔 줌을 놓는다');
+    input.touch.zoom(false);
+    input.touch.zoom(true);
+    input.touch.zoom(false);
+    assert.equal(input.state.aim, true, '다시 누를 때마다 켜고 끈다');
+    input.dispose();
+    const pc = stage(false);
+    pc.input.setTouchZoomHold(true);
+    assert.equal(pc.input.state.aim, false, 'PC에는 영향이 없다');
+    pc.input.dispose();
+  });
+
   test('이모트 중에는 사격과 조준이 이모트 취소만 한다', async () => {
     const { input, of } = stage();
     await input.requestLock();

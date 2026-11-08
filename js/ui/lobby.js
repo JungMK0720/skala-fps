@@ -148,11 +148,13 @@ export function createLobby(ctx) {
     const n = countOf(r.players);
     const max = Math.max(1, num(r.max, ROOM_MAX));
     const playing = r.status === 'playing';
+    // 경기 중인 방은 팀전만 잠근다. 개인전은 언제 들어가도 곧 출격한다(match.js joinFfa: 부활 시간 뒤)
+    const locked = playing && r.mode !== 'ffa';
     const full = n >= max;
     const joining = p.joining != null && p.joining === r.roomId;
     const m = mapInfo(ctx.maps, p.maps, r.mapId);
-    const label = playing ? '진행 중' : full ? '만원' : joining ? '참가 중…' : '참가';
-    return h('div', { class: 'sk-room-row sk-steel' + (playing || full ? ' is-locked' : ''), role: 'listitem' },
+    const label = locked ? '진행 중' : full ? '만원' : joining ? '참가 중…' : playing ? '중간 참가' : '참가';
+    return h('div', { class: 'sk-room-row sk-steel' + (locked || full ? ' is-locked' : ''), role: 'listitem' },
       h('div', { class: 'sk-room-ico' }, mapIcon(r.mapId)),
       h('div', { class: 'sk-room-main' },
         h('div', { class: 'sk-room-name', text: r.name || '이름 없는 방' }),
@@ -165,8 +167,9 @@ export function createLobby(ctx) {
         h('span', { class: 'sk-meter' }, h('i', { style: { transform: `scaleX(${clamp(n / max, 0, 1)})` } }))),
       h('span', { class: 'sk-badge ' + (playing ? 'sk-badge--live' : 'sk-badge--wait'), text: playing ? '게임 중' : '대기' }),
       btn(label, () => ctx.emit('lobby:join', { roomId: r.roomId }), 'sk-btn--primary sk-room-join', {
-        disabled: playing || full || joining,
+        disabled: locked || full || joining,
         'aria-label': `${r.name || '방'} ${label}`,
+        title: locked ? '팀전은 경기가 끝나면 들어갈 수 있어요' : playing && !full ? '진행 중인 개인전에 들어가 곧 출격해요' : null,
       }));
   }
 

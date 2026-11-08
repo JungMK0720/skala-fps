@@ -132,14 +132,47 @@ export default {
     await page.waitFor(`__qa.arsenal.getWeapon().state === 'idle'`, 6000, { intervalMs: 30, label: '장전 끝' });
     t.check((await page.eval(`__qa.arsenal.getAmmo().mag`)) === 30, '장전하면 탄창이 찬다');
 
-    t.setSection('조준');
+    t.setSection('라이플 조준 사격');
+    // 라이플을 들면 조준 버튼이 '조준 사격'이 된다: 누르는 동안 조준하며 자동으로 쏘고, 끌면 시점이 돈다
+    await page.waitFor(`document.querySelector('.pc-tb--zoom').classList.contains('is-aimfire')`, 2000, { intervalMs: 30, label: '조준 사격 버튼' })
+      .catch(() => t.check(false, '라이플이면 조준 버튼이 조준 사격으로 바뀐다'));
+    t.check(/사격/.test(await page.eval(`__qa.text('.pc-tb--zoom')`)), '버튼 글자에 사격이 붙는다', await page.eval(`__qa.text('.pc-tb--zoom')`));
+    await page.waitFor(`__qa.arsenal.getWeapon().state === 'idle'`, 5000, { intervalMs: 30, label: '무기 준비' });
+    const aimAt = await center(page, '.pc-tb--zoom');
+    const amag0 = await page.eval('__qa.arsenal.getAmmo().mag');
+    yaw0 = await page.eval('__qa.ctx.player.state.yaw');
+    await page.touch('touchStart', [{ id: 1, x: aimAt.x, y: aimAt.y }]);
+    await page.waitFor('__qa.arsenal.getZoom().zoomed', 2000, { intervalMs: 30, label: '누르는 동안 줌' }).catch(() => t.check(false, '누르는 동안 줌이 켜진다'));
+    await page.waitFor(`__qa.arsenal.getAmmo().mag <= ${amag0 - 3}`, 3000, { intervalMs: 30, label: '누르는 동안 연사' }).catch(() => t.check(false, '누르는 동안 자동으로 쏜다'));
+    t.check(!(await page.eval('__qa.ctx.input.state.fire')), '발사 버튼은 누르지 않았다');
+    await page.touch('touchMove', [{ id: 1, x: aimAt.x - 40, y: aimAt.y }]);
+    await waitTicks(page, 3);
+    t.check((await page.eval('__qa.ctx.player.state.yaw')) > yaw0 + 0.03, '조준 버튼을 끌면 시점이 돈다');
+    await page.touch('touchEnd', []);
+    await page.waitFor('!__qa.arsenal.getZoom().zoomed', 2000, { intervalMs: 30, label: '떼면 줌 꺼짐' }).catch(() => t.check(false, '떼면 줌이 꺼진다'));
+    await waitTicks(page, 2);
+    await page.eval('__qa.clearLogs()');
+    await waitTicks(page, 12);
+    t.check(!(await page.eval(`__qa.weaponEvents.some((e) => e.type === 'fire')`)), '떼면 사격이 멈춘다');
+    t.errorsOk('조준 사격');
+
+    t.setSection('저격총 조준');
+    // 라이플이 아니면 조준 버튼은 예전처럼 켜고 끄기만 하고 쏘지 않는다
+    t.check((await page.eval(`__qa.arsenal.takePrimary('sr_bolt', { mag: 5, reserve: 10 })`)) !== false, '저격총으로 바꾼다');
+    await page.waitFor(`__qa.arsenal.getWeapon().id === 'sr_bolt' && __qa.arsenal.getWeapon().state === 'idle'`, 4000, { intervalMs: 30, label: '저격총 준비' });
+    await page.waitFor(`!document.querySelector('.pc-tb--zoom').classList.contains('is-aimfire')`, 2000, { intervalMs: 30, label: '조준 버튼 원래대로' })
+      .catch(() => t.check(false, '저격총이면 조준 버튼이 원래대로 돌아온다'));
     await tapButton(page, 'zoom');
     await page.waitFor('__qa.arsenal.getZoom().zoomed', 2000, { intervalMs: 30, label: '줌 켜짐' });
     await waitTicks(page, 15);
     t.check(await page.eval('__qa.arsenal.getZoom().zoomed'), '손을 떼도 줌이 유지된다');
+    t.check((await page.eval('__qa.arsenal.getAmmo().mag')) === 5, '저격총은 조준 버튼으로 쏘지 않는다', await page.eval('__qa.arsenal.getAmmo()'));
     await t.shot('zoom');
     await tapButton(page, 'zoom');
     await page.waitFor('!__qa.arsenal.getZoom().zoomed', 2000, { intervalMs: 30, label: '줌 꺼짐' });
+    // 다음 단계는 라이플로 한다
+    await page.eval(`__qa.arsenal.takePrimary('ar_std', { mag: 30, reserve: 60 })`);
+    await page.waitFor(`__qa.arsenal.getWeapon().id === 'ar_std' && __qa.arsenal.getWeapon().state === 'idle'`, 4000, { intervalMs: 30, label: '라이플로 돌아옴' });
 
     t.setSection('점프와 앉기');
     const jump = await center(page, '.pc-tb--jump');

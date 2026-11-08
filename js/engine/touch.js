@@ -3,6 +3,7 @@
  * Author: Minkyu Jung
  * Purpose: 휴대폰용 터치 조작. 왼쪽 화면 조이스틱, 오른쪽 화면 시점, 발사·조준·점프·앉기·장전·이모트·점수판·일시정지 버튼을 만들어 input.touch로 넘긴다.
  *          키보드·마우스와 같은 입력 상태와 이벤트로 바꾸므로 게임 코드는 터치를 몰라도 된다. 화면 규칙은 css/touch.css에 있다.
+ *          라이플을 들면 조준 버튼이 '조준 사격'이 된다(누르는 동안 조준하며 쏜다, 판단은 game/world.js의 touch:aimFire).
  */
 import { isStickSide, knobOffset, stickState } from './touch-logic.js';
 
@@ -143,7 +144,7 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
     if (!h) return;
     const dx = e.clientX - h.x, dy = e.clientY - h.y;
     h.x = e.clientX; h.y = e.clientY;
-    if (h.act === 'fire') t.look(dx, dy);                       // 쏘면서 손가락을 끌어 조준한다
+    if (h.act === 'fire' || h.act === 'zoom') t.look(dx, dy);  // 쏘거나 조준하면서 손가락을 끌어 겨눈다
     else if (h.act === 'emote') input.moveEmoteWheel(dx, dy, false);
   }
   function onButtonUp(e) {
@@ -208,6 +209,13 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
     }),
     bus.on('player:death', () => { layer.classList.add('is-dead'); clearPointers(); }),
     bus.on('player:spawn', () => { layer.classList.remove('is-dead'); }),
+    // 라이플: 조준 버튼을 누르는 동안 조준하며 자동으로 쏜다. 버튼 글자로 알린다
+    bus.on('touch:aimFire', (e) => {
+      const on = !!(e && e.on);
+      const b = buttons.get('zoom');
+      b.classList.toggle('is-aimfire', on);
+      b.textContent = on ? '조준 사격' : '조준';
+    }),
     bus.on('screen:change', (e) => {
       document.documentElement.classList.toggle('pc-ingame', !!(e && gameScreens.has(e.to)));
     }),

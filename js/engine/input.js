@@ -13,6 +13,7 @@
  *   input.setLookScale(s)  // 줌 중 감도 배율 (무기 모듈)
  *   input.resetAim()       // 토글 모드 줌을 강제로 해제 (예: 저격 후 자동 줌 해제)
  *   input.setEnabled(bool) // 메뉴 등에서 게임 입력 끄기
+ *   input.setTouchZoomHold(b) // 터치 조준 버튼을 '누르는 동안 조준'으로 (라이플 조준 사격, world가 켜고 끔). 끄면 켜고 끄는 방식
  *   input.emoteWheel       // { open, cursor:{x,y}, selected, id, code } (이모트 휠 폴링용)
  *   input.setEmoteLock(b)  // 이모트 중: 좌·우클릭을 사격·줌 대신 input:emoteCancel로 (player가 켜고 끔)
  *
@@ -71,7 +72,8 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
   let lookScale = 1;
   let lastWheel = 0;
   const emit = (evt, data) => { if (bus) bus.emit(evt, data); };
-  const zoomMode = () => (touch ? 'toggle' : (settings && settings.get('zoomMode')) || 'hold');
+  let touchZoomHold = false;   // 터치 조준 버튼: false = 누를 때마다 켜고 끔, true = 누르는 동안(라이플 조준 사격)
+  const zoomMode = () => (touch ? (touchZoomHold ? 'hold' : 'toggle') : (settings && settings.get('zoomMode')) || 'hold');
 
   function setAim(active, source = 'user') {
     if (state.aim === active) return;
@@ -387,6 +389,12 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     requestLock,
     exitLock,
     setEnabled(v) { enabled = !!v; if (!enabled) releaseAll(); },
+    setTouchZoomHold(v) {
+      v = !!v;
+      if (!touch || v === touchZoomHold) return;
+      touchZoomHold = v;
+      if (state.aim) setAim(false, 'mode');   // 방식이 바뀌면 켜 둔 줌은 놓는다(무기가 바뀐 때다)
+    },
     /** 이모트 휠 상태(폴링용) */
     get emoteWheel() { return wheelPayload(); },
     /** 이모트 중이면 true: 좌·우클릭이 사격·줌 대신 input:emoteCancel { reason:'fire'|'aim' } */

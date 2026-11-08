@@ -1146,6 +1146,23 @@ describe('로비·대기실 화면', () => {
     room.dispose();
   });
 
+  test('로비: 경기 중인 방은 팀전만 잠기고 개인전은 언제든 들어간다', () => {
+    const ctx = uiCtx();
+    const lobby = createLobby(ctx);
+    const base = { name: '방', mapId: 'alley', hostName: '방장', players: 3, max: 6, status: 'playing' };
+    lobby.show({ name: '하늘', rooms: [readLobbyEntry({ ...base, roomId: 't1', mode: 'team' }), readLobbyEntry({ ...base, roomId: 'f1', mode: 'ffa' })] });
+    const [team, ffa] = lobby.el.all((k) => k.classList.contains('sk-room-join'));
+    assert.equal(team.disabled, true, '팀전은 잠긴다');
+    assert.ok(team.textContent.includes('진행 중'));
+    assert.ok(!ffa.disabled, '개인전은 들어갈 수 있다');
+    assert.ok(ffa.textContent.includes('중간 참가'));
+    ffa.fire('click');
+    assert.deepEqual(lastEmit(ctx, 'lobby:join').payload, { roomId: 'f1' });
+    lobby.show({ name: '하늘', rooms: [readLobbyEntry({ ...base, roomId: 'f2', mode: 'ffa', players: 6 })] });
+    assert.equal(lobby.el.all((k) => k.classList.contains('sk-room-join'))[0].disabled, true, '개인전도 가득 차면 못 들어간다');
+    lobby.dispose();
+  });
+
   test('로비: 맵 id가 __proto__인 방이 있어도 목록을 그린다', () => {
     const lobby = createLobby(uiCtx());
     const evil = readLobbyEntry({ roomId: 'r9', name: '이상한 방', mapId: '__proto__', hostName: '누구', players: 1, max: 2, status: 'waiting', mode: 'team' });

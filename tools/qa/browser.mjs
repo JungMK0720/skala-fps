@@ -530,7 +530,11 @@ export async function launchBrowser({ extraFlags = [] } = {}) {
   if (!path) throw new Error('Edge나 Chrome을 찾지 못했어요. QA_BROWSER 환경 변수로 실행 파일 경로를 알려 주세요.');
   const dataDir = mkdtempSync(join(tmpdir(), 'skala-qa-profile-'));
   const args = [...SAFE_FLAGS, ...QUIET_FLAGS, '--remote-debugging-port=0', `--user-data-dir=${dataDir}`, `--window-size=${MAX_WIDTH},${MAX_HEIGHT}`, ...extraFlags, 'about:blank'];
-  const child = spawn(path, args, { stdio: 'ignore', detached: process.platform !== 'win32', windowsHide: true });
+  // 부모가 Windows 호환성 계층(__COMPAT_LAYER)을 물려주면 Edge는 그 계층을 떼려고 자기를 다시 띄우고 처음 프로세스는 바로 끝난다.
+  // 그러면 시작하자마자 끝난 것으로 보이고 진짜 브라우저는 고아로 남는다. 환경에서 빼고 띄운다
+  const env = { ...process.env };
+  delete env.__COMPAT_LAYER;
+  const child = spawn(path, args, { stdio: 'ignore', detached: process.platform !== 'win32', windowsHide: true, env });
   let exited = false;
   child.on('exit', () => { exited = true; });
   child.on('error', () => { exited = true; });

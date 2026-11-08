@@ -2,6 +2,7 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 시나리오 11. 가짜 Supabase(tools/qa/fake-supabase.mjs)에 실제 클라이언트 둘을 붙여 멀티플레이를 끝까지 돌린다. 닉네임 서버 검사, 프로필 저장, 로비, 방, 채팅, 경기, 판정, 결과, 퇴장을 본다.
+ *          개인전 중간 참가를 볼 때만 셋째 클라이언트를 잠깐 띄운다(둘 중 하나가 나가면 기권승으로 끝나기 때문이다).
  *          실서버의 인증·전송 한도·지연은 검증하지 못한다. 페이지가 둘이어야 하는 유일한 시나리오라 작은 화면과 저사양으로 돌린다.
  */
 import { startFakeSupabase } from '../fake-supabase.mjs';
@@ -269,6 +270,36 @@ export default {
       await guest.waitFor('__qa.world.localAlive', 8000, { intervalMs: 50, label: '손님 부활' });
       t.check(await guest.eval('__qa.ctx.player.state.hp === 100 && !__qa.visible(".sk-rsp")'), '부활하면 체력이 찬다');
       t.errorsOk('칼전 개인전');
+
+      t.setSection('개인전 중간 참가');
+      // 경기 중인 방은 팀전만 잠긴다. 개인전은 로비에서 바로 들어가 부활 시간 뒤 출격한다
+      let third = null;
+      try {
+        third = await t.browser.newPage({ isolated: true });
+        await openPlayer(t, third, '셋째');
+        await goLobby(third);
+        await third.waitFor(`document.querySelectorAll('.sk-room-row').length === 1`, 10000, { label: '셋째 로비에 방' });
+        const row = await third.eval(`({ text: document.querySelector('.sk-room-row').textContent, disabled: document.querySelector('.sk-room-join').disabled })`);
+        t.check(/게임 중/.test(row.text) && /중간 참가/.test(row.text) && !row.disabled, '경기 중인 개인전 방도 들어갈 수 있다', row);
+        await third.click('.sk-room-join');
+        await third.waitFor('__qa.ctx.screen === "match"', 30000, { label: '셋째가 경기 화면으로' });
+        await third.waitFor('__qa.world.localAlive', 20000, { intervalMs: 100, label: '셋째 출격' })
+          .then(() => t.check(true, '중간에 들어와도 곧 출격한다'), (err) => t.check(false, '중간에 들어와도 곧 출격한다', err.message));
+        const mine = await third.eval('({ ruleset: __qa.world.ruleset, mode: __qa.world.mode, slots: __qa.arsenal.getAllowedSlots() })');
+        t.check(mine.ruleset === 'knife' && mine.mode === 'ffa' && mine.slots.join() === '3', '들어온 사람에게도 방 규칙이 적용된다', mine);
+        await eventually(t, host, `__qa.ctx.avatars.getTargets().length >= 2`, '방장 화면에 셋째가 보인다', 10000);
+        t.page = third;
+        await t.shot('ffa-late-join');
+        t.errorsOk('셋째: 중간 참가');
+        t.page = host;
+      } finally {
+        t.page = host;
+        if (third) await third.close();
+      }
+      // 셋째가 나가도 둘이 남아 경기는 이어진다
+      await sleep(1500);
+      t.check(await host.eval('__qa.ctx.screen === "match" && __qa.world.internals.rnd.phase === "live"'), '셋째가 나가도 경기는 이어진다');
+      t.errorsOk('개인전 중간 참가');
 
       t.setSection('방장이 경기 중 나간다');
       await lockPointer(host);

@@ -31,6 +31,18 @@ export default {
       await t.shot(name);
       if (sel) t.check((await t.page.fn(clippedButtons, sel)).length === 0, `${name}: 버튼이 가로로 잘리지 않는다`, await t.page.fn(clippedButtons, sel));
     };
+    // Tab을 누른 채 점수판 사진. 4배속이라 그사이 라운드가 끝나 조작이 풀렸으면(무기 선택·라운드 끝) 사진만 건너뛴다
+    const scoreboardShot = async (page, name) => {
+      await page.key('Tab', 'down');
+      const open = await page.waitFor('__qa.ui.isVisible("scoreboard")', 2000, { label: '점수판' }).then(() => true, () => false);
+      if (open) await see(name);
+      else {
+        const st = await page.eval('({ locked: __qa.ctx.input.locked, enabled: __qa.ctx.input.enabled, phase: __qa.world.internals.rnd.phase })');
+        if (st.locked && st.enabled && st.phase === 'live') t.check(false, `${name}: Tab을 누르면 점수판이 열린다`, st);
+        else t.note(`${name}: 점수판을 열기 전에 라운드가 끝나 사진을 건너뛰었다 ${JSON.stringify(st)}`);
+      }
+      await page.key('Tab', 'up');
+    };
 
     t.setSection('메뉴 화면');
     let page = await openGame(t, '', { profile, settings: LOW_QUALITY, screen: 'menu' });
@@ -72,10 +84,7 @@ export default {
     await lockPointer(page);
     await page.waitFor(`__qa.match.some((e) => e.type === 'kill')`, 40000, { label: '첫 킬' });
     await see('ffa-hud');
-    await page.key('Tab', 'down');
-    await page.waitFor('__qa.ui.isVisible("scoreboard")', 2000, { label: '점수판' });
-    await see('ffa-scoreboard');
-    await page.key('Tab', 'up');
+    await scoreboardShot(page, 'ffa-scoreboard');
     await page.waitFor('__qa.ui.isVisible("results")', 90000, { intervalMs: 300, label: '결과 화면' });
     await sleep(1200);
     await see('ffa-results', '.sk-results');
@@ -92,10 +101,7 @@ export default {
     await lockPointer(page);
     await waitTicks(page, 20);
     await see('team-hud');
-    await page.key('Tab', 'down');
-    await page.waitFor('__qa.ui.isVisible("scoreboard")', 2000, { label: '점수판' });
-    await see('team-scoreboard');
-    await page.key('Tab', 'up');
+    await scoreboardShot(page, 'team-scoreboard');
     await page.waitFor(`__qa.world.internals.rnd.phase === 'roundEnd' || __qa.run.phase === 'roundEnd'`, 90000, { intervalMs: 200, label: '라운드 끝' });
     await see('team-round-end');
     await page.waitFor('__qa.ui.isVisible("results")', 150000, { intervalMs: 300, label: '결과 화면' });
