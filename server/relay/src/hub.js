@@ -7,7 +7,7 @@
 /*
  * 연결(conn)은 { send(text), close(code, reason), save(state) }를 가진 물건이다.
  *   Durable Object: WebSocket을 감싸고 save = ws.serializeAttachment(state)   (worker.js)
- *   node 시험·QA: 가짜 연결이나 node 소켓을 감싼 물건                         (tests/relay.test.mjs, tools/qa/fake-relay.mjs)
+ *   Node 어댑터·시험: node 소켓이나 가짜 연결을 감싼 물건                      (src/node.js, tests/relay.test.mjs)
  * 연결마다 남기는 상태(save) = { v, id, hub, at, seen, m, closed? }, m = { jr, key, pres, self, meta, ref } | null
  *   at = 연결 시각, seen = 마지막으로 메시지를 받은 시각(SEEN_SAVE_MS마다 갱신),
  *   jr = 참가 join_ref, key = presence 키(플레이어 id), pres = presence 사용, self = 내 broadcast도 받기,
