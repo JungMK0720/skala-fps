@@ -18,19 +18,21 @@
  *   input.setEmoteWheel(ids) // 휠 8칸의 이모트 id(12시부터 시계 방향, 계정 장비). 모르는 id는 빼고, 비면 기본 휠
  *   input.emoteWheelIds    // 지금 휠의 이모트 id 목록(복사본)
  *   input.setEmoteLock(b)  // 이모트 중: 좌·우클릭을 사격·줌 대신 input:emoteCancel로 (player가 켜고 끔)
+ *   input.setEmoteWheelTap(b) // 열린 휠을 '탭 모드'로: 손을 떼도 열려 있고 칸을 눌러 고른다(휴대폰 이모트 버튼을 짧게 눌렀을 때 engine/touch.js가 켠다)
  *
- * 키는 e.code 기준(한/영 상태와 무관): WASD(+화살표) · Space · Shift · Ctrl/C(앉기) · R · F(무기 살펴보기) · G(들고 있는 총 버리기) · 1~4 · Tab · Esc
+ * 키는 e.code 기준(한/영 상태와 무관): WASD(+화살표) · Space · Shift · Ctrl/C(앉기) · R · F(무기 살펴보기) · G(들고 있는 총 버리기) · 1~4 · Tab · Esc · Enter(채팅)
  * Space: input.state.jump = 누르는 동안 true(player가 착지 즉시 다시 뛰는 데 쓴다), input:jump는 누른 순간 1번.
  *        잠금을 잃거나 창 포커스를 잃으면 풀리고, 키 반복으로는 다시 켜지지 않는다.
  * bus 이벤트: input:lock{locked} · input:fire{down} · input:aim{active,source} · input:zoom{down}(터치 조준 버튼) · input:reload · input:inspect · input:drop · input:slot{slot}
  *            input:cycle{dir} · input:jump · input:walk{down} · input:crouch{down} · input:scoreboard{open} · input:menu{reason}
- *            input:key{code,down} (모든 키, 반복 제외)
- *            input:emoteWheel{open,cursor,selected,id,code,cancelled?} · input:emotePick{id,code,selected} · input:emoteCancel{reason}
+ *            input:key{code,down} (모든 키, 반복 제외) · input:chat (잠금 중 Enter, 휴대폰은 채팅 버튼. 멀티플레이 경기면 session이 채팅 입력칸을 연다)
+ *            input:emoteWheel{open,cursor,selected,id,code,tap,cancelled?} · input:emotePick{id,code,selected} · input:emoteCancel{reason}
  *
  * 이모트 휠(MODES.md 4.2): B를 누르고 있는 동안 열림. 그동안 시점은 멈추고 마우스 이동은 가상 커서(px, 화면 중앙 기준,
  * y 아래로 +)로 간다(잠금이 없으면 실제 커서 위치). 커서는 EMOTE_WHEEL.RADIUS 테두리에서 멈추고, DEADZONE(40px)을
  * 벗어나면 12시부터 시계 방향 8칸 중 하나가 selected(0..7). B를 떼면 input:emotePick { id(없으면 null) }.
  * 휠이 열린 동안 좌클릭 = 강조된 칸 바로 고르기, 우클릭·Esc = 고르지 않고 닫기(cancelled:true). 사격·줌은 하지 않는다.
+ * 휴대폰: 이모트 버튼을 누른 채 끌어 고르고 떼거나(PC의 B와 같다), 짧게 눌렀다 떼면 휠이 열린 채로 남아(tap:true) 칸을 눌러 고른다.
  *
  * 앉기: 왼·오른 Ctrl 또는 C를 누르고 있는 동안. Pointer Lock 중에는 Ctrl 조합 키의 브라우저 기본 동작
  * (Ctrl+S·D·R·A·Space·휠 확대 등)을 막는다. Ctrl+W·T·N·Tab은 브라우저가 먼저 가져가서 막을 수 없다
@@ -65,7 +67,7 @@ function isTyping(e) {
 export function createInput({ element, bus, settings, touch = false } = {}) {
   const el = element || document.body;
   const state = { forward: false, back: false, left: false, right: false, jump: false, walk: false, crouch: false, fire: false, aim: false, scoreboard: false, emoteWheel: false };
-  const wheel = { open: false, x: 0, y: 0, selected: null };
+  const wheel = { open: false, x: 0, y: 0, selected: null, tap: false };
   let wheelIds = DEFAULT_EMOTE_WHEEL.slice();   // 칸 → 이모트 id (world가 계정 장비로 맞춘다)
   let emoteLock = false;
   const crouchDown = new Set(); // 눌린 앉기 키(Ctrl·C 중 하나라도 눌려 있으면 앉음)
@@ -94,13 +96,13 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
   /* ---------- 이모트 휠 ---------- */
   function wheelPayload(extra) {
     const sel = wheel.selected, e = sel == null ? null : emoteById(wheelIds[sel]) || null;
-    return Object.assign({ open: wheel.open, cursor: { x: Math.round(wheel.x), y: Math.round(wheel.y) }, selected: sel, id: e ? e.id : null, code: e ? e.code : 0 }, extra || null);
+    return Object.assign({ open: wheel.open, cursor: { x: Math.round(wheel.x), y: Math.round(wheel.y) }, selected: sel, id: e ? e.id : null, code: e ? e.code : 0, tap: wheel.tap }, extra || null);
   }
   let pendingWheel = null;
   function openWheel() {
     if (wheel.open) return;
     if (pendingWheel) { wheelIds = pendingWheel.length ? pendingWheel : DEFAULT_EMOTE_WHEEL.slice(); pendingWheel = null; }
-    wheel.open = true; wheel.x = 0; wheel.y = 0; wheel.selected = null;
+    wheel.open = true; wheel.x = 0; wheel.y = 0; wheel.selected = null; wheel.tap = false;
     state.emoteWheel = true;
     lookX = lookY = 0;
     emit('input:emoteWheel', wheelPayload());
@@ -118,6 +120,7 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     wheel.open = false;
     state.emoteWheel = false;
     const payload = wheelPayload(Object.assign({ open: false }, extra || null));
+    wheel.tap = false;
     emit('input:emoteWheel', payload);
     if (pick) emit('input:emotePick', { id: payload.id, code: payload.code, selected: payload.selected });
   }
@@ -150,6 +153,11 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
       return;
     }
     if (!enabled) return;
+    // Enter = 채팅 열기. 채팅칸에 포커스가 가면 위의 isTyping에서 걸러져 다시 열지 않는다
+    if (code === 'Enter' || code === 'NumpadEnter') {
+      if (!e.repeat && locked && !wheel.open) { e.preventDefault(); emit('input:chat', {}); }
+      return;
+    }
     // 게임 중 Ctrl 조합(앉아서 움직이기 등)은 브라우저 기본 동작을 막는다(막을 수 있는 것만: Ctrl+W·T·N·Tab은 불가)
     if (locked && e.ctrlKey) e.preventDefault();
     if (CROUCH_KEYS.has(code)) { crouchDown.add(code); syncCrouch(); return; }
@@ -283,6 +291,8 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
       if (open && enabled && !state.scoreboard) { state.scoreboard = true; emit('input:scoreboard', { open: true }); }
       else if (!open && state.scoreboard) { state.scoreboard = false; emit('input:scoreboard', { open: false }); }
     },
+    /** 채팅 버튼(PC의 Enter) */
+    chat() { if (locked && enabled && !wheel.open) emit('input:chat', {}); },
   };
 
   function onWheel(e) {
@@ -416,6 +426,13 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     openEmoteWheel: openWheel,
     moveEmoteWheel: (x, y, absolute = true) => { if (wheel.open) moveWheel(x, y, absolute); },
     closeEmoteWheel: (pick = true) => closeWheel(pick, pick ? null : { cancelled: true }),
+    /** 열린 휠을 탭 모드로(손을 떼도 열려 있고 칸을 눌러 고른다). 휠이 닫히면 저절로 꺼진다 */
+    setEmoteWheelTap(v) {
+      v = !!v;
+      if (!wheel.open || wheel.tap === v) return;
+      wheel.tap = v;
+      emit('input:emoteWheel', wheelPayload());
+    },
     get enabled() { return enabled; },
     releaseAll,
     dispose() {

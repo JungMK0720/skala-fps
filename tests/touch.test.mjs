@@ -1,11 +1,12 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 터치 조작의 계산과 입력 연결을 시험한다. 기기 판별, 조이스틱 8방향과 걷기, 손잡이 범위, 터치 모드의 가상 잠금과 입력 이벤트.
+ * Purpose: 터치 조작의 계산과 입력 연결을 시험한다. 기기 판별, 조이스틱 8방향과 걷기, 손잡이 범위, 열어 둔 이모트 휠 누르기, 터치 모드의 가상 잠금과 입력 이벤트, 채팅 키.
  */
 import { before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TOUCH, detectTouch, isStickSide, knobOffset, stickState } from '../js/engine/touch-logic.js';
+import { TOUCH, WHEEL_TAP, detectTouch, isStickSide, knobOffset, stickState, wheelTapAt } from '../js/engine/touch-logic.js';
+import { DEFAULT_EMOTE_WHEEL, EMOTE_WHEEL, emoteSlotAt } from '../js/core/consts.js';
 
 describe('터치 기기 판별', () => {
   test('주소의 touch 값이 먼저다', () => {
@@ -59,6 +60,33 @@ describe('조이스틱', () => {
     assert.equal(isStickSide(100, 844), true);
     assert.equal(isStickSide(844 * TOUCH.STICK_SIDE, 844), false);
     assert.equal(isStickSide(700, 844), false);
+  });
+});
+
+describe('열어 둔 이모트 휠 누르기', () => {
+  const rect = { left: 100, top: 50, width: 400, height: 400 };   // 가운데 (300, 250), 그림 1단위 = 1px
+  const slotOf = (hit) => emoteSlotAt(hit.ux * EMOTE_WHEEL.RADIUS, hit.uy * EMOTE_WHEEL.RADIUS);
+  test('가운데 허브는 닫기, 칸 고리는 그 칸, 바깥은 휠 밖이다', () => {
+    assert.equal(wheelTapAt(300, 250, rect).kind, 'hub');
+    assert.equal(wheelTapAt(300 + WHEEL_TAP.HUB - 1, 250, rect).kind, 'hub');
+    const up = wheelTapAt(300, 250 - 140, rect);
+    assert.equal(up.kind, 'pick');
+    assert.equal(slotOf(up), 0, '12시 칸(1번 이모트)');
+    assert.equal(DEFAULT_EMOTE_WHEEL[slotOf(up)], 'takeL', '기본 휠의 12시는 L을 가져가다');
+    assert.equal(slotOf(wheelTapAt(300 + 140, 250, rect)), 2, '3시 칸');
+    assert.equal(slotOf(wheelTapAt(300, 250 + 140, rect)), 4, '6시 칸');
+    assert.equal(slotOf(wheelTapAt(300 - 100, 250 - 100, rect)), 7, '10시 반 칸');
+    assert.equal(wheelTapAt(300, 250 - (WHEEL_TAP.OUTER - 1), rect).kind, 'pick', '그림 테두리를 조금 넘어도 칸이다');
+    assert.equal(wheelTapAt(300 + WHEEL_TAP.OUTER + 1, 250, rect).kind, 'outside');
+  });
+  test('작게 그려진 휠은 비율대로 보고, 휠이 없으면 밖이다', () => {
+    const small = { left: 0, top: 0, width: 200, height: 200 };   // 그림 1단위 = 0.5px
+    assert.equal(wheelTapAt(100 + 30, 100, small).kind, 'hub');
+    assert.equal(wheelTapAt(100 + 40, 100, small).kind, 'pick');
+    assert.equal(wheelTapAt(100 + 120, 100, small).kind, 'outside');
+    assert.equal(wheelTapAt(10, 10, null).kind, 'outside');
+    assert.equal(wheelTapAt(10, 10, { left: 0, top: 0, width: 0, height: 0 }).kind, 'outside', '숨은 휠');
+    assert.equal(wheelTapAt(Number.NaN, 10, rect).kind, 'outside');
   });
 });
 
@@ -219,6 +247,52 @@ describe('터치 모드 입력', () => {
     const pc = stage(false);
     assert.equal(pc.input.touchMode, false);
     pc.input.dispose();
+  });
+
+  test('이모트 휠 탭 모드: 열린 휠만 켤 수 있고, 칸을 고르면 그 이모트를 내고, 닫히면 꺼진다', async () => {
+    const { input, of } = stage();
+    await input.requestLock();
+    input.setEmoteWheelTap(true);
+    assert.equal(of('input:emoteWheel').length, 0, '닫힌 휠은 켜지 않는다');
+    input.openEmoteWheel();
+    assert.equal(input.emoteWheel.tap, false, '열 때는 끌기 방식이다');
+    input.setEmoteWheelTap(true);
+    assert.equal(of('input:emoteWheel').at(-1).tap, true);
+    assert.equal(of('input:emoteWheel').at(-1).open, true);
+    input.touch.look(30, 0);
+    assert.deepEqual(input.consumeLook(), { dx: 0, dy: 0 }, '휠이 열린 동안 시점은 멈춘다');
+    input.moveEmoteWheel(0, -EMOTE_WHEEL.RADIUS, true);
+    input.closeEmoteWheel(true);
+    assert.deepEqual(of('input:emotePick').at(-1), { id: 'takeL', code: of('input:emotePick').at(-1).code, selected: 0 });
+    assert.ok(of('input:emotePick').at(-1).code > 0);
+    assert.equal(input.emoteWheel.open, false);
+    assert.equal(input.emoteWheel.tap, false, '닫히면 탭 모드도 끝난다');
+    input.openEmoteWheel();
+    input.setEmoteWheelTap(true);
+    input.exitLock();
+    assert.equal(of('input:emoteWheel').at(-1).cancelled, true, '잠금이 풀리면 고르지 않고 닫는다');
+    assert.equal(input.emoteWheel.tap, false);
+    input.dispose();
+  });
+
+  test('채팅: 잠금 중 Enter와 채팅 버튼이 input:chat을 내고, 휠이 열렸거나 잠금 전이면 내지 않는다', async () => {
+    const { input, of } = stage();
+    const key = (code, repeat = false) => globalThis.window.fire('keydown', { code, repeat, target: null, preventDefault() {} });
+    key('Enter');
+    input.touch.chat();
+    assert.equal(of('input:chat').length, 0, '잠금 전');
+    await input.requestLock();
+    key('Enter');
+    key('NumpadEnter');
+    key('Enter', true);
+    input.touch.chat();
+    assert.equal(of('input:chat').length, 3, 'Enter 두 개와 채팅 버튼, 키 반복은 뺀다');
+    input.openEmoteWheel();
+    key('Enter');
+    input.touch.chat();
+    assert.equal(of('input:chat').length, 3, '이모트 휠이 열려 있으면 열지 않는다');
+    input.closeEmoteWheel(false);
+    input.dispose();
   });
 
   test('잠금이 풀리면 눌려 있던 입력이 모두 풀린다', async () => {

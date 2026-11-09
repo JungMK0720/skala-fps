@@ -7,11 +7,11 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createSession, restoreMatch, restoreFfaMatch, preferredPick, gearMessage, readGear, weaponForSlot, matchSummary
+  createSession, restoreMatch, restoreFfaMatch, preferredPick, gearMessage, readGear, weaponForSlot, matchSummary, CHAT_LIMIT
 } from '../js/game/session.js';
 import { createMatch } from '../js/game/match.js';
 import { pickableWeapons } from '../js/game/modes.js';
-import { EV, byteSize, decodeMessage, encodeLoadout } from '../js/game/protocol.js';
+import { EV, byteSize, decodeMessage, encodeChat, encodeLoadout } from '../js/game/protocol.js';
 import { NET } from '../js/core/consts.js';
 import { LOBBY_TOPIC, Lobby, lobbyEntry, packRoomKind, readLobbyEntry, unpackRoomKind } from '../js/net/lobby.js';
 import { ROOM_TOPIC_PREFIX, Room } from '../js/net/room.js';
@@ -192,8 +192,10 @@ function fakeUi() {
   const log = [];
   const handlers = new Map();
   const feed = [];
+  const chat = { lines: [], opened: 0, push(l) { chat.lines.push(l); }, open() { chat.opened += 1; }, clear() { chat.lines.length = 0; } };
   return {
     feed,
+    chat,
     hud: { center() {} },
     killfeed: { push: (k) => feed.push(k), clear() {} },
     show(name, props) { log.push({ name, kind: 'show', props }); },
@@ -233,7 +235,7 @@ function stage(t, { rules, ffaRules } = {}) {
   const clients = [];
   const env = {
     clock, hub, clients,
-    client(id, name, account) {
+    client(id, name, account, extra = {}) {
       const c = { id, world: fakeWorld(), ui: fakeUi(), account: fakeAccount(name, account), logs: [] };
       c.session = createSession({
         world: c.world, ui: c.ui,
@@ -242,7 +244,8 @@ function stage(t, { rules, ffaRules } = {}) {
         hostTickMs: 50, loadoutLeadMs: 200,
         rules: { loadoutMs: 1500, roundEndMs: 300, roundTimeMs: 60000, roundsToWin: 1, maxRounds: 1, ...rules },
         ffaRules: { spawnProtectMs: 0, respawnMs: 300, timeLimitMs: 6000, ...ffaRules },
-        syncOptions: { autoTick: false, now: clock.now }
+        syncOptions: { autoTick: false, now: clock.now },
+        ...extra
       });
       clients.push(c);
       return c;
@@ -304,6 +307,67 @@ describe('세션 연결', () => {
     await env.run(300);
     assert.deepEqual(b.world.calls('removeDrop'), [['b#1']]);
     assert.equal(a.world.calls('removeDrop').length, 0);
+  });
+
+  test('경기 채팅: HUD 채팅으로 주고받고, Enter(input:chat)로 열고, 도배는 보내는 쪽과 받는 쪽에서 막는다', async (t) => {
+    const env = stage(t);
+    const bus = { subs: new Map(), events: [] };
+    bus.on = (evt, fn) => { if (!bus.subs.has(evt)) bus.subs.set(evt, new Set()); bus.subs.get(evt).add(fn); return () => bus.subs.get(evt).delete(fn); };
+    bus.emit = (evt, data) => { bus.events.push([evt, data]); for (const fn of [...(bus.subs.get(evt) || [])]) fn(data); };
+    const a = env.client('a', '하늘', undefined, { bus });
+    const b = env.client('b', '구름');
+    const sentIds = () => new Set(env.hub.decoded(EV.chat, 'a').map((d) => d.id)).size;
+
+    await a.session.open();
+    a.ui.fire('lobby:create', { name: '', max: 4, mapId: 'jetty', mode: 'team' });
+    await env.settle();
+    bus.emit('input:chat', {});
+    assert.equal(a.ui.chat.opened, 0, '대기실에서는 Enter로 경기 채팅을 열지 않는다');
+    await b.session.open();
+    b.ui.fire('lobby:join', { roomId: env.hub.roomId });
+    await env.settle();
+    b.ui.fire('room:ready', { ready: true });
+    a.ui.fire('room:start', {});
+    await env.settle();
+    await env.run(1800);
+    assert.equal(a.session.state.matchPhase, 'live');
+    assert.ok(a.ui.shown('chat').length >= 1 && b.ui.shown('chat').length >= 1, '경기에 들어가면 채팅 화면을 띄운다');
+    assert.deepEqual(bus.events.filter((e) => e[0] === 'chat:available').at(-1), ['chat:available', { on: true }], '휴대폰 채팅 버튼을 켠다');
+
+    bus.emit('input:chat', {});
+    assert.equal(a.ui.chat.opened, 1, '경기 중 Enter는 채팅 입력칸을 연다');
+
+    a.ui.fire('chat:send', { text: '  왼쪽으로   가요 ' });
+    await env.run(200);
+    const mine = a.ui.chat.lines.at(-1);
+    assert.equal(mine.text, '왼쪽으로 가요');
+    assert.equal(mine.me, true, '내 줄은 표시가 다르다');
+    const got = b.ui.chat.lines.filter((l) => !l.system);
+    assert.equal(got.length, 1, '여러 번 다시 보내도 한 줄만 받는다');
+    assert.equal(got[0].name, '하늘');
+    assert.equal(got[0].text, '왼쪽으로 가요');
+    assert.ok(['owner', 'charterer'].includes(got[0].team), '팀전은 팀 색을 붙인다');
+    assert.ok(b.session.state.chat.some((l) => l.text === '왼쪽으로 가요'), '대기실 채팅 기록에도 남는다');
+
+    // 5초에 4줄까지: 처음 한 줄 + 세 줄은 가고 다섯째는 안내만 남는다
+    for (let i = 0; i < CHAT_LIMIT.send; i++) a.ui.fire('chat:send', { text: `빨리 ${i}` });
+    await env.run(200);
+    assert.equal(sentIds(), CHAT_LIMIT.send, '보내는 쪽에서 막는다');
+    assert.match(a.ui.chat.lines.at(-1).text, /너무 빨리/);
+    assert.equal(a.ui.chat.lines.at(-1).system, true);
+
+    // 고친 클라이언트가 한도를 무시하고 보내도 받는 쪽이 한 사람당 5초에 CHAT_LIMIT.receive줄만 받는다
+    await env.run(CHAT_LIMIT.windowMs + 200);
+    const before = b.ui.chat.lines.length;
+    for (let i = 0; i < CHAT_LIMIT.receive + 4; i++) env.hub.post('a', EV.chat, encodeChat(900 + i, `도배 ${i}`));
+    await env.run(100);
+    assert.equal(b.ui.chat.lines.length - before, CHAT_LIMIT.receive, '받는 쪽에서 버린다');
+
+    a.session.dispose();
+    assert.deepEqual(bus.events.filter((e) => e[0] === 'chat:available').at(-1), ['chat:available', { on: false }], '경기를 떠나면 채팅 버튼을 끈다');
+    bus.emit('input:chat', {});
+    assert.equal(a.ui.chat.opened, 1, '떠난 뒤의 Enter는 무시한다');
+    env.dispose();
   });
 
   test('팀전: 장비 → 로드아웃 → 산탄 count → 킬 → 결과, 계정 기록은 한 번', async (t) => {
