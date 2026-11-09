@@ -697,7 +697,7 @@ function buildWorld(ctx, opts) {
   function onEmoteWheel(e) {
     if (!active || !ui || !e) return;
     const open = !!e.open && local.spawned && local.alive;
-    const props = { selected: e.selected == null ? null : e.selected, cursor: e.cursor || { x: 0, y: 0 } };
+    const props = { selected: e.selected == null ? null : e.selected, cursor: e.cursor || { x: 0, y: 0 }, tap: !!e.tap };
     if (open) {
       latch.fire = false; rmbDown = false;
       if (!wheel.open) { wheel.open = true; ui.show('emotes', Object.assign({ items: wheelItems() }, props)); }

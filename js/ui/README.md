@@ -6,7 +6,7 @@
 | 파일 | 내용 |
 |---|---|
 | `index.js` | `createUI()`: 화면 관리, 이벤트, 커서 상태, 설정, 계정·무기·맵 연결 |
-| `menu.js` `nickname.js` `mypage.js` `shop.js` `lobby.js` `room.js` `loadout.js` `hud.js` `scope.js` `emotes.js` `scoreboard.js` `results.js` `pause.js` | 화면별 모듈 |
+| `menu.js` `nickname.js` `mypage.js` `shop.js` `lobby.js` `room.js` `loadout.js` `hud.js` `chat.js` `scope.js` `emotes.js` `scoreboard.js` `results.js` `pause.js` | 화면별 모듈 |
 | `settings.js` `controls.js` | 설정 저장과 설정 시트, 조작법 시트(메뉴와 일시정지가 같이 씀) |
 | `dom.js` `parts.js` `icons.js` | DOM 헬퍼, 공통 부품(무기 카드 조각, 포인트 표시, 선택 버튼 묶음 포함), 도형 아이콘(맵 평면도, 메뉴 아이콘, 헤드샷, 메뉴 배경) |
 | `demo.js` + `dev/ui-demo.html` | QA용 데모(목 데이터). 게임 본편에서는 로드하지 않습니다 |
@@ -84,6 +84,7 @@ emoteIndexAt(x, y, count = 8, deadZone = 40) → index | null   // 이모트 휠
 | `pause` | 게임 오버레이 | `scoreboard`. 계속하기/나가기 누르면 스스로 닫힘 | 필요 |
 | `scoreboard` | 게임 오버레이 | 없음. 입력을 받지 않음 | 불필요 |
 | `emotes` | 게임 오버레이(표시 전용) | 없음. 페이지·`pause`·`hide('hud')`가 이 화면을 닫음 | **불필요**(포인터 잠금 유지) |
+| `chat` | 게임 오버레이(멀티플레이 경기) | 없음. 페이지·`hide('hud')`가 닫고, `pause`는 입력칸만 접음 | **불필요**(입력칸에 포커스만, 포인터 잠금 유지) |
 
 `mypage`와 `shop`은 core 화면이 아니라 메뉴 안의 UI 페이지입니다(core 화면은 `menu` 그대로). `hide('hud')`는 스코프도 0으로 만듭니다. 그래서 게임 시작은 `ui.show('hud', …)` + `ui.show('loadout', …)`, 매치 끝은 `ui.show('results', …)`만 부르면 됩니다.
 
@@ -220,7 +221,8 @@ props 없음. `ui.setWeapons`로 등록한 무기 중 슬롯 1~3을 `def.categor
 ```js
 { items: [{ id, n /*또는 code*/, name, icon }] /*보통 8개, consts.EMOTES를 그대로 넘겨도 됨*/,
   selected: index | null /*생략하면 cursor 방향으로 계산*/,
-  cursor?: { x, y } /*화면 중앙 기준 px, y는 아래로 +*/ }
+  cursor?: { x, y } /*화면 중앙 기준 px, y는 아래로 +*/,
+  tap?: boolean /*휴대폰에서 짧게 눌러 열어 둔 휠: 커서 점을 숨기고 "칸을 누르면 시작 · 가운데는 닫기"*/ }
 ```
 - **표시 전용 화면입니다.** B 키, 마우스, 클릭은 엔진(World)이 받아서 `show`/`update`/`hide`로 넘깁니다. UI는 이벤트를 보내지 않고, 입력도 가로채지 않습니다(`pointer-events: none`). 그래서 **`needCursor`가 발생하지 않고 포인터 잠금도 유지됩니다.**
   - B 누름 → `ui.show('emotes', { items, selected: null, cursor: {x:0, y:0} })`
@@ -233,6 +235,19 @@ props 없음. `ui.setWeapons`로 등록한 무기 중 슬롯 1~3을 `def.categor
 - 반투명 배경이라 게임 화면이 비쳐 보입니다. 열 때 0.17초 커지며 나타나고, 닫을 때 0.14초 사라집니다.
 - 휠이 열린 동안에는 크로스헤어를 숨깁니다.
 - "멈춘 상태에서만 할 수 있어요" 같은 거절 안내는 `ui.hud.center(text, ms, { tone: 'warn' })`나 `hud.set({ hint })`를 쓰세요.
+- 휴대폰 탭 모드에서 칸을 누른 자리는 engine/touch.js가 `.sk-emo-wheel` 상자로 계산합니다. 이 화면은 여전히 입력을 받지 않습니다.
+
+### `chat` — 경기 채팅 (멀티플레이)
+```js
+ui.show('chat')                 // session이 경기 맵을 불러온 뒤 띄운다. 연습장에는 없다
+ui.chat.push({ name, text, team? /*'owner'|'charterer'|null*/, system?, me? })
+ui.chat.open() / close() / isOpen() / clear()
+```
+- 닫혀 있으면 새 줄만 9초 동안 보였다가 사라집니다(PC는 체력 위, 휴대폰은 왼쪽 위). 열면 지난 줄(최대 40)과 입력칸이 보입니다.
+- PC: 경기 중 Enter(`input:chat`) → `open()`이 입력칸에 포커스를 줍니다. 포인터 잠금은 그대로라 마우스 시점·사격은 됩니다. Enter = 보내기(빈 칸이면 닫기), Esc = 닫기.
+- 휴대폰: 채팅 버튼 → 열 때 키보드를 띄우지 않습니다. 빠른 문장(`QUICK_CHAT`)을 누르면 바로 보내고, 입력칸을 눌러 직접 씁니다. 12초 동안 아무것도 안 하면 닫습니다.
+- 이벤트: `chat:send { text }`(보내기, session이 `sync.sendChat`) · `chat:open`(session이 PC에서 눌려 있던 이동 키를 풂) · `chat:close`.
+- 글자는 모두 `textContent`로 넣습니다. 도배 제한은 session의 `CHAT_LIMIT`(보내기 5초에 4줄, 받기 한 사람당 5초에 6줄)입니다.
 
 ### `scoreboard`
 ```js
@@ -330,7 +345,7 @@ props 없음. `ui.setWeapons`로 등록한 무기 중 슬롯 1~3을 `def.categor
 
 ## 알려진 한계
 
-- 게임패드나 터치 조작용 UI는 없습니다(모바일에서는 메뉴, 로비, 방, 결과만 쓸 만합니다).
-- 채팅에는 욕설 필터나 도배 제한이 없습니다(길이만 120자로 자름). 필요하면 net 쪽에서 처리하세요.
+- 게임패드 조작은 없습니다. 휴대폰 터치 조작은 engine/touch.js가 맡습니다.
+- 채팅에는 욕설 필터가 없습니다. 길이(120자)와 도배(session의 `CHAT_LIMIT`)만 제한합니다.
 - 점수판 핑과 생존 여부는 엔진이 주는 값을 그대로 보여 줍니다.
 - 아이콘 일부는 이모지라 OS에 따라 모양이 다릅니다.

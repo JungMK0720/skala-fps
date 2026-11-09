@@ -1,11 +1,12 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 이모트 휠 화면. B를 누르는 동안 8칸 원형 휠을 표시하고, 입력은 World에서 넘겨받는다.
+ * Purpose: 이모트 휠 화면. B를 누르는 동안(휴대폰은 버튼을 누르는 동안이나 짧게 눌러 열어 둔 동안) 8칸 원형 휠을 표시하고, 입력은 World에서 넘겨받는다.
  */
 // SKALA 작전 UI — 이모트 휠(MODES.md 4.2). B를 누르고 있는 동안 화면 가운데 8칸 원형 휠.
-//   - 표시 전용: 입력(B·마우스·클릭)은 엔진(World)이 받아 props로 넘긴다. 커서를 요구하지 않는다(포인터 잠금 유지).
-//   - props: { items:[{ id, n, name, icon }], selected: index|null, cursor?: { x, y } (화면 중앙 기준 px) }
+//   - 표시 전용: 입력(B·마우스·클릭·터치)은 엔진(World)이 받아 props로 넘긴다. 커서를 요구하지 않는다(포인터 잠금 유지).
+//   - props: { items:[{ id, n, name, icon }], selected: index|null, cursor?: { x, y } (화면 중앙 기준 px), tap?: boolean }
+//     tap = 휴대폰에서 짧게 눌러 열어 둔 휠. 커서 점을 숨기고 "칸을 누르세요" 안내를 띄운다(칸 누르기 판정은 engine/touch.js).
 //   - update는 마우스가 움직일 때마다 와도 된다: 칸 모양은 items가 바뀔 때만 다시 만든다.
 import { h, svg, setText, num } from './dom.js';
 
@@ -31,6 +32,9 @@ const R = 192;
 const R0 = 74;
 const GAP = 1.4; // 칸 사이 틈(도)
 const HINT = '마우스로 고르고 B를 떼세요 · 그냥 떼면 취소';
+const TOUCH_HINT = '끌어서 고르거나, 떼고 칸을 누르세요';
+const TAP_HINT = '칸을 누르면 시작 · 가운데는 닫기';
+const isTouch = () => document.documentElement.classList.contains('pc-touch');
 
 function sectorPath(r0, r1, a0, a1) {
   const pt = (r, deg) => {
@@ -53,6 +57,7 @@ export function createEmotes(ctx) {
   let itemsRef = null;
   let itemsSig = '';
   let sel; // 지금 강조한 칸(undefined = 아직 적용 전)
+  let tap = false; // 휴대폰에서 열어 둔 휠(칸을 눌러 고른다)
   let wheelPx = 0; // 실제 그려진 휠 반지름(px)
   let closeTimer = null;
 
@@ -94,17 +99,20 @@ export function createEmotes(ctx) {
     sel = undefined;
   }
 
-  function applySelected(i) {
-    if (i === sel) return;
+  function applySelected(i, tapNow) {
+    if (i === sel && tapNow === tap) return;
     sel = i;
+    tap = tapNow;
     for (const node of wedges.children) node.classList.toggle('is-sel', Number(node.getAttribute('data-i')) === i);
     for (const node of labels.children) node.classList.toggle('is-sel', Number(node.getAttribute('data-i')) === i);
     const it = i != null ? items[i] : null;
     wheel.classList.toggle('has-sel', !!it);
+    wheel.classList.toggle('is-tap', tap);
     setText(hubIco, it ? it.icon || '🙂' : '🕺');
     setText(hubName, it ? it.name : '');
     hubName.hidden = !it;
-    setText(hubHint, it ? (document.documentElement.classList.contains('pc-touch') ? '손을 떼면 시작' : 'B를 떼면 시작') : HINT);
+    const touch = isTouch();
+    setText(hubHint, it ? (tap ? '시작!' : touch ? '손을 떼면 시작' : 'B를 떼면 시작') : tap ? TAP_HINT : touch ? TOUCH_HINT : HINT);
   }
 
   function applyCursor(c) {
@@ -125,14 +133,14 @@ export function createEmotes(ctx) {
       itemsRef = p.items;
       const list = (Array.isArray(p.items) ? p.items : []).slice(0, 12).map(normItem);
       const s = JSON.stringify(list);
-      if (s !== itemsSig) { itemsSig = s; items = list; build(); }
+      if (s !== itemsSig) { itemsSig = s; items = list; build(); tap = undefined; }
     }
     // selected를 생략(undefined)하면 cursor 방향으로 계산한다
     let i = p.selected;
     if (i === undefined) i = p.cursor ? emoteIndexAt(p.cursor.x, p.cursor.y, items.length) : null;
     i = Number.isInteger(i) && i >= 0 && i < items.length ? i : null;
-    applySelected(i);
-    applyCursor(p.cursor);
+    applySelected(i, !!p.tap);
+    applyCursor(p.tap ? null : p.cursor);   // 손가락으로 칸을 누를 때는 가상 커서가 없다
   }
 
   // 열고 닫을 때 짧은 애니메이션: 닫힘은 is-closing 애니메이션 뒤에 hidden

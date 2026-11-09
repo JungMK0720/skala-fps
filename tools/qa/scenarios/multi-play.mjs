@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 시나리오 11. 가짜 Supabase(tools/qa/fake-supabase.mjs)에 실제 클라이언트 둘을 붙여 멀티플레이를 끝까지 돌린다. 닉네임 서버 검사, 프로필 저장, 로비, 방, 채팅, 경기, 판정, 결과, 퇴장을 본다.
+ * Purpose: 시나리오 11. 가짜 Supabase(tools/qa/fake-supabase.mjs)에 실제 클라이언트 둘을 붙여 멀티플레이를 끝까지 돌린다. 닉네임 서버 검사, 프로필 저장, 로비, 방, 채팅, 경기, 경기 채팅, 판정, 결과, 퇴장을 본다.
  *          개인전 중간 참가를 볼 때만 셋째 클라이언트를 잠깐 띄운다(둘 중 하나가 나가면 기권승으로 끝나기 때문이다).
  *          실서버의 인증·전송 한도·지연은 검증하지 못한다. 페이지가 둘이어야 하는 유일한 시나리오라 작은 화면과 저사양으로 돌린다.
  */
@@ -167,6 +167,36 @@ export default {
       });
       t.check(!!spot, '서로 쏠 자리를 찾는다');
       if (!spot) throw new Error('자리를 찾지 못했어요');
+
+      t.setSection('경기 채팅');
+      t.check(await host.eval('__qa.ui.isVisible("chat")') && await guest.eval('__qa.ui.isVisible("chat")'), '경기 중에는 채팅 화면이 있다');
+      await host.bringToFront();
+      await host.key('KeyW', 'down');
+      await host.press('Enter', { text: '\r' });
+      await host.waitFor('__qa.ui.chat.isOpen() && document.activeElement === document.querySelector(".sk-cb-input")', 3000, { label: '경기 중 Enter로 채팅 입력칸' });
+      t.check(await host.eval('__qa.ctx.input.locked'), '채팅을 열어도 포인터 잠금은 그대로다');
+      t.check(!(await host.eval('__qa.ctx.input.state.forward')), '채팅을 열면 누르고 있던 이동 키가 풀린다');
+      await host.type('왼쪽 골목으로 가요');
+      await host.key('KeyW', 'up');
+      await host.press('Enter', { text: '\r' });
+      await host.waitFor('!__qa.ui.chat.isOpen()', 2000, { label: 'Enter로 보내면 닫힌다' });
+      await eventually(t, guest, `/왼쪽 골목으로 가요/.test(__qa.text('.sk-cb-log'))`, '상대 HUD 채팅에 보인다');
+      t.check(/하늘|방장/.test(await guest.eval(`__qa.text('.sk-cb-log')`)), '보낸 사람 이름이 붙는다', await guest.eval(`__qa.text('.sk-cb-log')`));
+      t.check(/왼쪽 골목으로 가요/.test(await host.eval(`__qa.text('.sk-cb-log')`)), '내 HUD 채팅에도 남는다');
+      t.check((await host.eval('document.querySelector(".sk-cb-input").value')) === '', '보낸 뒤 입력칸은 비운다');
+      t.check(await host.eval('document.activeElement !== document.querySelector(".sk-cb-input")'), '보낸 뒤에는 키가 다시 게임으로 간다');
+      await t.shot('match-chat');
+      // 빈 칸에서 Enter는 아무것도 보내지 않고 닫는다
+      const sentBefore = await guest.eval(`document.querySelectorAll('.sk-cb-log li').length`);
+      await host.press('Enter', { text: '\r' });
+      await host.waitFor('__qa.ui.chat.isOpen()', 2000, { label: '다시 열기' });
+      await host.press('Enter', { text: '\r' });
+      await host.waitFor('!__qa.ui.chat.isOpen()', 2000, { label: '빈 칸 Enter로 닫기' });
+      await sleep(400);
+      t.check((await guest.eval(`document.querySelectorAll('.sk-cb-log li').length`)) === sentBefore, '빈 칸은 보내지 않는다');
+      await lockPointer(host);
+      await guest.bringToFront();
+      t.errorsOk('경기 채팅');
 
       t.setSection('방장이 쏜다');
       await arrange(host, guest, spot);
