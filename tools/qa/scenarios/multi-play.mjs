@@ -424,6 +424,13 @@ export default {
       t.check(!/🔒/.test(await guest.eval(`document.querySelector('.sk-room-row').textContent`)), '폭파 방은 자물쇠 없이 보인다');
       await guest.click('.sk-room-join');
       await guest.waitFor('__qa.ctx.screen === "room" && __qa.ui.isVisible("room")', 15000, { label: '손님이 폭파 방에' });
+      // 방을 막 연 방장의 팀이 presence로 퍼지기 전에 손님이 들어오면 손님도 블루를 고를 수 있다. 팀을 직접 맞춘다(방장 블루 · 손님 레드)
+      const teamIs = (page, team) => page.eval(`(window.__skalafpsSession && window.__skalafpsSession.state.team) === '${team}'`);
+      if (!(await teamIs(host, 'owner'))) await host.click('.sk-team--owner .sk-team-head .sk-btn');
+      await host.waitFor(`window.__skalafpsSession.state.team === 'owner'`, 5000, { label: '방장 블루' });
+      if (!(await teamIs(guest, 'charterer'))) await guest.click('.sk-team--charterer .sk-team-head .sk-btn');
+      await guest.waitFor(`window.__skalafpsSession.state.team === 'charterer'`, 5000, { label: '손님 레드' });
+      await host.waitFor(`inRoster('손님') && [...document.querySelectorAll('.sk-room .sk-team--charterer .sk-team-list')].some((l) => l.textContent.includes('손님'))`, 8000, { label: '방장 화면에서 손님이 레드' });
       await host.click('.sk-modepick--bar .sk-mode-btn[data-mode="bomb"]');
       await guest.waitFor(`/폭파 미션/.test(document.querySelector('.sk-bar-sub.sk-chips').textContent)`, 5000, { label: '손님 화면에 폭파 미션' });
       await t.shot('bomb-room');
