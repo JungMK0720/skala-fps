@@ -3,7 +3,7 @@
  * Author: Minkyu Jung
  * Purpose: 시나리오 12. 어긋난 상황을 검사한다. 깨진 저장값, 이상한 URL 플래그, 없는 맵, 플러그인 없는 core 모드, 맵을 오갈 때의 메모리 누수, 창 크기 변경, 맵 밖 낙하, 팀전 관전, 무기 선택 숫자키.
  */
-import { LOW_QUALITY, NICK, lockPointer, openGame, qaInit, readyGame, richProfile, sleep, waitLive, waitRun, waitTicks } from '../kit.mjs';
+import { LOW_QUALITY, NICK, lockPointer, openGame, qaInit, readyGame, richProfile, sleep, startPractice, waitLive, waitRun, waitTicks } from '../kit.mjs';
 
 const memory = (page) => page.eval(`(() => { const r = __qa.ctx.renderer.three.info; return { geometries: r.memory.geometries, textures: r.memory.textures, programs: r.programs.length }; })()`);
 
@@ -144,11 +144,13 @@ export default {
     t.setSection('연타와 빠른 전환');
     page = await openGame(t, '', { profile: { nickname: NICK, createdAt: 1 }, settings: LOW_QUALITY, width: 480, height: 270, screen: 'menu', reusePage: true });
     await page.waitFor('__qa.ui.isVisible("menu")', 5000, { label: '메뉴' });
-    await page.eval(`(() => { const b = document.querySelector('.sk-menu-btn--main'); b.click(); b.click(); b.click(); })()`);
+    await page.clickText('.sk-menu-btn', '연습장');
+    await page.waitFor('!!document.querySelector(".sk-sheet .sk-sheet-foot")', 5000, { label: '연습장 설정 시트' });
+    await page.eval(`(() => { const b = [...document.querySelectorAll('.sk-sheet-foot .sk-btn')].find((x) => /출격/.test(x.textContent)); b.click(); b.click(); b.click(); })()`);
     await waitRun(page);
     await sleep(1500);
     await waitRun(page);
-    t.check(await page.eval('__qa.ctx.getTargets().length === __qa.run.bots.filter((b) => b.alive).length || __qa.run.phase !== "live"'), '빠른 시작을 연타해도 경기는 하나다');
+    t.check(await page.eval('__qa.ctx.getTargets().length === __qa.run.bots.filter((b) => b.alive).length || __qa.run.phase !== "live"'), '출격을 연타해도 경기는 하나다');
     await waitLive(page);
     t.check(await page.eval(`__qa.ctx.renderer.scene.children.filter((c) => c.name === 'props').length <= 1`), '소품 묶음이 겹치지 않는다');
     await page.eval(`(() => { __qa.ctx.setScreen('menu'); __qa.ctx.setScreen('sandbox', { mapId: 'nexus', mode: 'ffa', ruleset: 'classic', bots: 1 }); __qa.ctx.setScreen('menu'); })()`);

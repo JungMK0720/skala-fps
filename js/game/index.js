@@ -18,25 +18,6 @@ import { createWorld, setWorldContext } from './world.js';
 import { createPractice, createPracticeSetup } from './practice.js';
 
 const SCREEN_LABEL = { lobby: '로비', room: '대기실', match: '멀티 경기', results: '결과' };
-const PRACTICE_PREFS_KEY = 'skalafps.practice.v1';   // practice.js가 연습장 설정 시트에서 저장한다
-const QUICK_DEFAULTS = Object.freeze({ mapId: 'alley', mode: 'ffa', bots: 5, difficulty: 'normal', ruleset: 'classic' });
-
-/** 빠른 시작 옵션: 지난 연습장 설정, 없으면 기본값 */
-function quickStartOptions() {
-  let saved = null;
-  try { saved = JSON.parse(localStorage.getItem(PRACTICE_PREFS_KEY) || 'null'); } catch (err) { saved = null; }
-  if (!saved || typeof saved !== 'object' || !saved.mapId) return { ...QUICK_DEFAULTS };
-  const { ffaBots, ...rest } = saved;
-  return { ...QUICK_DEFAULTS, ...rest, bots: ffaBots != null ? ffaBots : saved.bots != null ? saved.bots : QUICK_DEFAULTS.bots };
-}
-
-/** 메뉴의 빠른 시작 버튼에 적을 한 줄. 예: "항구 골목 · 개인전 · 봇 5" */
-function quickStartLabel(ctx) {
-  const o = quickStartOptions();
-  const map = (ctx.maps.MAP_LIST || []).find((m) => m.id === o.mapId);
-  const people = o.mode === 'ffa' ? `개인전 · 봇 ${o.bots}` : `팀전 · ${o.size || 2} vs ${o.size || 2}`;
-  return [map && map.name, people].filter(Boolean).join(' · ');
-}
 
 /** 오류·안내 알림 */
 function createToast(ui) {
@@ -168,17 +149,13 @@ export async function install(ctx) {
 
   /* ---------- 메뉴 ---------- */
   function showMenu() {
-    ui.show('menu', { name: ctx.session.name, quickLabel: quickStartLabel(ctx) });
+    ui.show('menu', { name: ctx.session.name });
     gate.sync();
   }
   function onScreenChange(e) {
     if (!e || e.to !== 'menu') return;
     if (e.from === 'sandbox') gate.leftSandbox();
     showMenu();
-  }
-  function quickStart() {
-    multi.close();
-    ctx.setScreen('sandbox', quickStartOptions());
   }
   function openPracticeSetup() {
     multi.close();
@@ -214,7 +191,6 @@ export async function install(ctx) {
     bus.on('app:error', (e) => toast.notify((e && e.message) || '오류가 났어요')),
     bus.on('map:error', (e) => toast.notify(`맵을 불러오지 못했어요: ${(e && (e.message || e.id)) || ''}`)),
     bus.on('screen:unavailable', (e) => toast.notify(`${SCREEN_LABEL[e && e.name] || (e && e.name) || ''} 화면은 아직 준비 중이에요.`)),
-    ui.on('menu:quick', quickStart),
     ui.on('menu:sandbox', openPracticeSetup),
     ui.on('menu:multi', () => multi.open()),
     ui.on('menu:mypage', () => ui.show('mypage')),

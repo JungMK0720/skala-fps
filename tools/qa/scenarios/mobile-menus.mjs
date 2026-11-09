@@ -330,7 +330,7 @@ export default {
       await page.waitFor('__qa.ui.isVisible("menu")', 5000, { label: '메뉴' });
       await see('menu', '.sk-menu', { fits: '.sk-menu' });
 
-      await tap(page, '.sk-menu-btn--wide', '연습장');
+      await tap(page, '.sk-menu-btn', '연습장');
       await page.waitFor('!!document.querySelector(".sk-sheet")', 3000, { label: '터치로 연습장 시트' });
       await see('practice-sheet', '.sk-sheet');
       await swipe(page, '.sk-sheet-body', 0, 600);

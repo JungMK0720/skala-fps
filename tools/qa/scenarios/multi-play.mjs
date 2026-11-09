@@ -6,7 +6,7 @@
  *          실서버의 인증·전송 한도·지연은 검증하지 못한다. 페이지가 둘이어야 하는 유일한 시나리오라 작은 화면과 저사양으로 돌린다.
  */
 import { startFakeSupabase } from '../fake-supabase.mjs';
-import { LOW_QUALITY, clickFire, lockPointer, qaInit, readyGame, sleep, waitIdle, waitTicks } from '../kit.mjs';
+import { LOW_QUALITY, clickFire, lockPointer, qaInit, readyGame, sleep, startPractice, waitIdle, waitTicks } from '../kit.mjs';
 
 const SIZE = { width: 480, height: 270 };
 
@@ -17,7 +17,7 @@ async function openPlayer(t, page, nickname) {
 }
 
 async function goLobby(page) {
-  await page.clickText('.sk-menu-btn--wide', '멀티플레이');
+  await page.clickText('.sk-menu-btn', '멀티플레이');
   await page.waitFor('__qa.ctx.screen === "lobby" && __qa.ui.isVisible("lobby")', 15000, { label: '로비' });
   await page.waitFor(`!document.querySelector('.sk-lobby .sk-loading')`, 15000, { label: '방 목록' });
 }
@@ -74,7 +74,7 @@ export default {
       await host.waitFor(`document.querySelector('.sk-nick').hidden`, 5000, { label: '게이트 닫힘' });
       t.check([...fake.players.values()].some((p) => p.name === '방장'), '서버에 닉네임이 등록된다');
       await readyGame(host, { screen: 'menu' });
-      t.check(!(await host.eval(`[...document.querySelectorAll('.sk-menu-btn--wide')].find((x) => /멀티플레이/.test(x.textContent)).disabled`)), '멀티 버튼이 켜진다');
+      t.check(!(await host.eval(`[...document.querySelectorAll('.sk-menu-btn')].find((x) => /멀티플레이/.test(x.textContent)).disabled`)), '멀티 버튼이 켜진다');
 
       t.setSection('프로필 동기화');
       await host.eval(`__qa.ctx.account.buy('pt_magnum')`);
@@ -374,7 +374,7 @@ export default {
       if (await host.eval('__qa.ui.isVisible("lobby")')) await host.click('.sk-lobby .sk-bar .sk-btn--ghost');
       await host.waitFor('__qa.ctx.screen === "menu" && __qa.ui.isVisible("menu")', 8000, { label: '방장 메뉴로' });
       t.check(await host.eval('!__qa.ctx.map && !__qa.ctx.rendering'), '메뉴로 돌아오면 맵을 치운다');
-      await host.click('.sk-menu-btn--main');
+      await startPractice(host);
       await host.waitFor('__qa.ctx.screen === "sandbox" && !!__qa.run', 30000, { label: '멀티 뒤 연습장' });
       await host.waitFor('__qa.run.phase === "live"', 15000, { label: '멀티 뒤 연습장 live' });
       t.errorsOk('멀티 뒤 연습장');

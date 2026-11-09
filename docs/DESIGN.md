@@ -179,7 +179,7 @@ export default {
 `js/game/modes.js`가 정의한다(이미 작성됨). 모드(`team`/`ffa`)와 규칙(`classic`/`knife`/`sniper`)은 직교한다.
 - `world.loadMap(mapId, { mode, ruleset })` → `arsenal.setAllowedSlots`. 칼전은 뷰모델이 처음부터 칼.
 - `world.spawnLocal({ loadout })`: `loadout`은 `pickSlot`의 무기 id. 나머지 슬롯은 `ctx.account.loadout`에서 가져온다.
-- 연습장 설정 시트: 규칙 → 모드 → 맵(`mapsForRuleset`) → 인원 → 난이도 순. 메뉴의 **빠른 시작**은 지난 설정(없으면 `alley`, 개인전, 봇 5)으로 바로 출격.
+- 연습장 설정 시트: 규칙 → 모드 → 맵(`mapsForRuleset`) → 인원 → 난이도 순. 시트는 지난 설정(없으면 `alley`, 개인전, 봇 5)을 기억한다. 메뉴의 빠른 시작 버튼은 없앴다.
 - 봇(`bots.js`): 무기 정보는 `defs`에서 만든다(`BOT_WEAPON_INFO` 복제 제거). `ruleset`을 받아 칼전이면 칼만 들고 거리를 좁혀 베고, 스나전이면 저격 위주. 봇 주무기는 `pickableWeapons(ruleset)`에서 고른다.
 - 멀티: 방 메타에 `ruleset`. 로비 배지 "칼전 · 개인전", 방 만들기 시트에서 고르고 방장이 대기실에서 바꿀 수 있다.
 
@@ -224,8 +224,8 @@ account.remoteEnabled
 
 ## 8. UI
 
-`createUI` 화면 추가: `nickname`(첫 실행 게이트, 닫을 수 없음), `mypage`, `shop`. `PAGES`에 포함. 메뉴 이벤트: `menu:quick`, `menu:sandbox`, `menu:multi`, `menu:mypage`, `menu:shop`.
-- **메인 메뉴**: 플레이어 카드(닉네임·포인트·마이페이지 버튼), 빠른 시작, 연습장, 멀티, 상점, 설정, 조작법.
+`createUI` 화면 추가: `nickname`(첫 실행 게이트, 닫을 수 없음), `mypage`, `shop`. `PAGES`에 포함. 메뉴 이벤트: `menu:sandbox`, `menu:multi`, `menu:mypage`, `menu:shop`.
+- **메인 메뉴**: 플레이어 카드(닉네임·포인트·마이페이지 버튼), 멀티(맨 위 큰 버튼), 연습장, 상점, 설정, 조작법.
 - **닉네임 게이트**: 입력하면 0.4초 디바운스로 `checkNickname`, 사용 가능/이미 있음/형식 오류를 바로 보여 준다.
 - **마이페이지**: 닉네임 변경(언제든, 같은 검사), 전적(킬·데스·K/D·헤드샷·반샷·경기·승), 포인트, 장비 3슬롯, 찾은 비밀 스팟.
 - **상점**: 탭(라이플·저격·SMG/샷건·권총·근접), 카드(이름·가격·막대 그래프·특징), 구매/장착.
