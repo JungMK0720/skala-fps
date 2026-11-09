@@ -369,7 +369,7 @@ export default {
       t.setSection(`${phone.id}: 상점`);
       await tap(page, '.sk-mypage .sk-my-panelhead .sk-btn--sm');
       await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '터치로 상점' });
-      for (const [tab, id] of [['라이플', 'rifle'], ['저격', 'sniper'], ['SMG·샷건', 'smg'], ['권총', 'pistol'], ['근접', 'melee']]) {
+      for (const [tab, id] of [['라이플', 'rifle'], ['저격', 'sniper'], ['SMG·샷건', 'smg'], ['권총', 'pistol'], ['근접', 'melee'], ['캐릭터', 'avatar']]) {
         await tap(page, '.sk-shop .sk-tab', tab);
         await rewind(page, '.sk-shop');
         await see(`shop-${id}`, '.sk-shop');
@@ -506,7 +506,7 @@ export default {
       t.errorsOk(`${phone.id} 경기 화면 레이어`);
 
       t.setSection(`${phone.id}: 새 손님의 상점과 마이페이지`);
-      page = await openPhone(t, phone, { profile: { nickname: '새손님', points: 500, createdAt: 1 }, screen: 'menu' });
+      page = await openPhone(t, phone, { profile: { nickname: '새손님', points: 800, createdAt: 1 }, screen: 'menu' });
       await page.waitFor('__qa.ui.isVisible("menu")', 5000, { label: '메뉴' });
       await tap(page, '.sk-menu-btn--sub', '상점');
       await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '터치로 상점' });
@@ -515,6 +515,15 @@ export default {
       await tap(page, '.sk-shop-card[aria-label="M-44 매그넘"] .sk-shop-action');
       await page.waitFor(`/샀어요/.test(document.querySelector('.sk-shop-note').textContent)`, 3000, { label: '터치로 구매' });
       await see('shop-new-bought', '.sk-shop');
+      // 캐릭터도 손가락으로 사서 입는다
+      await tap(page, '.sk-shop .sk-tab', '캐릭터');
+      await rewind(page, '.sk-shop');
+      await tap(page, '.sk-av-card[aria-label="정찰병"] .sk-shop-action');
+      await page.waitFor(`/정찰병을\\(를\\) 샀어요/.test(document.querySelector('.sk-shop-note').textContent)`, 3000, { label: '터치로 캐릭터 구매' });
+      await tap(page, '.sk-av-card[aria-label="정찰병"] .sk-shop-action');
+      await page.waitFor(`__qa.ctx.account.avatar === 'av_scout'`, 3000, { label: '터치로 캐릭터 장착' })
+        .then(() => t.check(true, `${phone.id}: 터치로 캐릭터를 사서 입는다`), (err) => t.check(false, `${phone.id}: 터치로 캐릭터를 사서 입는다`, err.message));
+      await see('shop-new-avatar', '.sk-shop');
       await tap(page, '.sk-shop .sk-btn--ghost');
       await page.waitFor('!__qa.ui.isVisible("shop")', 3000, { label: '상점 나가기' });
       await page.fn(() => { window.__qa.ui.show('mypage'); });

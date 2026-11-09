@@ -23,11 +23,15 @@ import {
 } from '../js/account/store.js';
 import { DEFAULT_LOADOUT, WEAPON_IDS, getDef } from '../js/weapons/defs.js';
 import { DEFAULT_EMOTE_WHEEL, EMOTES, EMOTE_IDS } from '../js/core/consts.js';
+import { AVATARS, AVATAR_IDS, DEFAULT_AVATAR, avatarById, avatarIdOf, isAvatarId } from '../js/core/avatar-defs.js';
+import { ITEM_IDS } from '../js/account/economy.js';
 
-/** 처음 장비: 무기 3칸 + 기본 이모트 휠 */
-const DEFAULT_GEAR = Object.freeze({ ...DEFAULT_LOADOUT, emotes: [...DEFAULT_EMOTE_WHEEL] });
+/** 처음 장비: 무기 3칸 + 기본 이모트 휠 + 기본 캐릭터 */
+const DEFAULT_GEAR = Object.freeze({ ...DEFAULT_LOADOUT, emotes: [...DEFAULT_EMOTE_WHEEL], avatar: DEFAULT_AVATAR });
 const FREE_EMOTES = EMOTES.filter((e) => e.price === 0).map((e) => e.id);
 const PAID_EMOTES = EMOTES.filter((e) => e.price > 0).map((e) => e.id);
+const FREE_AVATARS = AVATARS.filter((a) => a.price === 0).map((a) => a.id);
+const PAID_AVATARS = AVATARS.filter((a) => a.price > 0).map((a) => a.id);
 
 const CONFIG = Object.freeze({ url: 'https://proj.supabase.co', anonKey: 'sb_publishable_test' });
 const VALID_TOKEN = 'a'.repeat(64);
@@ -87,8 +91,10 @@ function fakeServer() {
       if (!row) return { ok: false, error: 'NOT_FOUND' };
       // 진짜 서버처럼 받아들인 값을 돌려준다. capPoints를 넣으면 포인트를 그만큼으로 깎는다(늘어나는 속도 한도 흉내)
       const points = server.capPoints == null ? p_points : Math.min(p_points, server.capPoints);
-      rows.set(p_token, { ...row, points, owned: p_owned, loadout: p_loadout, stats: p_stats, secrets: p_secrets });
-      return { ok: true, clamped: points !== p_points, profile: { points, owned: p_owned, stats: p_stats } };
+      // unpriced(id)가 true인 물건은 가격표에 없는 것처럼 버린다(가격표를 아직 고치지 않은 서버 흉내)
+      const owned = server.unpriced ? p_owned.filter((id) => !server.unpriced(id)) : p_owned;
+      rows.set(p_token, { ...row, points, owned, loadout: p_loadout, stats: p_stats, secrets: p_secrets });
+      return { ok: true, clamped: points !== p_points || owned.length !== p_owned.length, profile: { points, owned, stats: p_stats } };
     },
     fps_top_players() {
       return { ok: true, players: [...rows.values()].map((r) => ({ name: r.name, kills: r.stats.kills || 0, wins: r.stats.wins || 0, points: r.points })) };
@@ -99,6 +105,8 @@ function fakeServer() {
     down: false,
     /** 숫자를 넣으면 저장할 때 포인트를 그 값으로 깎는다 */
     capPoints: null,
+    /** (id) => true면 저장할 때 그 물건을 owned에서 버린다 */
+    unpriced: null,
     /** Promise를 넣으면 풀릴 때까지 응답을 미룬다 */
     gate: null,
     calls: [],
@@ -217,7 +225,7 @@ describe('economy', () => {
 
   test('시작 포인트와 기본 지급', () => {
     assert.equal(START_POINTS, 500);
-    assert.deepEqual(defaultOwned(), [...WEAPON_IDS.filter((id) => getDef(id).price === 0), ...FREE_EMOTES]);
+    assert.deepEqual(defaultOwned(), [...WEAPON_IDS.filter((id) => getDef(id).price === 0), ...FREE_EMOTES, ...FREE_AVATARS]);
     assert.ok(defaultOwned().includes(DEFAULT_LOADOUT.primary));
     assert.equal(priceOf('sr_heavy'), getDef('sr_heavy').price);
     assert.equal(priceOf('nope'), null);
@@ -229,6 +237,40 @@ describe('economy', () => {
     assert.ok(PAID_EMOTES.length > 0);
     for (const id of PAID_EMOTES) assert.ok(!defaultOwned().includes(id), id);
     assert.equal(priceOf(1), null, '번호는 물건 id가 아니다');
+  });
+
+  test('캐릭터 목록: 기본 하나는 무료, 상점 캐릭터는 300~2,000 P', () => {
+    assert.deepEqual(FREE_AVATARS, [DEFAULT_AVATAR], '기본 지급 캐릭터는 하나');
+    assert.equal(AVATARS[0].id, DEFAULT_AVATAR, '상점 맨 앞이 기본 캐릭터');
+    assert.ok(PAID_AVATARS.length >= 5 && PAID_AVATARS.length <= 6, `상점 캐릭터 ${PAID_AVATARS.length}종`);
+    for (const a of AVATARS) {
+      assert.match(a.id, /^av_[a-z]+$/, a.id);
+      assert.ok(a.id.length <= 32, '서버 owned 항목 길이 한도(32자)');
+      assert.equal(priceOf(a.id), a.price, a.id);
+      assert.ok(typeof a.name === 'string' && a.name.length >= 2 && typeof a.desc === 'string' && a.desc.length > 8, a.id);
+      if (a.price) assert.ok(a.price >= 300 && a.price <= 2000 && a.price % 100 === 0, `${a.id} ${a.price}`);
+    }
+    const prices = PAID_AVATARS.map((id) => priceOf(id));
+    assert.deepEqual(prices, [...prices].sort((x, y) => x - y), '상점 순서는 싼 것부터');
+    assert.equal(new Set(AVATAR_IDS).size, AVATAR_IDS.length);
+    assert.equal(new Set(AVATARS.map((a) => a.name)).size, AVATARS.length, '이름이 겹치지 않는다');
+    for (const id of PAID_AVATARS) assert.ok(!defaultOwned().includes(id), id);
+  });
+
+  test('물건 id는 무기 → 이모트 → 캐릭터 순서이고 겹치지 않는다', () => {
+    assert.deepEqual([...ITEM_IDS], [...WEAPON_IDS, ...EMOTE_IDS, ...AVATAR_IDS]);
+    assert.equal(new Set(ITEM_IDS).size, ITEM_IDS.length);
+    assert.ok(ITEM_IDS.length <= 64, '서버 fps_owned_ok는 64개까지 받는다');
+    for (const id of AVATAR_IDS) assert.ok(!getDef(id) && !EMOTE_IDS.includes(id), id);
+  });
+
+  test('캐릭터 id 읽기: 모르는 값은 기본 캐릭터', () => {
+    for (const id of AVATAR_IDS) { assert.equal(isAvatarId(id), true); assert.equal(avatarIdOf(id), id); assert.equal(avatarById(id).id, id); }
+    for (const bad of [undefined, null, '', 'av_', 'av_unknown', 'ar_std', 'takeL', 7, {}, [], '__proto__', 'AV_SCOUT']) {
+      assert.equal(isAvatarId(bad), false, String(bad));
+      assert.equal(avatarIdOf(bad), DEFAULT_AVATAR, String(bad));
+      assert.equal(avatarById(bad), null, String(bad));
+    }
   });
 
   test('DESIGN 7절의 표', () => {
@@ -354,8 +396,9 @@ describe('store', () => {
     assert.equal(p.loadout.primary, DEFAULT_LOADOUT.primary, '가지지 않은 무기');
     assert.equal(p.loadout.secondary, DEFAULT_LOADOUT.secondary, '칸이 맞지 않는 무기');
     assert.equal(p.loadout.melee, 'ml_knife');
-    assert.deepEqual(Object.keys(p.loadout).sort(), ['emotes', 'melee', 'primary', 'secondary']);
+    assert.deepEqual(Object.keys(p.loadout).sort(), ['avatar', 'emotes', 'melee', 'primary', 'secondary']);
     assert.deepEqual(p.loadout.emotes, [...DEFAULT_EMOTE_WHEEL]);
+    assert.equal(p.loadout.avatar, DEFAULT_AVATAR, '칸이 없으면 기본 캐릭터');
     assert.equal(p.stats.kills, 3);
     assert.equal(p.stats.deaths, 0);
     assert.equal(p.stats.wins, 0);
@@ -367,6 +410,38 @@ describe('store', () => {
     assert.equal(p.createdAt, 1234);
     assert.equal(normalizeProfile({ points: 1e12 }).points, MAX_POINTS);
     assert.equal(normalizeProfile({ points: -5 }).points, 0);
+  });
+
+  test('장착 캐릭터 정규화: 가진 캐릭터만, 모르거나 안 가졌으면 기본', () => {
+    const owned = ['av_scout', 'av_heavy'];
+    assert.equal(normalizeProfile({ owned, loadout: { avatar: 'av_scout' } }).loadout.avatar, 'av_scout');
+    assert.equal(normalizeProfile({ owned, loadout: { avatar: 'av_night' } }).loadout.avatar, DEFAULT_AVATAR, '사지 않은 캐릭터');
+    for (const bad of ['av_nope', 'ar_std', 3, null, { id: 'av_scout' }, ['av_scout']]) {
+      assert.equal(normalizeProfile({ owned, loadout: { avatar: bad } }).loadout.avatar, DEFAULT_AVATAR, JSON.stringify(bad));
+    }
+    const p = normalizeProfile({ owned: ['av_scout', 'av_zzz', 'av_heavy'] });
+    assert.deepEqual(p.owned.filter(isAvatarId), [DEFAULT_AVATAR, 'av_scout', 'av_heavy'], '캐릭터도 정의 순서, 기본은 늘 가진다');
+    assert.ok(!p.owned.includes('av_zzz'));
+  });
+
+  test('병합: 서버 장비에 캐릭터 칸이 없으면(옛 행) 기본, 로컬이 dirty면 로컬 캐릭터', () => {
+    const local = normalizeProfile({ nickname: '철수', owned: ['av_ranger'], loadout: { avatar: 'av_ranger' }, createdAt: 5 });
+    const old = normalizeProfile({ nickname: '철수', owned: ['av_ranger'], loadout: { primary: 'ar_std' }, createdAt: 5 });
+    assert.equal(mergeProfiles(local, old, { dirty: false }).loadout.avatar, DEFAULT_AVATAR, '서버 값을 따른다');
+    assert.equal(mergeProfiles(local, old, { dirty: true }).loadout.avatar, 'av_ranger');
+    const fresh = normalizeProfile({ nickname: '철수', createdAt: 5 });
+    const server = normalizeProfile({ nickname: '철수', owned: ['av_ranger'], loadout: { avatar: 'av_ranger' }, createdAt: 5 });
+    const merged = mergeProfiles(fresh, server, { dirty: false });
+    assert.ok(merged.owned.includes('av_ranger'));
+    assert.equal(merged.loadout.avatar, 'av_ranger', '다른 기기에서 산 캐릭터를 입고 온다');
+  });
+
+  test('가장 긴 장비도 서버 장비 한도(512바이트) 안이다', () => {
+    const longWeapon = (slot) => WEAPON_IDS.filter((id) => getDef(id).slot === slot).sort((a, b) => b.length - a.length)[0];
+    const longEmotes = [...EMOTE_IDS].sort((a, b) => b.length - a.length).slice(0, 8);
+    const longAvatar = [...AVATAR_IDS].sort((a, b) => b.length - a.length)[0];
+    const loadout = { primary: longWeapon(1), secondary: longWeapon(2), melee: longWeapon(3), emotes: longEmotes, avatar: longAvatar };
+    assert.ok(Buffer.byteLength(JSON.stringify(loadout)) < 400, `${Buffer.byteLength(JSON.stringify(loadout))}바이트`);
   });
 });
 
@@ -875,7 +950,40 @@ describe('createAccount 상점과 장비', () => {
     const { account } = makeAccount(t);
     for (const id of WEAPON_IDS) assert.equal(account.isOwned(id), getDef(id).price === 0, id);
     for (const e of EMOTES) assert.equal(account.isOwned(e.id), e.price === 0, e.id);
+    for (const a of AVATARS) assert.equal(account.isOwned(a.id), a.price === 0, a.id);
     assert.equal(account.isOwned('no_such'), false);
+  });
+
+  test('캐릭터 구매와 장착', (t) => {
+    const storage = fakeStorage();
+    const { account, bus } = makeAccount(t, { storage });
+    assert.equal(account.avatar, DEFAULT_AVATAR, '처음에는 기본 캐릭터');
+    assert.deepEqual(account.equipAvatar('av_scout'), { ok: false, reason: 'unowned' }, '사지 않은 캐릭터');
+    assert.deepEqual(account.equipAvatar('av_nope'), { ok: false, reason: 'unknown' });
+    assert.deepEqual(account.equipAvatar('ar_std'), { ok: false, reason: 'unknown' }, '무기는 캐릭터가 아니다');
+    assert.deepEqual(account.equipAvatar(DEFAULT_AVATAR), { ok: true }, '기본 캐릭터는 늘 입을 수 있다');
+    assert.deepEqual(account.buy(DEFAULT_AVATAR), { ok: false, reason: 'owned', points: START_POINTS });
+    assert.deepEqual(account.buy('av_heavy'), { ok: false, reason: 'points', points: START_POINTS }, '2,000 P');
+    assert.equal(bus.of('account:change').length, 0, '실패와 같은 장착은 알리지 않는다');
+
+    const price = priceOf('av_scout');
+    assert.deepEqual(account.buy('av_scout'), { ok: true, points: START_POINTS - price });
+    assert.equal(account.isOwned('av_scout'), true);
+    assert.equal(account.avatar, DEFAULT_AVATAR, '사기만 하면 아직 입지 않는다');
+    assert.deepEqual(account.equipAvatar('av_scout'), { ok: true });
+    assert.equal(account.avatar, 'av_scout');
+    assert.equal(account.loadout.avatar, 'av_scout');
+    const n = bus.of('account:change').length;
+    assert.deepEqual(account.equipAvatar('av_scout'), { ok: true });
+    assert.equal(bus.of('account:change').length, n, '같은 캐릭터면 바뀐 것이 없다');
+    assert.equal(account.loadout.primary, DEFAULT_LOADOUT.primary, '무기 장비는 그대로');
+    assert.deepEqual([...account.emoteWheel], [...DEFAULT_EMOTE_WHEEL], '이모트 휠도 그대로');
+
+    // 다시 열어도 장착이 남는다
+    const again = createAccount({ storage, target: null, config: { url: '', anonKey: '' } });
+    t.after(() => again.dispose());
+    assert.equal(again.avatar, 'av_scout');
+    assert.equal(again.profile.points, START_POINTS - price);
   });
 
   test('이모트 구매와 휠 장착', (t) => {
@@ -1055,6 +1163,38 @@ describe('createAccount 저장 디바운스', () => {
     t.mock.timers.tick(10000);
     await settle();
     assert.equal(server.count('fps_save_profile'), 1, '바뀐 것이 없으면 다시 보내지 않는다');
+  });
+
+  test('캐릭터는 장비와 함께 저장된다', async (t) => {
+    const { account, server } = await onlineAccount(t);
+    assert.ok(account.buy('av_scout').ok);
+    assert.ok(account.equipAvatar('av_scout').ok);
+    t.mock.timers.tick(SAVE_DEBOUNCE_MS);
+    await settle();
+    assert.equal(server.count('fps_save_profile'), 1, '구매와 장착을 한 번에 보낸다');
+    const { args } = server.last('fps_save_profile');
+    assert.equal(args.p_loadout.avatar, 'av_scout');
+    assert.ok(args.p_owned.includes('av_scout') && args.p_owned.includes(DEFAULT_AVATAR));
+    assert.equal(account.avatar, 'av_scout', '서버가 받아들이면 그대로');
+    assert.equal([...server.rows.values()][0].loadout.avatar, 'av_scout');
+  });
+
+  test('서버 가격표에 캐릭터가 아직 없어도 깨지지 않는다: 기본 캐릭터는 그대로, 받지 않은 캐릭터는 기본으로', async (t) => {
+    const { account, server } = await onlineAccount(t);
+    server.unpriced = (id) => id.startsWith('av_');
+    account.recordMatch({ kills: 1 });
+    t.mock.timers.tick(SAVE_DEBOUNCE_MS);
+    await settle();
+    assert.equal(account.isOwned(DEFAULT_AVATAR), true, '기본 캐릭터는 서버 owned에 없어도 가진다');
+    assert.equal(account.avatar, DEFAULT_AVATAR);
+
+    assert.ok(account.buy('av_scout').ok);
+    assert.ok(account.equipAvatar('av_scout').ok);
+    t.mock.timers.tick(SAVE_DEBOUNCE_MS);
+    await settle();
+    assert.equal(account.isOwned('av_scout'), false, '서버가 버린 캐릭터는 가지지 않은 것으로 따른다');
+    assert.equal(account.avatar, DEFAULT_AVATAR, '장착도 기본 캐릭터로 돌아간다');
+    assert.equal(account.profile.loadout.primary, DEFAULT_LOADOUT.primary, '다른 장비는 그대로');
   });
 
   test('성공하면 dirty가 풀리고, 저장 중에 또 바뀌면 유지한다', async (t) => {
@@ -1627,8 +1767,25 @@ describe('supabase/schema.sql', () => {
     const m = code.match(/function public\.fps_item_price[\s\S]*?\$\$;/);
     assert.ok(m, 'fps_item_price 정의');
     const listed = Object.fromEntries([...m[0].matchAll(/when '([A-Za-z0-9_]+)' then (\d+)/g)].map((x) => [x[1], Number(x[2])]));
-    assert.deepEqual(listed, Object.fromEntries([...WEAPON_IDS.map((id) => [id, getDef(id).price]), ...EMOTES.map((e) => [e.id, e.price])]));
-    assert.equal(Object.keys(listed).length, WEAPON_IDS.length + EMOTE_IDS.length);
+    assert.deepEqual(listed, Object.fromEntries([
+      ...WEAPON_IDS.map((id) => [id, getDef(id).price]), ...EMOTES.map((e) => [e.id, e.price]), ...AVATARS.map((a) => [a.id, a.price])
+    ]));
+    assert.equal(Object.keys(listed).length, WEAPON_IDS.length + EMOTE_IDS.length + AVATAR_IDS.length);
+  });
+
+  test('저장은 장착한 캐릭터를 확인한다: 가격표의 av_ 캐릭터이고 기본이거나 가진 것, 아니면 기본 캐릭터', () => {
+    const save = code.split('function public.fps_save_profile')[1].split('end $$;')[0];
+    assert.ok(save.includes("v_loadout jsonb := p_loadout;"));
+    assert.ok(save.includes("if v_loadout ? 'avatar' then"), '칸이 없는 옛 클라이언트 장비는 그대로');
+    assert.ok(save.includes("left(v_avatar, 3) <> 'av_'"));
+    assert.ok(save.includes('public.fps_item_price(v_avatar) is null'));
+    assert.ok(save.includes('not ((v.owned || v_new) ? v_avatar)'), '이번 저장에서 산 캐릭터도 받는다');
+    assert.ok(save.includes(`jsonb_build_object('avatar', '${DEFAULT_AVATAR}')`), '기본 캐릭터 id가 JS와 같다');
+    assert.ok(save.includes('loadout = v_loadout,'), '고친 장비를 저장한다');
+    assert.ok(!save.includes('loadout = p_loadout'));
+    // 확인은 산 물건과 포인트를 정한 뒤에 한다(돈이 모자라 산 물건을 무른 경우도 반영)
+    assert.ok(save.indexOf("v_loadout ? 'avatar'") > save.indexOf('v_points := least(greatest(v_points, 0)'));
+    for (const id of AVATAR_IDS) assert.ok(id.startsWith('av_'), id);
   });
 
   test('저장은 늘어나는 양을 통으로 제한하고 받아들인 값을 돌려준다. 등록은 IP별로 센다', () => {

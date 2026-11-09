@@ -6,6 +6,7 @@
  */
 import { DEFAULT_LOADOUT, getDef } from '../weapons/defs.js';
 import { normalizeEmoteWheel } from '../core/consts.js';
+import { DEFAULT_AVATAR, isAvatarId } from '../core/avatar-defs.js';
 import { ITEM_IDS, START_POINTS, clampPoints, defaultOwned } from './economy.js';
 import { validateNickname } from './nickname.js';
 
@@ -25,7 +26,7 @@ const SECRET_NAME_MAX = 40;
 const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const isRecord = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
-/** 있는 무기·이모트만 정의 순서대로(무기 → 이모트). 기본 지급 물건은 항상 포함한다. */
+/** 있는 무기·이모트·캐릭터만 정의 순서대로(무기 → 이모트 → 캐릭터). 기본 지급 물건은 항상 포함한다. */
 export function normalizeOwned(list) {
   const have = new Set(Array.isArray(list) ? list : []);
   for (const id of defaultOwned()) have.add(id);
@@ -42,6 +43,8 @@ function normalizeLoadout(raw, owned) {
   }
   // 이모트 휠 8칸(12시부터 시계 방향). 가진 이모트만, 빈 칸은 기본 휠로 채운다
   out.emotes = normalizeEmoteWheel(src.emotes, (id) => owned.includes(id));
+  // 장착한 캐릭터. 모르거나 가지지 않은 캐릭터면 기본 캐릭터
+  out.avatar = isAvatarId(src.avatar) && owned.includes(src.avatar) ? src.avatar : DEFAULT_AVATAR;
   return out;
 }
 
@@ -135,7 +138,7 @@ function mergeSecrets(a, b) {
  *             큰 값을 그대로 쓰면 오프라인 구매가 다음 접속 때 환불되어 무기가 공짜가 된다.
  *             아무것도 하지 않은 로컬(처음 보는 기기, 초기화 직후)이면 서버 값. 시작 포인트는 번 포인트가 아니라서,
  *             큰 값을 고르면 무기를 다 산 뒤 초기화하고 다시 켜는 것만으로 포인트가 돌아온다
- *  - 장비   : dirty면 로컬, 아니면 서버 값. 가지지 않은 무기는 기본 장비로
+ *  - 장비   : dirty면 로컬, 아니면 서버 값. 가지지 않은 무기·캐릭터는 기본 장비로
  *  - 생성일 : 더 이른 값
  */
 export function mergeProfiles(local, server, { dirty = false, keepNickname = false } = {}) {

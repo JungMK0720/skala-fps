@@ -20,13 +20,15 @@
  *   equip의 reason: 'slot'(칸이 없거나 맞지 않음) | 'unknown' | 'unowned'
  *   account.emoteWheel            휠 8칸의 이모트 id(12시부터 시계 방향). loadout.emotes와 같다
  *   account.equipEmote(slot, id)  휠 칸(0~7)에 가진 이모트를 넣는다. 다른 칸에 이미 있으면 두 칸을 맞바꾼다. reason은 equip과 같다
+ *   account.avatar                장착한 캐릭터 id(core/avatar-defs.js). loadout.avatar와 같다
+ *   account.equipAvatar(id)       가진 캐릭터를 장착한다. reason은 'unknown' | 'unowned'
  *   recordMatch의 summary에 knifeKills를 넣으면 전적에 쌓인다(선택).
  *
  * 닉네임 게이트는 'account:change'도 들어야 한다. 프로필을 잃어도 토큰이 남아 있으면 동기화가 끝난 뒤 닉네임이 돌아온다.
  */
 import { getDef } from '../weapons/defs.js';
 import { EMOTE_WHEEL } from '../core/consts.js';
-import { clampPoints, isEmoteId, matchReward, priceOf, readSummary, secretReward } from './economy.js';
+import { clampPoints, isAvatarId, isEmoteId, matchReward, priceOf, readSummary, secretReward } from './economy.js';
 import { nicknameKey, validateNickname } from './nickname.js';
 import { createRemote } from './remote.js';
 import {
@@ -34,7 +36,7 @@ import {
   normalizeProfile, normalizeStats, sameProfile, sameProgress, secretEntry
 } from './store.js';
 
-export { START_POINTS, isEmoteId, matchReward, priceOf } from './economy.js';
+export { START_POINTS, isAvatarId, isEmoteId, matchReward, priceOf } from './economy.js';
 export { cleanNickname, nicknameKey, validateNickname } from './nickname.js';
 
 export const SAVE_DEBOUNCE_MS = 2000;
@@ -370,6 +372,16 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     return { ok: true };
   }
 
+  function equipAvatar(id) {
+    if (!isAvatarId(id)) return { ok: false, reason: 'unknown' };
+    if (!isOwned(id)) return { ok: false, reason: 'unowned' };
+    if (profile.loadout.avatar !== id) {
+      profile.loadout.avatar = id;
+      commit();
+    }
+    return { ok: true };
+  }
+
   // ───────────── 전적 · 보상 ─────────────
   function recordMatch(summary) {
     const s = readSummary(summary);
@@ -479,6 +491,7 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     get profile() { return readProfile(); },
     get loadout() { return readProfile().loadout; },
     get emoteWheel() { return readProfile().loadout.emotes; },
+    get avatar() { return readProfile().loadout.avatar; },
     get remoteEnabled() { return remote.enabled; },
     get nicknamePending() { return !!pendingClaim; },
     get nicknameConflict() { return conflictName; },
@@ -490,6 +503,7 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     buy,
     equip,
     equipEmote,
+    equipAvatar,
     isOwned,
     recordMatch,
     findSecret,

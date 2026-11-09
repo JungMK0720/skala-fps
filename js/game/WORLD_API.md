@@ -37,7 +37,7 @@ const world = await createWorld({ root, ui, settings, ctx });
 | `setLocalLoadout(id)` → bool | 무기 하나를 슬롯에 넣는다(주무기·보조·칼 모두. live 시작 때 `phase.loadouts[myId]` 확정값 반영). 이 규칙에서 못 쓰는 무기는 `false`이고 아무 일도 없다. `pickSlot` 무기면 다음 스폰의 기본값으로도 기억한다 |
 | `setLocalHp(hp)` | 체력 표시·상태 갱신(방장 확정값). 줄면 화면이 살짝 흔들린다. 0이어도 죽이지는 않는다 → `killLocal` |
 | `killLocal(info?)` | 쓰러지는 카메라 → 1.6초 뒤 같은 팀 생존 액터 3인칭 관전(좌클릭으로 대상 바꾸기). `info = { killerId?, dir?:[x,z] }`. `localDeath` 발생 |
-| `addActor({ id, name, team, kind:'remote'\|'bot' })` / `removeActor(id)` / `clearActors()` | 원격 플레이어·봇 아바타 |
+| `addActor({ id, name, team, kind:'remote'\|'bot', avatar? })` / `removeActor(id)` / `clearActors()` | 원격 플레이어·봇 아바타. `avatar` = 캐릭터 id(`core/avatar-defs.js`, 모르는 값은 기본 캐릭터). `setActorState(id, { avatar })`로 바꿔도 된다 |
 | `setActorState(id, state)` | 매 프레임(또는 틱) **보간이 끝난 상태를 그대로** 그린다(World는 다시 보간하지 않는다 → avatars 지연 0). `state = { pos:[x,y,z], yaw, pitch, alive, moving?, walking?, onGround?, hp?, slot?, weaponId? }`. `slot`·`weaponId`는 아바타의 든 무기 표시로 간다(슬롯 3이면 칼 모형). 안 주면 마지막으로 안 값(`actorFire` 포함)을 쓴다. 죽어 있던 액터가 `alive:true`로 오면 그 자리로 순간이동하며 일어선다. 걷는 액터는 3D 발소리가 난다(Shift 걷기는 조용) |
 | `actorFire({ id, weaponId, origin, dir, hitPoint?, hitKind?, victimId?, normal?, mat?, kind? })` | 원격 사격 연출: FX 섬광·예광탄·탄착·3D 총성(`def.sound`, `def.fxKind`). `hitKind:'player'`면 피격 퍼프(내가 맞은 경우는 생략). `normal/mat`이 없으면 탄착점에서 월드 레이로 찾는다. 산탄은 예광탄을 몇 줄 더 그린다(연출 전용). 칼은 어떤 칼이든 휘두르는 소리만(`kind:'stab'`이면 `heavySound`) |
 | `actorGrenade({ id, pos, vel, fuse?, t?, grenadeId? })` | 결정론 수류탄(1/120 고정 스텝)을 같은 초기값으로 시뮬레이션하고 바운스 소리·폭발 연출. `t`(ms, `performance.now()` 기준)가 과거면 그만큼 앞당겨 진행 |

@@ -1,12 +1,14 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 마이페이지. 닉네임 변경, 포인트, 전적, 장비 3칸, 찾은 비밀 스팟, 이 기기의 데이터 초기화(두 번 확인)를 보여 준다.
- *          이벤트: mypage:back, mypage:shop. 계정이 바뀌면 index.js가 다시 그린다.
+ * Purpose: 마이페이지. 닉네임 변경, 포인트, 전적, 장비 3칸, 캐릭터(초상·가진 캐릭터 고르기), 찾은 비밀 스팟, 이 기기의 데이터 초기화(두 번 확인)를 보여 준다.
+ *          이벤트: mypage:back, mypage:shop { tab? }. 계정이 바뀌면 index.js가 다시 그린다.
  */
 import { h, btn, setText, fmtPlayTime } from './dom.js';
-import { createChoiceRow, makeScreen, pointsBadge } from './parts.js';
+import { avatarArtEl, createChoiceRow, makeScreen, pointsBadge } from './parts.js';
 import { createNicknameField } from './nickname.js';
+import { TEAM_IDS } from '../core/consts.js';
+import { AVATARS, DEFAULT_AVATAR, avatarById } from '../core/avatar-defs.js';
 
 const STAT_CELLS = [
   ['kills', '킬'], ['deaths', '데스'], ['kd', 'K/D'],
@@ -92,6 +94,25 @@ export function createMyPage(ctx) {
     }
   }
 
+  // ---------- 캐릭터 ----------
+  const avArt = avatarArtEl(AVATARS[0], 'sk-av-art--my');
+  const avName = h('b', { class: 'sk-my-avname' });
+  const avDesc = h('p', { class: 'sk-my-avdesc' });
+  const avRow = createChoiceRow({
+    label: '캐릭터 고르기', cls: 'sk-my-avchoices',
+    onPick: (id) => { const a = account(); if (typeof a.equipAvatar === 'function') a.equipAvatar(id); renderAvatar(); }
+  });
+  const avShopBtn = btn('캐릭터 상점', () => ctx.emit('mypage:shop', { tab: 'avatar' }), 'sk-btn--sm');
+
+  function renderAvatar() {
+    const a = account();
+    const now = avatarById(a.loadout && a.loadout.avatar) || avatarById(DEFAULT_AVATAR);
+    setText(avName, now.name);
+    setText(avDesc, now.desc);
+    avArt.paint(ctx.avatarArt, TEAM_IDS[0], now);
+    avRow.set(AVATARS.filter((x) => a.isOwned(x.id)).map((x) => ({ id: x.id, label: x.name, icon: x.icon, title: x.name })), now.id);
+  }
+
   // ---------- 비밀 스팟 ----------
   const secretsTitle = h('h2', { class: 'sk-panel-title' });
   const secretsBox = h('div', { class: 'sk-my-secrets' });
@@ -173,7 +194,12 @@ export function createMyPage(ctx) {
           h('section', { class: 'sk-panel sk-steel' },
             h('div', { class: 'sk-my-panelhead' },
               h('h2', { class: 'sk-panel-title', text: '장비' }), shopBtn),
-            equipRows.map((r) => r.el))),
+            equipRows.map((r) => r.el)),
+          h('section', { class: 'sk-panel sk-steel sk-my-avatar' },
+            h('div', { class: 'sk-my-panelhead' },
+              h('h2', { class: 'sk-panel-title', text: '캐릭터' }), avShopBtn),
+            h('div', { class: 'sk-my-avnow' }, avArt.el, h('div', { class: 'sk-my-avtext' }, avName, avDesc)),
+            avRow.el)),
         h('div', { class: 'sk-my-col' },
           h('section', { class: 'sk-panel sk-steel' },
             h('h2', { class: 'sk-panel-title', text: '전적' }), statGrid),
@@ -197,6 +223,7 @@ export function createMyPage(ctx) {
     points.set(profile.points);
     renderStats(profile.stats);
     renderEquip();
+    renderAvatar();
     renderSecrets(profile.secrets);
     // 저장이 끝난 뒤나 입력 중에는 건드리지 않는다. 다른 탭이나 서버가 닉네임을 바꿨을 때만 따라간다.
     if (first || (field.state === 'same' && field.value() !== profile.nickname)) field.reset(profile.nickname);

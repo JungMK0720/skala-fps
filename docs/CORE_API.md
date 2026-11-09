@@ -252,12 +252,14 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 
 ## 9. avatars (`createAvatars`) — 원격 플레이어
 
-- 오리지널 저폴리 인물 모델이다: 작업복(팀색), 안전모, 반사띠, 보안경, 무전기. 메시는 4개(상체+머리, 양다리, 팔+총)이고 모두 정점색 재질 하나를 쓴다.
-- `add(id, { name, team })`, `remove(id)`, `get(id)`, `list()`, `clear()`.
+- 오리지널 저폴리 인물 모델이다: 전투복(팀색)에 캐릭터마다 머리 장비·조끼·부착물이 다르다(DESIGN 7절 캐릭터 표, `core/avatar-defs.js`). 메시는 4개(상체+머리, 양다리, 팔+총)이고 모두 정점색 재질 하나를 쓴다.
+- `add(id, { name, team, avatar })`, `remove(id)`, `get(id)`, `list()`, `clear()`. `avatar`는 캐릭터 id이고 모르는 값·생략은 기본 캐릭터(`av_trooper`)다.
+- 캐릭터: `get(id).setAvatar(id)`(다시 그림), `get(id).avatarId`. 몸 치수·히트박스는 모든 캐릭터가 같다. 캐릭터 × 팀마다 부품을 한 번 구워 나눠 쓴다.
+- 상점 초상: `createAvatarPortraits(webglRenderer).get(id, team)` → PNG data URL(240×320, 투명 배경) 또는 `null`. 게임 렌더러로 렌더 타깃에 그려 같은 톤 매핑을 직접 입힌다. 캐릭터 × 팀마다 한 번만 그린다.
 - `push(id, t, state)`: 스냅샷을 넣는다. 아바타가 없으면 자동으로 만든다. 지원하는 state 필드는 다음과 같다.
   - `pos, yaw, pitch, alive`
   - `crouch`(bool): 0.12초에 걸쳐 쪼그려 앉은 자세(엉덩이 뒤로 낮추고 무릎 굽힘, 상체 숙임, 이름표도 낮춤)
-  - `name, team`: 바뀌면 다시 그린다.
+  - `name, team, avatar`: 바뀌면 다시 그린다.
   - `deathDir:[x,z]`, `respawned:true`(부활), `teleport:true`(보간하지 않음)
 - `update(now, dt)`: `now − 100 ms`(NET.INTERP_DELAY_MS) 시점으로 보간한다(위치는 선형, yaw는 최단 각). 최신 스냅샷을 넘어서면 150 ms까지만 외삽한다.
 - `getTargets()`: **화면에 보이는(보간된) 위치·yaw·자세**로 만든 히트 대상 `[{ id, pos, yaw, alive:true, crouch(0..1), team, name }]`이다. 쓰러진 아바타는 빠진다. `crouch`는 자세 전환 비율이라 히트박스가 보이는 자세와 맞는다.
@@ -465,6 +467,7 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 - 평소 몸은 메시 4개 그대로다.
 - **이모트 중일 때만** 관절 리그로 바꾼다.
   - 구성: 몸통(등에 멘 총 포함)·머리·위팔·아래팔·손(주먹/편 손/'L')·허벅지·정강이, 메시 12개.
+  - 캐릭터 부품도 리그에 붙는다: 머리 장비는 머리, 조끼·등짐은 몸통, 어깨 보호대·완장은 위팔, 팔 보호대는 아래팔, 무릎·정강이 판은 정강이.
   - 평소 draw call은 늘지 않는다.
 - 원격 액터:
   - `avatars.push(id, t, { …, emote: 번호 })` → 처음부터 재생한다(반복형은 계속).
@@ -473,7 +476,7 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 - 히트박스(`getTargets`)는 이모트 중에도 서 있는 그대로다.
 - 내 몸:
   - `avatars.setLocalBody(player.getBodyState())`로 그린다. core main.js가 매 프레임 부르므로 World가 할 일은 없다.
-  - `{ visible, pos, yaw, team, name, emote, crouch }`를 받는다. 히트 대상·목록에는 들어가지 않는다.
+  - `{ visible, pos, yaw, team, name, emote, crouch, avatar }`를 받는다. 히트 대상·목록에는 들어가지 않는다. `avatar`(내 캐릭터)는 game World가 계정 장비로 채운다.
 - 동작은 `emoteanim.js`에서 직접 설계한 절차적 키프레임이다.
   - 박자는 `bpm`을 따른다.
   - 손이 머리에 닿는 자세는 손목 목표 + 작은 IK로 구한다(오차 1.5 cm 이하).
@@ -482,7 +485,7 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 
 ### 미리 준비 (첫 이모트·첫 등장 끊김 방지)
 - `ctx.loadMap(id)`은 맵을 만든 뒤 다음 순서로 준비한다. 모두 로딩 화면 뒤에서 일어나서 화면에는 보이지 않는다.
-  1. `avatars.prewarm(fn)`이 두 팀의 평소 몸(앉은 다리 포함)과 이모트 리그 부품(손 모양 3종)을 장면에 잠깐 넣는다.
+  1. `avatars.prewarm(fn)`이 모든 캐릭터 × 두 팀의 평소 몸(앉은 다리 포함)과 이모트 리그 부품(손 모양 3종)을 장면에 잠깐 넣는다. 늦게 들어온 사람이 처음 보는 캐릭터여도 끊기지 않는다(재질은 하나라 셰이더는 그대로 한 벌).
   2. `compileAsync`로 셰이더를 컴파일한다.
   3. 프러스텀 컬링을 끈 채 1픽셀 가위(scissor)로 한 번 그린다. GPU 버퍼와 그리기 상태(그림자 패스 포함)가 이때 준비된다.
 - 품질(그림자 켬·끔)이 바뀌면 bus `renderer:quality`를 받아 `avatars.compileWarm(three, camera)`로 셰이더만 다시 준비한다. 이 일은 `applyPendingQuality`가 부르는 안전한 때에 함께 치러진다.

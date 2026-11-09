@@ -20,6 +20,7 @@ import { connect } from '../js/net/index.js';
 import { FREE_PLAN } from '../js/net/limits.js';
 import { normalizeRuleset } from '../js/game/modes.js';
 import { getDef } from '../js/weapons/defs.js';
+import { avatarIdOf } from '../js/core/avatar-defs.js';
 import { createLobby, mapsForRule, ruleBadge } from '../js/ui/lobby.js';
 import { createRoom } from '../js/ui/room.js';
 import { createResults } from '../js/ui/results.js';
@@ -817,6 +818,83 @@ describe('장비 메시지', () => {
   });
 });
 
+describe('캐릭터(presence av)', () => {
+  function fakeBus() {
+    const subs = new Map();
+    return {
+      on(evt, fn) { if (!subs.has(evt)) subs.set(evt, new Set()); subs.get(evt).add(fn); return () => subs.get(evt).delete(fn); },
+      emit(evt, data) { for (const fn of [...(subs.get(evt) || [])]) fn(data); }
+    };
+  }
+  const lastState = (c, id) => { const list = c.world.calls('setActorState').filter(([who]) => who === id); return list.length ? list[list.length - 1][1] : null; };
+
+  test('내 캐릭터가 presence로 가서 상대 화면의 액터에 실리고, 장착을 바꾸면 따라가며, 모르는 id는 기본 캐릭터다', async (t) => {
+    const env = stage(t);
+    const bus = fakeBus();
+    const a = env.client('a', '하늘', { avatar: 'av_heavy' });
+    const b = env.client('b', '구름', { avatar: 'av_scout' }, { bus });
+    await startMatch(env, [a, b], { mapId: 'jetty' });
+    await env.run(1500);
+    assert.equal(a.session.state.matchPhase, 'live');
+    assert.equal(env.hub.members.get('a').av, 'av_heavy', '방장도 자기 캐릭터를 presence에 싣는다');
+    assert.equal(env.hub.members.get('b').av, 'av_scout');
+    assert.deepEqual(a.session.state.avatars, { a: 'av_heavy', b: 'av_scout' });
+
+    const added = a.world.calls('addActor').map(([o]) => o).filter((o) => o.id === 'b');
+    assert.ok(added.length >= 1 && added.every((o) => o.avatar === 'av_scout'), '액터를 만들 때부터 캐릭터를 안다');
+    env.frames();
+    assert.equal(lastState(a, 'b').avatar, 'av_scout', '방장 화면의 손님');
+    assert.equal(lastState(b, 'a').avatar, 'av_heavy', '손님 화면의 방장');
+
+    // 장착을 바꾸면(마이페이지 등) 계정 변경으로 presence를 고친다
+    b.account.avatar = 'av_night';
+    bus.emit('account:change', {});
+    assert.equal(env.hub.members.get('b').av, 'av_night');
+    env.frames();
+    assert.equal(lastState(a, 'b').avatar, 'av_night', '상대 화면도 바로 바뀐다');
+    const room = b.session.room;
+    const updates = [];
+    const real = room.updateMe.bind(room);
+    room.updateMe = (fields) => { updates.push(fields); return real(fields); };
+    bus.emit('account:change', {});
+    assert.deepEqual(updates, [], '캐릭터가 같으면 presence를 다시 고치지 않는다(presence 호출 한도)');
+
+    // 고친 클라이언트가 이상한 값을 실어도 기본 캐릭터로 그린다
+    for (const bad of ['av_hack', '<img>', 42, null]) {
+      env.hub.members.get('b').av = bad;
+      env.hub.announce('players');
+      env.frames();
+      assert.equal(lastState(a, 'b').avatar, 'av_trooper', String(bad));
+    }
+  });
+
+  test('늦게 들어온 사람도 이미 있던 사람의 캐릭터를 presence로 바로 안다. 캐릭터가 없는 옛 클라이언트는 기본 캐릭터', async (t) => {
+    const env = stage(t);
+    const a = env.client('a', '하늘', { avatar: 'av_ranger' });
+    const b = env.client('b', '구름');   // 계정에 캐릭터가 없다(옛 클라이언트·데모)
+    await startMatch(env, [a, b], { mapId: 'jetty', mode: 'ffa' });
+    await env.run(1500);
+    assert.equal(env.hub.members.get('b').av, 'av_trooper', '캐릭터를 모르면 기본 캐릭터를 싣는다');
+    delete env.hub.members.get('b').av;   // av 칸이 없는 옛 클라이언트
+    env.hub.announce('players');
+    env.frames();
+    assert.equal(lastState(a, 'b').avatar, 'av_trooper');
+
+    const c = env.client('c', '바람', { avatar: 'av_sapper' });
+    await c.session.open();
+    c.ui.fire('lobby:join', { roomId: env.hub.roomId });
+    await env.settle();
+    assert.equal(c.session.state.avatars.a, 'av_ranger', '들어오자마자 명단에서 읽는다');
+    assert.equal(c.session.state.avatars.b, 'av_trooper');
+    await env.run(2500);
+    env.frames();
+    const st = lastState(c, 'a');
+    assert.ok(st, '중간 참가자 화면에 방장 액터가 있다');
+    assert.equal(st.avatar, 'av_ranger');
+    assert.equal(a.session.state.avatars.c, 'av_sapper', '먼저 있던 사람도 새 사람의 캐릭터를 안다');
+  });
+});
+
 describe('방장 이전 복원', () => {
   const claim = (over) => ({ attackerId: 'a', victimId: 'b', dist: 10, ...over });
   const T0 = 100000;
@@ -1044,6 +1122,28 @@ describe('믿을 수 없는 값', () => {
       assert.ok(me, '명단을 읽을 수 있다');
       assert.equal(me.name, `가${'나'.repeat(23)}`);
       assert.equal(me.team, 'owner');
+    } finally { await s.close(); }
+  });
+
+  test('캐릭터 presence(av): 실제 Room에서 키 한도 안으로 왕복하고, 이상한 값은 남지 않거나 기본 캐릭터로 읽힌다', async () => {
+    const s = await realRoom();
+    try {
+      s.room.updateMe({ team: 'owner', av: 'av_heavy' });
+      const mine = s.roomCh.metas.get('h1')[0];
+      assert.equal(mine.av, 'av_heavy', 'presence에 실린다');
+      assert.ok(Object.keys(mine).length <= FREE_PLAN.presenceKeysPerObject, `키 ${Object.keys(mine).length}개`);
+      assert.equal(s.room.players().find((p) => p.id === 'h1').av, 'av_heavy');
+      s.roomCh.metas.set('m1', [{ id: 'm1', name: '구름', team: 'charterer', ready: false, joinedAt: 5, ping: 0, v: 1, av: 'av_scout' }]);
+      s.roomCh.fire('presence', null, {});
+      assert.equal(s.room.players().find((p) => p.id === 'm1').av, 'av_scout', '다른 사람 presence의 av');
+      s.frame('m1', ['_me', { v: 2, av: BAD }]);
+      assert.equal(s.room.players().find((p) => p.id === 'm1').av, 'av_scout', '객체 값 패치는 버린다');
+      s.frame('m1', ['_me', { v: 3, av: 'av_night' }]);
+      assert.equal(s.room.players().find((p) => p.id === 'm1').av, 'av_night', '패치로 바로 바뀐다');
+      s.frame('m1', ['_me', { v: 4, av: `av_${'x'.repeat(400)}` }]);
+      const odd = s.room.players().find((p) => p.id === 'm1').av;
+      assert.ok(typeof odd === 'string');
+      assert.equal(avatarIdOf(odd), 'av_trooper', '모르는 긴 값은 기본 캐릭터로 읽는다');
     } finally { await s.close(); }
   });
 

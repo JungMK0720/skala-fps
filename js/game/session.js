@@ -32,6 +32,7 @@ import { lineOfSight } from '../engine/physics.js';
 import { createMatch, applySnapshot, standings, REASON_LABELS, DEFAULT_RULES, TEAM_IDS, normalizeWeaponId } from './match.js';
 import { getDef, GRENADE_IDS, DEFAULT_LOADOUT as DEFAULT_GEAR } from '../weapons/defs.js';
 import { RULESETS, DEFAULT_RULESET, normalizeRuleset, rulesetOf, isWeaponAllowed, pickableWeapons, defaultPick } from './modes.js';
+import { avatarIdOf } from '../core/avatar-defs.js';
 
 export const SESSION_DEFAULTS = Object.freeze({
   maxPlayers: 6,          // 무료 플랜 한도(3:3). 방 만들기 max는 2..maxPlayers로 자른다
@@ -582,6 +583,7 @@ export function createSession(options = {}) {
   const lastPicks = new Map();    // 규칙 id → 이번 세션에서 마지막으로 고른 무기
   const actors = new Map(); // 원격 아바타 id → { id, name, team, dead, spawn }
   const remoteGear = new Map();   // 원격 id → { pick, primary, secondary, melee } (g2l, 방장 확정값, 사격 메시지)
+  let avatarsById = new Map();    // 방 명단 id → 캐릭터 id(presence av). 늦게 들어와도 presence로 바로 안다
   const fireQ = [];
   let frameOff = null, rafId = null, frameTimer = null;
   let playerName = initialName();
@@ -601,6 +603,16 @@ export function createSession(options = {}) {
     const a = account();
     return (a && a.loadout) || null;
   }
+  /** 내 캐릭터(계정 장비). presence av로 다른 사람에게 알린다 */
+  function myAvatar() {
+    const a = account();
+    return avatarIdOf(a && a.avatar);
+  }
+  /** 방 명단의 캐릭터. 모르는 값이나 옛 클라이언트(av 없음)는 기본 캐릭터 */
+  function noteAvatars(list) {
+    avatarsById = new Map((Array.isArray(list) ? list : []).map((x) => [x.id, avatarIdOf(x.av)]));
+  }
+  function avatarOf(id) { return avatarsById.get(id) || avatarIdOf(null); }
   /** 이 규칙에서 미리 골라 둘 무기 */
   function pickFor(ruleset) {
     return preferredPick(ruleset, ownedIds(), equippedGear(), lastPicks.get(ruleset));
@@ -620,7 +632,7 @@ export function createSession(options = {}) {
       if (p && typeof p.catch === 'function') p.catch((e) => report(e, 'retryNickname'));
     } catch (e) { report(e, 'retryNickname'); }
   }
-  /** 닉네임이 바뀌면(재등록·마이페이지) 표시 이름을 따라가고, 장비가 바뀌면 다른 사람에게 알린다 */
+  /** 닉네임이 바뀌면(재등록·마이페이지) 표시 이름을 따라가고, 장비·캐릭터가 바뀌면 다른 사람에게 알린다 */
   function onAccountChange() {
     const n = accountName();
     if (n && n !== playerName) {
@@ -628,6 +640,8 @@ export function createSession(options = {}) {
       if (room) { try { room.updateMe({ name: n }); } catch (e) { report(e, 'updateMe'); } }
       else if (phase === 'lobby' || phase === 'connecting') U('update', 'lobby', { name: n });
     }
+    const av = myAvatar();
+    if (room && room.me && avatarIdOf(room.me.av) !== av) { try { room.updateMe({ av }); } catch (e) { report(e, 'updateMe'); } }
     if (current) announceGear(current);
   }
   // core 화면 상태 머신: main.js는 화면이 'match'(또는 'sandbox')일 때만 캔버스 클릭 잠금·입력을 켠다
@@ -834,6 +848,7 @@ export function createSession(options = {}) {
     chat = [{ system: true, text: ROOM_NOTE }];
     chatSeen.clear();
     known = new Map(r.players().map((x) => [x.id, x.name]));
+    noteAvatars(r.players());
     sync = createSync({
       room: r, rateHz: o.sendHz, getLocalState: localState, onRemoteState, onEvent: onSyncEvent, ...(o.syncOptions || {})
     });
@@ -854,6 +869,7 @@ export function createSession(options = {}) {
     const fix = {};
     if (!mine || !TEAM_IDS.includes(mine.team)) fix.team = pickTeam(list);
     if (playerName && r.me && r.me.name !== playerName) fix.name = playerName;   // 연결 뒤 바뀐 닉네임
+    if (!r.me || r.me.av !== myAvatar()) fix.av = myAvatar();                     // 내 캐릭터(팀 배정과 같은 presence 갱신에 싣는다)
     if (Object.keys(fix).length) r.updateMe(fix);
     pushChat({
       system: true,
@@ -925,6 +941,7 @@ export function createSession(options = {}) {
 
   function onPlayers(list) {
     if (!room) return;
+    noteAvatars(list);
     const cur = new Map((Array.isArray(list) ? list : []).map((x) => [x.id, x.name]));
     for (const [id, name] of cur) if (!known.has(id) && id !== me) pushChat({ system: true, text: `${name || '플레이어'}님이 들어왔어요.` }, false);
     for (const [id, name] of known) if (!cur.has(id) && id !== me) pushChat({ system: true, text: `${name || '플레이어'}님이 나갔어요.` }, false);
@@ -1756,7 +1773,7 @@ export function createSession(options = {}) {
       if (!a) {
         a = { id, name: p.name, team: p.team, dead: false, spawn: null };
         actors.set(id, a);
-        W('addActor', { id, name: p.name, team: p.team, kind: 'remote' });
+        W('addActor', { id, name: p.name, team: p.team, kind: 'remote', avatar: avatarOf(id) });
       }
       if (spawns) {
         a.dead = false;
@@ -1989,7 +2006,7 @@ export function createSession(options = {}) {
       const vp = (view || c.view) ? (view || c.view).players.find((p) => p.id === id) : null;
       a = { id, name: (vp && vp.name) || nameOf(id), team: null, dead: false, spawn: null };
       actors.set(id, a);
-      W('addActor', { id, name: a.name, team: null, kind: 'remote' });
+      W('addActor', { id, name: a.name, team: null, kind: 'remote', avatar: avatarOf(id) });
     }
     a.dead = false;
     a.spawn = { pos: [+sp.x || 0, spawnY(c, sp), +sp.z || 0], yaw: +sp.rotY || 0, at: now(), first: true };
@@ -2084,7 +2101,7 @@ export function createSession(options = {}) {
         if (!p.alive) continue;
         a = { id, name: p.name, team: null, dead: false, spawn: null };
         actors.set(id, a);
-        W('addActor', { id, name: p.name, team: null, kind: 'remote' });
+        W('addActor', { id, name: p.name, team: null, kind: 'remote', avatar: avatarOf(id) });
         continue;
       }
       if (view.phase !== 'live') continue;
@@ -2429,6 +2446,7 @@ export function createSession(options = {}) {
       st.alive = alive;
       st.name = a.name;
       st.team = a.team;
+      st.avatar = avatarOf(a.id);
       if (vp) st.hp = vp.hp;
       st.slot = allowedSlot(c.ruleset, st.slot | 0);
       st.weaponId = weaponFor(a.id, st.slot);
@@ -2533,7 +2551,7 @@ export function createSession(options = {}) {
         matchId: c ? c.mid : null, ruleset: c ? c.ruleset : roomRuleset(), pick: c ? c.pick : null,
         loaded: !!(c && c.loaded), round: c ? c.round : 0, matchPhase: c ? c.phase : null,
         playing: !!(c && c.playing), alive: !!(c && c.localAlive), team: c ? c.team : myRoomTeam(),
-        score: c && c.view ? { ...c.view.score } : null, actors: [...actors.keys()], chat: chat.slice(),
+        score: c && c.view ? { ...c.view.score } : null, actors: [...actors.keys()], chat: chat.slice(), avatars: Object.fromEntries(avatarsById),
         hosting: hm ? { mid: hm.mid, preparing: hm.preparing, restored: !!(hm.m && hm.m.restored) } : null
       };
     }

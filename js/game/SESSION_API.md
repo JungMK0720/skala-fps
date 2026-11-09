@@ -87,6 +87,8 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 - `room:mode {mode}` → 방장만 `updateMeta({ mode })`(대기실에서만). 모두에게 방 메타 → 대기실 다시 그림 + "개인전으로 바뀌었어요" 안내, 로비 목록도 바뀐다.
 - `room:ruleset {ruleset}` → 방장만 `updateMeta({ ruleset, mapId })`(대기실에서만). 지금 맵을 그 규칙에서 못 쓰면 `maps.mapsForRuleset(ruleset)`의 첫 맵으로 같이 바꾼다. 모두에게 "규칙이 칼전으로 바뀌었어요" 안내.
 - 들어오면 인원이 적은 팀으로 자동 배정한다. `room:team` → `room.updateMe({ team })`(팀 정원 = ceil(max/2)), `room:ready` → `updateMe({ ready })`, `room:map` → 방장만 `updateMeta({ mapId })`(규칙에 안 맞는 맵은 무시).
+- **캐릭터**: 들어올 때 팀 배정과 같은 `updateMe`에 `av`(내 캐릭터 = `ctx.account.avatar`)를 싣는다. 장착을 바꾸면 `account:change`로 알고 값이 다를 때만 `updateMe({ av })`(presence 호출 한도). presence라 늦게 들어온 사람도 바로 안다.
+  받는 쪽은 명단(`room.players()`의 `av`)을 `avatarIdOf`로 읽어(모르는 값·옛 클라이언트는 기본 캐릭터) `addActor`와 매 프레임 `setActorState`에 `avatar`로 넘긴다. 디버그 `state.avatars` = `{ id: 캐릭터 }`.
 - 채팅: `sync.sendChat` → 받으면 목록에 넣는다. **내 메시지는 직접 넣는다**(broadcast는 되돌아오지 않음). 첫 줄은 늘 안내 문구 "무료 서버 한도 때문에 최대 6명(인원이 적을수록 더 부드러워요)"이고, 입장·퇴장·방장 교체·경기 결과도 시스템 줄로 남는다.
 - 경기 채팅: 경기 맵을 불러오면 `ui.show('chat')`과 bus `chat:available { on:true }`(휴대폰 채팅 버튼), 경기를 정리하면 `ui.hide('chat')`과 `{ on:false }`.
   경기 중에는 대기실과 같은 줄을 `ui.chat.push(line)`으로도 넘긴다(내 줄은 `me:true`). Enter·채팅 버튼(bus `input:chat`)이면 `ui.chat.open()`, UI `chat:send`는 대기실 `room:chat`과 같은 `sendChat`이다.

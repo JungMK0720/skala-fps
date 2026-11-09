@@ -186,7 +186,7 @@ presence 객체는 키가 10개까지인데 로비 항목은 `roomId, name, mapI
 | 연결당 채널 | 100 | 방장(relay) = 로비 + 방 + uplink 7 = 9 |
 | presence 메시지/초 | **20** | 프로젝트 전체. track 1 + diff 전달 수. 60초 평균 |
 | presence 호출 | **채널당 30초 5회** | 넘으면 채널 강제 종료 |
-| presence 객체 키 | 10 | 기본 필드 7개(`id,name,team,ready,joinedAt,ping,v`) → `updateMe` 사용자 필드는 3개까지 권장 |
+| presence 객체 키 | 10 | 기본 필드 7개(`id,name,team,ready,joinedAt,ping,v`) → `updateMe` 사용자 필드는 3개까지 권장. 지금 쓰는 사용자 필드는 캐릭터 `av` 하나(game/session.js) |
 | broadcast payload | 256 KB | 프레임 8만 자를 넘으면 나눠 보낸다 |
 
 하트비트, 참가/응답(`phx_reply`)은 메시지 수에 들어가지 않는다. presence diff는 별도 presence 한도로 센다.

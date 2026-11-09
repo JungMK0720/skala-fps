@@ -87,8 +87,8 @@ begin
   );
 end $$;
 
--- 서버 가격표. js/weapons/defs.js(무기)와 js/core/consts.js EMOTES(이모트)의 price와 같아야 한다(tests/account.test.mjs가 대조한다).
--- 모르는 id는 null이라 살 수 없다.
+-- 서버 가격표. js/weapons/defs.js(무기), js/core/consts.js EMOTES(이모트), js/core/avatar-defs.js AVATARS(캐릭터)의 price와 같아야 한다
+-- (tests/account.test.mjs가 대조한다). 모르는 id는 null이라 살 수 없다.
 create or replace function public.fps_item_price(p_id text) returns int
 language sql immutable set search_path = public, extensions as $$
   select case p_id
@@ -101,6 +101,8 @@ language sql immutable set search_path = public, extensions as $$
     when 'takeL' then 0 when 'veggie' then 0 when 'sideToSide' then 0 when 'crissCross' then 0 when 'tango' then 0
     when 'salute' then 0 when 'wave' then 0 when 'cheer' then 0 when 'creamCheese' then 0
     when 'fromYou' then 600 when 'selfie' then 400
+    when 'av_trooper' then 0 when 'av_scout' then 300 when 'av_sapper' then 600 when 'av_signal' then 800
+    when 'av_ranger' then 1000 when 'av_night' then 1400 when 'av_heavy' then 2000
   end
 $$;
 
@@ -197,6 +199,7 @@ end $$;
 --   살 돈이 모자라면 새 무기를 받지 않고 그 값도 쓰지 않은 것으로 본다.
 --   킬은 1초에 1번(최대 300), 승리는 30초에 1번(최대 10)씩 차는 통으로, 다른 전적은 한 번에 1,000까지만 늘린다.
 --   stats는 숫자 항목만 남기고 0~10억으로 자른다. fps_top_players가 숫자로 읽으므로 잘못된 값이 순위표를 깨뜨리지 못한다.
+--   장착한 캐릭터(loadout.avatar)는 가격표에 있는 'av_' 캐릭터이고 기본(가격 0)이거나 가진 것이어야 한다. 아니면 기본 캐릭터 av_trooper로 저장한다.
 --   결과에 서버가 저장한 포인트·무기·전적을 돌려준다(clamped면 깎였다). 클라이언트는 이 값을 따른다.
 create or replace function public.fps_save_profile(
   p_token text, p_points int, p_owned jsonb, p_loadout jsonb, p_stats jsonb, p_secrets jsonb)
@@ -223,6 +226,8 @@ declare
   v_old numeric;
   v_room numeric;
   v_clamped boolean := false;
+  v_loadout jsonb := p_loadout;
+  v_avatar text;
 begin
   if v_hash is null then return jsonb_build_object('ok', false, 'error', 'TOKEN_INVALID'); end if;
   if not public.fps_owned_ok(p_owned)
@@ -269,6 +274,16 @@ begin
   end if;
   v_points := least(greatest(v_points, 0), 10000000);
 
+  -- 장착한 캐릭터. 칸이 없는 옛 클라이언트의 장비는 그대로 둔다
+  if v_loadout ? 'avatar' then
+    v_avatar := case when jsonb_typeof(v_loadout -> 'avatar') = 'string' then v_loadout ->> 'avatar' end;
+    if v_avatar is null or left(v_avatar, 3) <> 'av_' or public.fps_item_price(v_avatar) is null
+       or (public.fps_item_price(v_avatar) > 0 and not ((v.owned || v_new) ? v_avatar)) then
+      v_loadout := v_loadout || jsonb_build_object('avatar', 'av_trooper');
+      v_clamped := true;
+    end if;
+  end if;
+
   -- 전적
   for v_key, v_val in
     select s.key, trunc((s.value #>> '{}')::numeric) from jsonb_each(p_stats) as s where jsonb_typeof(s.value) = 'number'
@@ -288,7 +303,7 @@ begin
   update public.fps_players
      set points = v_points,
          owned = v.owned || v_new,
-         loadout = p_loadout,
+         loadout = v_loadout,
          stats = v_stats,
          secrets = p_secrets,
          earn_bucket = v_earn_bucket - greatest(v_earn, 0),

@@ -14,6 +14,7 @@
  */
 import { createUI } from '../ui/index.js';
 import { WEAPONS } from '../weapons/defs.js';
+import { createAvatarPortraits } from '../engine/avatars.js';
 import { createWorld, setWorldContext } from './world.js';
 import { createPractice, createPracticeSetup } from './practice.js';
 
@@ -130,6 +131,9 @@ export async function install(ctx) {
   setWorldContext(ctx);
   const ui = createUI(ctx.ui.root, { settings: ctx.settings, account, maps: ctx.maps });
   ui.setWeapons(WEAPONS);
+  // 상점·마이페이지 캐릭터 초상: 게임 렌더러로 캐릭터 × 팀마다 한 번 그려 둔다(처음 보여 줄 때)
+  const portraits = ctx.renderer && ctx.renderer.three ? createAvatarPortraits(ctx.renderer.three) : null;
+  if (portraits) ui.setAvatarArt((id, team) => portraits.get(id, team));
   const world = await createWorld({ ctx, ui });
   const practice = createPractice({ ctx, world, ui });
   const toast = createToast(ui);
@@ -164,9 +168,9 @@ export async function install(ctx) {
 
   /* ---------- 마이페이지 · 상점 (메뉴 안의 UI 페이지) ---------- */
   let shopReturn = 'menu';
-  function openShop(from) {
+  function openShop(from, tab) {
     shopReturn = from;
-    ui.show('shop');
+    ui.show('shop', { tab: tab || null });
   }
   function leaveShop() {
     if (typeof world.stopEmotePreview === 'function') world.stopEmotePreview();
@@ -196,7 +200,7 @@ export async function install(ctx) {
     ui.on('menu:mypage', () => ui.show('mypage')),
     ui.on('menu:shop', () => openShop('menu')),
     ui.on('mypage:back', showMenu),
-    ui.on('mypage:shop', () => openShop('mypage')),
+    ui.on('mypage:shop', (e) => openShop('mypage', e && e.tab)),
     ui.on('shop:back', leaveShop),
     ui.on('shop:preview', (e) => { if (e && e.id && typeof world.previewEmote === 'function') world.previewEmote(e.id); }),
     ui.on('loadout:equip', equipFromLoadout),
@@ -212,6 +216,7 @@ export async function install(ctx) {
       offs.length = 0;
       toast.dispose();
       setup.dispose();
+      if (portraits) portraits.dispose();
       if (practice.active) { try { practice.exit(); } catch (err) { /* ignore */ } }
       multi.close();
       world.dispose();

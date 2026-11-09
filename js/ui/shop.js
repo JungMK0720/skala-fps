@@ -4,21 +4,27 @@
  * Purpose: 상점. def.category로 나눈 무기 탭과 무기 카드(이름·가격·막대·스탯·구매/장착), 이모트 탭(휠 8칸 장착·구매·미리 듣기)을 보여 준다.
  *          포인트는 계정이 바뀔 때마다 바로 갱신한다. 이벤트: shop:back, shop:preview { id }, ui:sound { name:'purchase' }.
  *          카드는 다시 만들지 않고 고쳐서 키보드 포커스를 잃지 않는다.
+ *          캐릭터 탭: 초상(ui.setAvatarArt로 받은 그림, 없으면 아이콘)·구매·장착. 초상은 탭을 처음 열 때 그린다.
  */
 import { h, btn, fmtPoints, setText } from './dom.js';
-import { barMeters, makeScreen, normWeapon, pointsBadge } from './parts.js';
+import { avatarArtEl, barMeters, makeScreen, normWeapon, pointsBadge } from './parts.js';
 import { PREMIUM_PRICE } from '../weapons/defs.js';
-import { EMOTES, EMOTE_WHEEL } from '../core/consts.js';
+import { EMOTES, EMOTE_WHEEL, TEAMS, TEAM_IDS } from '../core/consts.js';
+import { AVATARS, DEFAULT_AVATAR } from '../core/avatar-defs.js';
 
 const TAB_LABELS = { rifle: '라이플', sniper: '저격', smg: 'SMG·샷건', pistol: '권총', melee: '근접' };
 /** 이모트 탭 id. 무기 category와 겹치지 않는다 */
 export const EMOTE_TAB = 'emote';
+/** 캐릭터 탭 id */
+export const AVATAR_TAB = 'avatar';
 /** 상점에서 다루는 슬롯과 계정 장비 칸. 슬롯 4(수류탄)는 팔지 않는다. */
 const SLOT_KEYS = { 1: 'primary', 2: 'secondary', 3: 'melee' };
 
 export function createShop(ctx) {
   const cards = new Map();    // 무기 id → 카드
   const emoCards = new Map(); // 이모트 id → 카드
+  const avCards = new Map();  // 캐릭터 id → 카드
+  let artTeam = TEAM_IDS[0];  // 캐릭터 초상의 팀 색
   let tabs = [];              // [{ id, label, el }]
   let tabId = null;
   let builtFor = 0;           // 카드를 만들 때 본 무기 수. setWeapons로 바뀌면 다시 만든다
@@ -36,7 +42,7 @@ export function createShop(ctx) {
         backBtn,
         h('div', { class: 'sk-bar-title' },
           h('h1', { class: 'sk-h1 sk-stencil', text: '상점' }),
-          h('p', { class: 'sk-bar-sub', text: `경기와 비밀 스팟으로 모은 포인트로 무기와 이모트를 사서 장착해요. ${fmtPoints(PREMIUM_PRICE)} 이상인 프리미엄 총은 예비 탄약이 무제한이에요.` })),
+          h('p', { class: 'sk-bar-sub', text: `경기와 비밀 스팟으로 모은 포인트로 무기·이모트·캐릭터를 사서 장착해요. ${fmtPoints(PREMIUM_PRICE)} 이상인 프리미엄 총은 예비 탄약이 무제한이에요.` })),
         points.el),
       h('div', { class: 'sk-hazard sk-hazard--thin', 'aria-hidden': 'true' }),
       h('div', { class: 'sk-shop-bar' }, tabsEl, note),
@@ -206,6 +212,88 @@ export function createShop(ctx) {
     paintAll();
   }
 
+  // ---------- 캐릭터 탭: 지금 캐릭터 + 팀 색 보기 + 캐릭터 카드 ----------
+  const avatarNow = () => (ctx.account && ctx.account.loadout && ctx.account.loadout.avatar) || DEFAULT_AVATAR;
+  const avName = (id) => (AVATARS.find((a) => a.id === id) || AVATARS[0]).name;
+  const nowName = h('b', { class: 'sk-av-now' });
+  const teamBtns = TEAM_IDS.map((team) => {
+    const el = h('button', { type: 'button', class: 'sk-btn sk-seg-btn sk-av-team', role: 'radio', 'aria-checked': 'false', 'data-team': team,
+      onclick: () => { artTeam = team; paintAll(); } }, h('span', { class: 'sk-av-dot', style: `background:${TEAMS[team].light}`, 'aria-hidden': 'true' }), `${TEAMS[team].name} 팀`);
+    return { team, el };
+  });
+  const avBox = h('section', { class: 'sk-av-box sk-steel', 'aria-label': '내 캐릭터' },
+    h('div', { class: 'sk-av-boxtext' },
+      h('h3', { class: 'sk-shop-name' }, '지금 캐릭터 · ', nowName),
+      h('p', { class: 'sk-lo-tagline', text: '모양만 다르고 몸 크기와 맞는 판정은 모두 같아요. 전투복과 표식은 팀 색이라 어느 캐릭터든 팀이 잘 보여요.' })),
+    h('div', { class: 'sk-seg sk-av-teams', role: 'radiogroup', 'aria-label': '초상 팀 색' }, ...teamBtns.map((b) => b.el)));
+
+  function buildAvatarCard(a) {
+    const art = avatarArtEl(a);
+    const state = h('span', { class: 'sk-shop-state' });
+    const need = h('p', { class: 'sk-shop-need' });
+    const action = h('button', { type: 'button', class: 'sk-btn sk-shop-action', onclick: () => actAvatar(card) });
+    const articleEl = h('article', { class: 'sk-shop-card sk-steel sk-av-card', 'aria-label': a.name, 'data-avatar': a.id },
+      art.el,
+      h('div', { class: 'sk-av-body' },
+        h('header', { class: 'sk-shop-head' },
+          h('div', { class: 'sk-shop-names' },
+            h('h3', { class: 'sk-shop-name', text: a.name },
+              a.price ? null : h('span', { class: 'sk-emo-free', text: '기본' })),
+            h('p', { class: 'sk-lo-tagline', text: a.desc })),
+          state),
+        h('footer', { class: 'sk-shop-foot' }, need, action)));
+    const card = { id: a.id, a, art, el: articleEl, state, need, action };
+    return card;
+  }
+
+  function paintAvatarCard(card, now, drawArt) {
+    const a = ctx.account;
+    const owned = a.isOwned(card.id);
+    const equipped = owned && now === card.id;
+    const short = owned ? 0 : Math.max(0, (card.a.price || 0) - a.profile.points);
+    card.el.classList.toggle('is-owned', owned);
+    card.el.classList.toggle('is-equipped', equipped);
+    setText(card.state, equipped ? '장착 중' : owned ? '보유' : fmtPoints(card.a.price));
+    setText(card.need, short ? `${fmtPoints(short)} 더 필요해요` : '');
+    setText(card.action, equipped ? '장착 중' : owned ? '장착' : `구매 ${fmtPoints(card.a.price)}`);
+    card.action.disabled = equipped || short > 0;
+    card.action.classList.toggle('sk-btn--primary', !owned && !short);
+    card.action.classList.toggle('sk-btn--ghost', equipped);
+    if (drawArt) card.art.paint(ctx.avatarArt, artTeam);
+  }
+
+  function actAvatar(card) {
+    const a = ctx.account;
+    const name = card.a.name;
+    if (!a.isOwned(card.id)) {
+      const r = a.buy(card.id);
+      if (r.ok) {
+        ctx.emit('ui:sound', { name: 'purchase' });
+        say(`${name}을(를) 샀어요. 남은 포인트 ${fmtPoints(r.points)}. 장착을 누르면 바로 입어요.`);
+      } else if (r.reason === 'points') {
+        say(`포인트가 모자라요. ${fmtPoints((card.a.price || 0) - r.points)} 더 필요해요.`);
+      } else {
+        say('이 캐릭터는 살 수 없어요.');
+      }
+    } else {
+      const r = typeof a.equipAvatar === 'function' ? a.equipAvatar(card.id) : { ok: false };
+      say(r.ok ? `${name}을(를) 장착했어요. 경기에서 다른 사람에게도 이 모습으로 보여요.` : '이 캐릭터는 장착할 수 없어요.');
+    }
+    paintAll();
+  }
+
+  function paintAvatars() {
+    const now = avatarNow();
+    setText(nowName, avName(now));
+    for (const b of teamBtns) {
+      const on = b.team === artTeam;
+      b.el.classList.toggle('is-on', on);
+      b.el.setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+    const drawArt = tabId === AVATAR_TAB;   // 초상은 캐릭터 탭이 보일 때만 그린다(처음 한 번만 실제로 그리고 그 뒤로는 저장한 그림)
+    for (const card of avCards.values()) paintAvatarCard(card, now, drawArt);
+  }
+
   function paintAll() {
     if (!ctx.account) return;
     points.set(ctx.account.profile.points);
@@ -213,6 +301,7 @@ export function createShop(ctx) {
     const wheel = wheelOf();
     paintChips(wheel);
     for (const card of emoCards.values()) paintEmoteCard(card, wheel);
+    paintAvatars();
   }
 
   // ---------- 탭 ----------
@@ -225,8 +314,11 @@ export function createShop(ctx) {
       t.el.tabIndex = on ? 0 : -1;
     }
     if (id === EMOTE_TAB) grid.replaceChildren(wheelBox, ...[...emoCards.values()].map((c) => c.el));
+    else if (id === AVATAR_TAB) grid.replaceChildren(avBox, ...[...avCards.values()].map((c) => c.el));
     else grid.replaceChildren(...[...cards.values()].filter((c) => c.category === id).map((c) => c.el));
+    grid.classList.toggle('sk-shop-grid--av', id === AVATAR_TAB);
     grid.scrollTop = 0;
+    if (id === AVATAR_TAB && ctx.account) paintAvatars();
   }
 
   function moveTab(step) {
@@ -253,11 +345,13 @@ export function createShop(ctx) {
       cards.set(d.id, card);
     }
     if (!emoCards.size) for (const e of EMOTES) emoCards.set(e.id, buildEmoteCard(e));
+    if (!avCards.size) for (const a of AVATARS) avCards.set(a.id, buildAvatarCard(a));
     const cats = [...new Set(defs.map((d) => d.category || 'etc'))];
     const known = Object.keys(TAB_LABELS).filter((c) => cats.includes(c));
     const rest = cats.filter((c) => !known.includes(c));
-    tabs = [...known, ...rest, EMOTE_TAB].map((id) => {
-      const tabEl = h('button', { type: 'button', class: 'sk-tab', role: 'tab', onclick: () => showTab(id), text: id === EMOTE_TAB ? '이모트' : TAB_LABELS[id] || id });
+    const label = (id) => (id === EMOTE_TAB ? '이모트' : id === AVATAR_TAB ? '캐릭터' : TAB_LABELS[id] || id);
+    tabs = [...known, ...rest, EMOTE_TAB, AVATAR_TAB].map((id) => {
+      const tabEl = h('button', { type: 'button', class: 'sk-tab', role: 'tab', 'data-tab': id, onclick: () => showTab(id), text: label(id) });
       return { id, el: tabEl };
     });
     tabsEl.replaceChildren(...tabs.map((t) => t.el));

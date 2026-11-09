@@ -64,6 +64,7 @@ ui.refreshAccount()               // 계정이 바뀌었을 때 부른다(bus 'a
 ui.nicknameNeeded() → bool        // 닉네임이 없거나 서버가 닉네임을 거절했는가(게이트를 열어야 하는가)
 ui.setWeapons(defs)               // 배열 또는 { id: def }
 ui.setMaps(source)                // js/maps/index.js 모듈 또는 맵 목록 배열
+ui.setAvatarArt(fn)               // 캐릭터 초상: fn(id, team) → 그림 주소 | null. game/index.js가 createAvatarPortraits로 연결한다
 ui.needsCursor() → bool           // 커서가 필요한 화면이 떠 있는가
 ui.isTyping() → bool              // UI 입력칸에 포커스가 있는가
 ui.el                             // .sk-ui 루트 요소
@@ -132,10 +133,15 @@ document.addEventListener('pointerlockchange', () => {
 - 입력칸과 상태줄은 `createNicknameField`로 마이페이지와 같이 씁니다.
 
 ### `mypage`
-props 없음. 계정에서 읽습니다. 닉네임 변경(같은 검사 + 저장 버튼), 포인트, 전적 9칸(킬·데스·K/D·헤드샷·반샷·칼 킬·경기·승·플레이 시간), 장비 3칸(가진 무기 중 고르기), 찾은 비밀 스팟(맵별, `createUI`의 `maps`에 `MAPS`가 있으면 "1 / 2"), 이 기기의 데이터 초기화(버튼 → 확인 → `account.resetLocal()`). Esc는 확인 상자를 먼저 닫고, 그다음 메뉴로 돌아갑니다.
+props 없음. 계정에서 읽습니다. 닉네임 변경(같은 검사 + 저장 버튼), 포인트, 전적 9칸(킬·데스·K/D·헤드샷·반샷·칼 킬·경기·승·플레이 시간), 장비 3칸(가진 무기 중 고르기), 캐릭터(지금 캐릭터 초상·이름·설명, 가진 캐릭터 중 고르기 → `account.equipAvatar`, [캐릭터 상점] → `mypage:shop { tab:'avatar' }`), 찾은 비밀 스팟(맵별, `createUI`의 `maps`에 `MAPS`가 있으면 "1 / 2"), 이 기기의 데이터 초기화(버튼 → 확인 → `account.resetLocal()`). Esc는 확인 상자를 먼저 닫고, 그다음 메뉴로 돌아갑니다.
 
 ### `shop`
-props 없음. `ui.setWeapons`로 등록한 무기 중 슬롯 1~3을 `def.category` 탭으로 나눕니다(라이플·저격·SMG·샷건·권총·근접). 카드: 아이콘, 이름, 한 줄 소개, 가격, 막대, 스탯, 구매 또는 장착. 포인트가 모자라면 구매 버튼이 꺼지고 "N P 더 필요해요"를 보여 줍니다. 사면 `ui:sound { name:'purchase' }`를 보냅니다.
+```js
+{ tab? /* 처음 열 탭 id: 무기 category · 'emote' · 'avatar'. 없으면 보던 탭 */ }
+```
+`ui.setWeapons`로 등록한 무기 중 슬롯 1~3을 `def.category` 탭으로 나눕니다(라이플·저격·SMG·샷건·권총·근접). 그 뒤에 이모트·캐릭터 탭이 옵니다. 카드: 아이콘, 이름, 한 줄 소개, 가격, 막대, 스탯, 구매 또는 장착. 포인트가 모자라면 구매 버튼이 꺼지고 "N P 더 필요해요"를 보여 줍니다. 사면 `ui:sound { name:'purchase' }`를 보냅니다.
+- **캐릭터 탭**: 위에 지금 캐릭터와 [블루 팀 | 오렌지 팀] 초상 색 고르기, 아래에 캐릭터 카드(초상 · 이름 · 설명 · 가격 · 구매/장착). 사면 장착 버튼으로 바뀌고 한 번 더 누르면 입습니다(`account.equipAvatar`).
+  초상은 `ui.setAvatarArt`로 받은 그림입니다. 탭을 처음 열 때 그리고(캐릭터 × 팀마다 한 번) 그 뒤로는 저장한 그림을 씁니다. 그림이 없으면(데모, WebGL 없음) 캐릭터 아이콘을 보여 줍니다.
 
 > **모드(MODES.md 3.3):** `mode`는 `'team'`(팀전) 또는 `'ffa'`(개인전)이고, **생략하면 `'team'`**입니다. 팀전 화면과 동작은 이전과 같습니다.
 
@@ -292,7 +298,7 @@ ui.chat.open() / close() / isOpen() / clear()
 | `menu:sandbox` | `{ name, account }` | 연습장(설정 시트) |
 | `menu:multi` | `{ name, account }` | 멀티플레이 |
 | `menu:mypage` / `menu:shop` | `{ name, account }` | 마이페이지 / 상점 |
-| `mypage:back` / `mypage:shop` / `shop:back` | `{}` | 메뉴로 돌아가기 / 마이페이지에서 상점으로 / 상점에서 돌아가기 |
+| `mypage:back` / `mypage:shop` / `shop:back` | `{}` / `{ tab? }` / `{}` | 메뉴로 돌아가기 / 마이페이지에서 상점으로(캐릭터 칸의 버튼은 `tab:'avatar'`) / 상점에서 돌아가기 |
 | `ui:sound` | `{ name }` | 효과음 요청. 버튼을 누를 때 `ui_click`, 살 때 `purchase` |
 | `settings:change` | `{ settings, key, value, changed[] }` | 슬라이더를 움직이는 동안 계속 발생 |
 | `lobby:refresh` / `lobby:back` | `{}` | |

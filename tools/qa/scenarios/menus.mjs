@@ -1,10 +1,11 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 시나리오 2. 메인 메뉴, 마이페이지(이름 변경·전적·장비), 상점(구매·포인트 부족·장착·새로고침 유지·이모트 휠), 연습장 설정 시트를 진짜 클릭으로 검사한다.
+ * Purpose: 시나리오 2. 메인 메뉴, 마이페이지(이름 변경·전적·장비·캐릭터), 상점(구매·포인트 부족·장착·새로고침 유지·이모트 휠·캐릭터), 연습장 설정 시트를 진짜 클릭으로 검사한다.
  */
 import { MAPS, mapsForRuleset } from '../../../js/maps/index.js';
 import { RULESET_IDS, RULESETS } from '../../../js/game/modes.js';
+import { AVATARS, AVATAR_IDS, DEFAULT_AVATAR } from '../../../js/core/avatar-defs.js';
 import { LOW_QUALITY, NICK, lockPointer, openGame, readyGame, sleep, startPractice, waitRun, waitTicks } from '../kit.mjs';
 
 const shown = (page, sel) => page.fn((s) => window.__qa.visible(s), sel);
@@ -74,7 +75,7 @@ export default {
     await page.waitFor('__qa.ui.isVisible("shop") && !__qa.ui.isVisible("mypage")', 3000, { label: '상점' });
     t.check((await textOf(page, '.sk-shop .sk-points-val')) === '500 P', '상점 포인트');
     const tabs = await page.eval(`[...document.querySelectorAll('.sk-shop .sk-tab')].map((b) => b.textContent)`);
-    t.check(tabs.join() === '라이플,저격,SMG·샷건,권총,근접,이모트', '탭 6개(무기 5 + 이모트)', tabs);
+    t.check(tabs.join() === '라이플,저격,SMG·샷건,권총,근접,이모트,캐릭터', '탭 7개(무기 5 + 이모트 + 캐릭터)', tabs);
     const rapid = `.sk-shop-card[aria-label="RX-9 스톰"]`;
     t.check(await page.eval(`document.querySelector('${rapid} .sk-shop-action').disabled`), '비싼 무기는 살 수 없다');
     t.check((await textOf(page, `${rapid} .sk-shop-need`)) === '300 P 더 필요해요', '모자란 포인트 표시', await textOf(page, `${rapid} .sk-shop-need`));
@@ -328,5 +329,88 @@ export default {
     await page.waitFor('__qa.ctx.player.state.emoteId === "cheer"', 2000, { label: '고른 이모트 시작' });
     await leaveToMenu(t, page);
     t.errorsOk('이모트 휠');
+
+    t.setSection('상점: 캐릭터');
+    page = await openGame(t, '', { profile: { nickname: NICK, points: 1000, createdAt: 1 }, settings: LOW_QUALITY, screen: 'menu' });
+    await page.waitFor('__qa.ui.isVisible("menu")', 5000, { label: '메뉴' });
+    t.check((await page.eval('__qa.ctx.account.avatar')) === DEFAULT_AVATAR, '처음에는 기본 캐릭터');
+    await page.clickText('.sk-menu-btn--sub', '상점');
+    await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '상점' });
+    await page.clickText('.sk-shop .sk-tab', '캐릭터');
+    const av = (name) => `.sk-av-card[aria-label="${name}"]`;
+    const avAction = (name) => textOf(page, `${av(name)} .sk-shop-action`);
+    t.check((await page.eval(`document.querySelectorAll('.sk-av-card').length`)) === AVATARS.length, `캐릭터 카드 ${AVATARS.length}장`);
+    await page.waitFor(`document.querySelectorAll('.sk-av-card .sk-av-img:not([hidden])').length === ${AVATARS.length}`, 8000, { label: '초상' })
+      .then(() => t.check(true, '초상을 그린다'), () => t.check(false, '초상을 그린다', '8초 안에 그림이 나오지 않았다'));
+    const def = AVATARS.find((a) => a.id === DEFAULT_AVATAR);
+    t.check(await page.eval(`!!document.querySelector('${av(def.name)} .sk-emo-free')`), '기본 캐릭터에 기본 표시');
+    t.check((await avAction(def.name)) === '장착 중', '기본 캐릭터는 장착 중', await avAction(def.name));
+    for (const a of AVATARS.filter((x) => x.price)) {
+      t.check((await textOf(page, `${av(a.name)} .sk-shop-state`)) === `${a.price.toLocaleString('ko-KR')} P`, `${a.name} 가격 ${a.price}`, await textOf(page, `${av(a.name)} .sk-shop-state`));
+    }
+    const heavy = AVATARS.find((a) => a.id === 'av_heavy');
+    t.check(await page.eval(`document.querySelector('${av(heavy.name)} .sk-shop-action').disabled`), '비싼 캐릭터는 살 수 없다');
+    t.check((await textOf(page, `${av(heavy.name)} .sk-shop-need`)) === `${(heavy.price - 1000).toLocaleString('ko-KR')} P 더 필요해요`, '모자란 포인트', await textOf(page, `${av(heavy.name)} .sk-shop-need`));
+    t.check((await page.eval(`__qa.ctx.account.equipAvatar('av_scout').reason`)) === 'unowned', 'API는 사지 않은 캐릭터 장착을 거절한다');
+    await t.shot('shop-avatars');
+    const scout = AVATARS.find((a) => a.id === 'av_scout');
+    await page.click(`${av(scout.name)} .sk-shop-action`);
+    await page.waitFor(`document.querySelector('.sk-shop .sk-points-val').textContent === '${(1000 - scout.price).toLocaleString('ko-KR')} P'`, 2000, { label: '캐릭터 구매' });
+    t.check(/샀어요/.test(await textOf(page, '.sk-shop-note')), '구매 안내', await textOf(page, '.sk-shop-note'));
+    t.check((await avAction(scout.name)) === '장착', '산 캐릭터는 장착 버튼', await avAction(scout.name));
+    t.check((await page.eval('__qa.ctx.account.avatar')) === DEFAULT_AVATAR, '사기만 하면 아직 기본 캐릭터');
+    await page.click(`${av(scout.name)} .sk-shop-action`);
+    t.check((await avAction(scout.name)) === '장착 중', '장착 표시');
+    t.check((await avAction(def.name)) === '장착', '전에 입던 캐릭터는 다시 장착 버튼');
+    t.check((await page.eval('__qa.ctx.account.avatar')) === 'av_scout', '계정 장비가 바뀐다');
+    t.check(/정찰병/.test(await textOf(page, '.sk-av-now')), '지금 캐릭터 표시', await textOf(page, '.sk-av-now'));
+    await t.shot('shop-avatars-equipped');
+    await page.click('.sk-shop .sk-btn--ghost');
+    await page.waitFor('__qa.ui.isVisible("menu")', 3000, { label: '메뉴로' });
+
+    await page.click('.sk-player-mypage');
+    await page.waitFor('__qa.ui.isVisible("mypage")', 3000, { label: '마이페이지' });
+    t.check((await textOf(page, '.sk-my-avname')) === scout.name, '마이페이지에 지금 캐릭터', await textOf(page, '.sk-my-avname'));
+    t.check(await page.eval(`!document.querySelector('.sk-my-avatar .sk-av-img').hidden`), '마이페이지 초상');
+    const avChoices = await page.eval(`[...document.querySelectorAll('.sk-my-avchoices .sk-choice')].map((b) => [b.title, b.classList.contains('is-on')])`);
+    t.check(JSON.stringify(avChoices) === JSON.stringify([[def.name, false], [scout.name, true]]), '가진 캐릭터만 고를 수 있고 지금 것이 켜져 있다', avChoices);
+    await page.click(`.sk-my-avchoices .sk-choice[title="${def.name}"]`);
+    t.check((await page.eval('__qa.ctx.account.avatar')) === DEFAULT_AVATAR && (await textOf(page, '.sk-my-avname')) === def.name, '마이페이지에서 바꿔 입는다');
+    await page.click(`.sk-my-avchoices .sk-choice[title="${scout.name}"]`);
+    await t.shot('mypage-avatar');
+    await page.click('.sk-my-avatar .sk-my-panelhead .sk-btn--sm');
+    await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '캐릭터 상점으로' });
+    t.check((await textOf(page, '.sk-shop .sk-tab.is-on')) === '캐릭터', '마이페이지의 캐릭터 상점 버튼은 캐릭터 탭을 연다', await textOf(page, '.sk-shop .sk-tab.is-on'));
+    await page.click('.sk-shop .sk-btn--ghost');
+    await page.waitFor('__qa.ui.isVisible("mypage")', 3000, { label: '마이페이지로' });
+    await page.press('Escape');
+    await page.waitFor('__qa.ui.isVisible("menu")', 3000, { label: '메뉴로' });
+    await page.clickText('.sk-menu-btn--sub', '상점');
+    await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '메뉴에서 상점' });
+    t.check((await textOf(page, '.sk-shop .sk-tab.is-on')) === '캐릭터', '메뉴에서 다시 열면 보던 탭 그대로', await textOf(page, '.sk-shop .sk-tab.is-on'));
+    await page.click('.sk-shop .sk-btn--ghost');
+
+    await page.reload();
+    await readyGame(page, { screen: 'menu' });
+    const kept = await page.eval('__qa.profile()');
+    t.check(kept.loadout.avatar === 'av_scout' && kept.owned.includes('av_scout') && kept.points === 1000 - scout.price, '새로고침 뒤에도 산 캐릭터·장착·포인트 유지', { avatar: kept.loadout.avatar, points: kept.points });
+    t.errorsOk('상점 캐릭터');
+
+    t.setSection('연습장: 봇 캐릭터와 내 몸');
+    await startPractice(page);
+    await waitRun(page);
+    await page.waitFor('__qa.run.phase === "live" && !__qa.ui.isVisible("loadout")', 20000, { label: 'live 단계' });
+    const botAvatars = await page.eval(`__qa.run.bots.map((b) => { const a = __qa.ctx.avatars.get(b.id); return a ? a.avatarId : null; })`);
+    t.check(botAvatars.every((id) => AVATAR_IDS.includes(id)) && new Set(botAvatars).size >= Math.min(4, botAvatars.length), '봇은 캐릭터를 섞어 쓴다', botAvatars);
+    await lockPointer(page);
+    await waitTicks(page, 3);
+    const emoteStart = await page.eval(`__qa.ctx.player.startEmote('wave')`);
+    t.check(emoteStart && emoteStart.ok, '이모트 시작', emoteStart);
+    await page.waitFor('!!__qa.ctx.avatars.localBody && __qa.ctx.avatars.localBody.visible', 3000, { label: '3인칭 내 몸' }).catch(() => {});
+    t.check((await page.eval('__qa.ctx.avatars.localBody && __qa.ctx.avatars.localBody.avatarId')) === 'av_scout', '3인칭 이모트의 내 몸은 장착한 캐릭터다');
+    await sleep(500);
+    await t.shot('avatar-local-emote');
+    await leaveToMenu(t, page);
+    t.errorsOk('연습장 캐릭터');
   }
 };

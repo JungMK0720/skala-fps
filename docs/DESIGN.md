@@ -189,8 +189,10 @@ export default {
 
 `main.js`가 플러그인보다 먼저 `ctx.account = createAccount({ bus })`를 만든다.
 ```js
-account.profile                // 읽기 전용 스냅샷 { nickname, points, owned:[id], loadout:{primary,secondary,melee}, stats, secrets:{}, createdAt }
+account.profile                // 읽기 전용 스냅샷 { nickname, points, owned:[id], loadout:{primary,secondary,melee,emotes,avatar}, stats, secrets:{}, createdAt }
 account.loadout                // 현재 장비
+account.avatar                 // 장착한 캐릭터 id(= loadout.avatar)
+account.equipAvatar(id)        → { ok, reason?:'unknown'|'unowned' }
 account.hasNickname()
 await account.checkNickname(name) → { ok, reason?:'format'|'reserved'|'taken'|'network', offline:boolean }
 await account.setNickname(name)   → { ok, name, reason?, offline }
@@ -207,7 +209,26 @@ account.remoteEnabled
 - 기기 식별: `skalafps.token`(무작위 256비트 hex). 서버에는 sha256만 저장.
 - 닉네임 규칙: 앞뒤 공백 제거, 연속 공백 1칸, **2~12자**, 한글·영문·숫자·`_`·`-`·공백, 비교는 소문자. 예약어(`admin, 관리자, 운영자, system, gm, null, undefined`)와 ` 봇`으로 끝나는 이름 금지.
 - 온라인이면 중복 검사는 서버 기준(전역 유일). 오프라인이면 형식만 검사하고 `offline:true`를 돌려 화면에 "오프라인이라 중복 확인을 못 했어요"를 표시한다. 멀티 입장 때 다시 등록을 시도한다.
-- 시작 포인트 500. 기본 지급: `price===0`인 무기.
+- 시작 포인트 500. 기본 지급: `price===0`인 무기·이모트·캐릭터.
+
+### 캐릭터 (`js/core/avatar-defs.js`)
+사람마다 기본 캐릭터 하나를 입고 시작하고, 포인트로 다른 캐릭터를 사서 입는다. 모두 직접 설계한 역할형 대원이다(1절).
+| id | 이름 | 가격 | 모습 |
+|---|---|---|---|
+| `av_trooper` | 보병 | 기본 | 전술 헬멧, 방탄 조끼 |
+| `av_scout` | 정찰병 | 300 P | 앞이 트인 후드, 이마에 올린 고글, 가벼운 가슴 조끼, 쌍안경 |
+| `av_sapper` | 공병 | 600 P | 흰 안전모·귀마개·헤드램프, 반사띠 작업 조끼, 공구 벨트, 무릎 보호대 |
+| `av_signal` | 통신병 | 800 P | 정찰모·헤드셋, 등에 멘 무전기와 긴 안테나 |
+| `av_ranger` | 사막 레인저 | 1,000 P | 챙 넓은 모자(팀 색 띠)·선글라스, 스카프, 모래색 조끼, 수통, 걷어 올린 소매 |
+| `av_night` | 야간 작전병 | 1,400 P | 검은 복면, 올려 둔 야간 투시경, 검은 판 조끼 |
+| `av_heavy` | 중장갑병 | 2,000 P | 머리를 감싼 헬멧(가리개·팀 색 볏), 판 갑옷(팀 색이 섞인 회색), 어깨·팔·무릎 보호대 |
+
+- 모양만 다르다. 몸 치수와 히트박스(2절)는 모두 같고, 머리 장비는 히트박스 머리 구 둘레를 크게 벗어나거나 머리를 가리지 않는다.
+- 전투복은 팀 `color`, 가슴 표식·완장·띠는 팀 `light`라 어느 캐릭터든 팀이 잘 보인다. 개인전은 다른 사람을 모두 한 팀 색으로 그린다(적은 한 가지 색).
+- 장비 칸 `loadout.avatar`. 모르거나 가지지 않은 id면 기본 캐릭터로 정규화한다. 가격표는 이 표가 정본이고 `fps_item_price`와 같아야 한다(`tests/account.test.mjs`).
+- 서버(`fps_save_profile`)는 `loadout.avatar`가 가격표에 있는 `av_` 캐릭터이고 기본이거나 가진 것인지 확인하고, 아니면 `av_trooper`로 저장한다. 칸이 없는 옛 클라이언트의 장비는 그대로 둔다.
+- 다른 사람에게는 방 presence의 `av` 칸으로 알린다(늦게 들어온 사람도 presence로 바로 안다). 받는 쪽은 모르는 값을 기본 캐릭터로 그린다. 꾸미기라 판정에 영향이 없어 서버 확인 없이 보낸 값을 그대로 그린다.
+- 연습장 봇은 캐릭터를 차례로 섞어 쓴다. 3인칭 이모트 때 내 몸도 내 캐릭터다.
 
 ### 포인트 (`js/account/economy.js`)
 | 항목 | 봇전 | 멀티 |
@@ -229,8 +250,9 @@ account.remoteEnabled
 `createUI` 화면 추가: `nickname`(첫 실행 게이트, 닫을 수 없음), `mypage`, `shop`. `PAGES`에 포함. 메뉴 이벤트: `menu:sandbox`, `menu:multi`, `menu:mypage`, `menu:shop`.
 - **메인 메뉴**: 플레이어 카드(닉네임·포인트·마이페이지 버튼), 멀티(맨 위 큰 버튼), 연습장, 상점, 설정, 조작법.
 - **닉네임 게이트**: 입력하면 0.4초 디바운스로 `checkNickname`, 사용 가능/이미 있음/형식 오류를 바로 보여 준다.
-- **마이페이지**: 닉네임 변경(언제든, 같은 검사), 전적(킬·데스·K/D·헤드샷·반샷·경기·승), 포인트, 장비 3슬롯, 찾은 비밀 스팟.
-- **상점**: 탭(라이플·저격·SMG/샷건·권총·근접), 카드(이름·가격·막대 그래프·특징), 구매/장착.
+- **마이페이지**: 닉네임 변경(언제든, 같은 검사), 전적(킬·데스·K/D·헤드샷·반샷·경기·승), 포인트, 장비 3슬롯, 캐릭터(지금 캐릭터 초상·가진 캐릭터 고르기·캐릭터 상점 버튼), 찾은 비밀 스팟.
+- **상점**: 탭(라이플·저격·SMG/샷건·권총·근접·이모트·캐릭터), 카드(이름·가격·막대 그래프·특징), 구매/장착. 캐릭터 탭은 초상(두 팀 색으로 바꿔 보기)·설명·구매/장착이다.
+  초상은 게임 렌더러로 캐릭터 × 팀마다 한 번 그린 그림을 쓴다(`createAvatarPortraits`). 두 번째 WebGL 컨텍스트를 만들지 않고, 탭을 처음 열 때만 그린다.
 - **로드아웃**: `pickableWeapons(ruleset, owned)` 카드. 무기가 많으므로 작은 카드 그리드(숫자키 1~9). 카드에 스탯 요약.
 - **로비·대기실·결과**: 규칙 배지, 결과 화면 획득 포인트.
 
@@ -248,7 +270,8 @@ ui.scope.set(amount, { mag, level, levels })   // 2단 줌 표시
 - `weapons/viewmodel.js`: 모든 무기에 모형을 둔다. 라이플류는 공용 빌더에 파라미터(총신 길이, 탄창, 스코프, 색).
 - **카타나**: 긴 곡선 도신(날 쪽 하몬 무늬, 살짝 빛나는 날), 코등이, 실이 감긴 손잡이. 베기는 좌우 번갈아 크게, 강타는 위에서 아래로. 궤적 잔상. `F`(input:inspect)로 칼을 돌려 보는 동작. 다른 무기도 간단한 inspect.
 - **짧은 칼(호크빌·탄토·구르카)**: `shortBladeClips` 하나를 함께 쓴다. 손은 화면 오른쪽 아래에 두고, 맞는 순간 칼끝이 조준점 근처를 지나며, 뒤로 빼는 동작이 화면 밖으로 나가지 않게 한다. 카타나도 같은 규칙이다.
-- `engine/avatars.js`: 슬롯 3이면 총 대신 칼 모형(카타나/구르카/나이프). 다른 사람이 휘두르면 `avatar.swing(kind)`로 팔이 움직인다. `setActorState(id, { slot, weaponId })`. 안전모·보안경 같은 작업자 복장은 전술 헬멧으로 바꾼다.
+- `engine/avatars.js`: 슬롯 3이면 총 대신 칼 모형(카타나/구르카/나이프). 다른 사람이 휘두르면 `avatar.swing(kind)`로 팔이 움직인다. `setActorState(id, { slot, weaponId })`. 기본 캐릭터(보병)는 전술 헬멧이다(예전 작업자 복장을 바꾼 것).
+  캐릭터(7절)는 `STYLES`에 머리·조끼·어깨·팔·다리 부품으로 두고 캐릭터 × 팀마다 한 번 굽는다. 메시 수는 그대로(평소 4개, 이모트 리그 12개)라 캐릭터를 바꿔도 draw call이 늘지 않는다. 맵 로드 때 `prewarm`이 모든 캐릭터 × 두 팀을 준비한다.
 
 ## 10. 물리 소품 (`js/engine/props.js`)
 
