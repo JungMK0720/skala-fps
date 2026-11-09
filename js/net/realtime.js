@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: Supabase Realtime 전용 얇은 클라이언트(Phoenix 채널 프로토콜, JSON).
+ * Purpose: Supabase Realtime 얇은 클라이언트(Phoenix 채널 프로토콜, JSON). 같은 규약의 중계 서버(server/relay)도 hubsocket.js가 이것으로 붙는다.
  */
 /*
  * js/net/realtime.js — Supabase Realtime 얇은 클라이언트 (Phoenix 채널 vsn 1.0.0, JSON)
@@ -164,18 +164,29 @@ export class PresenceState {
 
 /**
  * new RealtimeSocket({ url, key, heartbeatMs?, heartbeatTimeoutMs?, timeoutMs?, backoff?, logger?, WebSocket? })
+ * 같은 채널 규약을 쓰는 다른 서버(server/relay)에 붙을 때는 url·key 대신 endpoint(ws 주소 전체)를 준다(js/net/hubsocket.js).
+ *   heartbeatRef: 하트비트 ref를 이 글자로 고정한다(서버가 잠든 채로 정해진 글자에 답하게 할 때)
+ *   presenceLimit: { max, windowMs, minGapMs } 채널 presence track 한도 기본값(Supabase 기본 31초 4회)
  * 이벤트: 'state'(state, info) — 'connecting' | 'open' | 'reconnecting' | 'closed'
  *         'open', 'closed', 'rtt'(ms)
  */
 export class RealtimeSocket extends Emitter {
   constructor(opts = {}) {
     super();
-    const { url, key } = opts;
-    if (!url || !key) throw netError('NO_CONFIG', 'Supabase url/key가 필요합니다');
-    this.url = String(url).replace(/\/+$/, '');
-    this.key = String(key);
-    this.endpoint = this.url.replace(/^http/i, 'ws') + '/realtime/v1/websocket?apikey=' +
-      encodeURIComponent(this.key) + '&vsn=' + VSN;
+    const { url, key, endpoint } = opts;
+    if (endpoint) {
+      this.url = '';
+      this.key = '';
+      this.endpoint = String(endpoint);
+    } else {
+      if (!url || !key) throw netError('NO_CONFIG', 'Supabase url/key가 필요합니다');
+      this.url = String(url).replace(/\/+$/, '');
+      this.key = String(key);
+      this.endpoint = this.url.replace(/^http/i, 'ws') + '/realtime/v1/websocket?apikey=' +
+        encodeURIComponent(this.key) + '&vsn=' + VSN;
+    }
+    this.heartbeatRef = opts.heartbeatRef ? String(opts.heartbeatRef) : null;
+    this.presenceLimit = { max: 4, windowMs: 31000, minGapMs: 250, ...(opts.presenceLimit || {}) };
     this.WS = opts.WebSocket || globalThis.WebSocket;
     if (!this.WS) throw netError('NO_WEBSOCKET', '이 환경에는 WebSocket이 없습니다');
     this.heartbeatMs = opts.heartbeatMs || 25000;
@@ -222,6 +233,11 @@ export class RealtimeSocket extends Emitter {
       const offClosed = this.on('closed', () => done(reject, netError('CLOSED', '연결이 닫혔습니다')));
       this._connect();
     });
+  }
+
+  /** 연결을 시작만 한다. 시간 제한 없이 끊기면 백오프로 다시 붙는다(채널 join이 각자 시간 제한을 둔다) */
+  start() {
+    if (!this._closedByUser) this._connect();
   }
 
   _setState(s, info) {
@@ -318,7 +334,7 @@ export class RealtimeSocket extends Emitter {
   /** 하트비트 1회 (응답으로 서버 RTT도 잰다) */
   heartbeat() {
     if (!this.isOpen() || this._hbPending) return;
-    const ref = this.makeRef();
+    const ref = this.heartbeatRef || this.makeRef();
     const sentAt = nowMs();
     const timer = setTimeout(() => {
       this._hbPending = null;
@@ -476,8 +492,9 @@ export class Channel extends Emitter {
     this._pendingDiffs = [];
     this._rejoinAttempt = 0;
     this._rejoinTimer = null;
-    // presence track: 서버 한도(30초 5회) 아래로 — 31초 4회, 최소 간격 250ms
-    this._limiter = new SlidingWindowLimiter(opts.presenceMax || 4, opts.presenceWindowMs || 31000, 250);
+    // presence track: 서버 한도(Supabase 30초 5회) 아래로 — 기본 31초 4회, 최소 간격 250ms. 소켓이 다른 기본값을 줄 수 있다
+    const lim = socket.presenceLimit || {};
+    this._limiter = new SlidingWindowLimiter(opts.presenceMax || lim.max || 4, opts.presenceWindowMs || lim.windowMs || 31000, lim.minGapMs != null ? lim.minGapMs : 250);
     this._trackPayload = undefined; // undefined: 관여 안 함, null: untrack 원함, object: track 원함
     this._sentJson = null;           // 서버에 반영된 마지막 상태(JSON) — 'null'이면 untracked
     this._trackTimer = null;

@@ -41,8 +41,9 @@ export const BANNED_WORDS = Object.freeze(['pynhqr', 'naguebcvp', 'pungtcg', 'bc
 const BANNED_RE = new RegExp(BANNED_WORDS.join('|'), 'gi');
 
 const LOCAL_TOOL_DIR = `.${BANNED_WORDS[0]}`;   // git에서 제외된 개발 도구 설정 폴더
-const HEADER_SKIP_DIRS = new Set(['.git', LOCAL_TOOL_DIR, 'node_modules', 'audio']);
-const SCAN_SKIP_DIRS = new Set(['.git', LOCAL_TOOL_DIR, 'node_modules']);   // git을 못 쓸 때의 금지 단어 검사용
+// .wrangler = wrangler dev가 server/relay 안에 만드는 로컬 상태·임시 번들(.gitignore)
+const HEADER_SKIP_DIRS = new Set(['.git', LOCAL_TOOL_DIR, 'node_modules', '.wrangler', 'audio']);
+const SCAN_SKIP_DIRS = new Set(['.git', LOCAL_TOOL_DIR, 'node_modules', '.wrangler']);   // git을 못 쓸 때의 금지 단어 검사용
 const BINARY_EXT = new Set(['.bin', '.mp3', '.wav', '.ogg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.woff', '.woff2', '.ttf', '.zip', '.pdf']);
 
 const KEY_RE = /^(Date|Author|Purpose)\s*:\s*(.*)$/;

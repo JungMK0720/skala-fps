@@ -3,7 +3,9 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 자동 플레이 테스트 실행기(npm run qa). 시나리오를 차례로 돌려 통과·실패 표를 찍고, 스크린샷은 저장소 밖 임시 폴더에 둔다.
- *          사용법: npm run qa [-- --only 이름[,이름]] [-- --filter 글자] [-- --list]
+ *          사용법: npm run qa [-- --only 이름[,이름]] [-- --filter 글자] [-- --list] [-- --relay <주소|node>]
+ *          --relay: 멀티 시나리오의 실시간 메시지를 중계 서버(server/relay)로 보낸다. 주소(예: wrangler dev의 http://127.0.0.1:8788)나
+ *          node(시나리오가 Node 어댑터를 직접 띄운다). 없으면 지금처럼 가짜 Supabase가 중계한다.
  */
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,13 +16,17 @@ import { Tester } from './kit.mjs';
 import { SCENARIOS } from './scenarios/index.mjs';
 
 function parseArgs(argv) {
-  const opts = { only: null, filter: null, list: false };
+  const opts = { only: null, filter: null, list: false, relay: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--list') opts.list = true;
     else if (a === '--only') opts.only = String(argv[++i] || '').split(',').map((s) => s.trim()).filter(Boolean);
     else if (a === '--filter') opts.filter = String(argv[++i] || '');
+    else if (a === '--relay') opts.relay = String(argv[++i] || '').trim();
     else throw new Error(`모르는 옵션이에요: ${a}`);
+  }
+  if (opts.relay !== null && opts.relay !== 'node' && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/?$/.test(opts.relay)) {
+    throw new Error(`--relay는 node 또는 로컬 주소(http://127.0.0.1:8788)예요: ${opts.relay}`);
   }
   return opts;
 }
@@ -28,9 +34,9 @@ function parseArgs(argv) {
 const pad = (s, n) => String(s) + ' '.repeat(Math.max(0, n - String(s).length));
 const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`;
 
-async function runOne(scenario, { browser, server, outDir, filter }) {
+async function runOne(scenario, { browser, server, outDir, filter, relay }) {
   const started = Date.now();
-  const t = new Tester({ name: scenario.name, browser, server, outDir, filter, logLine: (line) => console.log(`[${scenario.name}] ${line}`) });
+  const t = new Tester({ name: scenario.name, browser, server, outDir, filter, relay, logLine: (line) => console.log(`[${scenario.name}] ${line}`) });
   let thrown = null;
   try {
     await withTimeout(scenario.run(t), scenario.timeoutMs || 300000, `시나리오 ${scenario.name}`);
@@ -70,6 +76,7 @@ async function main() {
     console.log(`브라우저: ${browser.version} (${browser.path})`);
     console.log(`플래그: ${SAFE_FLAGS.join(' ')}`);
     console.log(`게임 주소: ${server.base}`);
+    if (opts.relay) console.log(`멀티 중계: ${opts.relay === 'node' ? 'Node 어댑터(server/relay/src/node.js)' : opts.relay}`);
     for (const scenario of list) {
       console.log(`\n=== ${scenario.name}: ${scenario.title}`);
       if (!browser.alive) {   // 앞 시나리오에서 브라우저가 죽었으면 뒤 시나리오까지 잃지 않게 새로 띄운다
@@ -77,7 +84,7 @@ async function main() {
         await browser.close();
         browser = await launchBrowser();
       }
-      results.push(await runOne(scenario, { browser, server, outDir, filter: opts.filter }));
+      results.push(await runOne(scenario, { browser, server, outDir, filter: opts.filter, relay: opts.relay }));
     }
   } finally {
     if (browser) await browser.close();

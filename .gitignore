@@ -3,3 +3,7 @@ audio/emotes/*.mp3
 audio/emotes/*.wav
 audio/emotes/*.m4a
 audio/emotes/*.ogg
+# 중계 서버(server/relay)의 설치 폴더와 wrangler dev가 만드는 로컬 상태·비밀 값
+server/relay/node_modules/
+server/relay/.wrangler/
+server/relay/.dev.vars

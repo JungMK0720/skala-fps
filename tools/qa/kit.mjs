@@ -257,12 +257,13 @@ export const LOW_QUALITY = Object.freeze({ quality: 'low' });
 
 /** 시나리오 하나의 검사 기록기 */
 export class Tester {
-  constructor({ name, browser, server, outDir, filter = null, logLine = () => {} }) {
+  constructor({ name, browser, server, outDir, filter = null, relay = null, logLine = () => {} }) {
     this.name = name;
     this.browser = browser;
     this.server = server;
     this.outDir = outDir;
     this.filter = filter;
+    this.relay = relay;   // --relay: 멀티 시나리오의 중계 서버 주소 또는 'node'(run.mjs)
     this.logLine = logLine;
     this.page = null;
     this.checks = 0;

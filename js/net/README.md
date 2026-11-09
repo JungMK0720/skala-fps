@@ -11,6 +11,7 @@
 | `room.js` | 방 `skalafps:room:<roomId>`(`consts.NET.ROOM_CHANNEL_PREFIX`): 방장 선출·이전, 프레임 병합/스로틀, 핑·시계, mesh/relay |
 | `codec.js` | 상태 직렬화 도우미(반올림, 각도 양자화, 짧은 키, delta, 보간) |
 | `limits.js` | 무료 플랜 한도, 예산 계산(`frameCost`, `maxHz`), `TokenBucket`, `SlidingWindowLimiter` |
+| `hubsocket.js` | Cloudflare 중계 서버(`server/relay`)용 소켓 `HubSocket`. 겉모양이 `RealtimeSocket`과 같고 허브(로비·방)마다 WebSocket을 하나씩 연다(8절) |
 
 ---
 
@@ -58,7 +59,9 @@ await net.close();
 ### `connect(opts) → Promise<Net>`
 | 옵션 | 기본 | 설명 |
 |---|---|---|
-| `url`, `key` | `window.SKALA_CONFIG.supabase` | Supabase URL, publishable(anon) key |
+| `transport` | `SKALA_CONFIG.transport` 또는 `'supabase'` | `'supabase'`(Supabase Realtime) 또는 `'relay'`(중계 서버, 8절) |
+| `relayUrl`, `relayHz` | `SKALA_CONFIG.relay.url`, `.hz`(20) | `'relay'`일 때 서버 주소와 클라이언트 프레임 상한 |
+| `url`, `key` | `window.SKALA_CONFIG.supabase` | Supabase URL, publishable(anon) key(`'supabase'`일 때) |
 | `playerId` | 랜덤 12자 | 영문·숫자·`_-` 1~40자. **탭마다 고유**해야 한다(같은 id 두 탭 = presence 한 사람) |
 | `name` | `플레이어-xxxx` | 24자로 자르고 제어문자 제거. 화면에는 `textContent`로만 |
 | `timeoutMs` | 15000 | 첫 연결 제한. 넘으면 `CONNECT_TIMEOUT` |
@@ -287,3 +290,17 @@ Supabase는 메시지 **개수**로 한도를 세므로 크기보다 개수가 �
 8. `room.now()`는 방장 시계다. 방장이 바뀌면 새 방장 기준으로 다시 맞춘다(PC 시계 차이만큼 뛸 수 있음). 라운드 종료 시각은 새 방장이 다시 공지해야 한다.
 9. 같은 `playerId`로 두 탭에서 들어오면 한 사람으로 합쳐진다. 탭마다 고유 id를 써라.
 10. bfcache(`pagehide` persisted)에서 돌아오면 소켓이 죽어 있을 수 있다. 하트비트 실패 또는 탭 복귀 이벤트로 재연결된다.
+
+---
+
+## 8. 중계 서버로 보내기 (`transport: 'relay'`)
+
+`SKALA_CONFIG.transport = 'relay'`이면 `connect()`가 `RealtimeSocket` 대신 `HubSocket`(`hubsocket.js`)을 쓴다. 서버는 `server/relay`(Cloudflare Worker + Durable Objects)이고, Supabase Realtime과 같은 채널 규약을 쓰므로 `Lobby`·`Room`과 게임 코드는 그대로다. 서버 구조·검사·배포·요금은 [server/relay/README.md](../../server/relay/README.md).
+
+- **허브마다 WebSocket 하나**: 로비 허브(`skalafps:lobby`)와 방마다 방 허브(`skalafps:room:<id>[:<비밀 값>]`)가 각각 Durable Object 하나다. `HubSocket`은 채널 이름으로 허브를 골라(`hubOf`) 허브마다 `RealtimeSocket`(링크)을 하나 열고, 채널이 없는 링크는 3초 뒤 닫는다. `open()`은 로비 허브부터 연다.
+- **방 기본값**(`RELAY_ROOM_DEFAULTS`): `topology: 'mesh'`, 예산 무제한, `maxHz: 20`(`relay.hz`). 서버가 프레임을 받는 사람에게 직접 나눠 주므로 방장 uplink(relay)가 필요 없고, Supabase의 프로젝트 예산이 없으므로 `room.rate`가 바로 20이다(게임 상태는 `sync.js`가 10Hz로 보낸다).
+- **sendTo는 대상만 받는다**(7절 3번이 이 전송에서는 풀린다). 다른 사람은 그 메시지를 뺀 프레임을 받는다.
+- **보낸이 확인**: 프레임의 `f`가 연결의 presence 키와 다르면 서버가 버린다. 다른 키로 참가하는 것은 아직 막지 못한다(신원 확인 없음).
+- **presence**는 10.5초에 10번까지 바로 보낸다(Supabase는 31초 4번). 서버 한도는 10초 12번.
+- **하트비트**는 ref를 `'hb'`로 고정한 같은 글자다. 서버 객체가 잠든 채 런타임이 답한다. `net.socket.rtt`는 방 허브의 왕복 시간이다.
+- `net.transport`, `net.stats().transport`로 어느 전송인지 안다. `net.socket.simulateDrop()`은 모든 링크를 끊었다 다시 붙인다(QA).

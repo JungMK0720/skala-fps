@@ -35,6 +35,17 @@ test('CDN 모듈은 무결성 해시가 붙고, 접속은 이 사이트와 설�
   assert.ok(!/\*\.supabase\.co|\shttps:\s|\shttps:$/.test(directive('connect-src')), '다른 곳으로는 보내지 않는다');
 });
 
+test('전송 방식 설정이 맞고, 중계 서버를 쓰면 그 주소(https·wss)가 connect-src에 있다', () => {
+  const transport = (config.match(/\btransport:\s*'([a-z]+)'/) || [])[1];
+  assert.ok(['supabase', 'relay'].includes(transport), `transport: ${transport}`);
+  const relayUrl = (config.match(/\brelay:\s*\{\s*url:\s*'([^']*)'/) || [])[1];
+  assert.equal(typeof relayUrl, 'string', 'relay.url 칸');
+  if (transport !== 'relay') return;
+  const host = relayUrl.match(/^https:\/\/([a-z0-9.-]+)\/?$/);
+  assert.ok(host, '배포 설정의 중계 서버 주소는 https다');
+  assert.ok(directive('connect-src').includes(`https://${host[1]}`) && directive('connect-src').includes(`wss://${host[1]}`), '중계 서버 주소');
+});
+
 test('importmap 말고 인라인 스크립트와 인라인 이벤트 속성이 없다', () => {
   const inline = [...html.matchAll(/<script(?![^>]*\bsrc=)([^>]*)>/g)].map((m) => m[1]);
   assert.deepEqual(inline, [' type="importmap"']);
