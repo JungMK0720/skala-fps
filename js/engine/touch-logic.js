@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 터치 조작의 계산(순수 함수). 터치 기기 판별, 조이스틱 입력을 8방향 이동으로 바꾸기, 화면의 어느 쪽을 눌렀는지 판단한다.
+ * Purpose: 터치 조작의 계산(순수 함수). 터치 기기 판별, 조이스틱 입력을 8방향 이동으로 바꾸기, 화면의 어느 쪽을 눌렀는지, 열어 둔 이모트 휠의 어느 칸을 눌렀는지 판단한다.
  *          DOM에 의존하지 않아 node 테스트에서 그대로 쓴다. 화면과 이벤트는 engine/touch.js가 맡는다.
  */
 export const TOUCH = Object.freeze({
@@ -11,7 +11,33 @@ export const TOUCH = Object.freeze({
   DIAGONAL: 0.38,     // sin(22.5°). 축에서 이만큼 벗어나면 그 방향도 함께 누른 것으로 친다
   STICK_SIDE: 0.42,   // 화면 왼쪽 이 비율 안에서 누르면 조이스틱, 나머지는 시점
   LOOK_SCALE: 1.7,    // 손가락 1 px을 마우스 몇 px로 볼지. 화면이 좁아 마우스보다 크게 돈다
+  EMOTE_TAP_SLOP: 12, // 이모트 버튼을 누른 뒤 이만큼(px) 덜 움직이고 떼면 '탭'이다. 휠이 열린 채로 남고 칸을 눌러 고른다
+  EMOTE_TAP_IDLE_MS: 8000, // 탭으로 열어 둔 휠을 아무것도 안 누르고 두면 이만큼 뒤에 닫는다
 });
+
+/**
+ * 이모트 휠 그림의 크기(ui/emotes.js의 viewBox -200..200 기준). 가운데 허브 안을 누르면 닫고, 칸 고리 안을 누르면 그 칸이다.
+ * 바깥은 손가락이 조금 빗나가도 칸으로 치도록 그림(196)보다 넉넉하다.
+ */
+export const WHEEL_TAP = Object.freeze({ VIEW: 400, HUB: 70, OUTER: 214 });
+
+/**
+ * 탭으로 열어 둔 이모트 휠에서 누른 자리를 판정한다.
+ * @param {number} x 누른 자리(화면 px)
+ * @param {number} y
+ * @param {{ left:number, top:number, width:number, height:number }|null} rect 휠 상자(getBoundingClientRect)
+ * @returns {{ kind:'pick', ux:number, uy:number } | { kind:'hub' } | { kind:'outside' }}
+ *   pick의 ux·uy는 휠 중심에서 누른 쪽으로의 단위 방향(화면 좌표, 아래 +)이다. 휠 반지름을 곱해 input.moveEmoteWheel에 넘긴다.
+ */
+export function wheelTapAt(x, y, rect, o = WHEEL_TAP) {
+  if (!rect || !(rect.width > 0) || !(rect.height > 0)) return { kind: 'outside' };
+  const scale = rect.width / o.VIEW;
+  const dx = x - (rect.left + rect.width / 2), dy = y - (rect.top + rect.height / 2);
+  const d = Math.hypot(dx, dy);
+  if (!Number.isFinite(d) || d > o.OUTER * scale) return { kind: 'outside' };
+  if (d < o.HUB * scale) return { kind: 'hub' };
+  return { kind: 'pick', ux: dx / d, uy: dy / d };
+}
 
 const STILL = Object.freeze({ x: 0, y: 0, mag: 0, forward: false, back: false, left: false, right: false, walk: false });
 

@@ -88,6 +88,10 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 - `room:ruleset {ruleset}` → 방장만 `updateMeta({ ruleset, mapId })`(대기실에서만). 지금 맵을 그 규칙에서 못 쓰면 `maps.mapsForRuleset(ruleset)`의 첫 맵으로 같이 바꾼다. 모두에게 "규칙이 칼전으로 바뀌었어요" 안내.
 - 들어오면 인원이 적은 팀으로 자동 배정한다. `room:team` → `room.updateMe({ team })`(팀 정원 = ceil(max/2)), `room:ready` → `updateMe({ ready })`, `room:map` → 방장만 `updateMeta({ mapId })`(규칙에 안 맞는 맵은 무시).
 - 채팅: `sync.sendChat` → 받으면 목록에 넣는다. **내 메시지는 직접 넣는다**(broadcast는 되돌아오지 않음). 첫 줄은 늘 안내 문구 "무료 서버 한도 때문에 최대 6명(인원이 적을수록 더 부드러워요)"이고, 입장·퇴장·방장 교체·경기 결과도 시스템 줄로 남는다.
+- 경기 채팅: 경기 맵을 불러오면 `ui.show('chat')`과 bus `chat:available { on:true }`(휴대폰 채팅 버튼), 경기를 정리하면 `ui.hide('chat')`과 `{ on:false }`.
+  경기 중에는 대기실과 같은 줄을 `ui.chat.push(line)`으로도 넘긴다(내 줄은 `me:true`). Enter·채팅 버튼(bus `input:chat`)이면 `ui.chat.open()`, UI `chat:send`는 대기실 `room:chat`과 같은 `sendChat`이다.
+  PC에서 입력칸이 열리면(`chat:open`) 엔진이 떼는 키를 못 보므로 `ctx.input.releaseAll()`로 눌려 있던 이동 키를 푼다.
+- 채팅 도배(`CHAT_LIMIT`): 보내기는 5초에 4줄까지이고 넘으면 내 화면에만 안내 줄을 띄운다. 받기는 보낸 사람마다 5초에 6줄까지이고 넘는 줄은 조용히 버린다(고친 클라이언트 대비).
 - [게임 시작](방장): UI와 같은 조건을 세션도 다시 확인한다. 팀전 = 양 팀 1명 이상·미배정 없음·방장 외 전원 준비, **FFA = 2명 이상·방장 외 전원 준비**(팀 무관, `room:team`은 무시).
 
 ### 시작(준비 단계)

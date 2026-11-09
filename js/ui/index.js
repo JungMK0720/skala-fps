@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: UI 루트. 캔버스 위 순수 DOM 오버레이(메뉴·닉네임 게이트·마이페이지·상점·로비·방·로드아웃·HUD·스코프·이모트 휠·점수판·결과·일시정지)를 만들고
+ * Purpose: UI 루트. 캔버스 위 순수 DOM 오버레이(메뉴·닉네임 게이트·마이페이지·상점·로비·방·로드아웃·HUD·경기 채팅·스코프·이모트 휠·점수판·결과·일시정지)를 만들고
  *          화면 배타 규칙, 이벤트, 커서 상태, 설정 어댑터, 계정·무기·맵 연결을 맡는다. 사용법과 이벤트 목록은 ./README.md.
  */
 import { h, ensureStyles, isTextField, relativeAngle } from './dom.js';
@@ -20,15 +20,16 @@ import { createScoreboard } from './scoreboard.js';
 import { createResults } from './results.js';
 import { createPause } from './pause.js';
 import { createEmotes, emoteIndexAt, EMOTE_WHEEL } from './emotes.js';
+import { createChat } from './chat.js';
 import { NICKNAME_MAX, cleanNickname } from '../account/nickname.js';
 
 export { relativeAngle, DEFAULT_SETTINGS, emoteIndexAt, EMOTE_WHEEL };
 
-export const SCREENS = Object.freeze(['menu', 'nickname', 'mypage', 'shop', 'lobby', 'room', 'loadout', 'hud', 'emotes', 'scoreboard', 'results', 'pause']);
+export const SCREENS = Object.freeze(['menu', 'nickname', 'mypage', 'shop', 'lobby', 'room', 'loadout', 'hud', 'chat', 'emotes', 'scoreboard', 'results', 'pause']);
 const PAGES = ['menu', 'mypage', 'shop', 'lobby', 'room', 'results']; // 서로 배타적인 전체 화면
-const GAME_LAYERS = ['hud', 'emotes', 'loadout', 'pause', 'scoreboard']; // 게임 중 레이어
+const GAME_LAYERS = ['hud', 'chat', 'emotes', 'loadout', 'pause', 'scoreboard']; // 게임 중 레이어
 const CURSOR_SCREENS = ['menu', 'nickname', 'mypage', 'shop', 'lobby', 'room', 'loadout', 'results', 'pause']; // 커서가 필요한 화면(emotes는 아님)
-const Z_ORDER = ['hud', 'emotes', 'scoreboard', 'loadout', 'pause', 'results', 'room', 'lobby', 'shop', 'mypage', 'menu', 'nickname']; // 아래 → 위
+const Z_ORDER = ['hud', 'chat', 'emotes', 'scoreboard', 'loadout', 'pause', 'results', 'room', 'lobby', 'shop', 'mypage', 'menu', 'nickname']; // 아래 → 위
 const ACCOUNT_SCREENS = ['menu', 'nickname', 'mypage', 'shop', 'loadout']; // 계정이 바뀌면 다시 그리는 화면
 
 const cleanName = (n) => cleanNickname(n).slice(0, NICKNAME_MAX);
@@ -133,6 +134,7 @@ export function createUI(rootEl, options = {}) {
     room: createRoom(ctx),
     loadout: createLoadout(ctx),
     hud: createHud(ctx),
+    chat: createChat(ctx),
     emotes: createEmotes(ctx),
     scoreboard: createScoreboard(ctx),
     results: createResults(ctx),
@@ -193,6 +195,7 @@ export function createUI(rootEl, options = {}) {
     } else if (name === 'pause') {
       screens.scoreboard.hide();
       screens.emotes.hide();
+      screens.chat.close();   // 쓰던 채팅은 접는다(줄은 남는다)
     }
     s.show(props);
     if (name === 'nickname') setGateBlocking(s.visible);
@@ -205,7 +208,7 @@ export function createUI(rootEl, options = {}) {
     const s = get(name);
     if (!s) return api;
     s.hide();
-    if (name === 'hud') { scope.set(0); screens.emotes.hide(); }
+    if (name === 'hud') { scope.set(0); screens.emotes.hide(); screens.chat.hide(); }
     if (name === 'nickname') setGateBlocking(false);
     refreshCursor();
     return api;
@@ -270,6 +273,14 @@ export function createUI(rootEl, options = {}) {
     killfeed: {
       push: (k) => hud.killfeed.push(k),
       clear: () => hud.killfeed.clear(),
+    },
+    /** 경기 채팅(멀티플레이). 화면은 show('chat') / hide('chat'), 보내기는 'chat:send' 이벤트 */
+    chat: {
+      push: (line) => screens.chat.push(line),
+      open: () => screens.chat.open(),
+      close: () => screens.chat.close(),
+      isOpen: () => screens.chat.isOpen(),
+      clear: () => screens.chat.clear(),
     },
     scope: {
       set: (amount, opts) => scope.set(amount, opts),

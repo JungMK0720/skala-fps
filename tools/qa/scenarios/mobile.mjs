@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 시나리오 7. 휴대폰 화면(가로 844x390, 터치 에뮬레이션)에서 경기를 터치로만 조작한다. 조이스틱, 시점, 두 손가락 동시 입력, 발사·조준·점프·앉기·장전·무기 칸, 일시정지, 점수판, 이모트, 죽은 뒤 총 버리기, 세로 안내.
+ * Purpose: 시나리오 7. 휴대폰 화면(가로 844x390, 터치 에뮬레이션)에서 경기를 터치로만 조작한다. 조이스틱, 시점, 두 손가락 동시 입력, 발사·조준·점프·앉기·장전·무기 칸, 일시정지, 점수판, 이모트(끌기·짧게 눌러 칸 누르기), 죽은 뒤 총 버리기, 세로 안내.
  *          실제 휴대폰의 성능과 손맛은 재지 못한다. PC 화면에서 터치 조작이 켜지지 않는지도 함께 본다.
  */
 import { LOW_QUALITY, qaInit, readyGame, richProfile, sleep, waitLive, waitRun, waitTicks } from '../kit.mjs';
@@ -243,6 +243,43 @@ export default {
     await sleep(300);
     await tapButton(page, 'fire');
     await page.waitFor('__qa.world.localEmote === 0', 2000, { intervalMs: 30, label: '발사 버튼으로 이모트 취소' });
+
+    // 짧게 누르면 휠이 열린 채로 남고, 칸을 눌러 바로 고른다(끌어 올리지 않아도 된다)
+    await sleep(250);
+    await tapButton(page, 'emote');
+    await page.waitFor('__qa.ui.isVisible("emotes") && __qa.ctx.input.emoteWheel.tap', 2000, { intervalMs: 30, label: '짧게 누르면 휠이 열린 채로 남는다' });
+    t.check(/칸을 누르면/.test(await page.eval(`__qa.text('.sk-emo-hub-hint')`)), '탭 모드 안내가 보인다', await page.eval(`__qa.text('.sk-emo-hub-hint')`));
+    t.check(!(await page.eval(visible('.sk-emo-dot'))), '탭 모드에는 커서 점이 없다');
+    await t.shot('emote-wheel-tap');
+    const wedge = await page.eval(`(() => { const r = document.querySelector('.sk-emo-label[data-i="0"]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+    const firstEmote = await page.eval('__qa.ctx.input.emoteWheelIds[0]');
+    await tap(page, wedge);
+    await page.waitFor('__qa.world.localEmote > 0', 2000, { intervalMs: 30, label: '12시 칸을 누르면 그 이모트' });
+    t.check(!(await page.eval('__qa.ui.isVisible("emotes")')), '고르면 휠이 닫힌다');
+    t.check((await page.eval('__qa.ctx.input.emoteWheel.open')) === false, '입력의 휠도 닫힌다');
+    t.check(firstEmote === 'takeL', '기본 휠 12시는 L을 가져가', firstEmote);
+    await sleep(300);
+    await tapButton(page, 'fire');
+    await page.waitFor('__qa.world.localEmote === 0', 2000, { intervalMs: 30, label: '발사 버튼으로 취소' });
+
+    // 열어 둔 휠은 가운데를 누르거나 이모트 버튼을 다시 누르면 고르지 않고 닫힌다
+    await sleep(250);
+    await tapButton(page, 'emote');
+    await page.waitFor('__qa.ctx.input.emoteWheel.tap', 2000, { intervalMs: 30, label: '다시 열기' });
+    await tap(page, await center(page, '.sk-emo-wheel'));
+    await page.waitFor('!__qa.ctx.input.emoteWheel.open', 2000, { intervalMs: 30, label: '가운데를 누르면 닫힌다' });
+    t.check((await page.eval('__qa.world.localEmote')) === 0, '가운데는 고르지 않는다');
+    await tapButton(page, 'emote');
+    await page.waitFor('__qa.ctx.input.emoteWheel.tap', 2000, { intervalMs: 30, label: '또 열기' });
+    await tapButton(page, 'emote');
+    await page.waitFor('!__qa.ctx.input.emoteWheel.open', 2000, { intervalMs: 30, label: '이모트 버튼을 다시 누르면 닫힌다' });
+    t.check((await page.eval('__qa.world.localEmote')) === 0, '버튼으로 닫아도 고르지 않는다');
+    // 휠 밖을 누르면 닫히고 그 손가락은 원래 조작(여기서는 시점)이 된다
+    await tapButton(page, 'emote');
+    await page.waitFor('__qa.ctx.input.emoteWheel.tap', 2000, { intervalMs: 30, label: '한 번 더 열기' });
+    await tap(page, { x: W - 200, y: 110 });   // 오른쪽 위 빈 화면(버튼 없음)
+    await page.waitFor('!__qa.ctx.input.emoteWheel.open', 2000, { intervalMs: 30, label: '휠 밖을 누르면 닫힌다' });
+    t.check(!(await page.eval(visible('.pc-tb--chat'))), '연습장에는 채팅 버튼이 없다');
     t.errorsOk('이모트');
 
     t.setSection('죽으면 든 총이 떨어진다');

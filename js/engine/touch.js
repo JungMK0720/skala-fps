@@ -1,19 +1,22 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 휴대폰용 터치 조작. 왼쪽 화면 조이스틱, 오른쪽 화면 시점, 발사·조준·점프·앉기·장전·이모트·점수판·일시정지 버튼을 만들어 input.touch로 넘긴다.
+ * Purpose: 휴대폰용 터치 조작. 왼쪽 화면 조이스틱, 오른쪽 화면 시점, 발사·조준·점프·앉기·장전·이모트·채팅·점수판·일시정지 버튼을 만들어 input.touch로 넘긴다.
  *          키보드·마우스와 같은 입력 상태와 이벤트로 바꾸므로 게임 코드는 터치를 몰라도 된다. 화면 규칙은 css/touch.css에 있다.
  *          라이플을 들면 조준 버튼이 '조준 사격'이 된다(누르는 동안 조준하며 쏜다, 판단은 game/world.js의 touch:aimFire).
+ *          이모트 버튼은 누른 채 끌어 고르거나, 짧게 눌러 휠을 열어 두고 칸을 눌러 고른다. 채팅 버튼은 멀티플레이 경기에서만 보인다(session의 chat:available).
  */
-import { isStickSide, knobOffset, stickState } from './touch-logic.js';
+import { EMOTE_WHEEL } from '../core/consts.js';
+import { TOUCH, isStickSide, knobOffset, stickState, wheelTapAt } from './touch-logic.js';
 
-/** 버튼 정의: [동작, 글자, 묶음]. act는 살아 있을 때만 보이는 전투 버튼이고 top은 언제나 보인다 */
+/** 버튼 정의: [동작, 글자, 묶음]. act는 살아 있을 때만 보이는 전투 버튼이고 top은 언제나 보인다(채팅은 멀티플레이 경기에서만) */
 const BUTTONS = [
   ['fire', '발사', 'act'],
   ['zoom', '조준', 'act'],
   ['jump', '점프', 'act'],
   ['reload', '장전', 'act'],
   ['crouch', '앉기', 'act'],
+  ['chat', '채팅', 'top'],
   ['emote', '이모트', 'top'],
   ['score', '점수', 'top'],
   ['pause', 'Ⅱ', 'top'],
@@ -53,6 +56,7 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
     b.dataset.act = act;
     buttons.set(act, b);
   }
+  buttons.get('chat').hidden = true;   // 멀티플레이 경기에서만 쓴다
 
   /* ---------- 왼쪽 조이스틱 · 오른쪽 시점 ---------- */
   const stick = { id: null, x: 0, y: 0 };
@@ -102,8 +106,47 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
   canvas.addEventListener('pointerup', onCanvasUp);
   canvas.addEventListener('pointercancel', onCanvasUp);
 
+  /* ---------- 이모트 휠 ----------
+   * 누른 채 끌어 칸을 고르고 떼면 시작한다(PC의 B와 같다). 짧게 눌렀다 떼면 휠이 열린 채로 남는다(탭 모드):
+   * 칸을 누르면 그 이모트, 가운데를 누르거나 이모트 버튼을 다시 누르면 닫기. 휠 밖을 누르면 닫고 그 손가락은 원래 조작으로 간다. */
+  let wheelTap = false;
+  let wheelIdle = null;
+  function endWheelTap() {
+    wheelTap = false;
+    if (wheelIdle) { clearTimeout(wheelIdle); wheelIdle = null; }
+  }
+  function closeWheel(pick) {
+    endWheelTap();
+    input.closeEmoteWheel(pick);
+  }
+  /** 이모트 버튼을 뗐다: 끌어서 칸을 골랐으면 시작, 그냥 눌렀다 뗐으면 휠을 열어 둔다 */
+  function releaseEmote(h) {
+    if (h.closer) return;                          // 열어 둔 휠을 닫은 누름이다
+    const w = input.emoteWheel;
+    if (!w.open) return;
+    if (h.moved > TOUCH.EMOTE_TAP_SLOP || w.selected != null || layer.classList.contains('is-dead')) { closeWheel(true); return; }
+    wheelTap = true;
+    input.setEmoteWheelTap(true);
+    wheelIdle = setTimeout(() => { wheelIdle = null; if (wheelTap) closeWheel(false); }, TOUCH.EMOTE_TAP_IDLE_MS);
+  }
+  /** 탭 모드 휠을 누른 손가락. 무기 칸(onHudDown)이나 버튼보다 먼저 받아, 휠 위를 누른 손가락은 다른 조작이 되지 않는다 */
+  function onWheelTap(e) {
+    if (!wheelTap) return;
+    const target = e.target && e.target.closest ? e.target : null;
+    if (target && target.closest('.pc-tb--emote')) return;   // 이모트 버튼은 onButtonDown이 닫는다
+    const wheelEl = root.querySelector('.sk-emo-wheel');
+    const hit = wheelTapAt(e.clientX, e.clientY, wheelEl ? wheelEl.getBoundingClientRect() : null);
+    if (hit.kind === 'outside') { closeWheel(false); return; }
+    if (e.cancelable) e.preventDefault();
+    e.stopImmediatePropagation();
+    if (hit.kind === 'hub') { closeWheel(false); return; }
+    input.moveEmoteWheel(hit.ux * EMOTE_WHEEL.RADIUS, hit.uy * EMOTE_WHEEL.RADIUS, true);
+    closeWheel(true);
+  }
+  document.addEventListener('pointerdown', onWheelTap, true);
+
   /* ---------- 버튼 ---------- */
-  const held = new Map();   // pointerId → { act, x, y }
+  const held = new Map();   // pointerId → { act, x, y, moved, closer }
 
   function press(act) {
     switch (act) {
@@ -114,6 +157,7 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
       case 'crouch': buttons.get('crouch').classList.toggle('is-on', t.crouchToggle()); break;
       case 'score': t.scoreboard(true); break;
       case 'emote': input.openEmoteWheel(); break;
+      case 'chat': t.chat(); break;
       case 'pause': input.exitLock(); break;
       default: break;
     }
@@ -124,7 +168,6 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
       case 'zoom': t.zoom(false); break;
       case 'jump': t.jump(false); break;
       case 'score': t.scoreboard(false); break;
-      case 'emote': input.closeEmoteWheel(true); break;
       default: break;
     }
   }
@@ -134,25 +177,29 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
     if (e.cancelable) e.preventDefault();
     e.stopPropagation();
     if (held.has(e.pointerId)) return;
-    held.set(e.pointerId, { act: b.dataset.act, x: e.clientX, y: e.clientY });
+    const h = { act: b.dataset.act, x: e.clientX, y: e.clientY, moved: 0, closer: false };
+    held.set(e.pointerId, h);
     b.classList.add('is-down');
     try { b.setPointerCapture(e.pointerId); } catch (err) { /* 이미 끝난 포인터 */ }
-    press(b.dataset.act);
+    if (h.act === 'emote' && wheelTap) { h.closer = true; closeWheel(false); return; }
+    press(h.act);
   }
   function onButtonMove(e) {
     const h = held.get(e.pointerId);
     if (!h) return;
     const dx = e.clientX - h.x, dy = e.clientY - h.y;
     h.x = e.clientX; h.y = e.clientY;
+    h.moved += Math.hypot(dx, dy);
     if (h.act === 'fire' || h.act === 'zoom') t.look(dx, dy);  // 쏘거나 조준하면서 손가락을 끌어 겨눈다
-    else if (h.act === 'emote') input.moveEmoteWheel(dx, dy, false);
+    else if (h.act === 'emote' && !h.closer) input.moveEmoteWheel(dx, dy, false);
   }
   function onButtonUp(e) {
     const h = held.get(e.pointerId);
     if (!h) return;
     held.delete(e.pointerId);
     buttons.get(h.act).classList.remove('is-down');
-    release(h.act);
+    if (h.act === 'emote') releaseEmote(h);
+    else release(h.act);
   }
   layer.addEventListener('pointerdown', onButtonDown);
   layer.addEventListener('pointermove', onButtonMove);
@@ -196,7 +243,13 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
   function clearPointers() {
     if (stick.id != null) endStick();
     look.id = null;
-    for (const [id, h] of held) { held.delete(id); buttons.get(h.act).classList.remove('is-down'); release(h.act); }
+    for (const [id, h] of held) {
+      held.delete(id);
+      buttons.get(h.act).classList.remove('is-down');
+      if (h.act !== 'emote') release(h.act);
+    }
+    if (input.emoteWheel.open) closeWheel(false);   // 끌던 휠도, 열어 둔 휠도 고르지 않고 닫는다
+    endWheelTap();
     buttons.get('crouch').classList.remove('is-on');
   }
   /** 전체 화면과 가로 고정을 시도한다. 사용자 입력 안에서만 되고, iPhone Safari처럼 못 하는 기기는 그냥 넘어간다 */
@@ -236,6 +289,10 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
     }),
     // 키보드가 붙은 기기: 앉기 상태가 바뀌면 버튼도 맞춘다(죽거나 스폰하면 입력이 풀린다)
     bus.on('input:crouch', (e) => { buttons.get('crouch').classList.toggle('is-on', !!(e && e.down)); }),
+    // 휠이 어떤 이유로든 닫히면(Esc·잠금 풀림·코드) 탭 모드도 끝난다
+    bus.on('input:emoteWheel', (e) => { if (!(e && e.open)) endWheelTap(); }),
+    // 채팅은 멀티플레이 경기에서만 있다(game/session.js가 경기에 들어가고 나올 때 알린다)
+    bus.on('chat:available', (e) => { buttons.get('chat').hidden = !(e && e.on); }),
   ];
 
   return {
@@ -246,6 +303,8 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
       canvas.removeEventListener('pointermove', onCanvasMove);
       canvas.removeEventListener('pointerup', onCanvasUp);
       canvas.removeEventListener('pointercancel', onCanvasUp);
+      document.removeEventListener('pointerdown', onWheelTap, true);
+      endWheelTap();
       document.removeEventListener('pointerdown', onHudDown, true);
       document.removeEventListener('pointerup', cancelSlotPress, true);
       document.removeEventListener('pointercancel', cancelSlotPress, true);

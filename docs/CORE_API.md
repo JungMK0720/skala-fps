@@ -149,6 +149,7 @@ ctx.registerScreen('match', {
 | `input:scoreboard` | `{ open }` — Tab 누름/뗌 |
 | `input:menu` | `{ reason: 'esc'\|'unlock' }` |
 | `input:key` | `{ code, down }` — 모든 키(`e.code`, 반복 제외) |
+| `input:chat` | `{}` — 잠금 중 Enter(휴대폰은 채팅 버튼). 이모트 휠이 열려 있거나 키 반복이면 내지 않는다. 멀티플레이 경기면 session이 채팅 입력칸을 연다 |
 | `player:spawn` | `{ state, point }` |
 | `player:jump` / `player:land` | `{ pos }` / `{ pos, speed, mat }` |
 | `player:step` | `{ pos, speed, quiet, crouch, mat }` — 발소리(걷기 1.95 m, Shift·앉아서 1.5 m마다, Shift·앉음이면 `quiet:true`) |
@@ -420,8 +421,9 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
   - 시점은 멈추고, 마우스 이동은 가상 커서로 간다.
   - 커서 좌표는 px 단위이고 화면 중앙이 원점, y는 아래로 +이다. 160 px 테두리에서 멈춘다.
   - 포인터 잠금이 없으면 실제 커서 위치를 화면 중앙 기준으로 쓴다.
-- 이벤트 `input:emoteWheel` `{ open, cursor:{x,y}, selected: 0..7|null, id, code, cancelled? }`
-  - 열 때, 커서·칸이 바뀔 때마다, 닫을 때 온다.
+- 이벤트 `input:emoteWheel` `{ open, cursor:{x,y}, selected: 0..7|null, id, code, tap, cancelled? }`
+  - 열 때, 커서·칸이 바뀔 때마다, 탭 모드가 켜질 때, 닫을 때 온다.
+  - `tap`은 휴대폰에서 이모트 버튼을 짧게 눌러 열어 둔 휠이다(`input.setEmoteWheelTap(true)`, engine/touch.js가 켬). 손을 떼도 열려 있고, 칸을 누르면 `moveEmoteWheel` + `closeEmoteWheel(true)`로 고른다. 휠이 닫히면 꺼진다.
   - `selected`는 UI 휠 props의 `selected`에 그대로 넣으면 된다.
 - 이벤트 `input:emotePick` `{ id|null, code, selected }`
   - B를 뗄 때, 또는 휠이 열린 동안 좌클릭으로 강조된 칸을 고를 때 온다.
@@ -432,7 +434,7 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 - `input.setEmoteLock(bool)`
   - player가 이모트 중에 켠다.
   - 켜져 있으면 좌·우클릭이 사격·줌 대신 `input:emoteCancel { reason:'fire'|'aim' }`이 된다. 첫 클릭이 사격되지 않는다.
-- 그 밖: `input.emoteWheel`(폴링), `openEmoteWheel()` / `moveEmoteWheel(x,y)` / `closeEmoteWheel(pick)`(테스트·봇용).
+- 그 밖: `input.emoteWheel`(폴링), `openEmoteWheel()` / `moveEmoteWheel(x,y)` / `closeEmoteWheel(pick)` / `setEmoteWheelTap(on)`(테스트·봇·터치용).
 
 ### 플레이어 (`engine/player.js`)
 - `player.startEmote(id|code)`

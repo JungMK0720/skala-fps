@@ -50,6 +50,8 @@ html.pc-touch #pc-view canvas { touch-action: none; }
 .pc-tb--pause { right: calc(8px + env(safe-area-inset-right)); font-size: 14px; width: 40px; }
 .pc-tb--score { right: calc(54px + env(safe-area-inset-right)); }
 .pc-tb--emote { right: calc(104px + env(safe-area-inset-right)); width: 52px; }
+.pc-tb--chat { right: calc(162px + env(safe-area-inset-right)); width: 48px; }
+.pc-tb[hidden] { display: none; }
 /* 죽어 있는 동안은 전투 버튼을 치워 무기 고르는 패널을 가리지 않는다 */
 .pc-touch-layer.is-dead .pc-tb-act { display: none; }
 .pc-touch-layer.is-dead .pc-stick { display: none; }

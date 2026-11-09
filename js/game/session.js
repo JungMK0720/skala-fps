@@ -50,6 +50,9 @@ export const SESSION_DEFAULTS = Object.freeze({
 });
 
 export const ROOM_NOTE = '무료 서버 한도 때문에 최대 6명(인원이 적을수록 더 부드러워요)';
+/** 채팅 도배 막기: 내가 보내는 것은 5초에 4줄까지(넘으면 안내만), 받는 것은 한 사람당 5초에 6줄까지(고친 클라이언트 대비) */
+export const CHAT_LIMIT = Object.freeze({ windowMs: 5000, send: 4, receive: 6 });
+const CHAT_SLOW = '채팅을 너무 빨리 보내고 있어요. 잠시 뒤에 다시 보내 주세요.';
 /** 세션 제어 이벤트(room.send): { k:'prep', mid, map, mode, rs } 방장→모두 / { k:'loaded', mid } 멤버→방장 */
 export const CONTROL_EVENT = 'mx';
 
@@ -564,6 +567,8 @@ export function createSession(options = {}) {
   let room = null, sync = null, me = null, leaving = false;
   let roomOffs = [];
   let chat = [];
+  const chatSent = [];          // 내가 보낸 채팅 시각(CHAT_LIMIT.send)
+  const chatSeen = new Map();   // 보낸 사람 id → 받은 채팅 시각(CHAT_LIMIT.receive)
   let known = new Map();    // 방 명단 id → 이름 (입장/퇴장 안내)
   let current = null;       // 진행 중인 경기(이 클라이언트 관점)
   let hm = null;            // 방장 경기
@@ -827,6 +832,7 @@ export function createSession(options = {}) {
     remoteGear.clear();
     banned.clear(); strikes.reset(); moveGuard.resetAll(); selfTrail.length = 0;
     chat = [{ system: true, text: ROOM_NOTE }];
+    chatSeen.clear();
     known = new Map(r.players().map((x) => [x.id, x.name]));
     sync = createSync({
       room: r, rateHz: o.sendHz, getLocalState: localState, onRemoteState, onEvent: onSyncEvent, ...(o.syncOptions || {})
@@ -905,7 +911,16 @@ export function createSession(options = {}) {
   function pushChat(line, render = true) {
     chat.push(line);
     if (chat.length > o.chatKeep) chat = [chat[0], ...chat.slice(-(o.chatKeep - 1))];   // 첫 줄(안내)은 남긴다
+    if (phase === 'match' && current) call(ui.chat, 'push', line);   // 경기 중이면 HUD 채팅에도 띄운다
     if (render) renderRoom();
+  }
+  /** 시각 목록(times)으로 창 안에서 한 줄 더 받아도 되는지 본다. 되면 지금 시각을 넣는다 */
+  function chatAllowed(times, max) {
+    const t = now();
+    while (times.length && t - times[0] > CHAT_LIMIT.windowMs) times.shift();
+    if (times.length >= max) return false;
+    times.push(t);
+    return true;
   }
 
   function onPlayers(list) {
@@ -1021,9 +1036,26 @@ export function createSession(options = {}) {
     if (!room || !sync) return;
     const t = cleanText(text, 120);
     if (!t) return;
+    if (!chatAllowed(chatSent, CHAT_LIMIT.send)) { pushChat({ system: true, text: CHAT_SLOW }); return; }
     sync.sendChat(t);
     // broadcast는 보낸 사람에게 되돌아오지 않는다 → 내 메시지는 직접 넣는다
-    pushChat({ name: myName(), text: t, team: roomMode() === 'ffa' ? null : myRoomTeam() });
+    pushChat({ name: myName(), text: t, team: roomMode() === 'ffa' ? null : myRoomTeam(), me: true });
+  }
+  /** 경기 중 Enter·채팅 버튼(input:chat) → HUD 채팅 입력칸 */
+  function onChatKey() {
+    const c = current;
+    if (disposed || phase !== 'match' || !c || !c.loaded || !room) return;
+    call(ui.chat, 'open');
+  }
+  function onChatOpen() {
+    // PC: 입력칸이 키를 가져가 엔진은 떼는 키를 못 본다 → 눌려 있던 이동 키를 미리 푼다. 휴대폰 조이스틱은 손가락이라 그대로 둔다
+    const input = ctx && ctx.input;
+    if (input && !input.touchMode && typeof input.releaseAll === 'function') input.releaseAll();
+  }
+  /** 다른 모듈에 알린다(o.bus나 ctx.bus). 휴대폰 채팅 버튼은 chat:available을 보고 나타난다 */
+  function busEmit(evt, data) {
+    const b = o.bus || (ctx && ctx.bus);
+    if (b && typeof b.emit === 'function') { try { b.emit(evt, data); } catch (e) { report(e, evt); } }
   }
 
   async function leaveRoom() {
@@ -1452,6 +1484,7 @@ export function createSession(options = {}) {
     };
     trace('enter match', mid, mapId, c.mode, c.ruleset, room && room.isHost() ? 'host' : 'member');
     actors.clear();
+    call(ui.chat, 'clear');   // 지난 경기의 줄을 지운다. 맵을 불러오는 동안 온 줄은 남는다
     fireQ.length = 0;
     if (room) { const mine = room.players().find((x) => x.id === me); if (mine && mine.ready) room.updateMe({ ready: false }); }
     U('hide', 'loadout');
@@ -1472,6 +1505,9 @@ export function createSession(options = {}) {
     c.mapName = (res && res.mapName) || '';
     W('setMode', c.mode);   // FFA면 모든 액터가 적(loadMap이 'team'으로 되돌리므로 로드 뒤에)
     W('setControlsEnabled', true);
+    // 경기 채팅: HUD와 함께 보이고(loadMap이 HUD를 띄운 뒤), 휴대폰 채팅 버튼을 켠다. 줄은 enterMatch에서 비웠다
+    U('show', 'chat', {});
+    busEmit('chat:available', { on: true });
     if (!c.round) W('setHint', '다른 플레이어를 기다리는 중…');
     if (hm && hm.mid === c.mid && !hm.m) hostCreate();
     else if (room && !room.isHost()) sendAck(c);
@@ -1513,6 +1549,8 @@ export function createSession(options = {}) {
       U('hide', 'loadout');
       U('hide', 'pause');
       U('hide', 'scoreboard');
+      U('hide', 'chat');
+      busEmit('chat:available', { on: false });
       call(ui.killfeed, 'clear');
     }
   }
@@ -2234,9 +2272,14 @@ export function createSession(options = {}) {
         }
         break;
       }
-      case 'chat':
+      case 'chat': {
+        const from = String(e.from);
+        let seen = chatSeen.get(from);
+        if (!seen) chatSeen.set(from, (seen = []));
+        if (!chatAllowed(seen, CHAT_LIMIT.receive)) break;   // 도배는 조용히 버린다
         pushChat({ name: nameOf(e.from), text: cleanText(e.text, 120), team: roomMode() === 'ffa' ? null : roomTeamOf(e.from) });
         break;
+      }
       case 'drop':
         if (phase === 'match' && current && current.loaded && current.phase === 'live') {
           W('addDrop', { id: e.dropId, weaponId: e.weaponId, pos: e.pos, mag: e.mag, reserve: e.reserve });
@@ -2425,13 +2468,15 @@ export function createSession(options = {}) {
     ui.on('room:mode', (p) => setMode(p && p.mode)),
     ui.on('room:ruleset', (p) => setRoomRuleset(p && p.ruleset)),
     ui.on('room:chat', (p) => sendChat(p && p.text)),
+    ui.on('chat:send', (p) => sendChat(p && p.text)),
+    ui.on('chat:open', () => onChatOpen()),
     ui.on('room:leave', () => { leaveRoom(); }),
     ui.on('loadout:pick', (p) => pickLoadout(p && p.id)),
     ui.on('results:back', () => backToRoom()),
     ui.on('results:lobby', () => { leaveRoom(); })
   ];
   const bus = o.bus || (ctx && ctx.bus) || null;
-  const busOff = bus && typeof bus.on === 'function' ? bus.on('account:change', onAccountChange) : null;
+  const busOffs = bus && typeof bus.on === 'function' ? [bus.on('account:change', onAccountChange), bus.on('input:chat', onChatKey)] : [];
 
   /* ---------------------------------------------------------------- 정리 */
   function dispose() {
@@ -2445,7 +2490,7 @@ export function createSession(options = {}) {
     for (const f of uiOffs.splice(0)) safeOff(f);
     for (const f of worldOffs.splice(0)) safeOff(f);
     for (const f of screenOffs.splice(0)) safeOff(f);
-    safeOff(busOff);
+    for (const f of busOffs.splice(0)) safeOff(f);
     const r = room, n = net, mine = ownNet;
     leaving = true;
     detachRoom();
