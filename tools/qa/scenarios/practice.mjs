@@ -9,7 +9,7 @@ import { LOW_QUALITY, NICK, openGame, sleep, waitRun } from '../kit.mjs';
 
 const MATCH_TIMEOUT_MS = 240000;
 /** 경기 전체를 한 번 더 돌려 다시 하기를 검사하는 조합 */
-const RESTART_COMBOS = new Set(['classic/alley/ffa', 'knife/dojo/team']);
+const RESTART_COMBOS = new Set(['classic/alley/ffa', 'knife/rooftop/team']);
 /**
  * 봇 사격에서 생길 수 있는 정상적인 거절(부활 보호, 이미 죽은 상대, 라운드가 끝난 뒤 맞은 탄, 사이에 낀 아군).
  * grenade_limit: 시간 배율 8에서는 수류탄 신관만 실제 시간으로 흘러 경기 시간 20초 뒤에 터진다. 그 사이에 부활해 다시 던진 봇은 한 목숨에 두 번 터진 것으로 보인다.

@@ -38,7 +38,7 @@ import { sheet, createModal, mapCard } from '../ui/parts.js';
 
 export const PRACTICE_DEFAULTS = Object.freeze({ mapId: 'alley', mode: 'ffa', ruleset: 'classic', size: 2, ffaBots: 5, difficulty: 'normal', timeScale: 1 });
 /** 규칙을 고르면 먼저 선택되는 맵 */
-const RULESET_MAP = Object.freeze({ classic: 'alley', knife: 'dojo', sniper: 'longshot' });
+const RULESET_MAP = Object.freeze({ classic: 'alley', knife: 'rooftop', sniper: 'longshot' });
 /** 맵 파일을 열지 못할 때 대신 여는 맵 */
 const FALLBACK_MAP = 'testyard';
 /** 맵 목록에 rulesets가 없을 때의 값(DESIGN 5절) */
