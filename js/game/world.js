@@ -1584,6 +1584,8 @@ function buildWorld(ctx, opts) {
     bombEvent: (ev) => bombView.event(ev),
     get bomb() { return bombView.info; },
     get bombPending() { return bombView.pending; },
+    /** 맵 충돌의 바닥 높이: (x, z)에서 fromY 아래 가장 높은 윗면. 맵이 없으면 null. 방장 match가 떨어진 폭탄을 바닥에 놓을 때 쓴다 */
+    floorAt: (x, fromY, z) => (map && Number.isFinite(x) && Number.isFinite(z) ? getGroundY(map.world, x, z, Number.isFinite(fromY) ? fromY : Infinity) : null),
     /** 이모트(MODES.md 4절): 휠 열기/커서/닫기(commit=시작), 내 이모트 시작·취소, 목록 */
     startEmote: startLocalEmote,
     cancelEmote: (reason) => cancelLocalEmote(reason || 'api'),

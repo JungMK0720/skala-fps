@@ -290,7 +290,9 @@ export function createPractice({ ctx, world, ui }) {
         if (meAlive()) { const p = ctx.player.state.pos; o[me.id] = [p[0], p[1], p[2]]; }
         for (const b of bots) if (b.alive) o[b.id] = [b.body.pos[0], b.body.pos[1], b.body.pos[2]];
         return o;
-      }
+      },
+      // 폭파 미션: 공중에서 쓰러져도 폭탄은 그 아래 바닥에 떨어진다(봇이 줍는 높이 검사와 화면 모형이 같은 높이를 본다)
+      floorAt: bomb ? (x, fromY, z) => getGroundY(map.world, x, z, fromY) : undefined
     });
     for (const b of bots) world.addActor({ id: b.id, name: b.name, team: b.team, kind: 'bot', avatar: b.avatar });
 
@@ -1079,6 +1081,8 @@ export function createPracticeSetup({ ui, maps, onStart }) {
     // 폭파 미션은 미션 칸이 있는 맵이 있을 때만 고를 수 있고, 규칙은 클래식 고정이다
     const bombOk = mapsFor(maps, 'classic', 'bomb').length > 0;
     if (sel.mode === 'bomb' && !bombOk) sel.mode = 'team';
+    // 폭파 미션에서 다른 모드로 돌아가면 전에 고른 규칙을 다시 쓴다. 폭파 미션으로 출격해도 저장은 이 규칙으로 한다(출격은 클래식)
+    let ruleBeforeBomb = sel.ruleset;
     if (sel.mode === 'bomb') sel.ruleset = 'classic';
     const mapBox = h('div', { class: 'sk-mapcards', role: 'radiogroup', 'aria-label': '맵 선택' });
     const drawMaps = () => mapBox.replaceChildren(...mapsFor(maps, sel.ruleset, sel.mode).map((m) => mapCard(m, { selected: m.id === sel.mapId, onPick: (id) => { sel.mapId = id; drawMaps(); } })));
@@ -1114,7 +1118,6 @@ export function createPracticeSetup({ ui, maps, onStart }) {
       bomb: '공격은 A·B 구역에 폭탄 설치(E 3초) → 35초 뒤 폭발, 수비는 해체(E 5초) · 5판 3선승 · 라운드 1:40 · 2라운드 뒤 공수 교대. 나와 아군 봇은 블루 팀이에요.'
     };
     let shownMode = sel.mode;
-    let ruleBeforeBomb = sel.ruleset;   // 폭파 미션에서 다른 모드로 돌아가면 전에 고른 규칙을 다시 쓴다
     const drawMode = () => {
       count.lab.textContent = sel.mode === 'ffa' ? '봇 수 (나 + 봇, 최대 8명)' : '인원 (나 + 봇)';
       hint.textContent = HINTS[sel.mode] || HINTS.team;
@@ -1137,7 +1140,8 @@ export function createPracticeSetup({ ui, maps, onStart }) {
     drawMode();
     const start = btn('출격', () => {
       if (sel.mode === 'bomb') sel.ruleset = 'classic';
-      savePrefs(sel);
+      // 폭파 미션은 클래식으로 출격하지만, 저장하는 규칙은 폭파 미션 전 규칙이다(다음에 다른 모드로 바꾸면 그 규칙이 돌아온다)
+      savePrefs(sel.mode === 'bomb' ? { ...sel, ruleset: normalizeRuleset(ruleBeforeBomb) } : sel);
       modal.close();
       onStart({ mapId: sel.mapId, mode: sel.mode, ruleset: sel.ruleset, size: sel.size, bots: sel.ffaBots, difficulty: sel.difficulty });
     }, 'sk-btn--primary', { 'data-autofocus': '' });
