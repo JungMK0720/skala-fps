@@ -1057,6 +1057,35 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
 @media (max-width: 720px) {
   .sk-emo-slots { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+/* 캐릭터 탭: 지금 캐릭터·팀 색 보기 + 초상 카드(초상 왼쪽, 글 오른쪽) */
+.sk-av-box { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 14px; }
+.sk-av-boxtext { flex: 1 1 260px; min-width: 0; }
+.sk-av-boxtext .sk-lo-tagline { display: block; margin-top: 2px; white-space: normal; }
+.sk-av-now { color: var(--sk-cyan-hi); }
+.sk-av-teams { flex: none; align-self: center; }
+.sk-av-team { gap: 7px; padding: 0 12px; }
+.sk-av-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255, 255, 255, .4); }
+.sk-shop-grid--av { grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+.sk-av-card { flex-direction: row; align-items: stretch; gap: 12px; }
+.sk-av-card .sk-shop-head { flex-wrap: wrap; }
+.sk-av-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 10px; min-width: 0; }
+.sk-av-art {
+  position: relative; flex: none; display: grid; place-items: center; width: 120px; height: 160px; overflow: hidden; border-radius: 10px;
+  background: radial-gradient(70% 52% at 50% 74%, var(--sk-av-glow, rgba(53, 224, 255, .2)), transparent 72%), linear-gradient(180deg, #172338, #0a101b);
+  box-shadow: inset 0 0 0 1px var(--sk-edge);
+}
+.sk-av-img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.sk-av-img[hidden], .sk-av-ico[hidden] { display: none; }
+.sk-av-ico { font-size: 40px; line-height: 1; }
+.sk-av-art--my { width: 96px; height: 128px; }
+@media (max-width: 380px) {
+  .sk-av-art { width: 96px; height: 128px; }
+}
+.sk-my-avatar .sk-my-avnow { display: flex; align-items: center; gap: 12px; padding-top: 10px; border-top: 1px solid var(--sk-line); }
+.sk-my-avtext { flex: 1; min-width: 0; }
+.sk-my-avname { display: block; font-size: 16px; font-weight: 800; color: var(--sk-cyan-hi); }
+.sk-my-avdesc { margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: var(--sk-muted); }
+.sk-my-avchoices { margin-top: 10px; }
 
 /* ===================== 14-7. 결과: 획득 포인트 · 알림 ===================== */
 .sk-res-reward { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px 24px; padding: 12px 20px; }

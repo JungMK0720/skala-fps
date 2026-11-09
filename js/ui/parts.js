@@ -1,10 +1,11 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 화면 공통 부품. 화면 골격, 모달 시트, 맵 카드, 키캡, 포인트 표시, 무기 카드 조각(막대·스탯·요약), 하나만 고르는 버튼 묶음을 둔다.
+ * Purpose: 화면 공통 부품. 화면 골격, 모달 시트, 맵 카드, 키캡, 포인트 표시, 캐릭터 초상 칸, 무기 카드 조각(막대·스탯·요약), 하나만 고르는 버튼 묶음을 둔다.
  */
 import { h, btn, clamp, fmtPoints, num, setText } from './dom.js';
 import { mapIcon, uiIcon, weaponInfo } from './icons.js';
+import { TEAMS } from '../core/consts.js';
 
 /**
  * 화면 골격. show(props)는 props를 통째로 바꾸고(생략 시 유지), update(props)는 합친다.
@@ -109,6 +110,41 @@ export function pointsBadge(cls = '') {
   const value = h('b', { class: 'sk-points-val' });
   const el = h('span', { class: 'sk-points' + (cls ? ' ' + cls : ''), title: '포인트' }, uiIcon('coin', 'sk-points-ico'), value);
   return { el, set(n) { setText(value, fmtPoints(n)); } };
+}
+
+/**
+ * 캐릭터 초상 칸(core/avatar-defs.js의 항목 a). paint(artFn, team, next?): artFn(id, team) → 그림 주소 | null.
+ * 그림이 없으면(그릴 렌더러가 없는 데모 등) 아이콘을 보여 준다. 같은 캐릭터·팀이면 다시 부르지 않는다. next를 주면 그 캐릭터로 바꾼다.
+ */
+export function avatarArtEl(a, cls = '') {
+  let cur = a;
+  let key = '';
+  const img = h('img', { class: 'sk-av-img', alt: '', draggable: 'false', hidden: true });
+  const ico = h('span', { class: 'sk-av-ico', text: (a && a.icon) || '' });
+  const el = h('div', { class: 'sk-av-art' + (cls ? ' ' + cls : ''), 'aria-hidden': 'true' }, img, ico);
+  return {
+    el,
+    paint(artFn, team, next) {
+      if (next && next !== cur) { cur = next; key = ''; setText(ico, cur.icon || ''); }
+      const k = cur.id + ':' + team;
+      if (k === key) return;
+      let url = null;
+      try { url = typeof artFn === 'function' ? artFn(cur.id, team) : null; } catch (err) { url = null; }
+      key = url ? k : '';
+      if (url) img.src = url;
+      img.hidden = !url;
+      ico.hidden = !!url;
+      el.classList.toggle('has-art', !!url);
+      el.dataset.team = String(team || '');
+      // 초상 뒤 빛: 그 팀의 밝은 색(팀 색을 바꿔도 따라간다)
+      const T = TEAMS[team];
+      const m = T && /^#?([0-9a-f]{6})$/i.exec(T.light);
+      if (m) {
+        const n = parseInt(m[1], 16);
+        el.style.setProperty('--sk-av-glow', `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, .24)`);
+      }
+    }
+  };
 }
 
 // ---------- 무기 카드 조각 ----------

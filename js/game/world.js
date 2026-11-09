@@ -27,6 +27,7 @@ import { createAudio } from '../fx/audio.js';
 import { createEffects } from '../fx/effects.js';
 import { relativeAngle } from '../ui/dom.js';
 import { droppedGunMesh } from '../engine/avatars.js';
+import { avatarIdOf } from '../core/avatar-defs.js';
 import { DEFAULT_RULESET, normalizeRuleset, rulesetOf, pickableWeapons, isWeaponAllowed, shotTargets } from './modes.js';
 import { createDrops, DROP_RADIUS } from './drops.js';
 
@@ -237,6 +238,7 @@ function buildWorld(ctx, opts) {
     const body = bodyStateOf();
     body.slot = player.state.slot;
     body.weaponId = player.state.weapon;
+    body.avatar = ctx.account ? ctx.account.avatar : undefined;   // 내 캐릭터(계정 장비)
     return body;
   };
   offs.push(() => { player.getBodyState = bodyStateOf; });
@@ -532,7 +534,7 @@ function buildWorld(ctx, opts) {
   /* ---------- 모드 · 부활 · 보호 (개인전) ---------- */
   const avatarTeam = (a) => (mode === 'ffa' ? 'charterer' : a.team || 'charterer');   // 개인전: 다른 사람은 모두 한 가지 '적' 색
   const avatarName = (a) => (a.protectUntil > performance.now() ? `🛡 ${a.name}` : a.name);
-  function refreshAvatar(a) { avatars.add(a.id, { name: avatarName(a), team: avatarTeam(a) }); }
+  function refreshAvatar(a) { avatars.add(a.id, { name: avatarName(a), team: avatarTeam(a), avatar: a.avatar }); }
 
   /**
    * 규칙에 맞는 3슬롯 장비. pick = 규칙의 pickSlot 무기. 없거나 이 규칙에서 못 고르는 무기면 직전 선택 → 계정 장비 → 규칙 기본값 순서로 찾는다.
@@ -1092,12 +1094,13 @@ function buildWorld(ctx, opts) {
     const team = o.team === 'owner' || o.team === 'charterer' ? o.team : mode === 'ffa' ? null : 'charterer';
     let a = actors.get(id);
     if (!a) {
-      a = { id, name: String(o.name || id), team, kind: o.kind === 'bot' ? 'bot' : 'remote', alive: true, state: null, step: 0, last: null, protectUntil: 0, slot: null, weaponId: null };
+      a = { id, name: String(o.name || id), team, kind: o.kind === 'bot' ? 'bot' : 'remote', alive: true, state: null, step: 0, last: null, protectUntil: 0, slot: null, weaponId: null, avatar: avatarIdOf(o.avatar) };
       actors.set(id, a);
     } else {
       if (o.name) a.name = String(o.name);
       a.team = team;
       if (o.kind) a.kind = o.kind === 'bot' ? 'bot' : 'remote';
+      if (o.avatar !== undefined) a.avatar = avatarIdOf(o.avatar);
     }
     refreshAvatar(a);
     return a;
@@ -1129,8 +1132,9 @@ function buildWorld(ctx, opts) {
 
   function setActorState(id, s) {
     if (!s || !s.pos) return;
-    const a = actors.get(String(id)) || addActor({ id, name: s.name, team: s.team });
+    const a = actors.get(String(id)) || addActor({ id, name: s.name, team: s.team, avatar: s.avatar });
     if (!a) return;
+    if (s.avatar !== undefined && avatarIdOf(s.avatar) !== a.avatar) { a.avatar = avatarIdOf(s.avatar); refreshAvatar(a); }   // 캐릭터(모르는 id는 기본)
     noteActorWeapon(a, s.weaponId, s.slot);
     const p = arr3(s.pos);
     const alive = s.alive !== false;
