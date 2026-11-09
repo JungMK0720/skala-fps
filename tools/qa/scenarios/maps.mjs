@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 시나리오 15. 맵 둘러보기. 새 맵 여섯을 코어만 띄워(?plugins=0) 카메라를 스폰, 발판, 포털, 비밀 스팟, 골목마다 옮겨 사진을 남긴다.
+ * Purpose: 시나리오 15. 맵 둘러보기. 새 맵 일곱을 코어만 띄워(?plugins=0) 카메라를 스폰, 발판, 포털, 비밀 스팟, 골목, 폭파 구역마다 옮겨 사진을 남긴다.
  *          기하와 분위기를 눈으로 볼 때 쓴다. 사용법: npm run qa -- --only maps [--filter dojo 또는 dojo/pad 또는 rooftop,glasshouse]
  */
 import { MAPS } from '../../../js/maps/index.js';
@@ -11,7 +11,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { qaInit, richProfile, sleep } from '../kit.mjs';
 
-const MAP_IDS = ['rooftop', 'glasshouse', 'dojo', 'longshot', 'nexus', 'alley'];
+const MAP_IDS = ['rooftop', 'glasshouse', 'dojo', 'longshot', 'nexus', 'alley', 'relay'];
 const SHEET = { cols: 2, rows: 3, w: 480, h: 270 };
 const DOWN = -Math.PI / 2 + 0.002;
 
@@ -124,6 +124,30 @@ const HAND = {
     view('north-gate', -9, 0, -12, -4, 1.6, -9),
     view('north-entry', -4, 0, -13, -4, 1.6, -4),
     view('roof-run', -19, 5, -16, -3, 5.8, -16)
+  ],
+  relay: [
+    air('overview', -10, 44, 36, 6, 0, -2),
+    air('sites-air', -2, 28, 0, 16, 0, 0),
+    view('spawn-attack', -35.5, 0, 0, -27.6, 1.6, 0),
+    view('spawn-defense', 35, 0, 0, 27.5, 1.6, -5.6),
+    view('lane-ridge', -26, 0, -19.6, 8, 2.5, -20.5),
+    view('lane-ridge-end', -2, 0, -19, 8, 3, -20.5),
+    view('lane-mid-road', -26, 0, 1, -4, 2, 0),
+    view('mid-court', -8, 0, 4, 8, 2.5, -6),
+    view('mid-deck', -3, 1.83, -0.5, 8, 2, 0),
+    view('court-a-door', 1, 0, -6, 8, 3.5, -9.2),
+    view('court-b-door', 0, 0, 4.5, 8, 2.4, 12),
+    view('tunnel-west', -27, 0, 17, -12, 1.6, 17),
+    view('switchyard', -11, 0, 17.2, -4, 1.6, 21),
+    view('tunnel-east', -3.5, 0, 17, 8, 1.6, 17),
+    view('site-a-ridge-door', 9, 0.3, -20.5, 15, 1.6, -15),
+    view('site-a-inside', 10, 0.3, -11, 18, 1.4, -18),
+    view('site-a-back', 20, 0.3, -21, 10, 2, -13),
+    view('site-b-tunnel-exit', 9, 0, 17, 20, 2, 15),
+    view('site-b-inside', 10, 0, 9.5, 18, 1.8, 18),
+    view('site-b-mast', 12.5, 0, 21, 18.5, 14, 21.9),
+    view('rotation', 24, 0, -17, 24, 1.6, 17),
+    view('mid-link', 9, 0, 0, 21, 1.6, 0)
   ]
 };
 
@@ -247,7 +271,7 @@ function grabCell({ name, col, row, reset, W, H, cols, rows }) {
 
 export default {
   name: 'maps',
-  title: '새 맵 여섯의 스폰, 발판, 포털, 비밀 스팟, 골목 사진',
+  title: '새 맵 일곱의 스폰, 발판, 포털, 비밀 스팟, 골목, 폭파 구역 사진',
   timeoutMs: 15 * 60 * 1000,
   async run(t) {
     for (const id of MAP_IDS) {

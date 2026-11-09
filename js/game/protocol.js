@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 멀티플레이 메시지 스키마와 압축 직렬화. 상태·사격·히트 주장·수류탄·경기·로드아웃·채팅·핑을 작은 배열로 바꾸고,
+ * Purpose: 멀티플레이 메시지 스키마와 압축 직렬화. 상태·사격·히트 주장·수류탄·경기·로드아웃·채팅·핑·폭탄 의도를 작은 배열로 바꾸고,
  *          믿을 수 없는 입력을 받아도 던지지 않고 null을 돌려준다. 엔진·three.js·DOM에 의존하지 않는다.
  */
 /**
@@ -20,6 +20,7 @@
  *   g2c 채팅          [id, text]
  *   g2d 총 버림       [id, dropId, weaponId, x,y,z, mag, reserve]   reserve −1 = 무제한
  *   g2k 총 주움       [id, dropId]
+ *   g2b 폭탄 의도     [id, act, reason?]   act 0 취소 · 1 설치 · 2 해체 (폭파 미션: 방장이 위치·생존·시간을 재서 확정) → sendTo(방장)
  *   g2p 핑/퐁(merge)  [pid, t0, d0?] → sendTo(방장) / [pid, t0, t1, t2, d2?, e0?] → sendTo(요청자)
  *                     d = 보낸 쪽 room.now()(있으면). 받는 쪽이 net 프레임 시각(msg.t)과 비교해
  *                     net 큐에서 기다린 시간(e)을 알아내 t0·t2를 보정한다.
@@ -37,7 +38,7 @@ const PFX = 'g' + PROTOCOL_VERSION;
 export const EV = Object.freeze({
   state: PFX + 's', fire: PFX + 'f', hit: PFX + 'h', grenade: PFX + 'x',
   match: PFX + 'm', loadout: PFX + 'l', chat: PFX + 'c', ping: PFX + 'p',
-  drop: PFX + 'd', pick: PFX + 'k'
+  drop: PFX + 'd', pick: PFX + 'k', bomb: PFX + 'b'
 });
 
 const TAU = Math.PI * 2;
@@ -61,6 +62,9 @@ export const KIND_CODES = Object.freeze(['shot', 'slash', 'stab', 'grenade', 'ot
 export const PHASE_CODES = Object.freeze(['lobby', 'warmup', 'loadout', 'live', 'roundEnd', 'matchEnd']);
 export const TEAM_CODES = Object.freeze(['owner', 'charterer']);
 export const IMPACT_CODES = Object.freeze(['none', 'world', 'player']);
+/** 폭탄 의도(g2b) 동작과 취소 사유. 앞 순서는 바꾸지 않고 뒤에만 더한다 */
+export const BOMB_ACT_CODES = Object.freeze(['cancel', 'plant', 'defuse']);
+export const BOMB_REASON_CODES = Object.freeze(['released', 'moved', 'fired']);
 
 /** 경기 이벤트별 위치 필드(이 순서로 배열에 담고, 나머지 키는 끝 객체 하나로 — 무손실) */
 export const MATCH_EVENT_FIELDS = Object.freeze({
@@ -70,7 +74,8 @@ export const MATCH_EVENT_FIELDS = Object.freeze({
   roundEnd: ['round', 'winner', 'reason'],
   matchEnd: ['winner'],
   explode: ['gid', 'pos'],
-  team: ['player', 'team']
+  team: ['player', 'team'],
+  bomb: ['act', 'id', 'site', 'pos']   // 폭파 미션 폭탄 이벤트(MATCH_API 13.5절)
 });
 
 const BAD_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -484,12 +489,31 @@ export function decodePick(a) {
   return dropId ? { id: a[0] | 0, dropId } : null;
 }
 
+/* ------------------------------------------------------------------ 폭탄 의도(폭파 미션) */
+
+/** @param {'plant'|'defuse'|'cancel'} act  reason(취소만): 'released' | 'moved' | 'fired' */
+export function encodeBomb(id, act, reason) {
+  const a = [id | 0, Math.max(0, BOMB_ACT_CODES.indexOf(act))];
+  const r = BOMB_REASON_CODES.indexOf(reason);
+  if (a[1] === 0 && r > 0) a.push(r);
+  return a;
+}
+
+/** → { id, act, reason } | null. 모르는 동작 코드는 null */
+export function decodeBomb(a) {
+  if (!Array.isArray(a) || a.length < 2 || !isNum(a[0]) || !isNum(a[1])) return null;
+  const act = BOMB_ACT_CODES[a[1] | 0];
+  if (!act || (a[1] | 0) !== a[1]) return null;
+  return { id: a[0] | 0, act, reason: act === 'cancel' ? BOMB_REASON_CODES[isNum(a[2]) ? a[2] | 0 : 0] || 'released' : null };
+}
+
 /* ------------------------------------------------------------------ 이벤트 이름 → 디코더 */
 
 const DECODERS = {
   [EV.state]: ['state', decodeState], [EV.fire]: ['fire', decodeFire], [EV.hit]: ['hit', decodeHit],
   [EV.grenade]: ['grenade', decodeGrenade], [EV.match]: ['match', decodeMatch], [EV.loadout]: ['loadout', decodeLoadout],
-  [EV.chat]: ['chat', decodeChat], [EV.ping]: ['ping', decodePing], [EV.drop]: ['drop', decodeDrop], [EV.pick]: ['pick', decodePick]
+  [EV.chat]: ['chat', decodeChat], [EV.ping]: ['ping', decodePing], [EV.drop]: ['drop', decodeDrop], [EV.pick]: ['pick', decodePick],
+  [EV.bomb]: ['bomb', decodeBomb]
 };
 
 const decoderOf = (event) => (typeof event === 'string' && Object.prototype.hasOwnProperty.call(DECODERS, event) ? DECODERS[event] : null);

@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 로비 화면. 방 목록(규칙·모드 배지)과 방 만들기 시트(규칙·모드·맵·인원)를 그린다.
+ * Purpose: 로비 화면. 방 목록(규칙·모드 배지)과 방 만들기 시트(규칙·모드·맵·인원)를 그린다. 폭파 미션은 클래식 규칙과 미션 맵만 고른다.
  */
 // SKALA 작전 UI — 로비(방 목록 + 방 만들기)
 import { h, btn, setText, clamp, num, modeKey, modeLabel, MODE_ICON, MODE_NAME } from './dom.js';
@@ -23,9 +23,25 @@ export const RULE_CHOICES = Object.freeze(RULESET_IDS.map((id) => Object.freeze(
   id, label: RULESETS[id].name, icon: RULESETS[id].icon, title: RULESETS[id].desc,
 })));
 
-/** 방 목록 배지 글자. 예: '칼전 · 개인전'. 규칙이 없는 옛 방은 클래식이다 */
+/** 고를 수 있는 모드(방 만들기 시트와 대기실이 같이 쓴다) */
+export const MODE_IDS = Object.freeze(['team', 'ffa', 'bomb']);
+/** 폭파 미션은 클래식 규칙만 쓴다 */
+export const BOMB_RULESET = 'classic';
+const MODE_SUB = Object.freeze({ team: '블루 vs 레드 · 5판 3선승', ffa: '모두가 적 · 20킬', bomb: '공격·수비 · A/B 구역에 폭탄' });
+const MODE_HINT = Object.freeze({
+  team: '블루 vs 레드 섬멸전이에요. 라운드 중 부활 없이 5판 3선승으로 겨뤄요.',
+  ffa: '모두가 적이에요. 먼저 20킬을 채우면 우승하고, 죽으면 3초 뒤 부활해요.',
+  bomb: '공격 팀은 A나 B 구역에 폭탄을 설치하고, 수비 팀은 막거나 해체해요. 5판 3선승이고 2라운드 뒤 공수를 바꿔요.',
+});
+
+/** 이 모드에서 쓰는 규칙. 폭파 미션은 언제나 클래식 */
+export function ruleForMode(mode, ruleset) {
+  return modeKey(mode) === 'bomb' ? BOMB_RULESET : normalizeRuleset(ruleset);
+}
+
+/** 방 목록 배지 글자. 예: '칼전 · 개인전', '클래식 · 폭파 미션'. 규칙이 없는 옛 방은 클래식이다 */
 export function ruleBadge(ruleset, mode) {
-  return `${RULESETS[normalizeRuleset(ruleset)].name} · ${MODE_NAME[modeKey(mode)]}`;
+  return `${RULESETS[ruleForMode(mode, ruleset)].name} · ${MODE_NAME[modeKey(mode)]}`;
 }
 
 /** 맵 목록에서 이 규칙으로 고를 수 있는 맵만 남긴다. 하나도 없으면 그대로 둔다(고를 맵이 없어 막히지 않게) */
@@ -33,6 +49,16 @@ export function mapsForRule(maps, ruleset) {
   const id = normalizeRuleset(ruleset);
   const valid = maps.filter((m) => (Array.isArray(m.rulesets) ? m.rulesets : DEFAULT_MAP_RULESETS).includes(id));
   return valid.length ? valid : maps;
+}
+
+/** 폭파 미션을 할 수 있는 맵(MAP_LIST 항목의 mission이 true이고 클래식을 고를 수 있음). 없으면 빈 목록이고, 그때는 폭파 미션을 고를 수 없다 */
+export function missionMaps(maps) {
+  return maps.filter((m) => !!m && m.mission === true && (Array.isArray(m.rulesets) ? m.rulesets : DEFAULT_MAP_RULESETS).includes(BOMB_RULESET));
+}
+
+/** 모드·규칙으로 고를 수 있는 맵. 폭파 미션은 미션 맵만, 나머지는 mapsForRule */
+export function mapsForMode(maps, mode, ruleset) {
+  return modeKey(mode) === 'bomb' ? missionMaps(maps) : mapsForRule(maps, ruleset);
 }
 
 export function createLobby(ctx) {
@@ -60,14 +86,15 @@ export function createLobby(ctx) {
     autocomplete: 'off', spellcheck: 'false', 'aria-label': '비밀번호(선택)',
   });
   const mapBox = h('div', { class: 'sk-mapcards', role: 'radiogroup', 'aria-label': '맵 선택' });
-  const modeBtns = ['team', 'ffa'].map((m) => btn([
+  const modeBtns = MODE_IDS.map((m) => btn([
     h('span', { class: 'sk-mode-ico', text: MODE_ICON[m], 'aria-hidden': 'true' }),
     h('span', { class: 'sk-mode-txt' },
-      h('b', { text: m === 'ffa' ? '개인전' : '팀전' }),
-      h('small', { text: m === 'ffa' ? '모두가 적 · 20킬' : '블루 vs 오렌지 · 5판 3선승' })),
+      h('b', { text: MODE_NAME[m] }),
+      h('small', { text: MODE_SUB[m] })),
   ], () => setMode(m), 'sk-mode-btn', { role: 'radio', 'data-mode': m }));
   const modeHint = h('p', { class: 'sk-set-hint' });
-  const ruleRow = createChoiceRow({ label: '규칙 선택', onPick: (id) => setRule(id) });
+  // 폭파 미션이면 클래식으로 고정하고 버튼을 끈다(고른 규칙은 다른 모드로 돌아가면 다시 쓴다)
+  const ruleRow = createChoiceRow({ label: '규칙 선택', onPick: (id) => { if (formMode !== 'bomb') setRule(id); } });
   const ruleHint = h('p', { class: 'sk-set-hint' });
   const maxOut = h('output', { class: 'sk-stepper-val', 'aria-live': 'polite' });
   const maxNote = h('span', { class: 'sk-set-hint' });
@@ -103,16 +130,24 @@ export function createLobby(ctx) {
     minus.disabled = formMax <= 2;
     plus.disabled = formMax >= roomMax();
   }
+  const allMaps = () => mapList(ctx.maps, p.maps);
+  /** 모드를 바꾼다. 미션 맵이 하나도 없으면 폭파 미션 대신 팀전 */
   function setMode(m) {
-    formMode = modeKey(m);
+    const ready = missionMaps(allMaps()).length > 0;
+    formMode = modeKey(m) === 'bomb' && !ready ? 'team' : modeKey(m);
     for (const b of modeBtns) {
-      const on = b.getAttribute('data-mode') === formMode;
+      const id = b.getAttribute('data-mode');
+      const on = id === formMode;
       b.classList.toggle('is-on', on);
       b.setAttribute('aria-checked', on ? 'true' : 'false');
+      if (id === 'bomb') {
+        b.disabled = !ready;
+        b.title = ready ? '' : '폭파 미션을 할 수 있는 맵이 아직 없어요';
+      }
     }
-    setText(modeHint, formMode === 'ffa'
-      ? '모두가 적이에요. 먼저 20킬을 채우면 우승하고, 죽으면 3초 뒤 부활해요.'
-      : '블루 vs 오렌지 섬멸전이에요. 라운드 중 부활 없이 5판 3선승으로 겨뤄요.');
+    setText(modeHint, MODE_HINT[formMode]);
+    renderRule();
+    renderMapCards();
     setMax(formMax);
   }
   function setRule(id) {
@@ -120,12 +155,18 @@ export function createLobby(ctx) {
     // 규칙을 바꾸면 그 규칙의 첫 맵(기본 맵, 칼전은 좁은 칼전 맵)으로 옮긴다. 같은 규칙이면 고른 맵을 둔다
     if (next !== formRule) formMap = null;
     formRule = next;
-    ruleRow.set(RULE_CHOICES, formRule);
-    setText(ruleHint, RULESETS[formRule].desc);
+    renderRule();
     renderMapCards();
   }
+  function renderRule() {
+    const bomb = formMode === 'bomb';
+    const rs = ruleForMode(formMode, formRule);
+    ruleRow.set(RULE_CHOICES, rs);
+    for (const b of ruleRow.el.children) b.disabled = bomb;
+    setText(ruleHint, bomb ? '폭파 미션은 클래식 규칙만 써요' : RULESETS[rs].desc);
+  }
   function renderMapCards() {
-    const maps = mapsForRule(mapList(ctx.maps, p.maps), formRule);
+    const maps = mapsForMode(allMaps(), formMode, formRule);
     if (!maps.some((m) => m.id === formMap)) formMap = maps[0] ? maps[0].id : null;
     mapBox.replaceChildren(...maps.map((m) => mapCard(m, {
       selected: m.id === formMap,
@@ -135,8 +176,7 @@ export function createLobby(ctx) {
   function openCreate() {
     setText(formErr, '');
     if (!nameIn.value) nameIn.value = cleanRoomName(`${myName()}의 방`);
-    setRule(formRule);
-    setMode(formMode);
+    setMode(formMode); // 규칙 · 맵 카드 · 인원도 다시 그린다
     // 터치 기기에서 입력칸에 바로 포커스를 주면 가상 키보드가 시트를 덮는다. 이름은 이미 채워 두었으니 손으로 누를 때만 연다
     const touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
     if (touch) nameIn.removeAttribute('data-autofocus');
@@ -148,7 +188,7 @@ export function createLobby(ctx) {
     if (!formMap) { setText(formErr, '맵을 골라 주세요.'); return; }
     const password = pwIn.value.trim().slice(0, PASSWORD_MAX);
     modal.close();
-    ctx.emit('lobby:create', { name, mapId: formMap, max: formMax, mode: formMode, ruleset: formRule, ...(password ? { password } : {}) });
+    ctx.emit('lobby:create', { name, mapId: formMap, max: formMax, mode: formMode, ruleset: ruleForMode(formMode, formRule), ...(password ? { password } : {}) });
   }
 
   // ---------- 비밀번호 입력 ----------
@@ -184,7 +224,7 @@ export function createLobby(ctx) {
     const n = countOf(r.players);
     const max = Math.max(1, num(r.max, ROOM_MAX));
     const playing = r.status === 'playing';
-    // 경기 중인 방은 팀전만 잠근다. 개인전은 언제 들어가도 곧 출격한다(match.js joinFfa: 부활 시간 뒤)
+    // 경기 중인 방은 팀전·폭파 미션만 잠근다. 개인전은 언제 들어가도 곧 출격한다(match.js joinFfa: 부활 시간 뒤)
     const locked = playing && r.mode !== 'ffa';
     const full = n >= max;
     const joining = p.joining != null && p.joining === r.roomId;
@@ -205,7 +245,7 @@ export function createLobby(ctx) {
       btn(label, () => (r.locked ? askPassword(r) : ctx.emit('lobby:join', { roomId: r.roomId })), 'sk-btn--primary sk-room-join', {
         disabled: locked || full || joining,
         'aria-label': `${r.name || '방'} ${label}`,
-        title: locked ? '팀전은 경기가 끝나면 들어갈 수 있어요' : playing && !full ? '진행 중인 개인전에 들어가 곧 출격해요' : null,
+        title: locked ? `${MODE_NAME[modeKey(r.mode)]}은 경기가 끝나면 들어갈 수 있어요` : playing && !full ? '진행 중인 개인전에 들어가 곧 출격해요' : null,
       }));
   }
 

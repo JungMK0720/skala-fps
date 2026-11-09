@@ -17,10 +17,12 @@
  *   사격은 봇마다 weapons/logic arsenal → physics.traceShot → match.claimHit. 연출은 world.actorFire.
  * - 내 사격·칼·수류탄 판정은 World가 하고('hitClaim'·'explosion'), 여기서 match에 넣는다.
  *
- * params(enter): { mapId, mode('team'|'ffa'), ruleset('classic'|'knife'|'sniper'), size(팀전 팀당 1~4), bots(개인전 봇 1~7),
- *                  difficulty('easy'|'normal'|'hard'), killTarget(개인전 5~50), timeScale(1~8, 시험용), botWeapon('mix' 또는 무기 id) }
+ * params(enter): { mapId, mode('team'|'ffa'|'bomb'), ruleset('classic'|'knife'|'sniper'), size(팀전·폭파 미션 팀당 1~4), bots(개인전 봇 1~7),
+ *                  difficulty('easy'|'normal'|'hard'), killTarget(개인전 5~50), timeScale(1~8, 시험용), botWeapon('mix' 또는 무기 id),
+ *                  bombCarrier('me'|'bot', 시험용), bombSite('A'|'B', 시험용) }
  * URL(시험용, params가 우선): ?sandbox=<mapId>&mode=ffa&ruleset=knife&bots=3&killtarget=5&difficulty=hard&timescale=4&botweapon=ar_std&botemote=1
- *   (팀전에서 bots = 팀당 인원, 개인전에서 bots = 봇 수)
+ *   (팀전·폭파 미션에서 bots = 팀당 인원, 개인전에서 bots = 봇 수) · 폭파 미션: &mode=bomb&bombcarrier=bot&bombsite=A
+ * 폭파 미션(MODES.md 5절): 미션 칸이 있는 맵에서 클래식 규칙으로 돈다. 봇은 view.objective(구역·폭탄)를 따라가고, 설치·해체는 여기서 match.bombIntent로 한다.
  */
 import { PLAYER } from '../core/consts.js';
 import { AVATAR_IDS } from '../core/avatar-defs.js';
@@ -32,6 +34,7 @@ import { throwVelocity } from '../weapons/grenade.js';
 import { createMatch, standings, REASON_LABELS } from './match.js';
 import { RULESETS, RULESET_IDS, normalizeRuleset, rulesetOf, pickableWeapons, defaultPick, shotTargets } from './modes.js';
 import { createBot, pickBotWeapon, botLoadout, loadoutKey } from './bots.js';
+import { BOMB, BOMB_REASON_LABELS, siteAt, within, otherTeam } from './mission.js';
 import { buildNavGrid } from './navgrid.js';
 import { meleeTrace } from './world.js';
 import { h, btn } from '../ui/dom.js';
@@ -40,17 +43,20 @@ import { sheet, createModal, mapCard } from '../ui/parts.js';
 export const PRACTICE_DEFAULTS = Object.freeze({ mapId: 'alley', mode: 'ffa', ruleset: 'classic', size: 2, ffaBots: 5, difficulty: 'normal', timeScale: 1 });
 /** 규칙을 고르면 먼저 선택되는 맵 */
 const RULESET_MAP = Object.freeze({ classic: 'alley', knife: 'rooftop', sniper: 'longshot' });
+/** 폭파 미션을 고르면 먼저 선택되는 맵(미션 칸이 있는 맵) */
+const BOMB_MAP = 'relay';
 /** 맵 파일을 열지 못할 때 대신 여는 맵 */
 const FALLBACK_MAP = 'testyard';
 /** 맵 목록에 rulesets가 없을 때의 값(DESIGN 5절) */
 const DEFAULT_MAP_RULESETS = Object.freeze(['classic', 'sniper']);
-const MODE_NAME = Object.freeze({ team: '팀전', ffa: '개인전' });
+const MODE_NAME = Object.freeze({ team: '팀전', ffa: '개인전', bomb: '폭파 미션' });
+const modeIn = (m) => (m === 'ffa' || m === 'bomb' ? m : 'team');
 /** 샷건이 여러 부위를 맞혔을 때 주장에 쓰는 부위 순서(앞이 우선, World의 내 사격과 같다) */
 const PART_ORDER = Object.freeze(['head', 'body', 'legs', 'hand', 'foot']);
 const DIFFS = ['easy', 'normal', 'hard'];
 const PREF_KEY = 'skalafps.practice.v1';
 const THINK_DT = 0.1;                    // 봇 판단 주기 10 Hz
-const TEAM_NAME = { owner: '블루', charterer: '오렌지' };
+const TEAM_NAME = { owner: '블루', charterer: '레드' };
 const BOT_NAMES = {
   owner: ['알파', '브라보', '찰리'],
   charterer: ['델타', '에코', '폭스', '골프'],
@@ -82,7 +88,7 @@ export function loadPrefs() {
   try { p = JSON.parse(localStorage.getItem(PREF_KEY) || 'null'); } catch (e) { p = null; }
   const o = { ...PRACTICE_DEFAULTS, ...(p && typeof p === 'object' ? p : {}) };
   o.ruleset = normalizeRuleset(o.ruleset);
-  if (o.mode !== 'team' && o.mode !== 'ffa') o.mode = PRACTICE_DEFAULTS.mode;
+  if (o.mode !== 'team' && o.mode !== 'ffa' && o.mode !== 'bomb') o.mode = PRACTICE_DEFAULTS.mode;
   o.mapId = String(o.mapId || PRACTICE_DEFAULTS.mapId);
   o.size = clamp(Math.round(num(o.size, PRACTICE_DEFAULTS.size)), 1, 4);
   o.ffaBots = clamp(Math.round(num(o.ffaBots, PRACTICE_DEFAULTS.ffaBots)), 1, 7);
@@ -95,18 +101,23 @@ function savePrefs(p) {
   } catch (e) { /* ignore */ }
 }
 
-/** 이 규칙을 고를 수 있는 맵 목록. maps.mapsForRuleset이 없으면 MAP_LIST에서 거른다 */
-function mapsFor(maps, ruleset) {
+/** 이 규칙(과 모드)을 고를 수 있는 맵 목록. 폭파 미션은 미션 칸이 있는 클래식 맵만. maps 도우미가 없으면 MAP_LIST에서 거른다 */
+function mapsFor(maps, ruleset, mode) {
+  const rulesOf = (m) => (Array.isArray(m.rulesets) ? m.rulesets : DEFAULT_MAP_RULESETS);
+  if (mode === 'bomb') {
+    if (maps && typeof maps.mapsForMode === 'function') return maps.mapsForMode('bomb', 'classic');
+    return ((maps && maps.MAP_LIST) || []).filter((m) => !m.test && m.mission && rulesOf(m).includes('classic'));
+  }
   if (maps && typeof maps.mapsForRuleset === 'function') return maps.mapsForRuleset(ruleset);
   const list = (maps && maps.MAP_LIST) || [];
-  return list.filter((m) => !m.test && (Array.isArray(m.rulesets) ? m.rulesets : DEFAULT_MAP_RULESETS).includes(ruleset));
+  return list.filter((m) => !m.test && rulesOf(m).includes(ruleset));
 }
-/** wanted가 이 규칙에서 고를 수 있으면 그대로, 아니면 규칙의 대표 맵, 그것도 없으면 목록의 첫 맵 */
-function validMapFor(maps, ruleset, wanted) {
-  const list = mapsFor(maps, ruleset);
+/** wanted가 이 규칙(모드)에서 고를 수 있으면 그대로, 아니면 규칙의 대표 맵, 그것도 없으면 목록의 첫 맵 */
+function validMapFor(maps, ruleset, wanted, mode) {
+  const list = mapsFor(maps, ruleset, mode);
   const has = (id) => list.some((m) => m.id === id);
   if (wanted && has(wanted)) return wanted;
-  const preferred = RULESET_MAP[ruleset];
+  const preferred = mode === 'bomb' ? BOMB_MAP : RULESET_MAP[ruleset];
   if (has(preferred)) return preferred;
   return list.length ? list[0].id : wanted || preferred;
 }
@@ -120,12 +131,13 @@ export function practiceOptions(params = {}, maps = null) {
   const q = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
   const prefs = loadPrefs();
   // 우선순위: 직접 준 params → URL(시험용) → 지난 선택 → 기본값
-  const ruleset = normalizeRuleset(params.ruleset || q.get('ruleset') || prefs.ruleset);
-  const chosenMap = params.mapId || q.get('sandbox');
-  const mapId = chosenMap ? String(chosenMap) : maps ? validMapFor(maps, ruleset, prefs.mapId) : prefs.mapId;
   const mq = params.mode || q.get('mode') || prefs.mode;
-  const mode = mq === 'ffa' ? 'ffa' : 'team';
-  const size = clamp(Math.round(num(params.size, num(mode === 'team' ? q.get('bots') : null, num(prefs.size, PRACTICE_DEFAULTS.size)))), 1, 4);
+  const mode = modeIn(mq);
+  // 폭파 미션은 클래식 규칙 고정
+  const ruleset = mode === 'bomb' ? 'classic' : normalizeRuleset(params.ruleset || q.get('ruleset') || prefs.ruleset);
+  const chosenMap = params.mapId || q.get('sandbox');
+  const mapId = chosenMap ? String(chosenMap) : maps ? validMapFor(maps, ruleset, prefs.mapId, mode) : prefs.mapId;
+  const size = clamp(Math.round(num(params.size, num(mode !== 'ffa' ? q.get('bots') : null, num(prefs.size, PRACTICE_DEFAULTS.size)))), 1, 4);
   const ffaBots = clamp(Math.round(num(params.bots, num(params.ffaBots, num(mode === 'ffa' ? q.get('bots') : null, num(prefs.ffaBots, PRACTICE_DEFAULTS.ffaBots))))), 1, 7);
   const dq = q.get('difficulty');
   const difficulty = DIFFS.includes(params.difficulty) ? params.difficulty : DIFFS.includes(dq) ? dq : DIFFS.includes(prefs.difficulty) ? prefs.difficulty : 'normal';
@@ -136,7 +148,12 @@ export function practiceOptions(params = {}, maps = null) {
   const botWeapon = bw && getDef(bw) ? bw : 'mix';
   // 봇 이모트 확률(라운드 승리·킬 뒤, 기본 0.3) — 시험용으로 &botemote=1
   const botEmote = clamp(num(params.botEmote, num(q.get('botemote'), BOT_EMOTE_CHANCE)), 0, 1);
-  return { mapId, mode, ruleset, size, ffaBots, difficulty, timeScale, killTarget, botWeapon, botEmote };
+  // 폭파 미션 시험용: &bombcarrier=me|bot(폭탄을 받을 사람), &bombsite=A|B(공격 봇이 갈 구역)
+  const bc = params.bombCarrier || q.get('bombcarrier');
+  const bombCarrier = bc === 'me' || bc === 'bot' ? bc : null;
+  const bs = String(params.bombSite || q.get('bombsite') || '').toUpperCase();
+  const bombSite = bs === 'A' || bs === 'B' ? bs : null;
+  return { mapId, mode, ruleset, size, ffaBots, difficulty, timeScale, killTarget, botWeapon, botEmote, bombCarrier, bombSite };
 }
 
 export function createPractice({ ctx, world, ui }) {
@@ -191,6 +208,12 @@ export function createPractice({ ctx, world, ui }) {
     const rng = mulberry32((Date.now() ^ 0x5f3759df) >>> 0);
     const opts = { ...optsIn };
     const ffa = opts.mode === 'ffa';
+    const bombMode = opts.mode === 'bomb';
+    // 폭파 미션: 미션 칸이 없는 맵(파일을 못 열어 테스트 맵으로 대신한 경우 등)이면 팀전으로 돈다
+    const mission = bombMode ? info.mission || null : null;
+    if (bombMode && !mission) { opts.mode = 'team'; world.setMode('team'); }
+    const bomb = bombMode && !!mission;
+    if (bomb) opts.ruleset = 'classic';
     const rs = rulesetOf(opts.ruleset);
     const pickIds = pickableWeapons(rs.id);       // 경기(match.setLoadout)가 받는 무기
     const ruleLabel = rs.id === 'classic' ? MODE_NAME[opts.mode] : `${rs.name} · ${MODE_NAME[opts.mode]}`;
@@ -233,9 +256,9 @@ export function createPractice({ ctx, world, ui }) {
       const i = bots.length;
       const seed = (rng() * 4294967296) >>> 0;
       return {
-        id, name, team: ffa ? null : team, pick,
+        id, name, team: ffa ? null : team, pick, act: null, guard: 0, hunter: false,
         avatar: AVATAR_IDS[(i + 1) % AVATAR_IDS.length],   // 봇은 캐릭터를 차례로 섞어 쓴다(난수를 쓰지 않아 무기 고르기가 그대로다)
-        brain: createBot({ id, mode: opts.mode, team: ffa ? null : team, ruleset: rs.id, difficulty: opts.difficulty, primary: pick, secondary: gear.secondary, melee: gear.melee, seed }),
+        brain: createBot({ id, mode: ffa ? 'ffa' : 'team', team: ffa ? null : team, ruleset: rs.id, difficulty: opts.difficulty, primary: pick, secondary: gear.secondary, melee: gear.melee, seed }),
         // stageCycle:false: 봇은 zoom을 '줌을 원하는 동안 true'로 보내므로 다단 줌도 1단만 쓴다
         arsenal: createArsenal({ ...gear, allowedSlots: rs.slots, stageCycle: false, zoomMode: 'hold', rng }),
         body: { pos: [0, 0, 0], vel: [0, 0, 0], onGround: true },
@@ -256,13 +279,16 @@ export function createPractice({ ctx, world, ui }) {
 
     const meAlive = () => !!alive.get(me.id) && world.localAlive;
     const players = [{ id: me.id, name: me.name, team: me.team }, ...bots.map((b) => ({ id: b.id, name: b.name, team: b.team, bot: true }))];
+    // 위치는 발 [x, y, z]: 개인전 스폰 고르기와 폭파 미션 판정(구역 안·해체 거리·줍기·폭발 피해)이 같이 쓴다
+    const chooseCarrier = opts.bombCarrier === 'me' ? (ids) => (ids.includes(me.id) ? me.id : null)
+      : opts.bombCarrier === 'bot' ? (ids) => ids.find((id) => botById.has(id)) || null : undefined;
     const match = createMatch({
-      rules: { mode: opts.mode, ruleset: rs.id, killTarget: opts.killTarget },
-      players, spawns: map.spawns,
+      rules: bomb ? { mode: 'bomb' } : { mode: opts.mode, ruleset: rs.id, killTarget: opts.killTarget },
+      players, spawns: map.spawns, mission: mission || undefined, chooseCarrier,
       getPositions: () => {
         const o = {};
-        if (meAlive()) o[me.id] = { x: ctx.player.state.pos[0], z: ctx.player.state.pos[2] };
-        for (const b of bots) if (b.alive) o[b.id] = { x: b.body.pos[0], z: b.body.pos[2] };
+        if (meAlive()) { const p = ctx.player.state.pos; o[me.id] = [p[0], p[1], p[2]]; }
+        for (const b of bots) if (b.alive) o[b.id] = [b.body.pos[0], b.body.pos[1], b.body.pos[2]];
         return o;
       }
     });
@@ -311,8 +337,133 @@ export function createPractice({ ctx, world, ui }) {
           slot: a.getWeapon().slot, ammo: a.getAmmo(), weapon: a.getWeapon(), zoom: a.getZoom().progress,
           recoil: a.getRecoilKick(), grenades: a.getAmmo('gr_frag').mag
         },
-        enemies, allies, nav, los
+        enemies, allies, nav, los,
+        objective: bomb ? objectiveFor(b) : null
       };
+    }
+
+    /* ---------- 폭파 미션: 폭탄 상태 거울 · 봇 목표 · 봇 설치/해체 (MODES.md 5.6) ---------- */
+    const bombSt = { state: 'none', carrier: null, pos: null, site: null, actor: null };
+    let targetSite = null;                   // 이번 라운드 공격 봇이 가는 구역
+    let attackCenter = null;                 // 공격 진영 스폰 가운데(수비 봇이 바라볼 쪽)
+    const attackTeam = () => (bomb ? match.attack : null);
+    const siteById = (id) => (mission ? mission.sites.find((s) => s.id === id) || mission.sites[0] : null);
+    /**
+     * 봇이 갈 구역 안 걷기 칸(가운데에 랙이 있어도 안쪽 바닥으로). 가운데에서 가까운 후보부터 보고, 없으면 가운데
+     */
+    const siteGoals = new Map();
+    function center3(s) {
+      if (siteGoals.has(s.id)) return siteGoals.get(s.id);
+      let best = null;
+      const tries = [[0, 0], [0.2, 0], [-0.2, 0], [0, 0.2], [0, -0.2], [0.2, 0.2], [-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.35, 0], [-0.35, 0], [0, 0.35], [0, -0.35]];
+      for (const [fx, fz] of tries) {
+        const q = { x: s.x + fx * s.w, y: s.y, z: s.z + fz * s.d };
+        const n = nav && typeof nav.nearestWalkable === 'function' ? nav.nearestWalkable(q, 2.5) : null;
+        if (n && siteAt([s], [n.x, n.y, n.z], -1.2)) { best = [n.x, n.y, n.z]; break; }
+      }
+      const out = best || [s.x, s.y, s.z];
+      siteGoals.set(s.id, out);
+      return out;
+    }
+    /** 떨어진 폭탄에 가장 가까운 살아 있는 공격 봇(주우러 간다) */
+    function nearestBot(pos, team) {
+      let best = null, bd = Infinity;
+      for (const b of bots) {
+        if (!b.alive || b.team !== team) continue;
+        const d = Math.hypot(b.body.pos[0] - pos[0], b.body.pos[2] - pos[2]);
+        if (d < bd) { bd = d; best = b; }
+      }
+      return best;
+    }
+    /**
+     * 봇 목표: 공격 = 폭탄을 든 봇은 고른 구역으로(급함), 떨어진 폭탄은 가장 가까운 봇이 주우러, 설치 뒤에는 폭탄 둘레를 지킨다.
+     * 나머지 공격 봇은 같은 구역으로 함께 가고(셋째마다 한 명은 자유롭게 사냥), 수비 = 두 구역에 나눠 지키다 설치되면 폭탄으로(급함).
+     */
+    function objectiveFor(b) {
+      if (phase !== 'live' || !mission) return null;
+      const atk = attackTeam();
+      if (b.team === atk) {
+        if (bombSt.state === 'carried' && bombSt.carrier === b.id) return { pos: center3(siteById(targetSite)), radius: 0.9, urgent: true, hold: true };
+        if (bombSt.state === 'dropped' && bombSt.pos) {
+          const n = nearestBot(bombSt.pos, atk);
+          if (n === b) return { pos: bombSt.pos, radius: 0.45, urgent: true, hold: true };
+        }
+        if (bombSt.state === 'planted' && bombSt.pos) return { pos: bombSt.pos, radius: 6, hold: true };
+        if (b.hunter) return null;
+        return { pos: center3(siteById(targetSite)), radius: 5, hold: true };
+      }
+      if (bombSt.state === 'planted' && bombSt.pos) return { pos: bombSt.pos, radius: 0.8, urgent: true, hold: true };
+      const s = mission.sites[b.guard % mission.sites.length];
+      return { pos: center3(s), radius: 3.5, hold: true, look: attackCenter };
+    }
+    /** 라운드 시작: 공격 봇이 갈 구역, 수비 봇의 담당 구역, 사냥 봇을 정한다 */
+    function planBombRound(attack) {
+      targetSite = opts.bombSite || (rng() < 0.5 ? 'A' : 'B');
+      const pts = mission.attack;   // 공격 진영 스폰(공수가 바뀌어도 진영 기준이라 그대로다)
+      attackCenter = pts.length ? [pts.reduce((s, p) => s + p.x, 0) / pts.length, 0, pts.reduce((s, p) => s + p.z, 0) / pts.length] : null;
+      let gi = 0, ai = 0;
+      for (const b of bots) {
+        b.act = null;
+        if (b.team === attack) { b.hunter = ai % 3 === 2; ai++; }
+        else { b.guard = gi++; b.hunter = false; }
+      }
+      bombSt.state = 'none'; bombSt.carrier = null; bombSt.pos = null; bombSt.site = null; bombSt.actor = null;
+    }
+    /**
+     * 판단마다(10 Hz): 구역 안에서 폭탄을 든 봇은 멈추면 설치, 수비 봇은 폭탄 곁에서 멈추면 해체. 그동안은 서 있는다.
+     * 적이 보이면 취소하고 싸운다. → 이번 판단의 입력(설치·해체 중이면 IDLE)
+     */
+    function botBombAct(b, out) {
+      if (!bomb || phase !== 'live' || !b.alive) return out;
+      const seen = b.brain.targetId != null;
+      if (b.act) {
+        if (seen) { b.act = null; apply(match.bombIntent(b.id, 'cancel', { reason: 'moved' })); return out; }
+        return IDLE;
+      }
+      if (seen) return out;
+      const still = b.body.onGround && Math.hypot(b.body.vel[0], b.body.vel[2]) < 0.6;
+      if (!still) return out;
+      const atk = attackTeam();
+      let kind = null;
+      if (b.team === atk && bombSt.state === 'carried' && bombSt.carrier === b.id && siteAt(mission.sites, b.body.pos)) kind = 'plant';
+      else if (b.team !== atk && bombSt.state === 'planted' && bombSt.pos && within(b.body.pos, bombSt.pos, BOMB.defuseRange)) kind = 'defuse';
+      if (!kind) return out;
+      const evs = match.bombIntent(b.id, kind);
+      if (evs.some((e) => e.type === 'bomb' && e.act === kind + 'Start')) b.act = kind;
+      apply(evs);
+      return b.act ? IDLE : out;
+    }
+    /** 폭탄 이벤트 → 거울 상태 · 봇 · 화면 */
+    function onBomb(ev) {
+      const id = ev.id != null ? String(ev.id) : null;
+      switch (ev.act) {
+        case 'give': bombSt.state = 'carried'; bombSt.carrier = id; bombSt.pos = null; break;
+        case 'drop': bombSt.state = 'dropped'; bombSt.carrier = null; bombSt.pos = Array.isArray(ev.pos) ? ev.pos.slice() : null; break;
+        case 'pick': bombSt.state = 'carried'; bombSt.carrier = id; bombSt.pos = null; break;
+        case 'plantStart': case 'defuseStart': bombSt.actor = id; break;
+        case 'plantCancel': case 'defuseCancel': bombSt.actor = null; { const b = botById.get(id); if (b) b.act = null; } break;
+        case 'plant': bombSt.state = 'planted'; bombSt.carrier = null; bombSt.pos = Array.isArray(ev.pos) ? ev.pos.slice() : null; bombSt.site = ev.site || null; bombSt.actor = null; { const b = botById.get(id); if (b) b.act = null; } break;
+        case 'defuse': bombSt.state = 'defused'; bombSt.actor = null; break;
+        case 'explode': bombSt.state = 'exploded'; bombSt.actor = null; break;
+        default: break;
+      }
+      if (ev.act === 'plant' || ev.act === 'defuse' || ev.act === 'explode') for (const b of bots) b.act = null;
+      world.bombEvent({ ...ev, name: id ? nameOf(id) : '' });
+      pushBomb();
+    }
+    /** World HUD·연출에 방장 상태를 넘긴다. 시간은 실제 화면 시간(timeScale로 나눈 값)이다 */
+    function pushBomb() {
+      if (!bomb) return;
+      const v = match.state;
+      const b = v.bomb || {};
+      const k = opts.timeScale;
+      world.setBomb({
+        ...b, attack: v.attack, phase: v.phase,
+        plantMs: v.rules.plantMs / k, defuseMs: v.rules.defuseMs / k,
+        explodeInMs: b.explodeInMs == null ? null : b.explodeInMs / k,
+        action: b.action ? { ...b.action, leftMs: b.action.leftMs / k, totalMs: b.action.totalMs / k } : null,
+        carrierName: b.carrier ? nameOf(b.carrier) : '', actorName: b.action ? nameOf(b.action.id) : ''
+      });
     }
     function hear(origin, shooterId, team) {
       const info = ffa ? { id: shooterId } : { id: shooterId, team };
@@ -338,7 +489,12 @@ export function createPractice({ ctx, world, ui }) {
       return rows;
     }
     function pushRound() {
-      const timeLeftMs = phase === 'warmup' || phase === 'matchEnd' ? null : Math.max(0, phaseEndsAt - simMs) / opts.timeScale;
+      let timeLeftMs = phase === 'warmup' || phase === 'matchEnd' ? null : Math.max(0, phaseEndsAt - simMs) / opts.timeScale;
+      // 폭파 미션: 설치되면 라운드 시계 대신 폭발까지 남은 시간(경기가 센 값)
+      if (bomb && phase === 'live' && bombSt.state === 'planted') {
+        const left = match.state.timeLeftMs;
+        if (left != null) timeLeftMs = left / opts.timeScale;
+      }
       if (ffa) {
         const rows = ffaRanking();
         const mine = rows.find((r) => r.id === me.id) || { kills: 0, rank: rows.length };
@@ -352,8 +508,10 @@ export function createPractice({ ctx, world, ui }) {
       world.setRound({
         phase, round, score, timeLeftMs,
         alive: aliveCounts(), teamSize: { owner: opts.size, charterer: opts.size },
-        roundsToWin: match.rules.roundsToWin, maxRounds: match.rules.maxRounds
+        roundsToWin: match.rules.roundsToWin, maxRounds: match.rules.maxRounds,
+        ...(bomb ? { mode: 'bomb', attack: attackTeam() } : {})
       });
+      if (bomb) pushBomb();
     }
     function apply(evs) {
       if (!evs || !evs.length || disposed) return;
@@ -367,6 +525,7 @@ export function createPractice({ ctx, world, ui }) {
             case 'kill': onKill(ev); break;
             case 'roundEnd': onRoundEnd(ev); break;
             case 'matchEnd': onMatchEnd(ev); break;
+            case 'bomb': onBomb(ev); break;
             case 'reject': if (ctx.flags && ctx.flags.debug) console.debug('[practice] reject', ev); break;
             default: break;
           }
@@ -408,6 +567,17 @@ export function createPractice({ ctx, world, ui }) {
         spawnOf.set(b.id, s);
         resetBot(b, s, b.pick);
         b.brain.reset();
+      }
+      if (bomb) {
+        planBombRound(ev.attack);
+        const atk = ev.attack === me.team;
+        const swap = round === match.rules.swapAfter + 1;
+        if (ui) ui.hud.center(swap ? `라운드 ${round} · 공수 교대` : `라운드 ${round}`, 2600, {
+          sub: `${TEAM_NAME[me.team]} 팀 ${atk ? '공격 · A 또는 B 구역에 폭탄을 설치하세요' : '수비 · A·B 구역을 지키세요'}`,
+          tone: swap ? 'warn' : me.team
+        });
+        pushBomb();
+        return;
       }
       if (ui) ui.hud.center(ev.replay ? `라운드 ${round} · 재경기` : `라운드 ${round}`, 2200, { sub: rs.pickSlot === 3 ? '칼을 고르세요' : '주무기를 고르세요' });
     }
@@ -467,7 +637,8 @@ export function createPractice({ ctx, world, ui }) {
           }
         }
         world.sound('round_start');
-        if (ui) ui.hud.center('작전 개시!', 1400, { sub: ffa ? `${ruleLabel} · 먼저 ${opts.killTarget}킬` : `${ruleLabel} · 라운드 ${round} · ${TEAM_NAME[me.team]} 팀` });
+        const bombSub = bomb ? (attackTeam() === me.team ? '공격 · 폭탄을 A 또는 B 구역에 설치하세요' : '수비 · 구역을 지키고 설치되면 해체하세요') : '';
+        if (ui) ui.hud.center('작전 개시!', 1400, { sub: ffa ? `${ruleLabel} · 먼저 ${opts.killTarget}킬` : bomb ? bombSub : `${ruleLabel} · 라운드 ${round} · ${TEAM_NAME[me.team]} 팀` });
       } else if (phase === 'matchEnd') {
         if (ui && ui.isVisible('loadout')) ui.hide('loadout');
         world.setRespawn(null);
@@ -511,7 +682,7 @@ export function createPractice({ ctx, world, ui }) {
         }
       } else {
         const b = botById.get(ev.victim);
-        if (b) { botDropGun(b); b.alive = false; b.hp = 0; endBotEmote(b); world.actorDeath(b.id, { dir }); }
+        if (b) { botDropGun(b); b.alive = false; b.hp = 0; b.act = null; endBotEmote(b); world.actorDeath(b.id, { dir }); }
       }
       if (ffa && ev.killer !== ev.victim) { const kb = botById.get(ev.killer); if (kb && kb.alive && rng() < opts.botEmote) startBotEmote(kb); }
       pushRound();
@@ -521,7 +692,9 @@ export function createPractice({ ctx, world, ui }) {
       if (ev.score) score = { ...ev.score };
       const won = ev.winner === me.team;
       const text = ev.winner ? `${TEAM_NAME[ev.winner]} 팀 승리` : '무승부 — 재경기';
-      const sub = `${REASON_LABELS[ev.reason] || ev.reason}${ev.final ? ' · 매치 결정' : ''} · ${score.owner} : ${score.charterer}`;
+      const why = bomb ? `${BOMB_REASON_LABELS[ev.reason] || ev.reason} · ${ev.winner === ev.attack ? '공격' : '수비'} 승` : (REASON_LABELS[ev.reason] || ev.reason);
+      const sub = `${why}${ev.final ? ' · 매치 결정' : ''} · ${score.owner} : ${score.charterer}`;
+      if (bomb) for (const b of bots) b.act = null;
       if (ui) ui.hud.center(text, 3600, { sub, tone: ev.winner || 'warn' });
       world.sound(won ? 'round_win' : 'round_lose');
       if (ev.winner) for (const b of bots) if (b.alive && b.team === ev.winner && rng() < opts.botEmote) startBotEmote(b);
@@ -581,9 +754,12 @@ export function createPractice({ ctx, world, ui }) {
       const res = view.result || {};
       ui.show('results', {
         ruleset: rs.id, reward,
+        ...(bomb ? { mode: 'bomb' } : {}),
         winner: res.winner || (resultsEv && resultsEv.winner) || 'draw',
         score: view.score,
-        rounds: view.history.map((r) => ({ winner: r.winner || 'draw', reason: REASON_LABELS[r.reason] || r.reason })),
+        rounds: view.history.map((r) => (bomb
+          ? { round: r.round, winner: r.winner || 'draw', reason: BOMB_REASON_LABELS[r.reason] || r.reason, reasonCode: r.reason, attack: r.attack }
+          : { winner: r.winner || 'draw', reason: REASON_LABELS[r.reason] || r.reason })),
         players: stats.map((s) => ({ ...s, head: s.headshots, me: s.id === me.id })),
         mvp: mvp ? { id: mvp.id, name: mvp.name, team: mvp.team, kills: mvp.kills, deaths: mvp.deaths, head: mvp.headshots } : undefined,
         myTeam: me.team, mapId: opts.mapId, meId: me.id,
@@ -611,6 +787,12 @@ export function createPractice({ ctx, world, ui }) {
     offs.push(world.on('loadoutPick', (p) => {
       if (p && p.id) { lastPick = p.id; apply(match.setLoadout(me.id, p.id)); }
     }));
+    // 폭파 미션: 내 E 키(휴대폰 설치/해체 버튼) 의도 → 경기가 위치·시간을 재서 확정한다
+    offs.push(world.on('bombAction', (a) => {
+      if (!bomb || !a) return;
+      apply(match.bombIntent(me.id, a.act, { reason: a.reason }));
+      pushBomb();
+    }));
     offs.push(world.on('pause', (p) => { paused = !!(p && p.paused); world.setPaused(paused); }));
     offs.push(world.on('leave', () => { ctx.setScreen('menu'); }));
     if (ui) {
@@ -630,8 +812,11 @@ export function createPractice({ ctx, world, ui }) {
           players: rows.map((r) => ({ id: r.id, name: r.name, team: null, rank: r.rank, kills: r.kills, deaths: r.deaths, head: r.headshots, ping: r.bot ? null : 0, alive: live.has(r.id) ? live.get(r.id).alive !== false : !!alive.get(r.id), me: r.id === me.id, bot: r.bot }))
         };
       }
+      // 폭파 미션: 폭탄을 든 사람은 내가 공격 팀일 때만 보인다
+      const carrier = bomb && view.attack === me.team && view.bomb && view.bomb.state === 'carried' ? view.bomb.carrier : null;
       return {
-        players: view.players.map((p) => ({ id: p.id, name: p.name, team: p.team, kills: p.kills, deaths: p.deaths, head: p.headshots, ping: p.bot ? null : 0, alive: p.alive, me: p.id === me.id, bot: p.bot })),
+        ...(bomb ? { mode: 'bomb', attack: view.attack } : {}),
+        players: view.players.map((p) => ({ id: p.id, name: p.name, team: p.team, kills: p.kills, deaths: p.deaths, head: p.headshots, ping: p.bot ? null : 0, alive: p.alive, me: p.id === me.id, bot: p.bot, ...(carrier && p.id === carrier ? { bomb: true } : {}) })),
         score: view.score, round: view.round, mapId: opts.mapId, meId: me.id
       };
     });
@@ -668,6 +853,7 @@ export function createPractice({ ctx, world, ui }) {
             try { const d = b.brain.debug(); seen = !!(d && d.target != null); } catch (err) { seen = false; }
             if (seen) endBotEmote(b); else out = IDLE;
           }
+          if (bomb) out = botBombAct(b, out);   // 설치·해체 중이면 멈춰 서 있는다
           b.cmd = out;
           const n = Math.max(1, Math.round(tdt / dt));
           b.yawRate = num(out.yawDelta, 0) / n;
@@ -830,7 +1016,9 @@ export function createPractice({ ctx, world, ui }) {
 
     const r = {
       opts, info, match, bots,
-      get mode() { return ffa ? 'ffa' : 'team'; },
+      get mode() { return ffa ? 'ffa' : bomb ? 'bomb' : 'team'; },
+      /** 폭파 미션 거울 상태(시험용): { state, carrier, pos, site, actor, targetSite, attack } | null */
+      get bomb() { return bomb ? { ...bombSt, targetSite, attack: attackTeam() } : null; },
       get lastPick() { return lastPick; },
       get phase() { return phase; },
       get round() { return round; },
@@ -847,6 +1035,7 @@ export function createPractice({ ctx, world, ui }) {
         world.setPaused(false);
         world.setPauseOptions({});
         world.setRespawn(null);
+        world.setBomb(null);
         world.setRound({ phase: null, timeLeftMs: null });
         for (const b of bots) { world.removeActor(b.id); b.brain.dispose(); b.arsenal.dispose(); }
         match.dispose();
@@ -887,20 +1076,24 @@ export function createPracticeSetup({ ui, maps, onStart }) {
   }
 
   function build() {
+    // 폭파 미션은 미션 칸이 있는 맵이 있을 때만 고를 수 있고, 규칙은 클래식 고정이다
+    const bombOk = mapsFor(maps, 'classic', 'bomb').length > 0;
+    if (sel.mode === 'bomb' && !bombOk) sel.mode = 'team';
+    if (sel.mode === 'bomb') sel.ruleset = 'classic';
     const mapBox = h('div', { class: 'sk-mapcards', role: 'radiogroup', 'aria-label': '맵 선택' });
-    const drawMaps = () => mapBox.replaceChildren(...mapsFor(maps, sel.ruleset).map((m) => mapCard(m, { selected: m.id === sel.mapId, onPick: (id) => { sel.mapId = id; drawMaps(); } })));
-    sel.mapId = validMapFor(maps, sel.ruleset, sel.mapId);
+    const drawMaps = () => mapBox.replaceChildren(...mapsFor(maps, sel.ruleset, sel.mode).map((m) => mapCard(m, { selected: m.id === sel.mapId, onPick: (id) => { sel.mapId = id; drawMaps(); } })));
+    sel.mapId = validMapFor(maps, sel.ruleset, sel.mapId, sel.mode);
     drawMaps();
     // 규칙을 바꾸면 그 규칙의 대표 맵으로 옮긴다
     const ruleHint = h('p', { class: 'sk-field-hint' });
-    const drawRuleHint = () => { ruleHint.textContent = rulesetOf(sel.ruleset).desc; };
+    const drawRuleHint = () => { ruleHint.textContent = sel.mode === 'bomb' ? '폭파 미션은 클래식 규칙만 써요' : rulesetOf(sel.ruleset).desc; };
     drawRuleHint();
     const onRuleChange = () => {
-      sel.mapId = validMapFor(maps, sel.ruleset, RULESET_MAP[sel.ruleset]);
+      sel.mapId = validMapFor(maps, sel.ruleset, RULESET_MAP[sel.ruleset], sel.mode);
       drawMaps();
       drawRuleHint();
     };
-    const ruleBox = seg(() => RULESET_IDS.map((id) => [id, RULESETS[id].name]), 'ruleset', '규칙', onRuleChange);
+    const ruleBox = seg(() => (sel.mode === 'bomb' ? ['classic'] : RULESET_IDS).map((id) => [id, RULESETS[id].name]), 'ruleset', '규칙', onRuleChange);
     // 인원: 팀전 = 팀당 1~4명, 개인전 = 봇 1~7명(나까지 최대 8명)
     const countKey = () => (sel.mode === 'ffa' ? 'ffaBots' : 'size');
     const countItems = () => (sel.mode === 'ffa'
@@ -915,16 +1108,33 @@ export function createPracticeSetup({ ui, maps, onStart }) {
     drawCount();
     const count = field('', countBox);
     const hint = h('p', { class: 'sk-field-hint' });
+    const HINTS = {
+      ffa: '개인전 · 모두가 적 · 먼저 20킬(5분) · 죽으면 3초 뒤 부활(1.5초 보호). Esc로 일시정지.',
+      team: '5판 3선승 · 라운드 2분 · 나와 아군 봇은 블루 팀, 적 봇은 레드 팀이에요. Esc로 일시정지.',
+      bomb: '공격은 A·B 구역에 폭탄 설치(E 3초) → 35초 뒤 폭발, 수비는 해체(E 5초) · 5판 3선승 · 라운드 1:40 · 2라운드 뒤 공수 교대. 나와 아군 봇은 블루 팀이에요.'
+    };
+    let shownMode = sel.mode;
     const drawMode = () => {
       count.lab.textContent = sel.mode === 'ffa' ? '봇 수 (나 + 봇, 최대 8명)' : '인원 (나 + 봇)';
-      hint.textContent = sel.mode === 'ffa'
-        ? '개인전 · 모두가 적 · 먼저 20킬(5분) · 죽으면 3초 뒤 부활(1.5초 보호). Esc로 일시정지.'
-        : '5판 3선승 · 라운드 2분 · 나와 아군 봇은 블루 팀, 적 봇은 오렌지 팀이에요. Esc로 일시정지.';
+      hint.textContent = HINTS[sel.mode] || HINTS.team;
       drawCount();
+      if (sel.mode !== shownMode) {
+        // 폭파 미션 ↔ 다른 모드: 규칙과 맵 목록이 달라진다
+        if (sel.mode === 'bomb') sel.ruleset = 'classic';
+        if (sel.mode === 'bomb' || shownMode === 'bomb') {
+          ruleBox.redraw();
+          drawRuleHint();
+          sel.mapId = validMapFor(maps, sel.ruleset, sel.mode === 'bomb' ? BOMB_MAP : sel.mapId, sel.mode);
+          drawMaps();
+        }
+        shownMode = sel.mode;
+      }
     };
-    const modeBox = seg(() => [['team', MODE_NAME.team], ['ffa', MODE_NAME.ffa]], 'mode', '모드', drawMode);
+    const modeItems = () => [['team', MODE_NAME.team], ['ffa', MODE_NAME.ffa], ...(bombOk ? [['bomb', MODE_NAME.bomb]] : [])];
+    const modeBox = seg(modeItems, 'mode', '모드', drawMode);
     drawMode();
     const start = btn('출격', () => {
+      if (sel.mode === 'bomb') sel.ruleset = 'classic';
       savePrefs(sel);
       modal.close();
       onStart({ mapId: sel.mapId, mode: sel.mode, ruleset: sel.ruleset, size: sel.size, bots: sel.ffaBots, difficulty: sel.difficulty });

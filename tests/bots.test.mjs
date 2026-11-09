@@ -47,7 +47,7 @@ function mulberry(seed) {
 }
 
 /** practice.js의 봇 한 명과 같은 방식: 10 Hz로 판단하고 60 Hz로 움직인다 */
-function makeRunner({ pick, ruleset = 'classic', difficulty = 'normal', start = [-30, -10], yaw = -Math.PI / 2, seed = 7, map = col, grid = nav, tuning }) {
+function makeRunner({ pick, ruleset = 'classic', difficulty = 'normal', start = [-30, -10], yaw = -Math.PI / 2, seed = 7, map = col, grid = nav, tuning, objective = null }) {
   const rs = rulesetOf(ruleset);
   const rng = mulberry(seed);
   const gear = botLoadout(rs.id, pick, rng);
@@ -57,7 +57,8 @@ function makeRunner({ pick, ruleset = 'classic', difficulty = 'normal', start = 
   const log = { slots: [], events: {}, firePulses: 0, doubleFire: 0, fires: [], maxLevel: 0, thinks: 0 };
   let cmd = {}, y = yaw, p = 0, rate = 0, pRate = 0, ticks = 0, acc = 0.1, edgeSlot = null, edgeReload = false, edgeJump = false, prevFire = false, time = 0, flying = false;
   const trig = {};
-  return {
+  const run = {
+    objective,   // 폭파 미션 목표(view.objective). 시험 중에 바꿀 수 있다
     brain, arsenal, body, log, gear,
     get yaw() { return y; },
     get pitch() { return p; },
@@ -75,7 +76,7 @@ function makeRunner({ pick, ruleset = 'classic', difficulty = 'normal', start = 
             slot: arsenal.getWeapon().slot, ammo: arsenal.getAmmo(), weapon: arsenal.getWeapon(), zoom: arsenal.getZoom().progress,
             recoil: arsenal.getRecoilKick(), grenades: arsenal.getAmmo('gr_frag').mag
           },
-          enemies, allies: [], nav: grid, los
+          enemies, allies: [], nav: grid, los, objective: run.objective
         });
         log.thinks++;
         const n = Math.max(1, Math.round(tdt / dt));
@@ -112,6 +113,7 @@ function makeRunner({ pick, ruleset = 'classic', difficulty = 'normal', start = 
       return cmd;
     }
   };
+  return run;
 }
 
 const enemyAt = (x, z, extra) => ({ id: 'target', pos: [x, 0, z], alive: true, ...extra });
@@ -586,6 +588,40 @@ describe('봇 무기 뽑기', () => {
     }
     assert.equal(loadoutKey('gr_frag'), null);
     assert.equal(loadoutKey('nope'), null);
+  });
+});
+
+describe('폭파 미션 목표(view.objective)', () => {
+  const GOAL = [20, 0, 10];   // 가운데 벽 건너편(남쪽 끝을 돌아가야 한다)
+  test('적이 없으면 목표로 걸어가 멈춰 지킨다', () => {
+    const r = makeRunner({ pick: 'ar_std', objective: { pos: GOAL, radius: 1.5, hold: true, urgent: true } });
+    for (let i = 0; i < 60 * 25 && !r.brain.atObjective; i++) r.tick([]);
+    assert.ok(horiz(r.body.pos, GOAL) < 2.2, `목표 근처에 와야 한다: ${r.body.pos.map((v) => v.toFixed(1))}`);
+    assert.equal(r.brain.atObjective, true);
+    const p0 = r.body.pos.slice();
+    for (let i = 0; i < 120; i++) r.tick([]);
+    assert.ok(horiz(r.body.pos, p0) < 0.6, '닿은 뒤에는 서 있는다');
+    assert.ok(r.brain.debug().objective, 'debug에 목표가 보인다');
+  });
+
+  test('급한 목표가 있으면 먼 총소리를 조사하러 가지 않는다', () => {
+    const r = makeRunner({ pick: 'ar_std', objective: { pos: GOAL, radius: 1.5, hold: true, urgent: true } });
+    for (let i = 0; i < 60 * 25 && !r.brain.atObjective; i++) {
+      if (i % 60 === 0) r.brain.hearShot([-35, 1.5, -20], { id: 'x', team: 'charterer' });
+      r.tick([]);
+    }
+    assert.ok(horiz(r.body.pos, GOAL) < 2.2, `소리에 끌려가지 않고 목표로 간다: ${r.body.pos.map((v) => v.toFixed(1))}`);
+  });
+
+  test('목표가 없어지면 평소 순찰로 돌아간다', () => {
+    const r = makeRunner({ pick: 'ar_std', objective: { pos: [-28, 0, -10], radius: 1.5, hold: true } });
+    for (let i = 0; i < 60 * 3; i++) r.tick([]);
+    assert.equal(r.brain.atObjective, true);
+    r.objective = null;
+    const p0 = r.body.pos.slice();
+    for (let i = 0; i < 60 * 4; i++) r.tick([]);
+    assert.equal(r.brain.atObjective, false);
+    assert.ok(horiz(r.body.pos, p0) > 2, '순찰을 시작한다');
   });
 });
 

@@ -45,7 +45,7 @@ const COLOR = {
   lens: 0x3d8fe0, lensDark: 0x0d1a2a, dot: 0xff3a30, tritium: 0x9dff6a, brass: 0x8f7038, iron: 0x24272c, lacquer: 0x0c0d10,
 };
 /** 팀별 소매 색(core TEAMS 색과 맞춤) */
-const TEAM_SLEEVE = { owner: 0x22407a, charterer: 0xe8731c };
+const TEAM_SLEEVE = { owner: 0x22407a, charterer: 0xb8323b };
 /** 표에 있지만 빌더가 없는 무기는 kind로 닮은 모형을 쓴다 */
 const KIND_FALLBACK = { rifle: 'ar_std', dmr: 'dm_mark', smg: 'sm_vx3', shotgun: 'sg_bx12', sniper: 'sr_bolt', pistol: 'pt_std', melee: 'ml_knife', grenade: 'gr_frag' };
 

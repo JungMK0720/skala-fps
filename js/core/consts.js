@@ -84,7 +84,7 @@ export const HALF_SHOT_PARTS = Object.freeze(['hand', 'foot']);
 /** 팀. 내부 id(owner·charterer)는 맵 데이터·전송 형식과 맞물려 있어 그대로 두고, 화면에는 name만 쓴다 */
 export const TEAMS = Object.freeze({
   owner: Object.freeze({ id: 'owner', name: '블루', nameEn: 'Blue', color: '#22407a', light: '#5b82d6' }),
-  charterer: Object.freeze({ id: 'charterer', name: '오렌지', nameEn: 'Orange', color: '#e8731c', light: '#ffab5e' })
+  charterer: Object.freeze({ id: 'charterer', name: '레드', nameEn: 'Red', color: '#c8323c', light: '#ff7b84' })
 });
 export const TEAM_IDS = Object.freeze(['owner', 'charterer']);
 

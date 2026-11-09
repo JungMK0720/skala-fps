@@ -5,17 +5,20 @@
  *          키보드·마우스와 같은 입력 상태와 이벤트로 바꾸므로 게임 코드는 터치를 몰라도 된다. 화면 규칙은 css/touch.css에 있다.
  *          라이플을 들면 조준 버튼이 '조준 사격'이 된다(누르는 동안 조준하며 쏜다, 판단은 game/world.js의 touch:aimFire).
  *          이모트 버튼은 누른 채 끌어 고르거나, 짧게 눌러 휠을 열어 두고 칸을 눌러 고른다. 채팅 버튼은 멀티플레이 경기에서만 보인다(session의 chat:available).
+ *          폭파 미션의 설치/해체 버튼(PC의 E)은 평소에 숨어 있다가 World가 touch:use { on, label }을 보낼 때만 보인다. 누르고 있는 동안 input.touch.use(true),
+ *          떼면 use(false)이고, 누르는 중에 숨으면 그 자리에서 뗀다.
  */
 import { EMOTE_WHEEL } from '../core/consts.js';
 import { TOUCH, isStickSide, knobOffset, stickState, wheelTapAt } from './touch-logic.js';
 
-/** 버튼 정의: [동작, 글자, 묶음]. act는 살아 있을 때만 보이는 전투 버튼이고 top은 언제나 보인다(채팅은 멀티플레이 경기에서만) */
+/** 버튼 정의: [동작, 글자, 묶음]. act는 살아 있을 때만 보이는 전투 버튼이고 top은 언제나 보인다(채팅은 멀티플레이 경기에서만, 설치/해체는 touch:use가 켤 때만) */
 const BUTTONS = [
   ['fire', '발사', 'act'],
   ['zoom', '조준', 'act'],
   ['jump', '점프', 'act'],
   ['reload', '장전', 'act'],
   ['crouch', '앉기', 'act'],
+  ['use', '설치', 'act'],
   ['chat', '채팅', 'top'],
   ['emote', '이모트', 'top'],
   ['score', '점수', 'top'],
@@ -57,6 +60,7 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
     buttons.set(act, b);
   }
   buttons.get('chat').hidden = true;   // 멀티플레이 경기에서만 쓴다
+  buttons.get('use').hidden = true;    // 폭파 미션에서 구역 안이나 폭탄 근처일 때만(touch:use)
 
   /* ---------- 왼쪽 조이스틱 · 오른쪽 시점 ---------- */
   const stick = { id: null, x: 0, y: 0 };
@@ -155,6 +159,7 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
       case 'jump': t.jump(true); break;
       case 'reload': t.reload(); break;
       case 'crouch': buttons.get('crouch').classList.toggle('is-on', t.crouchToggle()); break;
+      case 'use': t.use(true); break;
       case 'score': t.scoreboard(true); break;
       case 'emote': input.openEmoteWheel(); break;
       case 'chat': t.chat(); break;
@@ -167,8 +172,18 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
       case 'fire': t.fire(false); break;
       case 'zoom': t.zoom(false); break;
       case 'jump': t.jump(false); break;
+      case 'use': t.use(false); break;
       case 'score': t.scoreboard(false); break;
       default: break;
+    }
+  }
+  /** 이 동작의 버튼을 누르고 있는 손가락을 모두 뗀 것으로 친다(버튼이 숨을 때) */
+  function releaseHeld(act) {
+    for (const [id, h] of held) {
+      if (h.act !== act) continue;
+      held.delete(id);
+      buttons.get(act).classList.remove('is-down');
+      release(act);
     }
   }
   function onButtonDown(e) {
@@ -293,6 +308,16 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
     bus.on('input:emoteWheel', (e) => { if (!(e && e.open)) endWheelTap(); }),
     // 채팅은 멀티플레이 경기에서만 있다(game/session.js가 경기에 들어가고 나올 때 알린다)
     bus.on('chat:available', (e) => { buttons.get('chat').hidden = !(e && e.on); }),
+    // 폭파 미션: 설치·해체할 수 있을 때만 버튼을 보인다(World). 글자는 '설치'·'해체'처럼 World가 정하고, 누르는 중에 숨으면 뗀다
+    bus.on('touch:use', (e) => {
+      const b = buttons.get('use');
+      const on = !!(e && e.on);
+      const label = e && typeof e.label === 'string' && e.label ? e.label : '설치';
+      if (b.textContent !== label) b.textContent = label;
+      if (b.hidden !== on) return;
+      b.hidden = !on;
+      if (!on) releaseHeld('use');
+    }),
   ];
 
   return {

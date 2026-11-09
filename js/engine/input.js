@@ -1,13 +1,13 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 입력(Pointer Lock·키보드·마우스·휠·터치)을 폴링 상태와 bus 이벤트로 바꾼다. 이동·점프·앉기·무기 키와 이모트 휠을 다룬다.
+ * Purpose: 입력(Pointer Lock·키보드·마우스·휠·터치)을 폴링 상태와 bus 이벤트로 바꾼다. 이동·점프·앉기·무기 키, 폭탄 설치·해체(E)와 이모트 휠을 다룬다.
  */
 /**
  * SKALA 작전 — 입력 (Pointer Lock · 키보드 · 마우스 · 휠)
  *
  *   const input = createInput({ element: canvas, bus, settings, touch });   // touch = 휴대폰 조작(engine/touch.js가 input.touch로 넣는다)
- *   input.state.forward / back / left / right / jump / walk / crouch / fire / aim / scoreboard   (boolean, 폴링용)
+ *   input.state.forward / back / left / right / jump / walk / crouch / fire / aim / scoreboard / use   (boolean, 폴링용)
  *   input.consumeLook() → { dx, dy }  // 라디안 (감도·lookScale 적용됨, invertY 반영). 프레임마다 1번 호출
  *   input.requestLock() / exitLock() / isLocked()
  *   input.setLookScale(s)  // 줌 중 감도 배율 (무기 모듈)
@@ -20,11 +20,14 @@
  *   input.setEmoteLock(b)  // 이모트 중: 좌·우클릭을 사격·줌 대신 input:emoteCancel로 (player가 켜고 끔)
  *   input.setEmoteWheelTap(b) // 열린 휠을 '탭 모드'로: 손을 떼도 열려 있고 칸을 눌러 고른다(휴대폰 이모트 버튼을 짧게 눌렀을 때 engine/touch.js가 켠다)
  *
- * 키는 e.code 기준(한/영 상태와 무관): WASD(+화살표) · Space · Shift · Ctrl/C(앉기) · R · F(무기 살펴보기) · G(들고 있는 총 버리기) · 1~4 · Tab · Esc · Enter(채팅)
+ * 키는 e.code 기준(한/영 상태와 무관): WASD(+화살표) · Space · Shift · Ctrl/C(앉기) · R · E(폭탄 설치·해체) · F(무기 살펴보기) · G(들고 있는 총 버리기) · 1~4 · Tab · Esc · Enter(채팅)
  * Space: input.state.jump = 누르는 동안 true(player가 착지 즉시 다시 뛰는 데 쓴다), input:jump는 누른 순간 1번.
  *        잠금을 잃거나 창 포커스를 잃으면 풀리고, 키 반복으로는 다시 켜지지 않는다.
+ * E(폭파 미션): 누르는 동안 input.state.use = true. 누른 순간 input:use{down:true}, 뗀 순간(눌려 있었을 때만) input:use{down:false}.
+ *        키 반복은 무시하고, 입력이 꺼져 있으면 눌리지 않는다. 잠금·창 포커스를 잃거나 setEnabled(false)면 떼어진다(releaseAll).
+ *        휴대폰은 설치/해체 버튼이 input.touch.use(down)으로 같은 상태와 이벤트를 낸다.
  * bus 이벤트: input:lock{locked} · input:fire{down} · input:aim{active,source} · input:zoom{down}(터치 조준 버튼) · input:reload · input:inspect · input:drop · input:slot{slot}
- *            input:cycle{dir} · input:jump · input:walk{down} · input:crouch{down} · input:scoreboard{open} · input:menu{reason}
+ *            input:cycle{dir} · input:jump · input:walk{down} · input:crouch{down} · input:use{down} · input:scoreboard{open} · input:menu{reason}
  *            input:key{code,down} (모든 키, 반복 제외) · input:chat (잠금 중 Enter, 휴대폰은 채팅 버튼. 멀티플레이 경기면 session이 채팅 입력칸을 연다)
  *            input:emoteWheel{open,cursor,selected,id,code,tap,cancelled?} · input:emotePick{id,code,selected} · input:emoteCancel{reason}
  *
@@ -54,7 +57,7 @@ const MOVE_KEYS = {
 const SLOT_KEYS = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4 };
 const CROUCH_KEYS = new Set(['ControlLeft', 'ControlRight', 'KeyC']);
 /** 전체 화면에서 Keyboard Lock으로 잡을 키(Esc는 빼서 전체 화면·잠금 해제가 그대로 되게) */
-const LOCK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyC', 'KeyR', 'KeyF', 'KeyG', 'Space', 'Tab', 'Digit1', 'Digit2', 'Digit3', 'Digit4',
+const LOCK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyC', 'KeyR', 'KeyE', 'KeyF', 'KeyG', 'Space', 'Tab', 'Digit1', 'Digit2', 'Digit3', 'Digit4',
   'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
 
 function isTyping(e) {
@@ -66,7 +69,7 @@ function isTyping(e) {
 
 export function createInput({ element, bus, settings, touch = false } = {}) {
   const el = element || document.body;
-  const state = { forward: false, back: false, left: false, right: false, jump: false, walk: false, crouch: false, fire: false, aim: false, scoreboard: false, emoteWheel: false };
+  const state = { forward: false, back: false, left: false, right: false, jump: false, walk: false, crouch: false, fire: false, aim: false, scoreboard: false, emoteWheel: false, use: false };
   const wheel = { open: false, x: 0, y: 0, selected: null, tap: false };
   let wheelIds = DEFAULT_EMOTE_WHEEL.slice();   // 칸 → 이모트 id (world가 계정 장비로 맞춘다)
   let emoteLock = false;
@@ -91,6 +94,13 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     if (state.crouch === v) return;
     state.crouch = v;
     emit('input:crouch', { down: v });
+  }
+
+  /** 폭탄 설치·해체(E · 터치 버튼). 누름은 입력이 켜져 있을 때만, 뗌은 눌려 있었을 때만 낸다 */
+  function setUse(down) {
+    if (down ? state.use || !enabled : !state.use) return;
+    state.use = down;
+    emit('input:use', { down });
   }
 
   /* ---------- 이모트 휠 ---------- */
@@ -132,6 +142,7 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     syncCrouch();
     if (state.fire) { state.fire = false; emit('input:fire', { down: false }); }
     if (state.aim) setAim(false, 'release');
+    setUse(false);
     if (state.scoreboard) { state.scoreboard = false; emit('input:scoreboard', { open: false }); }
     lookX = lookY = 0;
   }
@@ -167,6 +178,7 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     if (code === 'Space') { e.preventDefault(); state.jump = true; emit('input:jump', {}); return; }
     if (code === 'ShiftLeft' || code === 'ShiftRight') { state.walk = true; emit('input:walk', { down: true }); return; }
     if (code === 'KeyR') { emit('input:reload', {}); return; }
+    if (code === 'KeyE') { if (locked) e.preventDefault(); setUse(true); return; }
     if (code === 'KeyF') { if (locked) e.preventDefault(); emit('input:inspect', {}); return; }
     if (code === 'KeyG') { if (locked) e.preventDefault(); emit('input:drop', {}); return; }
     if (code === 'KeyB') { openWheel(); return; }
@@ -184,6 +196,7 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     }
     if (CROUCH_KEYS.has(code)) { crouchDown.delete(code); syncCrouch(); return; }
     if (code === 'KeyB') { closeWheel(true); return; }
+    if (code === 'KeyE') { setUse(false); return; }
     const mv = MOVE_KEYS[code];
     if (mv) { state[mv] = false; return; }
     if (code === 'Space') { state.jump = false; return; }
@@ -285,6 +298,8 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
       return state.crouch;
     },
     reload() { if (enabled) emit('input:reload', {}); },
+    /** 설치/해체 버튼(PC의 E). 누르는 동안 state.use, 누르고 뗄 때 input:use{down} */
+    use(down) { setUse(!!down); },
     slot(n) { if (enabled) emit('input:slot', { slot: n }); },
     drop() { if (enabled) emit('input:drop', {}); },
     scoreboard(open) {

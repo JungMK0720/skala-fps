@@ -35,7 +35,7 @@ export function createFallbackMenu(ctx) {
   menu.hidden = true;
   const card = el('div', 'core-card');
   const title = el('h1', 'core-title', 'SKALA 작전');
-  card.append(title, el('p', 'core-sub', '빠르게 달리고, 정확하게 쏘는 브라우저 FPS — 블루 팀 vs 오렌지 팀'));
+  card.append(title, el('p', 'core-sub', '빠르게 달리고, 정확하게 쏘는 브라우저 FPS — 블루 팀 vs 레드 팀'));
 
   const nameRow = el('label', 'core-row');
   nameRow.append(el('span', 'core-label', '닉네임'));

@@ -6,10 +6,11 @@
 /**
  * SKALA 작전 — 맵 목록
  *
- *   const { MAPS, MAP_LIST, getMap, mapsForRuleset } = await import('./maps/index.js');
+ *   const { MAPS, MAP_LIST, getMap, mapsForRuleset, mapsForMode } = await import('./maps/index.js');
  *   MAPS[id]                → 맵 데이터 (불러오기 실패 시 TEST_MAP 복제본, fallback:true)
- *   MAP_LIST                → [{ id, name, nameEn, desc, ok, fallback, rulesets, tag, test? }] 메뉴용. 마지막이 테스트 맵
+ *   MAP_LIST                → [{ id, name, nameEn, desc, ok, fallback, rulesets, tag, mission, test? }] 메뉴용. 마지막이 테스트 맵
  *   mapsForRuleset('knife') → 그 규칙을 고를 수 있는 MAP_LIST 항목(테스트 맵 제외)
+ *   mapsForMode('bomb', r)  → 그 모드로 고를 수 있는 MAP_LIST 항목. 폭파 미션은 mission이 있는 클래식 맵, 그 밖은 mapsForRuleset(r)
  *
  * 각 맵 파일은 동적 import로 불러온다. 파일이 없거나 문법·데이터 오류가 있으면 콘솔에 경고하고
  * 빌트인 테스트 맵(작은 창고 마당)으로 대신한다 — 한 맵이 깨져도 게임 전체가 멈추지 않는다.
@@ -18,7 +19,8 @@
 import { DEFAULT_RULESETS, RULESET_NAMES } from './collision.js';
 
 // 순서가 메뉴 순서이고, 규칙마다 처음 나오는 맵이 그 규칙의 기본 맵이다(칼전 rooftop, 클래식 alley, 스나전 longshot)
-export const MAP_IDS = Object.freeze(['rooftop', 'glasshouse', 'alley', 'longshot', 'dojo', 'nexus', 'jetty', 'tankfarm', 'vlcc']);
+// 폭파 미션 맵 relay는 맨 끝에 두어 규칙별 기본 맵을 바꾸지 않는다
+export const MAP_IDS = Object.freeze(['rooftop', 'glasshouse', 'alley', 'longshot', 'dojo', 'nexus', 'jetty', 'tankfarm', 'vlcc', 'relay']);
 
 const R90 = Math.PI / 2;
 
@@ -153,7 +155,8 @@ const KNOWN = {
   jetty: { name: '원유 부두', nameEn: 'Crude Jetty' },
   // 탱크 사이가 막혀 저격 시야가 짧다. 스나전 봇끼리 만나지 못해 무승부만 나와서 클래식 전용으로 둔다
   tankfarm: { name: '탱크 팜', nameEn: 'Tank Farm', rulesets: ['classic'] },
-  vlcc: { name: 'VLCC 갑판', nameEn: 'Tanker Deck' }
+  vlcc: { name: 'VLCC 갑판', nameEn: 'Tanker Deck' },
+  relay: { name: '중계 기지', nameEn: 'Relay Station', rulesets: ['classic'], tag: '폭파 미션' }
 };
 
 function fallbackFor(id, reason) {
@@ -196,6 +199,13 @@ export const MAPS = Object.freeze(Object.fromEntries(MAP_IDS.map((id, i) => [id,
 /** 불러오기 상태 { id: { ok, error } } */
 export const MAP_STATUS = Object.freeze(Object.fromEntries(MAP_IDS.map((id, i) => [id, { ok: loaded[i].ok, error: loaded[i].error }])));
 
+/** 폭파 미션 칸이 있는가: 구역과 공격·수비 스폰이 하나 이상씩(자세한 형식 검사는 game/mission.js와 check-maps가 한다). 대체 맵은 늘 false */
+function hasMissionData(data) {
+  const m = data && !data.fallback ? data.mission : null;
+  const filled = (v) => Array.isArray(v) && v.length > 0;
+  return !!(m && typeof m === 'object' && filled(m.sites) && filled(m.attack) && filled(m.defense));
+}
+
 function listEntry(id, data, ok) {
   const known = KNOWN[id] || {};
   return {
@@ -206,20 +216,30 @@ function listEntry(id, data, ok) {
     ok,
     fallback: !ok,
     rulesets: Array.isArray(data.rulesets) && data.rulesets.length ? data.rulesets.slice() : (known.rulesets || DEFAULT_RULESETS).slice(),
-    tag: typeof data.tag === 'string' ? data.tag : (known.tag || '')
+    tag: typeof data.tag === 'string' ? data.tag : (known.tag || ''),
+    mission: ok && hasMissionData(data)
   };
 }
 
 /** 메뉴용 목록 (+ 테스트 맵) */
 export const MAP_LIST = Object.freeze([
   ...MAP_IDS.map((id, i) => listEntry(id, loaded[i].data, loaded[i].ok)),
-  Object.assign(listEntry(TEST_MAP.id, TEST_MAP, true), { test: true })
+  Object.assign(listEntry(TEST_MAP.id, TEST_MAP, true), { test: true, mission: false })
 ]);
 
 /** 이 규칙을 고를 수 있는 맵(MAP_LIST 항목, 테스트 맵 제외). 모르는 규칙이면 클래식 기준 */
 export function mapsForRuleset(id) {
   const ruleset = RULESET_NAMES.includes(id) ? id : 'classic';
   return MAP_LIST.filter((m) => !m.test && m.rulesets.includes(ruleset));
+}
+
+/**
+ * 이 모드·규칙으로 고를 수 있는 맵(MAP_LIST 항목, 테스트 맵 제외).
+ * 폭파 미션('bomb')은 늘 클래식 규칙으로 하므로 ruleset과 상관없이 mission이 있고 클래식을 고를 수 있는 맵만 준다
+ */
+export function mapsForMode(mode, ruleset) {
+  if (mode === 'bomb') return MAP_LIST.filter((m) => !m.test && m.mission && m.rulesets.includes('classic'));
+  return mapsForRuleset(ruleset);
 }
 
 /** id → 맵 데이터 (없으면 null). 'testyard'는 TEST_MAP */

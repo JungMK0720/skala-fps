@@ -16,7 +16,7 @@
  */
 import * as THREE from 'three';
 import { PLAYER, MOVE, DEFAULT_EMOTE_WHEEL } from '../core/consts.js';
-import { traceShot, raycastWorld, raycastPlayers, lineOfSight, findFloor } from '../engine/physics.js';
+import { traceShot, raycastWorld, raycastPlayers, lineOfSight, findFloor, getGroundY } from '../engine/physics.js';
 import { lerpAngle } from '../engine/interp.js';
 import { createProps } from '../engine/props.js';
 import { WEAPONS, DEG, DEFAULT_LOADOUT, getDef } from '../weapons/defs.js';
@@ -30,6 +30,8 @@ import { droppedGunMesh } from '../engine/avatars.js';
 import { avatarIdOf } from '../core/avatar-defs.js';
 import { DEFAULT_RULESET, normalizeRuleset, rulesetOf, pickableWeapons, isWeaponAllowed, shotTargets } from './modes.js';
 import { createDrops, DROP_RADIUS } from './drops.js';
+import { normalizeMission, placeMission } from './mission.js';
+import { createBombView } from './bombview.js';
 
 const STEEL_MATS = new Set(['steel', 'rust', 'deck', 'tank', 'pipe', 'container_red', 'yellow', 'white', 'glass', 'metal_dark']);
 const SPECTATE_DELAY_MS = 1600;
@@ -177,7 +179,7 @@ function buildWorld(ctx, opts) {
   const local = { id: String(ctx.session.id), name: String(ctx.session.name || ''), team: 'owner', alive: false, spawned: false, deadAt: 0, loadout: null, ownDrops: new Set() };
   const spec = { id: null, idx: 0, yaw: 0, name: '' };
   const actors = new Map();
-  const rnd = { phase: null, round: 0, score: { owner: 0, charterer: 0 }, timeLeftMs: null, elapsed: 0, alive: null, teamSize: null, target: 3, bestOf: 5, ffa: null };
+  const rnd = { phase: null, round: 0, score: { owner: 0, charterer: 0 }, timeLeftMs: null, elapsed: 0, alive: null, teamSize: null, target: 3, bestOf: 5, ffa: null, attack: null };
   let map = null, nades = null, active = false, simPaused = false, uiPaused = false, controls = true;
   // 개인전(FFA): 모든 액터가 적. 부활 대기·보호 표시는 World가 HUD에 그린다(MODES.md 3.4)
   let mode = 'team';
@@ -205,6 +207,23 @@ function buildWorld(ctx, opts) {
   const dropRingMat = new THREE.MeshBasicMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.75, depthWrite: false });
   const dropRingPremium = new THREE.MeshBasicMaterial({ color: 0xffc83d, transparent: true, opacity: 0.85, depthWrite: false });
   let dropSeq = 0;
+  // 폭파 미션 연출(game/bombview.js): 폭탄 모형·삐 소리·구역 표시·E 키 의도. 판정은 match가 한다(WORLD_API 8절)
+  const bombView = createBombView({
+    THREE, scene: R.scene, camera: R.camera, bus, fx,
+    play: (name, o) => play(name, o),
+    hud: () => (ui ? ui.hud : null),
+    emit: (evt, data) => emit(evt, data),
+    local: () => {
+      const st = player.state;
+      return {
+        id: local.id, team: local.team, alive: local.spawned && local.alive, pos: st.pos, vel: st.vel, onGround: st.onGround,
+        canAct: localCanMove() && input.enabled && !(ui && ui.needsCursor()) && !emoteLocal && !wheel.open, touch: !!input.touchMode
+      };
+    },
+    posOf: (id) => { const a = actors.get(String(id)); const av = a ? avatars.get(a.id) : null; return av ? av.pos : a && a.state ? a.state.pos : null; },
+    floorAt: (x, fromY, z) => (map ? getGroundY(map.world, x, z, fromY) : fromY),
+    onCarrier: (prev, next) => { for (const id of [prev, next]) { const a = id ? actors.get(String(id)) : null; if (a) refreshAvatar(a); } }
+  });
 
   function emit(evt, data) {
     const set = listeners.get(evt);
@@ -424,6 +443,7 @@ function buildWorld(ctx, opts) {
       return null;
     }
     map = built;
+    bombView.load(built.data);
     props.load(built.data, built.colliders);     // 기다리지 않는다: 표시 전용이고 cannon-es는 CDN에서 온다
     if (nades) nades.dispose();
     nades = createGrenadeSystem({ world: built.world });
@@ -431,7 +451,7 @@ function buildWorld(ctx, opts) {
     simPaused = false; uiPaused = false; scoreboardOpen = false;
     controls = true; customHint = '';            // 이전 모드(멀티 teardown 등)가 남긴 설정을 지운다
     local.spawned = false; local.alive = false; local.loadout = null;
-    rnd.phase = null; rnd.timeLeftMs = null; rnd.alive = null; rnd.teamSize = null; rnd.score = { owner: 0, charterer: 0 }; rnd.round = 0; rnd.ffa = null;
+    rnd.phase = null; rnd.timeLeftMs = null; rnd.alive = null; rnd.teamSize = null; rnd.score = { owner: 0, charterer: 0 }; rnd.round = 0; rnd.ffa = null; rnd.attack = null;
     respawn = null; protectUntil = 0;
     setMode(opt && opt.mode);
     setRuleset(opt && opt.ruleset);
@@ -442,7 +462,9 @@ function buildWorld(ctx, opts) {
     ctx.setRendering(true);
     input.setEnabled(input.locked || !!(ctx.flags && ctx.flags.autoplay));
     if (ui) { ui.show('hud', { crosshair: false, hp: 100 }); ui.hud.reset(); ui.scope.set(0); }
-    return { spawns: built.spawns, mapName: built.name, mapId: built.id, map: built, data: built.data, fallback: !!(built.data && built.data.fallback), ruleset };
+    // 폭파 미션 칸(구역 · 진영 스폰, 스폰 높이는 빌더 스폰처럼 바닥을 찾아 채운다). 미션이 없는 맵이면 null
+    const mission = placeMission(normalizeMission(built.data), built.world, findFloor, getGroundY);
+    return { spawns: built.spawns, mission, mapName: built.name, mapId: built.id, map: built, data: built.data, fallback: !!(built.data && built.data.fallback), ruleset };
   }
 
   function unloadMap() {
@@ -454,6 +476,7 @@ function buildWorld(ctx, opts) {
     simPaused = false; uiPaused = false; scoreboardOpen = false;
     clearActors();
     clearDrops();
+    bombView.unload();
     if (nades) { nades.dispose(); nades = null; }
     for (const m of nadeMeshes) m.visible = false;
     fx.clear(false);
@@ -488,6 +511,7 @@ function buildWorld(ctx, opts) {
     if (nades) nades.clear();
     for (const m of nadeMeshes) m.visible = false;
     clearDrops();
+    bombView.reset();
     fx.clear(false);
     scheduled.length = 0;
     spec.id = null; spec.name = '';
@@ -533,7 +557,8 @@ function buildWorld(ctx, opts) {
 
   /* ---------- 모드 · 부활 · 보호 (개인전) ---------- */
   const avatarTeam = (a) => (mode === 'ffa' ? 'charterer' : a.team || 'charterer');   // 개인전: 다른 사람은 모두 한 가지 '적' 색
-  const avatarName = (a) => (a.protectUntil > performance.now() ? `🛡 ${a.name}` : a.name);
+  // 폭파 미션: 폭탄을 든 아군 이름표 앞에 💣(bombView.carrier는 내가 공격 팀일 때만 채워진다)
+  const avatarName = (a) => `${a.protectUntil > performance.now() ? '🛡 ' : ''}${mode === 'bomb' && bombView.carrier === a.id ? '💣 ' : ''}${a.name}`;
   function refreshAvatar(a) { avatars.add(a.id, { name: avatarName(a), team: avatarTeam(a), avatar: a.avatar }); }
 
   /**
@@ -564,9 +589,9 @@ function buildWorld(ctx, opts) {
     return ruleset;
   }
 
-  /** 'team' | 'ffa' — loadMap 직후 한 번(loadMap(mapId, { mode })도 같다). unloadMap은 'team'으로 되돌린다 */
+  /** 'team' | 'ffa' | 'bomb'(폭파 미션 = 팀전 화면 + 폭탄) — loadMap 직후 한 번(loadMap(mapId, { mode })도 같다). unloadMap은 'team'으로 되돌린다 */
   function setMode(m) {
-    mode = m === 'ffa' ? 'ffa' : 'team';
+    mode = m === 'ffa' || m === 'bomb' ? m : 'team';
     avatars.setLocalTeam(mode === 'ffa' ? null : local.team);
     for (const a of actors.values()) refreshAvatar(a);
     return mode;
@@ -750,6 +775,7 @@ function buildWorld(ctx, opts) {
   function killLocal(info = {}) {
     if (!local.spawned || !local.alive) return;
     cancelLocalEmote('death');
+    bombView.onLocalDeath();
     dropOnDeath();     // 총을 든 채 죽으면 그 총이 떨어진다(남은 탄 그대로)
     local.alive = false;
     local.ownDrops.clear();
@@ -903,6 +929,7 @@ function buildWorld(ctx, opts) {
   /* ---------- 로컬 무기 ---------- */
   function onWeaponEvent(ev) {
     vm.play(ev);
+    if (ev.type === 'fire' || ev.type === 'swing' || ev.type === 'throw') bombView.onLocalFire();   // 폭파 미션: 공격하면 설치·해체 취소
     switch (ev.type) {
       case 'fire': localFire(ev); break;
       case 'melee': localMelee(ev); break;
@@ -1287,7 +1314,8 @@ function buildWorld(ctx, opts) {
     // 교전 중이 아닐 때(로드아웃·라운드 끝 등) 미뤄 둔 자동 그래픽 품질 변경을 적용한다
     if (o.phase !== undefined && o.phase !== 'live' && ctx.renderer.applyPendingQuality) ctx.renderer.applyPendingQuality();
     if (o.round !== undefined) rnd.round = num(o.round) | 0;
-    if ((o.mode === 'ffa' || o.mode === 'team') && o.mode !== mode) setMode(o.mode);
+    if ((o.mode === 'ffa' || o.mode === 'team' || o.mode === 'bomb') && o.mode !== mode) setMode(o.mode);
+    if (o.attack !== undefined) rnd.attack = o.attack === 'owner' || o.attack === 'charterer' ? o.attack : null;   // 폭파 미션 이번 라운드 공격 팀
     if (mode === 'ffa') {
       // 개인전 점수: 평평한 필드 또는 score:{...} — { kills, rank, total, leaderName, leaderKills, target }
       const src = o.score && typeof o.score === 'object' ? o.score : o;
@@ -1361,6 +1389,7 @@ function buildWorld(ctx, opts) {
     }
     for (const d of drops.expire()) removeDropView(d.id);
     if (nades) for (const ge of nades.update(dt)) onGrenadeEvent(ge);
+    if (mode === 'bomb') bombView.tick(dt);
   }
 
   function updateSpectate(dt) {
@@ -1427,6 +1456,7 @@ function buildWorld(ctx, opts) {
     cam.rotation.z += sh.roll;
     audio.setListener(cam.position, cam.rotation.y, cam.rotation.x);
     drawGrenades();
+    if (mode === 'bomb') bombView.frame(dt);
     for (const v of dropViews.values()) v.spin.rotation.y += dt * 1.4;
     // 속도 줄기: 걷기 속도부터 나타나 수평 속도 상한에서 가장 세다
     fx.setSpeedAmount(local.spawned && local.alive ? (num(player.state.speed) - PLAYER.WALK) / (MOVE.MAX_SPEED - PLAYER.WALK) : 0);
@@ -1464,11 +1494,13 @@ function buildWorld(ctx, opts) {
       p.protect = alive && protectUntil > now;
     } else {
       p.score = { owner: rnd.score.owner, charterer: rnd.score.charterer, target: rnd.target, bestOf: rnd.bestOf, round: rnd.round || undefined };
+      if (mode === 'bomb') { p.score.mode = 'bomb'; p.score.attack = rnd.attack || undefined; }
       if (rnd.alive) p.alive = rnd.alive;
       if (rnd.teamSize) p.teamSize = rnd.teamSize;
       p.respawn = null;
       p.protect = false;
     }
+    p.bomb = mode === 'bomb' ? bombView.hud() : null;
     p.hint = lockHint() || pickHint() || customHint || '';
     p.spectate = !alive && local.spawned ? spec.name : '';
     ui.hud.set(p);
@@ -1508,6 +1540,7 @@ function buildWorld(ctx, opts) {
     offs.length = 0;
     removeUnlock();
     try { props.dispose(); } catch (e) { /* ignore */ }
+    try { bombView.dispose(); } catch (e) { /* ignore */ }
     try { vm.dispose(); } catch (e) { /* ignore */ }
     try { fx.dispose(); } catch (e) { /* ignore */ }
     try { audio.dispose(); } catch (e) { /* ignore */ }
@@ -1546,6 +1579,11 @@ function buildWorld(ctx, opts) {
     setRespawn,
     setProtect,
     setActorProtect,
+    /** 폭파 미션(8절): 방장 상태 { attack, state, carrier, carrierName?, actorName?, pos, site, explodeInMs, action, phase } | null, 폭탄 이벤트 하나 */
+    setBomb: (info) => bombView.set(info),
+    bombEvent: (ev) => bombView.event(ev),
+    get bomb() { return bombView.info; },
+    get bombPending() { return bombView.pending; },
     /** 이모트(MODES.md 4절): 휠 열기/커서/닫기(commit=시작), 내 이모트 시작·취소, 목록 */
     startEmote: startLocalEmote,
     cancelEmote: (reason) => cancelLocalEmote(reason || 'api'),
@@ -1585,7 +1623,7 @@ function buildWorld(ctx, opts) {
     get localAlive() { return local.spawned && local.alive; },
     get paused() { return uiPaused; },
     /** 디버그·테스트용 내부 객체(읽기 전용으로 쓸 것) */
-    get internals() { return { arsenal, vm, fx, audio, nades, actors, local, rnd, props, drops }; }
+    get internals() { return { arsenal, vm, fx, audio, nades, actors, local, rnd, props, drops, bombView }; }
   };
 
   W.handle = function handle() {

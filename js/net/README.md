@@ -24,7 +24,7 @@ const net = await connect({ playerId: crypto.randomUUID().replace(/-/g, '').slic
 
 // 로비
 const offLobby = net.lobby.subscribe((rooms, { synced }) => {
-  // rooms: [{ roomId, name, mapId, hostId, hostName, players, max, status: 'waiting'|'playing', mode: 'team'|'ffa', ruleset }]
+  // rooms: [{ roomId, name, mapId, hostId, hostName, players, max, status: 'waiting'|'playing', mode: 'team'|'ffa'|'bomb', ruleset }]
   // synced=false 동안은 '불러오는 중', true인데 []이면 '방 없음'
 });
 
@@ -88,7 +88,7 @@ await net.close();
 방 항목: `{ roomId, name, mapId, hostId, hostName, players, max, status, mode, ruleset }`. 방장이 로비 presence에 track한다.
 방장이 바뀌면 새 방장이 `term+1`로 다시 track하고, 같은 `roomId`가 겹치면 term이 큰 쪽을 쓴다. 인원이 0이 되면 목록에서 빠진다.
 
-presence 객체는 키가 10개까지인데 로비 항목은 `roomId, name, mapId, hostId, hostName, players, max, status, term, mode`로 이미 10개다. 그래서 규칙은 키를 늘리지 않고 `mode` 값에 함께 싣는다: `'team'`, `'ffa'`, `'team:knife'`, `'ffa:sniper'`(`packRoomKind`, `unpackRoomKind`). 클래식은 규칙을 적지 않으므로 규칙이 없는 옛 항목은 클래식으로 읽힌다. 항목을 만들고 읽는 곳은 `lobbyEntry`, `readLobbyEntry` 하나씩이다. 키를 더하고 싶으면 `tests/session-wiring.test.mjs`의 키 수 검사가 막는다.
+presence 객체는 키가 10개까지인데 로비 항목은 `roomId, name, mapId, hostId, hostName, players, max, status, term, mode`로 이미 10개다. 그래서 규칙은 키를 늘리지 않고 `mode` 값에 함께 싣는다: `'team'`, `'ffa'`, `'bomb'`(폭파 미션, 규칙은 언제나 클래식), `'team:knife'`, `'ffa:sniper'`(`packRoomKind`, `unpackRoomKind`). 클래식은 규칙을 적지 않으므로 규칙이 없는 옛 항목은 클래식으로 읽힌다. 항목을 만들고 읽는 곳은 `lobbyEntry`, `readLobbyEntry` 하나씩이다. 키를 더하고 싶으면 `tests/session-wiring.test.mjs`의 키 수 검사가 막는다.
 
 ### `Room`
 | 멤버 | 설명 |

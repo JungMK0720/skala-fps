@@ -155,3 +155,24 @@ await world.loadMap(mapId, { mode, ruleset });
 추가 메서드(시험·도구용): `world.startEmote(id)`, `world.cancelEmote(reason)`, `world.emotes`(목록 사본), `world.localEmote`(지금 번호), `world.emoteWheelOpen`.
 
 연습장 봇: 팀전에서 라운드를 이기거나 개인전에서 킬을 하면 30% 확률로 2~3초 무작위 이모트(`setActorState({ emote })`). 그동안 멈춰 있고, 적이 보이거나(두뇌의 표적) 피해를 받거나 죽으면 바로 취소한다.
+
+## 8. 폭파 미션 (4차 확장, MODES.md 5절)
+화면 연출은 `game/bombview.js`가 맡고 World가 잇는다. 판정은 방장의 match가 한다.
+
+| 메서드 / 이벤트 | 설명 |
+|---|---|
+| `setMode('bomb')` / `loadMap(mapId, { mode: 'bomb' })` | 팀전 화면 + 폭탄 HUD·모형. `world.mode === 'bomb'` |
+| `loadMap(...)` 결과 `mission` | 맵의 미션 칸을 정규화하고 진영 스폰 높이를 채운 값(`mission.placeMission`). 미션이 없는 맵은 `null`. `createMatch({ mission })`에 그대로 넘긴다 |
+| `setBomb(info \| null)` | 방장 상태. `info = { ...view.bomb, attack, phase, plantMs?, defuseMs?, carrierName?, actorName? }`(시간은 화면 시간 ms). 받은 시각부터 로컬로 줄여 타이머·진행 막대를 그린다 |
+| `bombEvent(ev)` | 폭탄 이벤트 하나(`match` `bomb` 이벤트 + `name`). 소리·안내·폭발 연출 |
+| `setRound({ mode: 'bomb', attack })` | 상단 점수에 공격·수비 표시(`hud.score.attack`) |
+| 이벤트 `bombAction` | `{ act: 'plant' \| 'defuse' \| 'cancel', reason? }` — 내 E 키(휴대폰 설치/해체 버튼) 의도. 멀티는 `sync.sendBomb(act, reason)`, 연습장은 `match.bombIntent(myId, act, { reason })` |
+| `bomb` / `bombPending` (getter) | 마지막 상태 / 보내고 확인을 기다리는 내 의도(시험용) |
+
+- **E 키**: core `input:use { down }`. 구역 안에서 폭탄을 들었거나(공격) 설치된 폭탄 1.5 m 안이고(수비), 땅 위에서 멈춰 있으면(0.5 m/s 미만) 시작을 보낸다.
+  누르고 있는 동안 0.6 m 넘게 움직이거나(1.2 m/s 넘게), 쏘거나(사격·칼·투척), 손을 떼면 취소를 보낸다. 방장이 1.5초 안에 확인하지 않으면(거절) 접는다. 다시 하려면 다시 누른다.
+- **휴대폰**: 할 수 있을 때 `bus.emit('touch:use', { on, label: '설치' | '해체' })` → engine/touch.js가 버튼을 보이고 숨긴다.
+- **HUD**: 매 프레임 `hud.set({ bomb })`(ui/README의 bomb 칸): 진영, 목표, 상태, 폭발 타이머, 진행 막대, 안내, 구역 표시(3D → 화면 투영, 화면 밖이면 가장자리), 💣 소지.
+- **모형**: 설치·떨어진 폭탄을 바닥에 그린다. 설치되면 삐 소리(`beepInterval`)에 맞춰 빨간 불이 깜박인다. 떨어진 폭탄은 공격 팀에게만 주황 고리.
+- **이름표**: 폭탄을 든 아군 이름 앞에 💣(내가 공격 팀일 때만). avatars는 건드리지 않고 이름만 바꾼다.
+- **소리**: `bomb_beep`, `bomb_key`(설치 중), `bomb_armed`, `bomb_defuse`(해체 중), `bomb_defused`, `bomb_pickup`, `bomb_explode`(fx/audio.js, 합성). 폭발 연출은 `fx.explosion`을 크게 두 번.

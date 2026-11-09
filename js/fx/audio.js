@@ -457,7 +457,43 @@ const DEFS = {
     r: (S) => S.tone({ f: 64, f1: 42, glide: 0.05, a: 0.006, d: 0.07, dur: 0.35, g: 1 })
       .noise({ dur: 0.12, d: 0.035, lp: 160, g: 0.35 })
       .tone({ t: 0.24, f: 56, f1: 38, glide: 0.05, a: 0.006, d: 0.06, dur: 0.35, g: 0.7 })
-      .noise({ t: 0.24, dur: 0.1, d: 0.03, lp: 140, g: 0.25 }) }
+      .noise({ t: 0.24, dur: 0.1, d: 0.03, lp: 140, g: 0.25 }) },
+  // 폭파 미션(MODES.md 5절). 설치된 폭탄의 삐: 짧고 높은 삼각파 한 번. 남은 시간이 줄수록 World가 자주 부른다
+  bomb_beep: { dur: 0.16, prio: 7, level: 0.5, ref: 4, maxDist: 80, send: 0.06, max: 3,
+    r: (S) => S.tone({ f: 2217, a: 0.001, d: 0.045, dur: 0.12, tri: 1, g: 0.85 }).tone({ f: 4434, d: 0.025, dur: 0.07, g: 0.12 }) },
+  // 설치 중 단말기 버튼: 짧은 딸깍 + 낮은 확인음(0.45초마다)
+  bomb_key: { dur: 0.14, prio: 5, level: 0.42, ref: 2.5, maxDist: 30, send: 0.03, max: 3, vars: 3, jit: 0.04,
+    r: (S) => S.click(0, 0.6, 3200).tone({ f: S.r(1180, 1420), a: 0.0008, d: 0.03, dur: 0.09, tri: 1, g: 0.5 }) },
+  // 설치 완료: 올라가는 두 음 + 금속 잠금 소리
+  bomb_armed: { dur: 0.9, prio: 8, level: 0.6, ref: 6, maxDist: 120, send: 0.12, max: 1,
+    r: (S) => S.click(0, 0.8, 2600)
+      .ring({ t: 0.01, f: [980, 1630, 2420], amp: [1, 0.6, 0.3], dec: [0.08, 0.06, 0.04], g: 0.45 })
+      .tone({ t: 0.12, f: 1568, d: 0.08, dur: 0.22, tri: 1, g: 0.55 })
+      .tone({ t: 0.3, f: 2093, d: 0.16, dur: 0.5, tri: 1, g: 0.6 }) },
+  // 해체 중: 금속 긁는 소리 + 작은 딸깍(0.6초마다)
+  bomb_defuse: { dur: 0.32, prio: 5, level: 0.42, ref: 2.5, maxDist: 28, send: 0.03, max: 2, vars: 2, jit: 0.05,
+    r: (S) => S.noise({ dur: 0.2, env: 'bell', bp: (u) => 2400 + 1600 * u, q: 2.2, g: 0.45 }).click(0.2, 0.5, 2800)
+      .ring({ t: 0.2, f: [2650, 3900], amp: [1, 0.5], dec: [0.03, 0.02], g: 0.2 }) },
+  // 해체 완료: 내려가는 두 음과 전원이 꺼지는 소리
+  bomb_defused: { ui: 1, dur: 1.2, prio: 10, level: 0.6, max: 1, send: 0.2,
+    r: (S) => S.tone({ f: 1760, d: 0.09, dur: 0.26, tri: 1, g: 0.55 })
+      .tone({ t: 0.16, f: 1318.5, d: 0.12, dur: 0.36, tri: 1, g: 0.55 })
+      .tone({ t: 0.34, f: 420, f1: 60, glide: 0.5, a: 0.004, d: 0.3, dur: 0.8, g: 0.45 }) },
+  // 폭탄 줍기: 가방 끈 소리 + 작은 금속음
+  bomb_pickup: { ui: 1, dur: 0.4, prio: 7, level: 0.5, max: 1,
+    r: (S) => S.noise({ dur: 0.16, env: 'bell', lp: 1400, g: 0.5 }).click(0.14, 0.6, 2400)
+      .ring({ t: 0.14, f: [1720, 2580], amp: [1, 0.5], dec: [0.05, 0.03], g: 0.3 }) },
+  // 폭탄 폭발: 수류탄 폭발을 더 크고 길게(낮은 울림 + 긴 잔향)
+  bomb_explode: { dur: 5.4, prio: 10, level: 1, ref: 24, maxDist: 700, muffle: 1, send: 0.6, max: 1,
+    r: (S) => {
+      S.noise({ dur: 0.08, a: 0.0003, d: 0.02, hp: 900, g: 1 })
+        .tone({ f: 72, f1: 18, glide: 0.3, a: 0.006, d: 1.1, dur: 3.6, g: 1.5 })
+        .tone({ f: 44, f1: 22, glide: 0.5, a: 0.02, d: 1.6, dur: 4.6, g: 0.8 })
+        .noise({ dur: 2.2, a: 0.004, d: 0.45, lp: (u) => 120 + 2600 * (1 - u) ** 2, g: 1.1 })
+        .noise({ t: 0.03, dur: 5.2, a: 0.08, d: 1.6, lp: 240, brown: 1, g: 1 });
+      for (let i = 0; i < 40; i++) S.click(0.15 + S.rnd() ** 1.5 * 2.2, S.r(0.02, 0.14), 2200); // 파편이 길게 떨어진다
+      S.sat(2.4).echo([{ t: 0.45, g: 0.3, lp: 600 }, { t: 1.1, g: 0.2, lp: 450 }, { t: 1.9, g: 0.12, lp: 350 }]);
+    } }
 };
 
 export const SOUND_NAMES = Object.freeze(Object.keys(DEFS));

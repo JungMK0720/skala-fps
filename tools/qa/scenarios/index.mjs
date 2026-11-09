@@ -6,6 +6,7 @@
 import firstRun from './first-run.mjs';
 import menus from './menus.mjs';
 import practice from './practice.mjs';
+import bomb from './bomb.mjs';
 import weapons from './weapons.mjs';
 import damage from './damage.mjs';
 import movement from './movement.mjs';
@@ -22,4 +23,4 @@ import drops from './drops.mjs';
 import mobile from './mobile.mjs';
 import mobileMenus from './mobile-menus.mjs';
 
-export const SCENARIOS = [firstRun, menus, practice, weapons, damage, drops, mobile, mobileMenus, movement, props, debug, multi, controls, multiPlay, robust, monkey, gallery, maps];
+export const SCENARIOS = [firstRun, menus, practice, bomb, weapons, damage, drops, mobile, mobileMenus, movement, props, debug, multi, controls, multiPlay, robust, monkey, gallery, maps];

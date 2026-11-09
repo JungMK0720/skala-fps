@@ -9,14 +9,15 @@
 //              room|room-guest|loadout|hud|hud-low|scope|scoreboard|results|pause
 //              개인전: create-ffa|room-ffa|room-ffa-guest|loadout-ffa|hud-ffa|respawn|scoreboard-ffa|results-ffa
 //              이모트: emotes-idle|emotes|emote-active
+//              폭파 미션: create-bomb|room-bomb|hud-bomb|hud-bomb-plant|scoreboard-bomb|results-bomb
 //      &bare=1(QA 패널 숨김) &mock=1(목 데이터만)
 import { createUI, relativeAngle, emoteIndexAt } from './index.js';
-import { h } from './dom.js';
+import { h, MODE_NAME } from './dom.js';
 
 // ---------- 목 데이터 (실제 값은 maps/*, weapons/defs 담당이 제공) ----------
 const MAPS = [
   { id: 'jetty', name: '원유 부두', nameEn: 'Crude Jetty', desc: '로딩암이 늘어선 잔교. 긴 부두는 저격, 펌프실은 근접전.' },
-  { id: 'tankfarm', name: '탱크 팜', nameEn: 'Tank Farm', desc: '원통 저장탱크 사이 미로. 방유제 너머로 엄폐하라.' },
+  { id: 'tankfarm', name: '탱크 팜', nameEn: 'Tank Farm', desc: '원통 저장탱크 사이 미로. 방유제 너머로 엄폐하라.', mission: true },
   { id: 'vlcc', name: 'VLCC 갑판', nameEn: 'VLCC Deck', desc: '초대형 유조선 갑판. 매니폴드 주변이 격전지.' },
 ];
 const WEAPONS = [
@@ -54,6 +55,7 @@ const ROOMS = [
   { roomId: 'm3x9', name: '탱크 팜 3:3 고수만', mapId: 'tankfarm', hostName: '달빛', players: 6, max: 6, status: 'waiting', mode: 'team' },
   { roomId: 'p1z5', name: '점심 내기 개인전', mapId: 'vlcc', hostName: '불꽃', players: 5, max: 6, status: 'playing', mode: 'ffa' },
   { roomId: 'a8c4', name: '초보 환영 · 반샷 연습', mapId: 'jetty', hostName: '바람', players: 1, max: 4, status: 'waiting', mode: 'ffa', killTarget: 20 },
+  { roomId: 'b2m7', name: '폭탄 해체반 모집', mapId: 'tankfarm', hostName: '새벽', players: 4, max: 6, status: 'playing', mode: 'bomb', ruleset: 'classic' },
 ];
 const CHAT = [
   { system: true, text: '번개J님이 방을 만들었어요.' },
@@ -124,6 +126,7 @@ function makeRoom(asHost, roomMode = 'team') {
   const name = ui.getPlayerName() || '플레이어1234';
   me.name = name;
   const ffa = roomMode === 'ffa';
+  const bomb = roomMode === 'bomb';
   const players = [
     { id: 'h', name: asHost ? name : '번개J', team: ffa ? null : 'owner', ready: true, ping: 24, host: true },
     { id: 'o2', name: '달빛', team: ffa ? null : 'owner', ready: true, ping: 61 },
@@ -132,8 +135,9 @@ function makeRoom(asHost, roomMode = 'team') {
   ];
   if (!asHost) players.push({ id: 'me', name, team: ffa ? null : 'charterer', ready: false, ping: 38 });
   room = {
-    roomId: asHost ? 'n0w1' : 'k7q2', name: asHost ? `${name}의 방` : '야간 작전 3:3', mapId: 'jetty', max: 6,
-    hostId: 'h', meId: asHost ? 'h' : 'me', players, chat: CHAT.slice(), mode: ffa ? 'ffa' : 'team', killTarget: ffa ? 20 : undefined,
+    roomId: asHost ? 'n0w1' : 'k7q2', name: asHost ? `${name}의 방` : '야간 작전 3:3', mapId: bomb ? missionMapId() : 'jetty', max: 6,
+    hostId: 'h', meId: asHost ? 'h' : 'me', players, chat: CHAT.slice(), mode: ffa ? 'ffa' : bomb ? 'bomb' : 'team', killTarget: ffa ? 20 : undefined,
+    ruleset: bomb ? 'classic' : undefined,
   };
   return room;
 }
@@ -160,6 +164,13 @@ function statPlayers() {
   ];
 }
 
+// 폭파 미션 점수판: 이번 라운드 공격 팀과 폭탄을 든 사람(번개J)
+function bombBoard(mapId) {
+  const attack = game.bomb ? game.bomb.attack : 'owner';
+  const carrier = attack === 'owner' ? 'owner0' : 'charterer0';
+  return { mode: 'bomb', attack, players: statPlayers().map((x) => (x.id === carrier ? { ...x, bomb: true } : x)), score: game.score, mapId };
+}
+
 // ---------- 가짜 게임 루프 ----------
 const game = {
   hp: 100, slot: 1, primary: 'ar_std', ammo: { 1: 30, 2: 12, 3: null, 4: 1 }, reserve: { 1: 90, 2: 36, 3: null, 4: 0 },
@@ -168,7 +179,48 @@ const game = {
   // 개인전
   mode: 'team', ffa: { kills: 7, rank: 3, total: 5, leaderName: '하늘', leaderKills: 12, target: 20 },
   respawn: null, protect: false, protectT: 0, nextPrimary: null,
+  // 폭파 미션(newBomb)
+  bomb: null,
 };
+
+// ---------- 폭파 미션(목): 진영 패널 · 표식 · 설치/해체 막대 · 카운트다운 ----------
+// 맵 목록(목 또는 maps/index.js) 중 폭파 미션 맵. 없으면 첫 맵
+let mapData = MAPS;
+const missionMapId = () => (mapData.find((m) => m && m.mission === true) || mapData[0] || { id: 'jetty' }).id;
+/** view 'plant': 나(블루)는 공격, 폭탄을 들고 A 구역에서 설치 중. 'defuse': 나(블루)는 수비, A 구역에 설치된 폭탄을 해체 중 */
+function newBomb(view = 'plant') {
+  return view === 'defuse'
+    ? { view, attack: 'charterer', planted: true, timer: 9.6, prog: 0.45 }
+    : { view: 'plant', attack: 'owner', planted: false, timer: null, prog: 0.35 };
+}
+function bombHud() {
+  const b = game.bomb;
+  if (!b) return null;
+  const W = innerWidth, H = innerHeight, bob = Math.sin(performance.now() / 650) * 6; // 시점이 흔들리는 것처럼 표식을 조금 움직인다
+  const defuse = b.view === 'defuse';
+  const markers = defuse
+    ? [
+      { id: 'A', label: 'A', kind: 'site', x: W * 0.36 + bob, y: H * 0.5, on: true, edge: false, planted: true, dist: 6 },
+      { id: 'bomb', label: '💣', kind: 'bomb', x: W * 0.54 + bob, y: H * 0.62, on: true, edge: false, planted: true, dist: 1.2 },
+      { id: 'B', label: 'B', kind: 'site', x: W - 30, y: H * 0.42, on: true, edge: true, planted: false, dist: 52 },
+    ]
+    : [
+      { id: 'A', label: 'A', kind: 'site', x: W * 0.5 + bob, y: H * 0.58, on: true, edge: false, planted: false, dist: 2 },
+      { id: 'B', label: 'B', kind: 'site', x: 30, y: H * 0.44, on: true, edge: true, planted: false, dist: 47 },
+    ];
+  const dur = defuse ? 5 : 3;
+  return {
+    side: defuse ? 'defense' : 'attack',
+    goal: defuse ? '설치된 폭탄을 찾아 해체하세요' : 'A 또는 B 구역에 폭탄을 설치하세요',
+    status: defuse ? '💣 A 구역에 폭탄이 설치됐어요' : '💣 내가 폭탄을 들고 있어요',
+    tone: defuse ? 'warn' : 'attack',
+    timer: b.planted ? b.timer : null,
+    carrying: !defuse && !b.planted,
+    progress: b.prog == null ? null : { kind: defuse ? 'defuse' : 'plant', ratio: b.prog, label: `${defuse ? '해체' : '설치'} 중… ${(dur * (1 - b.prog)).toFixed(1)}초` },
+    prompt: defuse ? 'E를 누르고 있으면 해체' : 'E 길게 눌러 설치',
+    markers,
+  };
+}
 function slotsList() { return [game.primary, 'pt_std', 'ml_knife', game.ammo[4] > 0 ? 'gr_frag' : null]; }
 function weaponIdForSlot(s) { return slotsList()[s - 1]; }
 function setPrimary(id) {
@@ -188,8 +240,10 @@ function hudState() {
     s.score = { mode: 'ffa', ...game.ffa };
     s.team = null;
   } else {
-    Object.assign(s, { score: game.score, alive: game.alive, teamSize: game.teamSize, team: 'owner' });
+    const score = game.mode === 'bomb' ? { ...game.score, mode: 'bomb', attack: game.bomb ? game.bomb.attack : 'owner' } : game.score;
+    Object.assign(s, { score, alive: game.alive, teamSize: game.teamSize, team: 'owner' });
   }
+  s.bomb = game.mode === 'bomb' ? bombHud() : null;
   return s;
 }
 function loop(t) {
@@ -222,6 +276,10 @@ function loop(t) {
       }
     }
     if (game.protectT > 0) { game.protectT -= dt; if (game.protectT <= 0) game.protect = false; }
+    // 폭파 미션: 카운트다운이 0이 되면 35초로, 설치·해체 막대는 다 차면 처음부터(데모라 끝나지 않는다)
+    const bomb = game.bomb;
+    if (bomb && bomb.planted) { bomb.timer -= dt; if (bomb.timer <= 0) bomb.timer = 35; }
+    if (bomb && bomb.prog != null) { bomb.prog += dt / (bomb.view === 'defuse' ? 5 : 3); if (bomb.prog >= 1) bomb.prog = 0; }
     ui.hud.set(hudState());
     ui.scope.set(game.slot === 1 && game.primary === 'sr_bolt' ? game.zoom : 0, 4);
   }
@@ -317,12 +375,13 @@ function cancelEmote() { emo.active = null; }
 function startGame(opts = {}) {
   mode = 'game';
   const ffa = opts.mode === 'ffa';
+  const bomb = opts.mode === 'bomb';
   emo.open = false;
   emo.active = null;
   ui.hide('emotes');
   Object.assign(game, {
-    mode: ffa ? 'ffa' : 'team', hp: opts.hp != null ? opts.hp : 100, time: ffa ? 300 : 120, zoom: 0, zoomTarget: 0, reload: null, slot: 1,
-    respawn: null, protect: false, protectT: 0, nextPrimary: null,
+    mode: ffa ? 'ffa' : bomb ? 'bomb' : 'team', hp: opts.hp != null ? opts.hp : 100, time: ffa ? 300 : bomb ? 100 : 120, zoom: 0, zoomTarget: 0, reload: null, slot: 1,
+    respawn: null, protect: false, protectT: 0, nextPrimary: null, bomb: bomb ? newBomb(opts.bombView) : null,
   });
   if (ffa) game.ffa = { kills: 7, rank: 3, total: 5, leaderName: '하늘', leaderKills: 12, target: 20 }; // ffaPlayers()와 같은 순위
   ui.hud.reset();
@@ -353,7 +412,7 @@ ui.on('lobby:join', ({ roomId }) => {
 });
 ui.on('room:team', ({ team }) => {
   room.players = room.players.map((p) => (p.id === room.meId ? { ...p, team, ready: p.host } : p));
-  room.chat = [...room.chat, { system: true, text: `${me.name}님이 ${team === 'owner' ? '블루' : '오렌지'} 팀으로 이동했어요.` }];
+  room.chat = [...room.chat, { system: true, text: `${me.name}님이 ${team === 'owner' ? '블루' : '레드'} 팀으로 이동했어요.` }];
   ui.update('room', { players: room.players, chat: room.chat });
 });
 ui.on('room:ready', ({ ready }) => { room.players = room.players.map((p) => (p.id === room.meId ? { ...p, ready } : p)); });
@@ -368,12 +427,16 @@ ui.on('room:chat', ({ text }) => {
   ui.update('room', { chat: room.chat });
 });
 ui.on('room:mode', ({ mode: roomMode }) => {
-  // 세션 흉내: 개인전이면 팀 배정을 지우고, 팀전이면 번갈아 배정
+  // 세션 흉내: 개인전이면 팀 배정을 지우고, 팀전·폭파 미션이면 번갈아 배정. 폭파 미션은 클래식 규칙과 미션 맵으로 맞춘다
   room.mode = roomMode;
   room.killTarget = roomMode === 'ffa' ? 20 : undefined;
+  if (roomMode === 'bomb') {
+    room.ruleset = 'classic';
+    if (!mapData.some((m) => m.id === room.mapId && m.mission === true)) room.mapId = missionMapId();
+  }
   room.players = room.players.map((p, i) => ({ ...p, team: roomMode === 'ffa' ? null : i % 2 ? 'charterer' : 'owner', ready: p.host }));
-  room.chat = [...room.chat, { system: true, text: `방장이 ${roomMode === 'ffa' ? '개인전' : '팀전'}으로 바꿨어요.` }];
-  ui.update('room', { mode: room.mode, killTarget: room.killTarget, players: room.players, chat: room.chat });
+  room.chat = [...room.chat, { system: true, text: `방장이 ${MODE_NAME[roomMode] || '팀전'}으로 바꿨어요.` }];
+  ui.update('room', { mode: room.mode, killTarget: room.killTarget, ruleset: room.ruleset, mapId: room.mapId, players: room.players, chat: room.chat });
 });
 ui.on('room:leave', () => ui.show('lobby', lobbyProps()));
 ui.on('room:start', ({ mode: roomMode }) => {
@@ -389,7 +452,8 @@ ui.on('loadout:pick', ({ id }) => {
     return;
   }
   setPrimary(id);
-  ui.hud.center(`라운드 ${game.score.round}`, 1600, { sub: game.score.owner === 2 || game.score.charterer === 2 ? '매치 포인트' : '블루 vs 오렌지 · 팀 섬멸전' });
+  const versus = game.mode === 'bomb' ? `폭파 미션 · ${game.bomb && game.bomb.attack === 'charterer' ? '레드' : '블루'} 공격` : '블루 vs 레드 · 팀 섬멸전';
+  ui.hud.center(`라운드 ${game.score.round}`, 1600, { sub: game.score.owner === 2 || game.score.charterer === 2 ? '매치 포인트' : versus });
 });
 ui.on('pause:resume', () => {});
 ui.on('pause:leave', () => { mode = 'menu'; if (sandbox || !room) ui.show('menu'); else ui.show('room', room); });
@@ -403,6 +467,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Tab' && mode === 'game' && ui.isVisible('hud') && !ui.isVisible('pause')) {
     e.preventDefault();
     if (game.mode === 'ffa') ui.show('scoreboard', { mode: 'ffa', target: game.ffa.target, players: ffaPlayers(), mapId: room ? room.mapId : 'jetty' });
+    else if (game.mode === 'bomb') ui.show('scoreboard', bombBoard(room ? room.mapId : missionMapId()));
     else ui.show('scoreboard', { players: statPlayers(), score: game.score, mapId: room ? room.mapId : 'jetty' });
     return;
   }
@@ -468,7 +533,7 @@ const SCENES = {
     setPrimary('ar_std');
     game.ammo[1] = 7; game.time = 83;
     demoKillfeed();
-    ui.hud.center('블루 팀 라운드 승리', 60000, { sub: '블루 2 : 1 오렌지 · 매치 포인트' });
+    ui.hud.center('블루 팀 라운드 승리', 60000, { sub: '블루 2 : 1 레드 · 매치 포인트' });
     game.score = { owner: 2, charterer: 1, target: 3, round: 4 };
     setTimeout(() => ui.hud.hitmarker(true), 700);
   },
@@ -525,6 +590,45 @@ const SCENES = {
     });
   },
 };
+// ----- 폭파 미션 -----
+SCENES['create-bomb'] = () => {
+  SCENES.lobby();
+  clickIn('.sk-lobby .sk-bar-actions .sk-btn--primary');
+  setTimeout(() => { const b = document.querySelector('.sk-create .sk-mode-btn[data-mode="bomb"]'); if (b) b.click(); }, 80);
+};
+SCENES['room-bomb'] = () => { mode = 'menu'; showRoom(true, 'bomb'); };
+// 수비: 설치된 폭탄 해체 중(진영 패널 · 10초 밑 카운트다운 · 설치된 표식 · 가장자리 표식 · 해체 막대 · 안내)
+SCENES['hud-bomb'] = () => {
+  startGame({ loadout: false, mode: 'bomb', bombView: 'defuse' });
+  game.score = { owner: 1, charterer: 1, target: 3, round: 3 };
+  game.time = 41;
+};
+// 공격: 폭탄을 들고 A 구역에서 설치 중(폭탄 소지 · 설치 막대 · 안내 · 가장자리 B 표식)
+SCENES['hud-bomb-plant'] = () => {
+  startGame({ loadout: false, mode: 'bomb', bombView: 'plant' });
+  game.score = { owner: 0, charterer: 1, target: 3, round: 2 };
+  game.time = 64;
+};
+SCENES['scoreboard-bomb'] = () => {
+  startGame({ loadout: false, mode: 'bomb', bombView: 'plant' });
+  game.score = { owner: 1, charterer: 0, target: 3, round: 2 };
+  ui.show('scoreboard', bombBoard(missionMapId()));
+};
+SCENES['results-bomb'] = () => {
+  mode = 'menu';
+  makeRoom(true, 'bomb');
+  ui.show('results', {
+    mode: 'bomb', winner: 'owner', score: { owner: 3, charterer: 2 }, myTeam: 'owner', mapId: missionMapId(),
+    rounds: [
+      { round: 1, winner: 'owner', reason: '폭탄 폭파', reasonCode: 'bomb', attack: 'owner' },
+      { round: 2, winner: 'charterer', reason: '폭탄 해체', reasonCode: 'defuse', attack: 'owner' },
+      { round: 3, winner: 'charterer', reason: '전멸', reasonCode: 'elimination', attack: 'charterer' },
+      { round: 4, winner: 'owner', reason: '시간 종료', reasonCode: 'time', attack: 'charterer' },
+      { round: 5, winner: 'owner', reason: '폭탄 해체', reasonCode: 'defuse', attack: 'charterer' },
+    ],
+    players: statPlayers(),
+  });
+};
 // ----- 이모트 휠 -----
 SCENES['emotes-idle'] = () => { startGame({ loadout: false }); openWheel({ x: 0, y: 0 }); }; // 안 움직임 → 안내 문구
 SCENES.emotes = () => { startGame({ loadout: false }); openWheel({ x: 18, y: 118 }); }; // 6시 방향 → 탱고 강조
@@ -532,6 +636,7 @@ SCENES['emote-active'] = () => { startGame({ loadout: false }); emo.active = { n
 
 const TOUR = ['menu', 'settings', 'controls', 'lobby', 'lobby-empty', 'create', 'room', 'room-guest', 'loadout', 'hud', 'hud-low', 'scope', 'scoreboard', 'results', 'pause',
   'create-ffa', 'room-ffa', 'room-ffa-guest', 'loadout-ffa', 'hud-ffa', 'respawn', 'scoreboard-ffa', 'results-ffa',
+  'create-bomb', 'room-bomb', 'hud-bomb', 'hud-bomb-plant', 'scoreboard-bomb', 'results-bomb',
   'emotes-idle', 'emotes', 'emote-active'];
 let tourTimer = null;
 function tour(i = 0) {
@@ -564,8 +669,8 @@ if (!bare) {
         b('헤드샷', () => ui.hud.hitmarker(true)),
         b('피격(H)', () => (mode === 'game' ? takeHit() : null)),
         b('킬피드(K)', demoKillfeed),
-        b('매치 포인트', () => ui.hud.center('매치 포인트', 2000, { sub: '블루 2 : 2 오렌지' })),
-        b('오렌지 승리', () => ui.hud.center('오렌지 팀 라운드 승리', 2000)),
+        b('매치 포인트', () => ui.hud.center('매치 포인트', 2000, { sub: '블루 2 : 2 레드' })),
+        b('레드 승리', () => ui.hud.center('레드 팀 라운드 승리', 2000)),
         b('체력 회복', () => { game.hp = 100; ui.hud.set({ spectate: null }); }),
         b('힌트 토글', () => ui.hud.set({ hint: document.querySelector('.sk-hint[hidden]') ? '화면을 클릭하면 조작을 시작해요' : '' }))),
       h('p', { class: 'qa-label', text: '자동' }),
@@ -603,6 +708,7 @@ async function boot() {
       }
     } catch (e) { console.info('[demo] core/consts.js 대신 목 이모트 사용:', e.message); }
   }
+  mapData = maps;
   ui.setMaps(maps).setWeapons(weapons);
   log('demo:data', src.length ? src.join(', ') : '목 데이터');
   go(qs.get('screen') || 'menu');

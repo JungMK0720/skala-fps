@@ -1,7 +1,7 @@
 # SKALA 작전 — SESSION API (멀티플레이 세션)
 
 > 파일: `js/game/session.js` · 로비 → 방(대기실) → 경기 → 결과까지 이어지는 멀티플레이 진행을 맡는다.
-> 모드: **팀전**(블루 vs 오렌지, 5판 3선승) · **개인전 FFA**(모두가 적, 목표 킬 · 부활) — MODES.md 3.5. FFA는 4절.
+> 모드: **팀전**(블루 vs 레드, 5판 3선승) · **개인전 FFA**(모두가 적, 목표 킬 · 부활) — MODES.md 3.5. FFA는 4절. · **폭파 미션**(공격·수비, A/B 구역 폭탄) — MODES.md 5절, 이 문서 9절.
 > 규칙: **클래식 · 칼전 · 스나전**(`modes.js`). 모드와 직교한다. 방 메타 `ruleset`, 없으면 클래식 — 3절 "규칙".
 > 기반: net(`../net`, README) · sync/interp/protocol(SYNC_API.md) · match(MATCH_API.md) · World(WORLD_API.md) · 계정(`../account`) · UI(`../ui/README.md`).
 
@@ -48,6 +48,7 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 | `mapId` | `'jetty'` | 맵 id가 없을 때. 규칙에 안 맞으면 그 규칙의 첫 맵으로 바꾼다 |
 | `rules` | | `match.js` rules 덮어쓰기(테스트: `{ loadoutMs: 2500, roundEndMs: 1500 }`). `maxPlayers`·`maxPerTeam`은 방 인원으로, `ruleset`은 방 메타로 정한다 |
 | `ffaRules` | | FFA일 때만 더 얹는 rules(테스트: `{ killTarget: 5, respawnMs: 1200, spawnProtectMs: 400 }`). `mode:'ffa'`는 세션이 넣는다 |
+| `bombRules` | | 폭파 미션일 때만 더 얹는 rules(테스트: `{ plantMs: 600, defuseMs: 800, fuseMs: 20000 }`). `mode:'bomb'`·`ruleset:'classic'`은 세션이 넣는다(9절) |
 | `sendHz` | 10 | sync `rateHz`(실제 = min(10, room.rate)) |
 | `hostTickMs` / `snapshotMs` | 100 / 1000 | 방장 경기 루프(setInterval — 백그라운드에서도 돈다) / 변화 없을 때 스냅샷 주기 |
 | `prepTimeoutMs` | 8000 | 시작 전에 모두가 맵을 불러오기를 기다리는 최대 시간 |
@@ -124,7 +125,7 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 | `phase(live)` | 로드아웃 닫기, `phase.loadouts[me]` → `world.setLocalLoadout`(칼전이면 칼), "작전 개시!" |
 | `damage` | 내가 피해자 → `world.setLocalHp(hp)` + `world.feedbackDamage({ attackerPos, amount, head, half, kill, incoming:true })`(피격 방향). 내가 공격자 → `feedbackDamage({ amount, head, half: e.halfShot, kill, incoming:false })`(히트마커·반샷 표시) |
 | `kill` | `ui.killfeed.push({ ..., head, half })`(자폭은 killer 없음), 내가 죽음 → `world.killLocal({ killerId, dir })`(World가 관전 카메라), 그 밖 → `world.actorDeath(id, { dir })`. 내 칼 킬은 `knifeKills`로 센다 |
-| `roundEnd` | 배너 "블루 팀 승리 · 전멸 · 블루 1 : 0 오렌지", `round_win`/`round_lose` |
+| `roundEnd` | 배너 "블루 팀 승리 · 전멸 · 블루 1 : 0 레드", `round_win`/`round_lose` |
 | `phase(matchEnd)` | 결과 화면(아래) |
 | 스냅샷 | `world.setRound({ phase, round, score, timeLeftMs, alive, teamSize, roundsToWin, maxRounds, matchPoint })` — HUD 타이머·점수·생존자는 World가 그린다. 놓친 이벤트 보정: 새 라운드면 대체 스폰, 페이즈 전환, 내 사망·체력, 아바타 사망 |
 
@@ -180,7 +181,7 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
   이어받을 때 나 혼자만 남았으면(match `start()`가 `need_players`로 거절) 나간 사람을 잠깐 넣었다가 바로 `removePlayer`해서 match가 `forfeit`(우승 = 나)으로 끝내게 한다.
 - 경기 스냅샷에는 세션 키 `gm`('team'|'ffa')을 붙인다(늦게 들어온 사람·새 방장이 모드를 안다).
 
-## 5. `restoreMatch({ snapshot, players, spawns, seed?, rng? })` · `restoreFfaMatch(...)`
+## 5. `restoreMatch({ snapshot, players, spawns, seed?, rng?, mission?, getPositions? })` · `restoreFfaMatch(...)`
 `match.js`의 `createMatch`와 **같은 메서드·이벤트·스냅샷 형식**을 가진 객체를 돌려준다(`tick, start, addPlayer, removePlayer, setTeam, setLoadout, claimHit, claimExplosion, snapshot, dispose, state, rules, weaponRules`) + `restored: { rounds, score }`.
 - 안쪽에서 새 `createMatch`(같은 규칙, 선승·라운드 상한 999)를 돌리고, 라운드 번호·점수·라운드 기록·개인 기록(킬·데스·헤드샷·피해·**반샷**)을 이전 스냅샷 값과 합친다. 고른 무기도 이어받는다. 승부(3선승·5판·9라운드 상한)는 합친 점수로 이 래퍼가 판정한다.
 - 이어받기 전에 나간 사람의 기록은 스냅샷 예산(1800B) 안에서 접속 끊김 줄로 남는다(결과 화면에 나옴).
@@ -239,3 +240,21 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 7. FFA 방장 이전은 진행 중이던 목숨을 이어 가지 않는다(모두 다시 출격). 킬·데스와 남은 시간은 이어진다.
 8. `knifeKills`는 내가 받은 킬 이벤트로 센다. 방장 이전 순간에 잃은 이벤트는 세지 못한다(적게 셀 수는 있어도 많이 세지는 않는다).
 9. 보유 무기는 방장이 확인할 수 없다(`setLoadout`은 규칙만 본다). 신뢰 없는 클라이언트 전제다.
+
+## 9. 폭파 미션 (MODES.md 5절)
+| 단계 | 세션이 하는 일 |
+|---|---|
+| 방 | 방 메타 `mode: 'bomb'`(net이 `'bomb'`을 그대로 싣는다). 방장 `room:mode { mode: 'bomb' }` → `updateMeta({ mode, ruleset: 'classic', mapId: 미션 맵 })`. 미션 맵이 없으면 바꾸지 않고 안내. `room:ruleset`은 무시, `room:map`은 미션 맵만 |
+| 방 만들기 | `lobby:create { mode: 'bomb' }` → 규칙 클래식, 맵은 `maps.mapsForMode('bomb')`의 맵으로 |
+| 시작 | 팀전과 같은 조건(양 팀 1명 이상, 모두 준비). 미션 맵이 아니면 시작하지 않고 안내 |
+| 경기 | `createMatch({ rules: { ...o.rules, ...o.bombRules, mode: 'bomb' }, mission: world.loadMap 결과의 mission, getPositions })`. `positions()`는 발 x·y·z |
+| 의도 | world `bombAction { act, reason }` → `sync.sendBomb(act, reason)` → 방장 sync `bomb` 이벤트 → `m.bombIntent(from, act, { reason })`. 방장은 원격 사격 메시지(`fire`)에도 그 사람의 설치·해체를 취소한다 |
+| 반영 | 경기 이벤트 `bomb` → `world.bombEvent({ ...e, name })`. 스냅샷마다 `world.setBomb(bombInfo(view))`, `world.setRound`에 `mode: 'bomb', attack` |
+| 문구 | 라운드 시작 "라운드 3 · 공수 교대" + 진영·목표, live "작전 개시!" + 진영 목표, 라운드 끝 "레드 팀 승리 · 폭탄 해체 · 수비 승 · 블루 1 : 1 레드" |
+| 점수판 | `{ mode: 'bomb', attack, players[].bomb }` — 폭탄을 든 사람은 내가 공격 팀일 때만 싣는다 |
+| 결과 | `{ mode: 'bomb', rounds: [{ round, winner, reason(문구), reasonCode, attack }] }`, 계정 summary `mode: 'bomb'` |
+| 방장 이전 | `restoreMatch({ ..., mission, getPositions })`, `hm.mode = 'bomb'`. 그 라운드를 처음부터(폭탄도 새로 준다) |
+
+옵션: `bombRules` — 폭파 미션일 때만 더 얹는 rules(시험: `{ plantMs: 600, defuseMs: 800, fuseMs: 20000 }`).
+시험: `tests/session-wiring.test.mjs` '폭파 미션' — 미션 맵·클래식 고정, 구역 밖 의도 거절, E 의도 → 설치, 멤버 해체 의도가 g2b로 방장에게, 수비 승 결과(`reasonCode`·`attack`), 계정 summary `mode: 'bomb'`.
+또 '폭파 미션 방장 이전': 공격 방장이 나가면 수비가 이어받아 미션 칸으로 그 라운드를 다시 하고(폭탄은 남은 공격수에게), 설치 → 폭발 → 공격 승 결과, 나간 사람은 기록하지 않음.

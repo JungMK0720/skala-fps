@@ -4,7 +4,7 @@
  * Purpose: 멀티플레이 세션. 로비, 대기실, 경기, 결과 흐름을 묶고 방장이 경기 규칙을 돌린다.
  */
 /**
- * SKALA 작전 — 멀티플레이 세션: 로비 → 방(대기실) → 경기(팀전·개인전 × 클래식·칼전·스나전) → 결과
+ * SKALA 작전 — 멀티플레이 세션: 로비 → 방(대기실) → 경기(팀전·개인전 × 클래식·칼전·스나전, 폭파 미션) → 결과
  *
  *   import { createSession } from './game/session.js';
  *   const mp = createSession({ ctx, world, ui, settings, bus, playerName });  // net을 생략하면 open() 때 직접 연결
@@ -22,6 +22,7 @@
  *   이탈   방장이 나가면 새 방장이 sync.lastMatch() 스냅샷으로 restoreMatch() → 점수·기록을 이어 그 라운드를 다시 시작.
  *          준비 중이었거나 복원이 안 되면 "방장이 나가 경기가 종료됐어요"로 모두 방으로.
  *   결과   standings → account.recordMatch(경기당 한 번) → ui 'results'(획득 포인트). [방으로 돌아가기] → 대기실(warmup)
+ *   폭파 미션  미션 맵·클래식 고정. world 'bombAction'(E 키) → sync.sendBomb → 방장 match.bombIntent. 스냅샷마다 world.setBomb (MODES.md 5절)
  *
  * 계약서: js/game/SESSION_API.md
  */
@@ -33,6 +34,7 @@ import { createMatch, applySnapshot, standings, REASON_LABELS, DEFAULT_RULES, TE
 import { getDef, GRENADE_IDS, DEFAULT_LOADOUT as DEFAULT_GEAR } from '../weapons/defs.js';
 import { RULESETS, DEFAULT_RULESET, normalizeRuleset, rulesetOf, isWeaponAllowed, pickableWeapons, defaultPick } from './modes.js';
 import { avatarIdOf } from '../core/avatar-defs.js';
+import { BOMB_REASON_LABELS } from './mission.js';
 
 export const SESSION_DEFAULTS = Object.freeze({
   maxPlayers: 6,          // 무료 플랜 한도(3:3). 방 만들기 max는 2..maxPlayers로 자른다
@@ -57,12 +59,12 @@ const CHAT_SLOW = '채팅을 너무 빨리 보내고 있어요. 잠시 뒤에 �
 /** 세션 제어 이벤트(room.send): { k:'prep', mid, map, mode, rs } 방장→모두 / { k:'loaded', mid } 멤버→방장 */
 export const CONTROL_EVENT = 'mx';
 
-const TEAM_NAME = Object.freeze({ owner: '블루', charterer: '오렌지' });
+const TEAM_NAME = Object.freeze({ owner: '블루', charterer: '레드' });
 const PHASE_ORDER = Object.freeze({ warmup: 0, loadout: 1, live: 2, roundEnd: 3, matchEnd: 4 });
 const ACTIVE = new Set(['loadout', 'live', 'roundEnd']);
 /** 무기 슬롯 → 장비 키. 4번(수류탄)은 고르는 칸이 없다 */
 const SLOT_KEY = Object.freeze({ 1: 'primary', 2: 'secondary', 3: 'melee' });
-const REASON_CODE = Object.freeze({ elimination: 'e', time: 't', hp: 'h', draw: 'd' });
+const REASON_CODE = Object.freeze({ elimination: 'e', time: 't', hp: 'h', draw: 'd', bomb: 'b', defuse: 'f' });
 const RULE_KEYS = Object.freeze(Object.keys(DEFAULT_RULES));
 const SNAPSHOT_BUDGET = 1800;   // match.js와 같은 예산(protocol 부가 영역 2048B 안)
 
@@ -83,7 +85,7 @@ const ERROR_TEXT = Object.freeze({
   NO_NET: '멀티플레이 서버에 연결할 수 없어요.'
 });
 /** 내보낸 사람에게서 오면 버리는 이벤트 */
-const BANNED_DROP = new Set(['fire', 'hitClaim', 'grenade', 'loadout', 'chat', 'drop', 'pick']);
+const BANNED_DROP = new Set(['fire', 'hitClaim', 'grenade', 'loadout', 'chat', 'drop', 'pick', 'bomb']);
 const CLOSE_TEXT = Object.freeze({
   'kicked:full': '방이 가득 차서 들어가지 못했어요.',
   'kicked:cheat': '비정상 플레이가 반복돼 방장이 방에서 내보냈어요.',
@@ -159,9 +161,11 @@ function errorText(e) {
   return (code && ERROR_TEXT[code]) || '연결에 문제가 생겼어요. 잠시 후 다시 시도해 주세요.';
 }
 const isJoinable = (snap) => !!snap && !snap.abort && (!!snap.prep || ACTIVE.has(snap.ph));
-/** 'ffa'(개인전) | 'team'(팀전, 기본) */
-const modeOf = (v) => (v === 'ffa' ? 'ffa' : 'team');
-const MODE_LABEL = Object.freeze({ team: '팀전 · 5판 3선승', ffa: '개인전 · 모두가 적' });
+/** 'ffa'(개인전) | 'bomb'(폭파 미션) | 'team'(팀전, 기본) */
+const modeOf = (v) => (v === 'ffa' || v === 'bomb' ? v : 'team');
+const MODE_LABEL = Object.freeze({ team: '팀전 · 5판 3선승', ffa: '개인전 · 모두가 적', bomb: '폭파 미션 · 5판 3선승' });
+/** 팀으로 나뉘는 모드(팀전·폭파 미션) */
+const isTeamMode = (m) => m !== 'ffa';
 
 /* ======================================================================
  * 규칙 · 장비 · 결과 도우미 (순수 함수, tests/session-wiring.test.mjs)
@@ -248,7 +252,7 @@ export function matchSummary(o) {
   const winner = res.winner == null || res.winner === 'draw' ? null : String(res.winner);
   const kills = row.kills | 0;
   return {
-    online: true, ruleset: normalizeRuleset(o.ruleset), mode: ffa ? 'ffa' : 'team', mapId: o.mapId,
+    online: true, ruleset: normalizeRuleset(o.ruleset), mode: ffa ? 'ffa' : o.mode === 'bomb' ? 'bomb' : 'team', mapId: o.mapId,
     kills, deaths: row.deaths | 0, headshots: row.headshots | 0, halfShots: row.halfShots | 0,
     knifeKills: Math.min(kills, o.knifeKills | 0),
     win: !!winner && winner === (ffa ? me : o.team), draw: !winner,
@@ -261,14 +265,19 @@ export function matchSummary(o) {
  * 새 match.js 경기를 감싼다. 진행 중이던 라운드는 처음(loadout)부터 다시 한다.
  * match.js와 같은 메서드·이벤트·스냅샷 형식을 쓴다(라운드 번호·점수·통계는 합친 값).
  * ==================================================================== */
-export function restoreMatch({ snapshot: source, players = [], spawns, seed, rng } = {}) {
+export function restoreMatch({ snapshot: source, players = [], spawns, seed, rng, mission, getPositions } = {}) {
   const view = applySnapshot(source);
   if (!view) throw new Error('restoreMatch: 스냅샷을 읽을 수 없어요');
   const R = Object.freeze({ ...DEFAULT_RULES, ...view.rules });
   const ru = RULE_KEYS.map((k) => R[k]);
   const off = view.history.length;                         // 끝난 라운드 수(무승부 포함)
+  const bombMode = view.mode === 'bomb';                   // 폭파 미션: 진영 교대는 전체 라운드 번호로 센다(roundOffset)
   const carryScore = { owner: view.score.owner | 0, charterer: view.score.charterer | 0 };
-  const carryH = view.history.map((h) => [TEAM_IDS.indexOf(h.winner), REASON_CODE[h.reason] || String(h.reason || 'd')]);
+  const carryH = view.history.map((h) => {
+    const row = [TEAM_IDS.indexOf(h.winner), REASON_CODE[h.reason] || String(h.reason || 'd')];
+    if (bombMode) row.push(TEAM_IDS.indexOf(h.attack));
+    return row;
+  });
   const lastDraw = off > 0 && view.history[off - 1].winner == null;
   const carry = new Map();
   for (const p of view.players) {
@@ -286,7 +295,8 @@ export function restoreMatch({ snapshot: source, players = [], spawns, seed, rng
   // 승부 판정은 이 래퍼가 합친 점수로 한다 → 안쪽 경기는 스스로 끝나지 않게(퇴장 forfeit만 남김)
   const inner = createMatch({
     rules: { ...R, roundsToWin: 999, maxRounds: 999, maxTotalRounds: 999 },
-    players, spawns, seed, rng, carry: picks
+    players, spawns, seed, rng, carry: picks,
+    ...(bombMode ? { mission, getPositions, roundOffset: off } : {})
   });
   let decided = null;     // { winner, reason, finalRound }
   let endLeft = 0;        // 승부가 난 마지막 roundEnd 남은 ms
@@ -434,10 +444,13 @@ export function restoreMatch({ snapshot: source, players = [], spawns, seed, rng
     setLoadout: pass(inner.setLoadout),
     claimHit: pass(inner.claimHit),
     claimExplosion: pass(inner.claimExplosion),
+    bombIntent: pass(inner.bombIntent),
     dispose() { disposed = true; inner.dispose(); },
     get state() { return applySnapshot(snapshot()); },
     get rules() { return R; },
     get weaponRules() { return inner.weaponRules; },
+    get mission() { return inner.mission; },
+    get attack() { return inner.attack; },
     /** 이어받은 시점 { rounds: 끝난 라운드 수, score } */
     get restored() { return { rounds: off, score: { ...carryScore } }; }
   };
@@ -779,18 +792,31 @@ export function createSession(options = {}) {
     U('update', 'lobby', { loading: false, error: lobbyError, joining: null });
   }
 
-  /** 이 규칙에서 고를 수 있는 맵 목록. 맵 모듈이 없으면 null(검사하지 않는다) */
-  function mapsFor(ruleset) {
+  /**
+   * 이 규칙(과 모드)에서 고를 수 있는 맵 목록. 폭파 미션은 미션 칸이 있는 클래식 맵(maps.mapsForMode)만.
+   * 맵 모듈이 없으면 null(검사하지 않는다). 폭파 미션인데 미션 맵이 하나도 없으면 [](시작할 수 없다)
+   */
+  function mapsFor(ruleset, mode) {
     const maps = ctx && ctx.maps;
+    if (mode === 'bomb' && maps) {
+      let list = typeof maps.mapsForMode === 'function' ? call(maps, 'mapsForMode', 'bomb', 'classic') : null;
+      if (!Array.isArray(list)) list = (Array.isArray(maps.MAP_LIST) ? maps.MAP_LIST : []).filter((m) => !m.test && m.mission);
+      return list;
+    }
     if (!maps || typeof maps.mapsForRuleset !== 'function') return null;
     const list = call(maps, 'mapsForRuleset', ruleset);
     return Array.isArray(list) && list.length ? list : null;
   }
-  /** wanted를 이 규칙에서 쓸 수 있으면 그대로, 아니면 그 규칙의 첫 맵 */
-  function validMapFor(ruleset, wanted) {
-    const list = mapsFor(ruleset);
-    if (!list || (wanted && list.some((m) => m.id === wanted))) return wanted;
+  /** wanted를 이 규칙(모드)에서 쓸 수 있으면 그대로, 아니면 그 규칙의 첫 맵(폭파 미션인데 미션 맵이 없으면 wanted 그대로) */
+  function validMapFor(ruleset, wanted, mode) {
+    const list = mapsFor(ruleset, mode);
+    if (!list || !list.length || (wanted && list.some((m) => m.id === wanted))) return wanted;
     return list[0].id;
+  }
+  /** 폭파 미션을 할 수 있는 맵인가(맵 모듈이 없으면 막지 않는다) */
+  function bombMapOk(mapId) {
+    const list = mapsFor('classic', 'bomb');
+    return !list || list.some((m) => m.id === mapId);
   }
 
   async function createRoom(p) {
@@ -800,12 +826,13 @@ export function createSession(options = {}) {
     busy = true;
     phase = 'joining';
     const max = clampInt(p && p.max, 2, maxPlayers, maxPlayers);
-    const ruleset = normalizeRuleset(p && p.ruleset);
+    const mode = modeOf(p && p.mode);
+    const ruleset = mode === 'bomb' ? 'classic' : normalizeRuleset(p && p.ruleset);   // 폭파 미션은 클래식 고정
     U('update', 'lobby', { error: null, loading: true });
     try {
       const r = await net.createRoom({
-        name: cleanText(p && p.name, 24) || `${playerName}의 방`, mapId: validMapFor(ruleset, (p && p.mapId) || o.mapId), max,
-        mode: modeOf(p && p.mode), ruleset, password: cleanPassword(p && p.password) || undefined
+        name: cleanText(p && p.name, 24) || `${playerName}의 방`, mapId: validMapFor(ruleset, (p && p.mapId) || o.mapId, mode), max,
+        mode, ruleset, password: cleanPassword(p && p.password) || undefined
       });
       await attachRoom(r);
     } catch (e) {
@@ -874,7 +901,9 @@ export function createSession(options = {}) {
     pushChat({
       system: true,
       text: r.isHost()
-        ? (lastMode === 'ffa' ? '개인전 방을 열었어요. 2명 이상 모이고 모두 준비하면 시작할 수 있어요.' : '방을 열었어요. 동료가 들어오면 팀을 나누고 준비하세요.')
+        ? (lastMode === 'ffa' ? '개인전 방을 열었어요. 2명 이상 모이고 모두 준비하면 시작할 수 있어요.'
+          : lastMode === 'bomb' ? '폭파 미션 방을 열었어요. 블루 팀이 먼저 공격하고 2라운드 뒤 공수를 바꿔요.'
+            : '방을 열었어요. 동료가 들어오면 팀을 나누고 준비하세요.')
         : `${r.meta.name || '방'}에 들어왔어요 · ${RULESETS[lastRuleset].name} · ${MODE_LABEL[lastMode]}`
     }, false);
     renderRoom(true);
@@ -999,7 +1028,11 @@ export function createSession(options = {}) {
     const m = roomMode();
     if (m !== lastMode) {
       lastMode = m;
-      pushChat({ system: true, text: m === 'ffa' ? '개인전으로 바뀌었어요 · 모두가 적' : '팀전으로 바뀌었어요 · 5판 3선승' }, false);
+      pushChat({
+        system: true,
+        text: m === 'ffa' ? '개인전으로 바뀌었어요 · 모두가 적'
+          : m === 'bomb' ? '폭파 미션으로 바뀌었어요 · 공격 팀이 A·B 구역에 폭탄을 설치해요' : '팀전으로 바뀌었어요 · 5판 3선승'
+      }, false);
     }
     const rs = roomRuleset();
     if (rs !== lastRuleset) {
@@ -1011,17 +1044,22 @@ export function createSession(options = {}) {
   /** (방장) 규칙 바꾸기 → 방 메타 · 로비 목록. 지금 맵을 이 규칙에서 못 쓰면 쓸 수 있는 맵으로 같이 바꾼다 */
   function setRoomRuleset(id) {
     if (!room || phase !== 'room' || !room.isHost() || hm) return;
+    if (roomMode() === 'bomb') return;   // 폭파 미션은 클래식 고정
     const rs = normalizeRuleset(id);
     if (rs === roomRuleset()) return;
     safeMeta({ ruleset: rs, mapId: validMapFor(rs, room.meta.mapId) });
     onMeta();
   }
-  /** (방장) 모드 바꾸기 → 방 메타 · 로비 목록 */
+  /** (방장) 모드 바꾸기 → 방 메타 · 로비 목록. 폭파 미션이면 규칙을 클래식으로, 맵을 미션 맵으로 같이 바꾼다 */
   function setMode(mode) {
     if (!room || phase !== 'room' || !room.isHost() || hm) return;
     const m = modeOf(mode);
     if (m === roomMode()) return;
-    safeMeta({ mode: m });
+    if (m === 'bomb') {
+      const mapId = validMapFor('classic', room.meta.mapId, 'bomb');
+      if (!bombMapOk(mapId)) { pushChat({ system: true, text: '폭파 미션을 할 수 있는 맵이 없어요.' }); return; }
+      safeMeta({ mode: m, ruleset: 'classic', mapId });
+    } else safeMeta({ mode: m });
     onMeta();
   }
 
@@ -1045,7 +1083,7 @@ export function createSession(options = {}) {
   function setMap(mapId) {
     if (!room || phase !== 'room' || !room.isHost() || !mapId || hm) return;
     const id = String(mapId);
-    if (validMapFor(roomRuleset(), id) !== id) return;   // 이 규칙에서 못 고르는 맵
+    if (validMapFor(roomRuleset(), id, roomMode()) !== id) return;   // 이 규칙(모드)에서 못 고르는 맵
     safeMeta({ mapId: id });
     renderRoom();
   }
@@ -1143,21 +1181,25 @@ export function createSession(options = {}) {
     const max = clampInt(room && room.meta.max, 2, 16, maxPlayers);
     const r = { ...(o.rules || {}), maxPlayers: max, maxPerTeam: Math.max(1, Math.ceil(max / 2)), ruleset };
     if (mode === 'ffa') Object.assign(r, o.ffaRules || {}, { mode: 'ffa' });
+    else if (mode === 'bomb') Object.assign(r, o.bombRules || {}, { mode: 'bomb', ruleset: 'classic' });
     return r;
   }
 
-  /** (방장, FFA) 스폰 위치 고르기용: 살아 있는 사람 위치 { id: { x, z } } — 나는 world, 원격은 sync 최신 상태 */
+  /**
+   * (방장) 살아 있는 사람 발 위치 { id: { x, y, z } } — 나는 world, 원격은 sync 최신 상태.
+   * FFA 스폰 고르기와 폭파 미션 판정(구역 안·해체 거리·폭탄 줍기·폭발 피해)이 쓴다
+   */
   function positions() {
     const out = {};
     if (current && current.localAlive) {
       const lp = vec((call(world, 'getLocalState') || {}).pos);
-      if (lp) out[me] = { x: lp[0], z: lp[2] };
+      if (lp) out[me] = { x: lp[0], y: lp[1], z: lp[2] };
     }
     if (sync) {
       for (const id of sync.remoteIds()) {
         const r = sync.remote(id);
         const p = r && r.state && r.state.alive !== false ? vec(r.state.pos) : null;
-        if (p) out[id] = { x: p[0], z: p[2] };
+        if (p) out[id] = { x: p[0], y: p[1], z: p[2] };
       }
     }
     return out;
@@ -1168,8 +1210,9 @@ export function createSession(options = {}) {
     const mode = roomMode();
     const why = startProblem(room.players(), mode);
     if (why) { pushChat({ system: true, text: why }); return; }
-    const ruleset = roomRuleset();
-    const mapId = validMapFor(ruleset, room.meta.mapId || o.mapId);
+    const ruleset = mode === 'bomb' ? 'classic' : roomRuleset();
+    const mapId = validMapFor(ruleset, room.meta.mapId || o.mapId, mode);
+    if (mode === 'bomb' && !bombMapOk(mapId)) { pushChat({ system: true, text: '이 맵에서는 폭파 미션을 할 수 없어요. 미션 맵을 골라 주세요.' }); return; }
     const mid = randomId(8);
     hm = {
       mid, mapId, mode, ruleset, m: null, preparing: true, prepDeadline: Infinity, acks: new Set([me]),
@@ -1187,12 +1230,14 @@ export function createSession(options = {}) {
     const h = hm;
     if (!h || h.m || !current || current.mid !== h.mid || !room) return;
     const ffa = h.mode === 'ffa';
+    const bomb = h.mode === 'bomb';
     const list = room.players().filter((x) => ffa || TEAM_IDS.includes(x.team));
     h.m = createMatch({
       rules: matchRules(h.mode, h.ruleset),
       players: list.map((x) => (ffa ? { id: x.id, name: x.name } : { id: x.id, name: x.name, team: x.team })),
       spawns: current.spawns || undefined,
-      getPositions: ffa ? positions : undefined
+      getPositions: ffa || bomb ? positions : undefined,
+      mission: bomb ? current.mission || undefined : undefined
     });
     h.members = new Set(list.map((x) => x.id));
     h.prepDeadline = now() + o.prepTimeoutMs;
@@ -1402,9 +1447,13 @@ export function createSession(options = {}) {
         const team = teamOf.get(x.id) || (TEAM_IDS.includes(x.team) ? x.team : null);
         if (team) players.push({ id: x.id, name: x.name, team });
       }
-      const m = restoreMatch({ snapshot: snap, players, spawns: c.spawns || undefined });
+      const bomb = c.mode === 'bomb';
+      const m = restoreMatch({
+        snapshot: snap, players, spawns: c.spawns || undefined,
+        ...(bomb ? { mission: c.mission || undefined, getPositions: positions } : {})
+      });
       hm = {
-        mid: c.mid, mapId: c.mapId, mode: 'team', ruleset: c.ruleset, m, preparing: false, prepDeadline: 0, acks: new Set(),
+        mid: c.mid, mapId: c.mapId, mode: bomb ? 'bomb' : 'team', ruleset: c.ruleset, m, preparing: false, prepDeadline: 0, acks: new Set(),
         members: new Set(players.map((p) => p.id)), missing: new Map(), timer: null, lastTick: now(), lastSnapAt: -Infinity
       };
       hm.timer = setInterval(hostLoop, o.hostTickMs);
@@ -1491,7 +1540,7 @@ export function createSession(options = {}) {
     phase = 'match';
     const rs = normalizeRuleset(ruleset != null ? ruleset : roomRuleset());
     const c = current = {
-      mid, mapId, mode: modeOf(mode || roomMode()), ruleset: rs, loaded: false, spawns: null, mapName: '',
+      mid, mapId, mode: modeOf(mode || roomMode()), ruleset: rs, loaded: false, spawns: null, mission: null, mapName: '',
       pending: null, pendingTakeover: false, ackAt: -Infinity,
       round: 0, roundFrom: null, phase: null, view: null,
       playing: false, localAlive: false, localHp: 0, team: myRoomTeam(), spawnFallback: false,
@@ -1519,8 +1568,9 @@ export function createSession(options = {}) {
     if (disposed || current !== c) return;
     c.loaded = true;
     c.spawns = res && res.spawns ? res.spawns : null;
+    c.mission = res && res.mission ? res.mission : null;   // 폭파 미션 구역·진영 스폰(world.loadMap이 바닥 높이를 채운다)
     c.mapName = (res && res.mapName) || '';
-    W('setMode', c.mode);   // FFA면 모든 액터가 적(loadMap이 'team'으로 되돌리므로 로드 뒤에)
+    W('setMode', c.mode);   // FFA면 모든 액터가 적, 폭파 미션이면 폭탄 화면(loadMap이 'team'으로 되돌리므로 로드 뒤에)
     W('setControlsEnabled', true);
     // 경기 채팅: HUD와 함께 보이고(loadMap이 HUD를 띄운 뒤), 휴대폰 채팅 버튼을 켠다. 줄은 enterMatch에서 비웠다
     U('show', 'chat', {});
@@ -1561,6 +1611,7 @@ export function createSession(options = {}) {
       W('setHint', '');
       W('setScoreboard', null);
       if (c.mode === 'ffa') { W('setRespawn', null); W('setProtect', false); }
+      if (c.mode === 'bomb') W('setBomb', null);
       W('setControlsEnabled', false);
       if (typeof world.unloadMap === 'function') W('unloadMap'); else W('reset');
       U('hide', 'loadout');
@@ -1653,6 +1704,9 @@ export function createSession(options = {}) {
       case 'roundEnd': onRoundEnd(e); break;
       case 'matchEnd': if (current) current.matchEnd = e; break;
       case 'loadout': if (e.id !== me) noteGear(String(e.id), e.weaponId); break;
+      case 'bomb':   // 폭파 미션: 소리·안내·폭발 연출. 상태(HUD·모형)는 같은 메시지의 스냅샷이 applyView에서 맞춘다
+        if (current && current.mode === 'bomb') W('bombEvent', { ...e, name: e.id != null ? nameOf(String(e.id)) : '' });
+        break;
       case 'join':
         if (e.id === me) break;
         if (current && current.mode === 'ffa') H('center', `${e.name || '플레이어'}님 합류`, 1500, { sub: '곧 출격해요' });
@@ -1695,6 +1749,17 @@ export function createSession(options = {}) {
     placeActors(v, spawns);
     const score = (ev && ev.score) || (v && v.score) || { owner: 0, charterer: 0 };
     const mp = matchPointTeams(score, v && v.rules);
+    if (c.mode === 'bomb') {
+      // 폭파 미션: 내 진영과 목표. swapAfter 라운드가 끝난 다음 라운드에 공수 교대를 알린다
+      const atk = (ev && ev.attack) || (v && v.attack) || null;
+      const swap = round === ((v && v.rules && v.rules.swapAfter) || 2) + 1;
+      const side = c.team ? (c.team === atk ? '공격 · A 또는 B 구역에 폭탄을 설치하세요' : '수비 · A·B 구역을 지키세요') : '관전 중';
+      const sub = `${side}${mp.length ? ` · 매치 포인트 ${mp.map((t) => TEAM_NAME[t]).join(' · ')}` : ''}`;
+      H('center', swap ? `라운드 ${round} · 공수 교대` : `라운드 ${round}`, 2800, { sub, tone: swap ? 'warn' : mp.length === 1 ? mp[0] : undefined });
+      if (v) W('setBomb', bombInfo(v));
+      W('sound', 'round_start');
+      return;
+    }
     const sub = ev && ev.replay ? '무승부 — 같은 라운드를 다시 해요'
       : mp.length ? `매치 포인트 · ${mp.map((t) => TEAM_NAME[t]).join(' · ')}` : '무기를 고르세요';
     H('center', `라운드 ${round}`, 2600, { sub, tone: mp.length === 1 ? mp[0] : undefined });
@@ -1833,18 +1898,27 @@ export function createSession(options = {}) {
         W('setLocalLoadout', mine);   // 방장이 확정한 무기(칼전이면 칼)
       }
     }
-    if (c.playing && c.localAlive) H('center', '작전 개시!', 1400, { sub: '상대 팀을 모두 제압하세요' });
+    if (c.playing && c.localAlive) {
+      const atk = v && v.attack;
+      const sub = c.mode !== 'bomb' ? '상대 팀을 모두 제압하세요'
+        : c.team === atk ? '공격 · 폭탄을 A 또는 B 구역에 설치하세요' : '수비 · 구역을 지키고 설치되면 해체하세요';
+      H('center', '작전 개시!', 1400, { sub });
+    }
   }
 
   function onRoundEnd(e) {
     const c = current;
     if (!c) return;
     const sc = e.score || { owner: 0, charterer: 0 };
-    const line = `블루 ${sc.owner | 0} : ${sc.charterer | 0} 오렌지`;
+    const line = `블루 ${sc.owner | 0} : ${sc.charterer | 0} 레드`;
     if (e.winner === 'owner' || e.winner === 'charterer') {
       const mine = c.team && c.team === e.winner;
+      // 폭파 미션: 사유(폭탄 폭파·해체·전멸·시간 종료)와 이긴 진영
+      const why = c.mode === 'bomb'
+        ? `${BOMB_REASON_LABELS[e.reason] || e.reason || ''} · ${e.winner === e.attack ? '공격' : '수비'} 승`
+        : (REASON_LABELS[e.reason] || '');
       H('center', `${TEAM_NAME[e.winner]} 팀 승리${c.team ? (mine ? ' 🏆' : '') : ''}`, 3600, {
-        sub: `${REASON_LABELS[e.reason] || ''} · ${line}${e.final ? ' · 매치 종료' : ''}`, tone: e.winner
+        sub: `${why} · ${line}${e.final ? ' · 매치 종료' : ''}`, tone: e.winner
       });
       if (c.team) W('sound', mine ? 'round_win' : 'round_lose');
     } else {
@@ -1938,6 +2012,17 @@ export function createSession(options = {}) {
     }
     placeActors(view, null);
     W('setRound', roundInfo(view));
+    if (c.mode === 'bomb') W('setBomb', bombInfo(view));
+  }
+
+  /** world.setBomb에 넘길 폭파 미션 상태(match 뷰의 bomb + 공격 팀·페이즈·설치/해체 시간·이름) */
+  function bombInfo(v) {
+    const b = (v && v.bomb) || {};
+    return {
+      ...b, attack: v.attack || null, phase: v.phase,
+      plantMs: v.rules && v.rules.plantMs, defuseMs: v.rules && v.rules.defuseMs,
+      carrierName: b.carrier ? nameOf(b.carrier) : '', actorName: b.action ? nameOf(b.action.id) : ''
+    };
   }
 
   /* ---------------------------------------------------------------- 개인전(FFA) 진행 */
@@ -2130,7 +2215,8 @@ export function createSession(options = {}) {
       alive: { owner: v.teams.owner.alive, charterer: v.teams.charterer.alive },
       teamSize: { owner: v.teams.owner.players, charterer: v.teams.charterer.players },
       roundsToWin: v.rules.roundsToWin, maxRounds: v.rules.maxRounds,
-      matchPoint: mp.length > 0, matchPointTeams: mp
+      matchPoint: mp.length > 0, matchPointTeams: mp,
+      ...(v.mode === 'bomb' ? { mode: 'bomb', attack: v.attack || null } : {})
     };
   }
 
@@ -2140,10 +2226,14 @@ export function createSession(options = {}) {
     const res = v.result || (ev ? { winner: ev.winner, reason: ev.reason, mvpId: ev.mvpId } : {});
     const { stats, mvp } = standings(v);
     const players = stats.map((s) => ({ ...s, head: s.headshots, alive: true, me: s.id === me, ping: pingOf(s.id) }));
+    const bomb = c.mode === 'bomb';
     return {
+      ...(bomb ? { mode: 'bomb' } : {}),
       winner: res.winner === 'owner' || res.winner === 'charterer' ? res.winner : 'draw',
       score: { ...v.score },
-      rounds: v.history.map((r) => ({ round: r.round, winner: r.winner || 'draw', reason: REASON_LABELS[r.reason] || r.reason || '' })),
+      rounds: v.history.map((r) => (bomb
+        ? { round: r.round, winner: r.winner || 'draw', reason: BOMB_REASON_LABELS[r.reason] || r.reason || '', reasonCode: r.reason, attack: r.attack || null }
+        : { round: r.round, winner: r.winner || 'draw', reason: REASON_LABELS[r.reason] || r.reason || '' })),
       players,
       mvp: mvp ? { ...mvp, head: mvp.headshots, me: mvp.id === me } : undefined,
       myTeam: c.team || undefined,
@@ -2207,7 +2297,7 @@ export function createSession(options = {}) {
       pushChat({ system: true, text: `경기 종료 — ${props.winnerName ? `${props.winnerName} 우승${w ? ` (${w.kills}킬)` : ''}` : '무승부'}${FFA_REASON_TEXT[props.reason] ? ' · ' + FFA_REASON_TEXT[props.reason] : ''}` }, false);
     } else {
       const label = res.winner === 'owner' || res.winner === 'charterer' ? `${TEAM_NAME[res.winner]} 팀 승리` : '무승부';
-      pushChat({ system: true, text: `경기 종료 — ${label} (블루 ${v.score.owner} : ${v.score.charterer} 오렌지${res.reason === 'forfeit' ? ' · 상대 팀 전원 퇴장' : ''})` }, false);
+      pushChat({ system: true, text: `경기 종료 — ${label} (블루 ${v.score.owner} : ${v.score.charterer} 레드${res.reason === 'forfeit' ? ' · 상대 팀 전원 퇴장' : ''})` }, false);
     }
     U('show', 'results', props);
     screen('results');
@@ -2228,10 +2318,15 @@ export function createSession(options = {}) {
         target: ffaTarget(v), mapId: c.mapId, mapName: c.mapName || undefined, meId: me
       };
     }
+    // 폭파 미션: 폭탄을 든 사람은 내가 공격 팀일 때만 보인다
+    const bomb = c.mode === 'bomb';
+    const carrier = bomb && c.team && c.team === v.attack && v.bomb && v.bomb.state === 'carried' ? v.bomb.carrier : null;
     return {
+      ...(bomb ? { mode: 'bomb', attack: v.attack || null } : {}),
       players: v.players.filter((p) => p.connected || p.kills || p.deaths).map((p) => ({
         id: p.id, name: p.name, team: p.team, kills: p.kills, deaths: p.deaths, headshots: p.headshots,
-        ping: pingOf(p.id), alive: p.connected && p.playing && p.alive, me: p.id === me
+        ping: pingOf(p.id), alive: p.connected && p.playing && p.alive, me: p.id === me,
+        ...(carrier && p.id === carrier ? { bomb: true } : {})
       })),
       score: { owner: v.score.owner, charterer: v.score.charterer, target: v.rules.roundsToWin, bestOf: v.rules.maxRounds, round: v.round },
       round: v.round,
@@ -2270,9 +2365,15 @@ export function createSession(options = {}) {
         break;
       case 'fire':
         if (phase === 'match' && current && current.loaded && actors.has(e.from)) queueFire(e);
+        // (방장) 폭파 미션: 설치·해체 중인 사람이 쏘면 취소(그 사람이 아니면 match가 아무것도 하지 않는다)
+        if (hm && hm.mode === 'bomb' && hostReady()) publishReal(hm.m.bombIntent(e.from, 'cancel', { reason: 'fired' }));
         break;
       case 'hitClaim':
         if (hm) hostClaim(e);
+        break;
+      case 'bomb':
+        // (방장) 폭파 미션 설치·해체 시작·취소 의도. 위치·생존·시간은 match가 직접 재서 확정한다. 내 의도도 sync가 여기로 돌려준다
+        if (hm && hm.mode === 'bomb' && hostReady()) publishReal(hm.m.bombIntent(String(e.from), e.act, { reason: e.reason }));
         break;
       case 'grenade':
         if (phase === 'match' && current && current.loaded && e.from !== me) {
@@ -2371,6 +2472,13 @@ export function createSession(options = {}) {
   });
   wOn('weaponPick', (p) => { if (inRound()) sync.sendPick(p.dropId); });
   wOn('explosion', (x) => { if (hm) hostExplosion(x); });
+  // 폭파 미션: 내 E 키(휴대폰 설치/해체 버튼) → 방장에게 의도. 취소는 죽은 뒤에도 보낼 수 있다(방장이 이미 끝냈으면 무시)
+  wOn('bombAction', (a) => {
+    const c = current;
+    if (phase !== 'match' || !c || c.mode !== 'bomb' || !c.loaded || !sync || !a || !a.act) return;
+    if (a.act !== 'cancel' && !inRound()) return;
+    sync.sendBomb(a.act, a.reason);
+  });
   wOn('loadoutPick', (p) => pickLoadout(p.id != null ? p.id : p.weaponId != null ? p.weaponId : p.primary));
   wOn('leave', () => { if (phase === 'match') leaveRoom(); });
 

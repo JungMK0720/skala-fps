@@ -2,8 +2,9 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 점수판(Tab 누르는 동안). 포인터 잠금 중에도 보이도록 입력은 받지 않는다. 팀전은 팀별 두 표, 개인전은 순위 번호가 붙은 한 목록이다.
+ *          폭파 미션은 팀전 표에 공격/수비 꼬리표와 폭탄 소지(💣) 표시를 더한다.
  */
-import { h, setText, num, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, FFA_TARGET } from './dom.js';
+import { h, setText, num, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, modeLabel, FFA_TARGET, SIDE_NAME, bombSide } from './dom.js';
 import { makeScreen } from './parts.js';
 import { mapInfo } from './icons.js';
 
@@ -26,6 +27,7 @@ export function normStatPlayers(p) {
     rank: x.rank != null && Number.isFinite(Number(x.rank)) ? Math.max(1, Math.floor(Number(x.rank))) : null,
     respawnIn: x.respawnIn != null && Number.isFinite(Number(x.respawnIn)) ? Math.max(0, Number(x.respawnIn)) : null,
     protect: !!x.protect,
+    bomb: !!x.bomb, // 폭파 미션: 폭탄을 든 사람
   }));
 }
 
@@ -52,8 +54,8 @@ export function createScoreboard(ctx) {
   const ownerScore = h('b');
   const chScore = h('b');
   const scoreLine = h('div', { class: 'sk-sb-score' },
-    h('span', { class: 't-owner', text: '🟦 블루 ' }), ownerScore, h('span', { class: 'sk-sb-colon', text: ' : ' }), chScore,
-    h('span', { class: 't-charterer', text: ' 오렌지 🟧' }));
+    h('span', { class: 't-owner', text: `${TEAMS.owner.emoji} ${TEAMS.owner.name} ` }), ownerScore, h('span', { class: 'sk-sb-colon', text: ' : ' }), chScore,
+    h('span', { class: 't-charterer', text: ` ${TEAMS.charterer.name} ${TEAMS.charterer.emoji}` }));
   const cols = h('div', { class: 'sk-sb-cols' });
 
   const el = h('section', { class: 'sk-screen sk-overlay sk-scoreboard', hidden: true, 'aria-label': '점수판' },
@@ -63,11 +65,14 @@ export function createScoreboard(ctx) {
       cols,
       h('p', { class: 'sk-sb-foot', text: 'Tab에서 손을 떼면 닫혀요' })));
 
-  function teamTable(team, rows) {
+  /** role: 폭파 미션의 이번 라운드 진영('attack'|'defense'), 팀전이면 '' */
+  function teamTable(team, rows, role = '') {
     const T = TEAMS[team];
     const alive = rows.filter((x) => x.alive).length;
     const row = (x) => h('tr', { class: (x.me ? 'is-me ' : '') + (x.alive ? '' : 'is-dead') },
-      h('th', { scope: 'row', class: 'sk-sb-name' }, h('span', { text: (x.bot ? '🤖 ' : '') + x.name }), x.me ? h('span', { class: 'sk-tag', text: '나' }) : null),
+      h('th', { scope: 'row', class: 'sk-sb-name' }, h('span', { text: (x.bot ? '🤖 ' : '') + x.name }),
+        x.bomb ? h('span', { class: 'sk-sb-bomb', text: '💣', title: '폭탄 소지', 'aria-label': '폭탄 소지' }) : null,
+        x.me ? h('span', { class: 'sk-tag', text: '나' }) : null),
       h('td', { class: 'num', text: x.kills }),
       h('td', { class: 'num', text: x.deaths }),
       h('td', { class: 'num', text: x.head }),
@@ -76,6 +81,7 @@ export function createScoreboard(ctx) {
     return h('section', { class: `sk-sb-team sk-sb-team--${team}` },
       h('h3', { class: 'sk-sb-team-name' },
         h('span', { text: `${T.emoji} ${T.name}` }), h('small', { text: T.en }),
+        role ? h('span', { class: 'sk-sb-side', dataset: { side: role }, text: SIDE_NAME[role] }) : null,
         h('span', { class: 'sk-sb-team-alive', text: `생존 ${alive}/${rows.length}` })),
       h('table', { class: 'sk-sb-table' },
         h('thead', {}, h('tr', {}, ['이름', '킬', '데스', '헤드샷', '핑', '상태'].map((t, i) => h('th', { scope: 'col', class: i ? 'num' : '', text: t })))),
@@ -105,7 +111,8 @@ export function createScoreboard(ctx) {
     const s = JSON.stringify(p);
     if (s === sig) return;
     sig = s;
-    const ffa = modeKey(p.mode) === 'ffa';
+    const mode = modeKey(p.mode);
+    const ffa = mode === 'ffa';
     el.classList.toggle('is-ffa', ffa);
     scoreLine.hidden = ffa;
     if (ffa) {
@@ -118,17 +125,20 @@ export function createScoreboard(ctx) {
       cols.replaceChildren(ffaTable(rows));
       return;
     }
-    setText(title, '점수판');
+    // 팀전과 폭파 미션: 팀별 두 표. 폭파 미션은 제목에 모드, 팀 머리에 공격/수비(attack = 이번 라운드 공격 팀)
+    const bomb = mode === 'bomb';
     const players = normStatPlayers(p);
     const sc = p.score || {};
     const target = Math.max(1, Math.floor(num(sc.target, 3)));
     const bestOf = Math.max(1, Math.floor(num(sc.bestOf, target * 2 - 1)));
     const round = p.round != null ? p.round : sc.round;
+    const attack = bomb ? teamKey(p.attack != null ? p.attack : sc.attack) : '';
     const m = p.mapName ? { name: p.mapName } : mapInfo(ctx.maps, p.maps, p.mapId);
-    setText(meta, [m && m.name, round ? `라운드 ${round}` : '', `${bestOf}판 ${target}선승`].filter(Boolean).join(' · '));
+    setText(title, bomb ? modeLabel('bomb', { target, bestOf }) : '점수판');
+    setText(meta, [m && m.name, round ? `라운드 ${round}` : '', bomb ? '' : `${bestOf}판 ${target}선승`].filter(Boolean).join(' · '));
     setText(ownerScore, Math.floor(num(sc.owner, 0)));
     setText(chScore, Math.floor(num(sc.charterer, 0)));
-    cols.replaceChildren(...TEAM_KEYS.map((t) => teamTable(t, players.filter((x) => x.team === t).sort(byPerformance))));
+    cols.replaceChildren(...TEAM_KEYS.map((t) => teamTable(t, players.filter((x) => x.team === t).sort(byPerformance), bombSide(t, attack))));
   }
 
   return makeScreen(el, { render, onHide: () => { sig = ''; } });

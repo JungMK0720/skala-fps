@@ -2,9 +2,10 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: HUD 화면. 체력·탄약·슬롯·크로스헤어·히트마커·피격 방향·타이머·스코어·킬피드·중앙 메시지·속도계·콜아웃·상단 배너와
- *          개인전 표시(순위, 부활 패널, 보호)를 그린다. hud.set()은 매 프레임 불러도 되고 값이 바뀐 곳만 DOM에 쓴다.
+ *          개인전 표시(순위, 부활 패널, 보호), 폭파 미션 표시(진영 패널, 구역 표식, 설치·해체 막대, 폭탄 소지)를 그린다.
+ *          hud.set()은 매 프레임 불러도 되고 값이 바뀐 곳만 DOM에 쓴다.
  */
-import { h, setText, clamp, fmtTime, num, TEAMS, TEAM_KEYS, teamKey, FFA_TARGET } from './dom.js';
+import { h, setText, clamp, fmtTime, num, TEAMS, TEAM_KEYS, teamKey, FFA_TARGET, SIDE_NAME, bombSide } from './dom.js';
 import { makeScreen } from './parts.js';
 import { headshotIcon, weaponInfo } from './icons.js';
 import { PLAYER, MOVE } from '../core/consts.js';
@@ -34,10 +35,15 @@ const BANNER_MS = 3200;
 const BANNER_OUT_MS = 320; // css .sk-hud-banner의 전환 시간과 맞춘다
 const BANNER_QUEUE_MAX = 6;
 
+// 폭파 미션(MODES.md 5절): 상태 줄 색, 폭발 카운트다운이 급해지는 시간(초)
+const BOMB_TONES = Object.freeze(['attack', 'defense', 'warn']);
+const BOMB_URGENT_SEC = 10;
+const NO_BOMB = Object.freeze({ side: null, goal: '', status: '', tone: '', timer: null, carrying: false, progress: null, prompt: '', markers: Object.freeze([]) });
+
 function autoTone(text) {
   if (/매치 ?포인트|무승부|재경기|연장/.test(text)) return 'warn';
-  if (/블루/.test(text) && !/오렌지/.test(text)) return 'owner';
-  if (/오렌지/.test(text) && !/블루/.test(text)) return 'charterer';
+  if (/블루/.test(text) && !/레드/.test(text)) return 'owner';
+  if (/레드/.test(text) && !/블루/.test(text)) return 'charterer';
   return '';
 }
 
@@ -79,6 +85,56 @@ export function normSlots(registry, list) {
   return [0, 1, 2, 3].map((i) => normSlot(registry, arr[i]));
 }
 
+/** 폭발까지 남은 초 → 카운트다운 글자. 10초 밑은 0.1초 단위('9.8'), 그 위는 정수('35'). 둘 다 올림. 없으면 '' */
+export function bombTimerText(sec) {
+  if (sec == null || sec === '' || !Number.isFinite(Number(sec))) return '';
+  const tenths = Math.max(0, Math.ceil(Math.max(0, Number(sec)) * 10 - 1e-6));   // 소수 오차((0.1 + 0.2) × 10 = 3.000…04)로 한 칸 올라가지 않게
+  return tenths >= BOMB_URGENT_SEC * 10 ? String(Math.ceil(tenths / 10)) : (tenths / 10).toFixed(1);
+}
+
+/** 표식 거리(m) → 'NN m'. 없으면 '' */
+export function markerDist(d) {
+  return d == null || d === '' || !Number.isFinite(Number(d)) ? '' : `${Math.max(0, Math.round(Number(d)))} m`;
+}
+
+/** 표식 하나 → { id, label, kind:'site'|'bomb', x, y, on, edge, planted, dist }. id가 없으면 null. 좌표가 숫자가 아니면 숨긴다 */
+function bombMarker(m) {
+  if (!m || typeof m !== 'object' || m.id == null || m.id === '') return null;
+  const x = num(m.x, NaN), y = num(m.y, NaN);
+  const ok = Number.isFinite(x) && Number.isFinite(y);
+  return {
+    id: String(m.id), label: m.label == null ? '' : String(m.label), kind: m.kind === 'bomb' ? 'bomb' : 'site',
+    x: ok ? x : 0, y: ok ? y : 0, on: ok && m.on !== false, edge: !!m.edge, planted: !!m.planted,
+    dist: m.dist == null || m.dist === '' || !Number.isFinite(Number(m.dist)) ? null : Math.max(0, Number(m.dist)),
+  };
+}
+
+/**
+ * hud.set({ bomb }) 입력 → 정리된 값. 객체가 아니면 null(폭파 미션 표시를 모두 지운다).
+ * 모르는 side·tone·kind는 기본값으로, 같은 id의 표식은 앞의 것만, ratio는 0~1로 자른다.
+ */
+export function bombSpec(b) {
+  if (!b || typeof b !== 'object') return null;
+  const text = (v) => (v == null ? '' : String(v));
+  const pg = b.progress && typeof b.progress === 'object' ? b.progress : null;
+  const markers = [];
+  for (const m of Array.isArray(b.markers) ? b.markers : []) {
+    const mk = bombMarker(m);
+    if (mk && !markers.some((x) => x.id === mk.id)) markers.push(mk);
+  }
+  return {
+    side: b.side === 'attack' || b.side === 'defense' ? b.side : null,
+    goal: text(b.goal),
+    status: text(b.status),
+    tone: BOMB_TONES.includes(b.tone) ? b.tone : '',
+    timer: b.timer == null || b.timer === '' || !Number.isFinite(Number(b.timer)) ? null : Math.max(0, Number(b.timer)),
+    carrying: !!b.carrying,
+    progress: pg ? { kind: pg.kind === 'defuse' ? 'defuse' : 'plant', ratio: clamp(num(pg.ratio, 0), 0, 1), label: text(pg.label) } : null,
+    prompt: text(b.prompt),
+    markers,
+  };
+}
+
 export function createHud(ctx) {
   const st = {
     hp: null, maxHp: 100, ammo: undefined, reserve: undefined, mag: undefined, magSeen: 0, hasAmmo: false,
@@ -88,6 +144,9 @@ export function createHud(ctx) {
     alive: null, size: null, team: null, centerTimer: null, hitAnim: null,
     ffa: false, respSig: '', protect: false,
     speedOn: false, speedTenths: -1, calloutSeq: 0, bannerQueue: [], bannerTimer: null,
+    // 폭파 미션: 마지막으로 그린 값(바뀔 때만 DOM에 쓴다)
+    bomb: { on: false, side: null, tone: '', timerText: '', urgent: false, carrying: false, prog: false, progKind: '', progRatio: -1 },
+    markSeq: 0,
   };
   let viewH = 0;
 
@@ -109,11 +168,12 @@ export function createHud(ctx) {
     const pips = h('span', { class: 'sk-pips' });
     const aliveN = h('span', { class: 'sk-ts-alive-n' });
     const mp = h('span', { class: 'sk-ts-mp', text: '매치 포인트', hidden: true });
+    const role = h('small', { class: 'sk-ts-side', hidden: true }); // 폭파 미션: 이번 라운드 공격/수비
     const el = h('div', { class: `sk-ts sk-ts--${team}` },
-      h('div', { class: 'sk-ts-row' }, h('span', { class: 'sk-ts-name', text: TEAMS[team].name }), score),
+      h('div', { class: 'sk-ts-row' }, h('span', { class: 'sk-ts-label' }, h('span', { class: 'sk-ts-name', text: TEAMS[team].name }), role), score),
       h('div', { class: 'sk-ts-alive' }, pips, aliveN),
       mp);
-    return { el, score, pips, aliveN, mp };
+    return { el, score, pips, aliveN, mp, role };
   }
   const sides = { owner: side('owner'), charterer: side('charterer') };
   const timer = h('div', { class: 'sk-timer', text: '-:--' });
@@ -142,13 +202,32 @@ export function createHud(ctx) {
   const bannerEl = h('div', { class: 'sk-hud-banner', role: 'status' },
     bannerIco, h('div', { class: 'sk-hud-banner-text' }, bannerTitle, bannerSub));
 
+  // 폭파 미션: 점수 아래 진영 패널(공격/수비 · 목표 · 폭탄 상태 · 폭발 카운트다운), 구역 표식, 크로스헤어 아래 설치/해체 막대, 아래 가운데 안내
+  const bombSideEl = h('span', { class: 'sk-bomb-side', hidden: true });
+  const bombGoal = h('span', { class: 'sk-bomb-goal', hidden: true });
+  const bombStatus = h('span', { class: 'sk-bomb-status', hidden: true });
+  const bombNum = h('b', { class: 'sk-bomb-num' });
+  const bombTimer = h('span', { class: 'sk-bomb-timer', hidden: true },
+    h('span', { class: 'sk-bomb-timer-ico', text: '💣', 'aria-hidden': 'true' }), bombNum);
+  const bombPanel = h('div', { class: 'sk-bomb', hidden: true, role: 'group', 'aria-label': '폭파 미션' },
+    bombSideEl, h('div', { class: 'sk-bomb-text' }, bombGoal, bombStatus), bombTimer);
+  const bombMarks = h('div', { class: 'sk-bomb-marks', 'aria-hidden': 'true' });
+  const markEls = new Map(); // 표식 id → { el, ico, dist, 마지막 값 }
+  const bombProgLabel = h('span', { class: 'sk-bomb-prog-label' });
+  const bombProgFill = h('i');
+  const bombProg = h('div', { class: 'sk-bomb-prog', hidden: true, 'aria-hidden': 'true' },
+    bombProgLabel, h('div', { class: 'sk-bomb-prog-bar' }, bombProgFill));
+  const bombPrompt = h('div', { class: 'sk-bomb-prompt', hidden: true });
+  const bombCarry = h('span', { class: 'sk-hp-bomb', hidden: true, text: '💣 폭탄 소지' });
+
   const hpNum = h('b', { class: 'sk-hp-num', text: '100' });
   const hpFill = h('i');
   const hpEl = h('div', { class: 'sk-hp' },
     h('span', { class: 'sk-hp-ico', text: '✚', 'aria-hidden': 'true' }),
     h('div', { class: 'sk-hp-main' },
       h('div', { class: 'sk-hp-top' }, hpNum, h('span', { class: 'sk-hp-label', text: '체력' })),
-      h('div', { class: 'sk-hp-bar' }, hpFill)));
+      h('div', { class: 'sk-hp-bar' }, hpFill)),
+    bombCarry);
 
   // 속도계(아래 가운데)
   const speedNum = h('b', { class: 'sk-speed-num' });
@@ -194,8 +273,10 @@ export function createHud(ctx) {
   // 이모트 중 하단 안내 "🕺 탱고 · 움직이면 취소"(MODES.md 4.3)
   const emoteEl = h('div', { class: 'sk-emote-banner', hidden: true, role: 'status' });
 
+  // 순서: 설치/해체 막대 → 폭탄 안내 → 이모트 안내. css가 형제 선택자로 겹침을 푼다(안내가 뜨면 이모트 안내를 올리고, 터치 화면은 막대가 뜨면 안내를 가린다)
   const el = h('section', { class: 'sk-screen sk-hud', hidden: true, 'aria-label': 'HUD' },
-    vignette, flash, dmgs, xhair, hit, calloutBox, protectEl, top, bannerEl, feed, centerEl, respawnEl, specEl, emoteEl, hintEl, speedEl, hpEl,
+    vignette, flash, dmgs, bombMarks, xhair, hit, calloutBox, protectEl, bombProg, top, bombPanel, bannerEl, feed, centerEl, respawnEl, specEl,
+    bombPrompt, emoteEl, hintEl, speedEl, hpEl,
     h('div', { class: 'sk-br' }, slotsEl, ammoEl));
 
   ctx.listen(window, 'resize', () => { viewH = 0; if (st.gap >= 0) applySpread(); });
@@ -350,16 +431,27 @@ export function createHud(ctx) {
     const target = Math.max(1, Math.floor(num(sc.target, 3)));
     const bestOf = Math.max(1, Math.floor(num(sc.bestOf, target * 2 - 1)));
     const round = sc.round != null ? Math.floor(num(sc.round, 0)) : 0;
-    const sig = [o, c, target, bestOf, round].join('|');
+    // 폭파 미션: score.attack(이번 라운드 공격 팀)으로 팀 이름 옆에 공격/수비 꼬리표
+    const bomb = sc.mode === 'bomb';
+    const attack = bomb ? teamKey(sc.attack) : '';
+    const sig = [o, c, target, bestOf, round, bomb ? `bomb:${attack}` : ''].join('|');
     if (sig === st.scoreSig) return;
     st.scoreSig = sig;
     setText(sides.owner.score, o);
     setText(sides.charterer.score, c);
-    setText(tcSub, `${bestOf}판 ${target}선승${round ? ` · 라운드 ${round}` : ''}`);
+    const rule = `${bomb ? '폭파 미션 · ' : ''}${bestOf}판 ${target}선승`;
+    setText(tcSub, `${rule}${round ? ` · 라운드 ${round}` : ''}`);
     const done = o >= target || c >= target;
     sides.owner.mp.hidden = done || o !== target - 1;
     sides.charterer.mp.hidden = done || c !== target - 1;
-    top.setAttribute('aria-label', `블루 ${o} : ${c} 오렌지 · ${bestOf}판 ${target}선승`);
+    for (const t of TEAM_KEYS) {
+      const role = bombSide(t, attack);
+      const tag = sides[t].role;
+      tag.hidden = !role;
+      tag.dataset.side = role;
+      setText(tag, role ? SIDE_NAME[role] : '');
+    }
+    top.setAttribute('aria-label', `블루 ${o} : ${c} 레드 · ${rule}${attack ? ` · ${TEAMS[attack].name} 공격` : ''}`);
   }
 
   // score: { mode:'ffa', kills, rank, total, leaderName, leaderKills, target }
@@ -445,6 +537,89 @@ export function createHud(ctx) {
     node.hidden = !text;
   }
 
+  // ---------- 폭파 미션 ----------
+  /** 바뀔 때만 hidden을 쓴다(bomb은 매 프레임 들어온다) */
+  function shown(node, on) {
+    if (node.hidden === on) node.hidden = !on;
+  }
+  function lineOnce(node, text) {
+    setText(node, text);
+    shown(node, !!text);
+  }
+
+  // 표식: id마다 요소 하나를 두고 위치는 transform으로만 옮긴다. 목록에서 빠진 id는 지운다
+  function applyMarkers(list) {
+    for (const m of list) {
+      let r = markEls.get(m.id);
+      if (!r) {
+        const ico = h('span', { class: 'sk-bmk-ico' });
+        const dist = h('span', { class: 'sk-bmk-dist' });
+        const node = h('div', { class: 'sk-bmk', hidden: true }, h('div', { class: 'sk-bmk-in' }, ico, dist));
+        r = { el: node, ico, dist, on: false, kind: '', edge: false, planted: false, x: NaN, y: NaN, seen: 0 };
+        markEls.set(m.id, r);
+        bombMarks.append(node);
+      }
+      r.seen = st.markSeq + 1;
+      if (m.on !== r.on) { r.on = m.on; r.el.hidden = !m.on; }
+      if (!m.on) continue; // 숨은 표식은 위치와 글자를 건드리지 않는다
+      if (m.kind !== r.kind) { r.kind = m.kind; r.el.dataset.kind = m.kind; }
+      setText(r.ico, m.kind === 'bomb' ? '💣' : m.label); // 폭탄 표식은 label과 상관없이 💣
+      setText(r.dist, markerDist(m.dist));
+      if (m.edge !== r.edge) { r.edge = m.edge; r.el.classList.toggle('is-edge', m.edge); }
+      if (m.planted !== r.planted) { r.planted = m.planted; r.el.classList.toggle('is-planted', m.planted); }
+      const x = Math.round(m.x * 2) / 2;
+      const y = Math.round(m.y * 2) / 2;
+      if (x !== r.x || y !== r.y) { r.x = x; r.y = y; r.el.style.transform = `translate3d(${x}px, ${y}px, 0)`; }
+    }
+    st.markSeq += 1;
+    for (const [id, r] of markEls) if (r.seen !== st.markSeq) { r.el.remove(); markEls.delete(id); }
+  }
+
+  /** bomb: hud.set의 bomb 값(bombSpec 참고). null이면 폭파 미션 표시를 모두 지운다 */
+  function applyBomb(v) {
+    const spec = bombSpec(v);
+    const B = st.bomb;
+    if (!spec && !B.on) return;
+    const b = spec || NO_BOMB;
+    if (!!spec !== B.on) { B.on = !!spec; el.classList.toggle('has-bomb', B.on); }
+
+    if (b.side !== B.side) {
+      B.side = b.side;
+      bombSideEl.dataset.side = b.side || '';
+      bombPanel.dataset.side = b.side || '';
+      lineOnce(bombSideEl, b.side ? SIDE_NAME[b.side] : '');
+    }
+    lineOnce(bombGoal, b.goal);
+    if (b.tone !== B.tone) { B.tone = b.tone; bombStatus.dataset.tone = b.tone; }
+    lineOnce(bombStatus, b.status);
+    const tText = bombTimerText(b.timer);
+    if (tText !== B.timerText) {
+      B.timerText = tText;
+      setText(bombNum, tText);
+      shown(bombTimer, !!tText);
+    }
+    const urgent = b.timer != null && b.timer < BOMB_URGENT_SEC;
+    if (urgent !== B.urgent) { B.urgent = urgent; bombTimer.classList.toggle('is-urgent', urgent); }
+    shown(bombPanel, !!(b.side || b.goal || b.status || tText));
+
+    if (b.carrying !== B.carrying) {
+      B.carrying = b.carrying;
+      bombCarry.hidden = !b.carrying;
+      hpEl.classList.toggle('is-bomb', b.carrying);
+    }
+
+    const pg = b.progress;
+    if (!!pg !== B.prog) { B.prog = !!pg; bombProg.hidden = !pg; }
+    if (pg) {
+      if (pg.kind !== B.progKind) { B.progKind = pg.kind; bombProg.dataset.kind = pg.kind; }
+      const r = Math.round(pg.ratio * 1000) / 1000;
+      if (r !== B.progRatio) { B.progRatio = r; bombProgFill.style.transform = `scaleX(${r})`; }
+      setText(bombProgLabel, pg.label);
+    }
+    lineOnce(bombPrompt, b.prompt);
+    applyMarkers(b.markers);
+  }
+
   // ---------- 공개 ----------
   function set(p) {
     if (!p || typeof p !== 'object') return;
@@ -484,6 +659,7 @@ export function createHud(ctx) {
       setLine(emoteEl, name ? `${e.icon || '🕺'} ${name} · 움직이면 취소` : '');
       el.classList.toggle('is-emote', !!name); // 이모트 중(3인칭)에는 크로스헤어·히트마커를 숨긴다
     }
+    if ('bomb' in p) applyBomb(p.bomb);
   }
 
   /** hitmarker(head, kill, { half }) — half: 저격 반샷(손·발) 전용 분홍 표시 */
@@ -624,6 +800,7 @@ export function createHud(ctx) {
     applyProtect(false);
     setLine(emoteEl, '');
     el.classList.remove('is-emote');
+    applyBomb(null);
     clearCallouts();
     clearBanners();
     applySpeed(0);
