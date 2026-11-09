@@ -409,6 +409,8 @@ export default {
 
       t.setSection('폭파 미션 짧게');
       // 셋째 방: 방장이 대기실에서 폭파 미션으로 바꾸면 규칙은 클래식, 맵은 미션 맵이 된다. 방장(블루)이 A에 설치하고 손님(레드)이 해체한다
+      // 방에서 나오는 동안(leaving)은 로비 화면이 먼저 뜨지만 방 만들기가 먹지 않는다. 로비가 다 뜰 때까지 기다린다
+      await host.waitFor(`__qa.ctx.screen === "lobby" && !document.querySelector('.sk-lobby .sk-loading')`, 15000, { label: '방장 로비(폭파 방 전)' });
       await host.clickText('.sk-lobby .sk-bar-actions .sk-btn', '방 만들기');
       await host.waitFor(`!!document.querySelector('.sk-create-sheet')`, 3000, { label: '방 만들기 시트' });
       await host.fn(() => { const el = document.querySelector('.sk-create-sheet input'); el.focus(); el.select(); });
