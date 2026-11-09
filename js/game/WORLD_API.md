@@ -125,7 +125,7 @@ await world.loadMap(mapId, { mode, ruleset });
 
 | 메서드 / 필드 | 설명 |
 |---|---|
-| `setMode('team'\|'ffa')` / `loadMap(mapId, { mode })` | `unloadMap`과 `mode` 없는 `loadMap`은 `'team'`으로 되돌린다. FFA: 다른 모든 액터가 적(아바타 한 가지 적 색 = 주황), 아군 이름표·아군 관전 없음(죽으면 쓰러진 시점 그대로 부활 대기). `world.mode`로 읽는다 |
+| `setMode('team'\|'ffa')` / `loadMap(mapId, { mode })` | `unloadMap`과 `mode` 없는 `loadMap`은 `'team'`으로 되돌린다. FFA: 다른 모든 액터가 적(아바타 한 가지 적 색 = 레드 팀 빨강), 아군 이름표·아군 관전 없음(죽으면 쓰러진 시점 그대로 부활 대기). `world.mode`로 읽는다 |
 | `spawnLocal({ id, name, team:null, spawn, loadout, protectMs })` | FFA 부활(처음 출격도 같다). 부활 대기 표시를 지우고 `protectMs` 동안 HUD `protect`(🛡 보호 중). **내가 `hitClaim`을 내거나 내 수류탄이 터지면(`explosion`, 피해 주장) 보호 표시가 바로 끝**(match 규칙과 같게) |
 | `setRespawn({ inMs, killer?, weaponName? } \| null)` | 내 부활 대기 표시. World가 매 프레임 `hud.respawn = { seconds, killer, weaponName }`을 센다(살아 있으면 숨김). `spawnLocal`이 지운다 |
 | `setProtect(ms \| true \| false)` | 내 보호 표시를 직접 켜고 끈다(스냅샷 `protect`를 따를 때) |
