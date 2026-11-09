@@ -30,7 +30,8 @@ export function createRemote({ fetch: fetchImpl, config, timeoutMs = RPC_TIMEOUT
   const send = fetchImpl || ((...args) => globalThis.fetch(...args));
   let warned = false;
 
-  async function call(fn, args = {}, { keepalive = false } = {}) {
+  /** quiet: HTTP 오류여도 경고를 남기지 않는다(옛 서버에 없는 함수를 물어볼 때 404는 정상이다) */
+  async function call(fn, args = {}, { keepalive = false, quiet = false } = {}) {
     if (!enabled) return { ok: false, reason: 'network' };
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -44,7 +45,7 @@ export function createRemote({ fetch: fetchImpl, config, timeoutMs = RPC_TIMEOUT
       });
       if (!res.ok) {
         // 키가 틀렸거나 schema.sql을 실행하지 않은 경우. 게임은 오프라인으로 계속되니 원인을 한 번만 남긴다.
-        if (!warned) {
+        if (!warned && !quiet) {
           warned = true;
           console.warn(`[account] Supabase RPC ${fn} 실패: HTTP ${res.status}. docs/SUPABASE_SETUP.md의 문제 해결을 확인하세요.`);
         }
@@ -73,6 +74,8 @@ export function createRemote({ fetch: fetchImpl, config, timeoutMs = RPC_TIMEOUT
       p_stats: profile.stats,
       p_secrets: profile.secrets
     }, opts),
-    topPlayers: (limit) => call('fps_top_players', { p_limit: limit })
+    topPlayers: (limit) => call('fps_top_players', { p_limit: limit }),
+    /** 서버가 아는 기능 { ok:true, avatars:true }. schema.sql을 다시 실행하기 전의 서버는 404(PGRST202)라 { ok:false, status:404 } */
+    features: () => call('fps_features', {}, { quiet: true })
   };
 }

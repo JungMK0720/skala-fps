@@ -8,6 +8,7 @@ import { AVATARS, AVATAR_IDS } from '../../../js/core/avatar-defs.js';
 import { TEAM_IDS } from '../../../js/core/consts.js';
 import { WEAPON_IDS } from '../../../js/weapons/defs.js';
 import { LOW_QUALITY, NICK, lockPointer, openGame, richProfile, sleep, waitLive, waitRun, waitTicks } from '../kit.mjs';
+import { startFakeSupabase } from '../fake-supabase.mjs';
 
 /** 페이지에서: 이 화면의 보이는 버튼 중 뷰포트 밖으로 나간 것(세로로 스크롤되는 곳은 넘어간다) */
 function clippedButtons(rootSel) {
@@ -127,6 +128,34 @@ async function avatarSection(t) {
   await page.waitFor(`[...document.querySelectorAll('.sk-av-card .sk-av-art')].every((a) => a.dataset.team === '${TEAM_IDS[0]}')`, 5000, { label: '첫 팀 초상' });
   await zoomShot(`avatars-portraits-${TEAM_IDS[0]}`);
   t.errorsOk('캐릭터 상점 초상');
+
+  // schema.sql을 다시 실행하기 전의 서버(fps_features 없음): 캐릭터 구매가 닫히고 안내가 보인다
+  t.setSection('캐릭터: 서버가 캐릭터를 모를 때');
+  const old = await startFakeSupabase({ features: false });
+  t.server.setConfig(old.config);
+  try {
+    page = await openGame(t, '', { profile: richProfile({ points: 1000 }), settings: LOW_QUALITY, screen: 'menu', width: 1280, height: 720 });
+    await page.waitFor(`__qa.ctx.account.avatarShop === 'closed'`, 10000, { label: '캐릭터 구매 닫힘' })
+      .then(() => t.check(true, '서버가 fps_features를 모르면 캐릭터 구매를 닫는다'), (err) => t.check(false, '서버가 fps_features를 모르면 캐릭터 구매를 닫는다', err.message));
+    await page.clickText('.sk-menu-btn--sub', '상점');
+    await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '상점' });
+    await page.clickText('.sk-shop .sk-tab', '캐릭터');
+    const closed = await page.eval(`({
+      note: __qa.visible('.sk-av-closed') ? __qa.text('.sk-av-closed') : null,
+      buttons: [...document.querySelectorAll('.sk-av-card')].map((c) => [c.getAttribute('aria-label'), c.querySelector('.sk-shop-action').textContent, c.querySelector('.sk-shop-action').disabled])
+    })`);
+    t.check(/서버 업데이트 뒤에 열려요/.test(closed.note || ''), '닫혔다는 안내가 보인다', closed.note);
+    t.check(closed.buttons.slice(1).every(([, text, off]) => text === '구매 준비 중' && off), '사지 않은 캐릭터 버튼은 꺼진다', closed.buttons);
+    t.check(closed.buttons[0][1] === '장착 중', '기본 캐릭터는 그대로 입고 있다', closed.buttons[0]);
+    const points = await page.eval('__qa.ctx.account.profile.points');
+    t.check((await page.eval(`__qa.ctx.account.buy('av_scout').reason`)) === 'closed' && (await page.eval('__qa.ctx.account.profile.points')) === points, 'API로 사도 막히고 포인트가 그대로다');
+    await sleep(300);
+    await t.shot('avatars-shop-closed');
+    t.errorsOk('캐릭터 구매 닫힘');
+  } finally {
+    t.server.setConfig(null);
+    await old.close();
+  }
 
   t.setSection('캐릭터: 경기 장면 줄 세우기');
   const all = [...AVATAR_IDS];
