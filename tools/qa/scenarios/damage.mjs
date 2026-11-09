@@ -376,12 +376,13 @@ export default {
     await sleep(1100);
     const won = await page.eval(`({ p: __qa.profile(), title: __qa.text('.sk-res-title'), verdict: __qa.text('.sk-res-verdict'), gain: __qa.text('.sk-res-gain-num'), lines: [...document.querySelectorAll('.sk-res-line')].map((l) => [l.children[0].textContent, l.children[1].textContent]), total: __qa.text('.sk-res-total') })`);
     t.check(won.p.stats.kills === 5 && won.p.stats.knifeKills === 5 && won.p.stats.wins === 1 && won.p.stats.matches === 1 && won.p.stats.deaths === 0, '내 전적', won.p.stats);
-    const gainedWin = Math.round((5 * 5 + 30 + 10) * 1.4);
+    // 5킬 판이라 승리 보상은 30 × 5/20 = 7.5 → 8 (account/economy.js FFA_FULL_WIN_KILLS)
+    const gainedWin = Math.round((5 * 5 + Math.round(30 * 5 / 20) + 10) * 1.4);
     t.check(won.p.points === 500 + gainedWin, '승리와 난이도 보상', won.p.points);
     t.check(won.gain === `+${gainedWin}`, '결과 화면 획득 포인트', won.gain);
-    t.check(won.lines.length === 4 && won.lines.some(([k]) => /킬 ×5/.test(k)) && won.lines.some(([k]) => k === '승리') && won.lines.some(([k]) => k === '완주') && won.lines.some(([k]) => /어려움/.test(k)), '보상 내역', won.lines);
+    t.check(won.lines.length === 4 && won.lines.some(([k]) => /킬 ×5/.test(k)) && won.lines.some(([k, v]) => k === '승리(5킬 판)' && v === '+8') && won.lines.some(([k]) => k === '완주') && won.lines.some(([k]) => /어려움/.test(k)), '보상 내역', won.lines);
     t.check(/테스터 우승/.test(won.title) && /내가 우승했어요/.test(won.verdict), '우승 문구', won);
-    t.check(/591|보유/.test(won.total), '보유 포인트', won.total);
+    t.check(won.total.includes(String(500 + gainedWin)), '보유 포인트', won.total);
     await t.shot('player-won');
     t.errorsOk('내가 이기는 경기');
   }

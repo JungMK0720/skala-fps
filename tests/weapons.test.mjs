@@ -12,6 +12,7 @@ import { createArsenal, validateHit, shotDirection, STATES } from '../js/weapons
 import { GRENADE_PHYSICS, explosionDamage } from '../js/weapons/grenade.js';
 import {
   RULESET_IDS, isWeaponAllowed, pickableWeapons, defaultPick, rulesetOf, normalizeRuleset,
+  FFA_KILLS, FFA_KILL_PRESETS, parseKillTarget, normalizeKillTarget,
 } from '../js/game/modes.js';
 
 const {
@@ -1629,6 +1630,19 @@ describe('규칙(modes.js)', () => {
         assert.ok(isWeaponAllowed(r, a.getWeapon().id));
       }
     }
+  });
+
+  test('개인전 목표 킬: 5~20 정수로 읽고, 범위 밖은 가까운 끝, 숫자가 아니면 null(normalize는 기본 20)', () => {
+    assert.deepEqual({ ...FFA_KILLS }, { min: 5, max: 20, def: 20 });
+    for (const v of FFA_KILL_PRESETS) assert.equal(parseKillTarget(v), v, `빠른 선택 ${v}은 범위 안`);
+    const cases = [[5, 5], [12, 12], ['7', 7], [' 9 ', 9], [12.4, 12], [12.6, 13], [4, 5], [-3, 5], [0, 5], [21, 20], [99, 20], ['100', 20]];
+    for (const [v, want] of cases) assert.equal(parseKillTarget(v), want, JSON.stringify(v));
+    for (const v of [undefined, null, '', '  ', 'abc', '5킬', NaN, Infinity, true, false, {}, [], [7]]) {
+      assert.equal(parseKillTarget(v), null, String(v));
+      assert.equal(normalizeKillTarget(v), FFA_KILLS.def, String(v));
+    }
+    assert.equal(normalizeKillTarget(3), 5);
+    assert.equal(normalizeKillTarget('15'), 15);
   });
 });
 

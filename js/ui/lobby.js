@@ -1,14 +1,17 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 로비 화면. 방 목록(규칙·모드 배지)과 방 만들기 시트(규칙·모드·맵·인원)를 그린다. 폭파 미션은 클래식 규칙과 미션 맵만 고른다.
+ * Purpose: 로비 화면. 방 목록(규칙·모드·목표 킬 배지)과 방 만들기 시트(규칙·모드·개인전 목표 킬·맵·인원)를 그린다.
+ *          폭파 미션은 클래식 규칙과 미션 맵만 고른다.
  */
 // SKALA 작전 UI — 로비(방 목록 + 방 만들기)
 import { h, btn, setText, clamp, num, modeKey, modeLabel, MODE_ICON, MODE_NAME } from './dom.js';
 import { PASSWORD_MAX } from '../net/secret.js';
-import { makeScreen, createModal, sheet, mapCard, createChoiceRow } from './parts.js';
+import { makeScreen, createModal, sheet, mapCard, createChoiceRow, createStepper } from './parts.js';
 import { mapIcon, mapList, mapInfo } from './icons.js';
-import { RULESETS, RULESET_IDS, DEFAULT_RULESET, normalizeRuleset } from '../game/modes.js';
+import {
+  RULESETS, RULESET_IDS, DEFAULT_RULESET, normalizeRuleset, FFA_KILLS, FFA_KILL_PRESETS, normalizeKillTarget
+} from '../game/modes.js';
 
 const ROOM_NAME_MAX = 24;
 // 무료 Realtime 한도(초당 메시지) 때문에 방은 최대 6명(3:3). props.maxPlayers로 더 낮출 수 있다.
@@ -27,21 +30,29 @@ export const RULE_CHOICES = Object.freeze(RULESET_IDS.map((id) => Object.freeze(
 export const MODE_IDS = Object.freeze(['team', 'ffa', 'bomb']);
 /** 폭파 미션은 클래식 규칙만 쓴다 */
 export const BOMB_RULESET = 'classic';
-const MODE_SUB = Object.freeze({ team: '블루 vs 레드 · 5판 3선승', ffa: '모두가 적 · 20킬', bomb: '공격·수비 · A/B 구역에 폭탄' });
+/** 모드 칸의 작은 글자. 개인전 칸은 고른 목표 킬을 넣어 ffaSubText로 쓴다 */
+const MODE_SUB = Object.freeze({ team: '블루 vs 레드 · 5판 3선승', bomb: '공격·수비 · A/B 구역에 폭탄' });
+const ffaSubText = (kills) => `모두가 적 · ${kills}킬`;
 const MODE_HINT = Object.freeze({
   team: '블루 vs 레드 섬멸전이에요. 라운드 중 부활 없이 5판 3선승으로 겨뤄요.',
-  ffa: '모두가 적이에요. 먼저 20킬을 채우면 우승하고, 죽으면 3초 뒤 부활해요.',
   bomb: '공격 팀은 A나 B 구역에 폭탄을 설치하고, 수비 팀은 막거나 해체해요. 5판 3선승이고 2라운드 뒤 공수를 바꿔요.',
 });
+/** 모드 안내 글. 개인전은 고른 목표 킬을 넣는다 */
+const modeHintText = (mode, kills) => (mode === 'ffa'
+  ? `모두가 적이에요. 먼저 ${kills}킬을 채우면 우승하고, 죽으면 3초 뒤 부활해요.` : MODE_HINT[mode]);
 
 /** 이 모드에서 쓰는 규칙. 폭파 미션은 언제나 클래식 */
 export function ruleForMode(mode, ruleset) {
   return modeKey(mode) === 'bomb' ? BOMB_RULESET : normalizeRuleset(ruleset);
 }
 
-/** 방 목록 배지 글자. 예: '칼전 · 개인전', '클래식 · 폭파 미션'. 규칙이 없는 옛 방은 클래식이다 */
-export function ruleBadge(ruleset, mode) {
-  return `${RULESETS[ruleForMode(mode, ruleset)].name} · ${MODE_NAME[modeKey(mode)]}`;
+/**
+ * 방 목록 배지 글자. 예: '칼전 · 개인전', '클래식 · 폭파 미션'. 규칙이 없는 옛 방은 클래식이다.
+ * killTarget을 넘기면 개인전 배지에 목표 킬을 붙인다('칼전 · 개인전 · 10킬'). 팀전·폭파 미션에는 붙이지 않는다
+ */
+export function ruleBadge(ruleset, mode, killTarget) {
+  const base = `${RULESETS[ruleForMode(mode, ruleset)].name} · ${MODE_NAME[modeKey(mode)]}`;
+  return modeKey(mode) === 'ffa' && killTarget !== undefined ? `${base} · ${normalizeKillTarget(killTarget)}킬` : base;
 }
 
 /** 맵 목록에서 이 규칙으로 고를 수 있는 맵만 남긴다. 하나도 없으면 그대로 둔다(고를 맵이 없어 막히지 않게) */
@@ -67,6 +78,7 @@ export function createLobby(ctx) {
   let formMax = ROOM_MAX;
   let formMode = 'team';
   let formRule = DEFAULT_RULESET;
+  let formKills = FFA_KILLS.def;
   const modal = createModal();
   const myName = () => p.name || ctx.playerName || '플레이어';
 
@@ -86,13 +98,19 @@ export function createLobby(ctx) {
     autocomplete: 'off', spellcheck: 'false', 'aria-label': '비밀번호(선택)',
   });
   const mapBox = h('div', { class: 'sk-mapcards', role: 'radiogroup', 'aria-label': '맵 선택' });
+  const ffaSub = h('small');
   const modeBtns = MODE_IDS.map((m) => btn([
     h('span', { class: 'sk-mode-ico', text: MODE_ICON[m], 'aria-hidden': 'true' }),
     h('span', { class: 'sk-mode-txt' },
       h('b', { text: MODE_NAME[m] }),
-      h('small', { text: MODE_SUB[m] })),
+      m === 'ffa' ? ffaSub : h('small', { text: MODE_SUB[m] })),
   ], () => setMode(m), 'sk-mode-btn', { role: 'radio', 'data-mode': m }));
   const modeHint = h('p', { class: 'sk-set-hint' });
+  // 개인전 목표 킬: 개인전을 고를 때만 보인다(대기실에서도 방장이 다시 바꿀 수 있다)
+  const killPick = createStepper({
+    label: '목표 킬', min: FFA_KILLS.min, max: FFA_KILLS.max, presets: FFA_KILL_PRESETS, fmt: (n) => `${n}킬`, onPick: (n) => setKills(n), cls: 'sk-kill-pick',
+  });
+  const killField = h('div', { class: 'sk-field', hidden: true }, h('span', { class: 'sk-field-label', text: '목표 킬' }), killPick.el);
   // 폭파 미션이면 클래식으로 고정하고 버튼을 끈다(고른 규칙은 다른 모드로 돌아가면 다시 쓴다)
   const ruleRow = createChoiceRow({ label: '규칙 선택', onPick: (id) => { if (formMode !== 'bomb') setRule(id); } });
   const ruleHint = h('p', { class: 'sk-set-hint' });
@@ -112,6 +130,7 @@ export function createLobby(ctx) {
       h('span', { class: 'sk-field-label', text: '모드' }),
       h('div', { class: 'sk-modepick', role: 'radiogroup', 'aria-label': '모드 선택' }, modeBtns),
       modeHint),
+    killField,
     h('div', { class: 'sk-field' }, h('span', { class: 'sk-field-label', text: '맵 선택' }), mapBox),
     h('div', { class: 'sk-field' },
       h('span', { class: 'sk-field-label', text: '최대 인원' }),
@@ -145,10 +164,17 @@ export function createLobby(ctx) {
         b.title = ready ? '' : '폭파 미션을 할 수 있는 맵이 아직 없어요';
       }
     }
-    setText(modeHint, MODE_HINT[formMode]);
+    killField.hidden = formMode !== 'ffa';
+    setKills(formKills);   // 개인전 칸 글자와 모드 안내도 여기서 쓴다
     renderRule();
     renderMapCards();
     setMax(formMax);
+  }
+  function setKills(n) {
+    formKills = normalizeKillTarget(n);
+    killPick.set(formKills);
+    setText(ffaSub, ffaSubText(formKills));
+    setText(modeHint, modeHintText(formMode, formKills));
   }
   function setRule(id) {
     const next = normalizeRuleset(id);
@@ -188,7 +214,10 @@ export function createLobby(ctx) {
     if (!formMap) { setText(formErr, '맵을 골라 주세요.'); return; }
     const password = pwIn.value.trim().slice(0, PASSWORD_MAX);
     modal.close();
-    ctx.emit('lobby:create', { name, mapId: formMap, max: formMax, mode: formMode, ruleset: ruleForMode(formMode, formRule), ...(password ? { password } : {}) });
+    ctx.emit('lobby:create', {
+      name, mapId: formMap, max: formMax, mode: formMode, ruleset: ruleForMode(formMode, formRule),
+      ...(formMode === 'ffa' ? { killTarget: formKills } : {}), ...(password ? { password } : {})
+    });
   }
 
   // ---------- 비밀번호 입력 ----------
@@ -235,7 +264,10 @@ export function createLobby(ctx) {
       h('div', { class: 'sk-room-main' },
         h('div', { class: 'sk-room-name', text: (r.locked ? '🔒 ' : '') + (r.name || '이름 없는 방'), title: r.locked ? '비밀번호가 있는 방' : null }),
         h('div', { class: 'sk-room-meta' },
-          h('span', { class: `sk-mode-badge sk-mode-badge--${modeKey(r.mode)}`, text: ruleBadge(r.ruleset, r.mode), title: modeLabel(r.mode, { killTarget: r.killTarget }) }),
+          h('span', {
+            class: `sk-mode-badge sk-mode-badge--${modeKey(r.mode)}`,
+            text: ruleBadge(r.ruleset, r.mode, r.killTarget ?? FFA_KILLS.def), title: modeLabel(r.mode, { killTarget: normalizeKillTarget(r.killTarget) }),
+          }),
           h('span', { class: 'sk-room-map', text: m ? [m.name, m.tag].filter(Boolean).join(' · ') : '맵 미정' }),
           h('span', { class: 'sk-room-host' }, h('span', { text: '👑', 'aria-label': '방장' }), h('span', { text: r.hostName || '?' })))),
       h('div', { class: 'sk-room-count', title: `${n}/${max}명` },

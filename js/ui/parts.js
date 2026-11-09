@@ -1,7 +1,8 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 화면 공통 부품. 화면 골격, 모달 시트, 맵 카드, 키캡, 포인트 표시, 캐릭터 초상 칸, 무기 카드 조각(막대·스탯·요약), 하나만 고르는 버튼 묶음을 둔다.
+ * Purpose: 화면 공통 부품. 화면 골격, 모달 시트, 맵 카드, 키캡, 포인트 표시, 캐릭터 초상 칸, 무기 카드 조각(막대·스탯·요약), 하나만 고르는 버튼 묶음,
+ *          정수 하나를 고르는 스테퍼(− 값 ＋, 빠른 선택)를 둔다.
  */
 import { h, btn, clamp, fmtPoints, num, setText } from './dom.js';
 import { mapIcon, uiIcon, weaponInfo } from './icons.js';
@@ -269,4 +270,37 @@ export function createChoiceRow({ label, onPick, cls = '' }) {
   }
 
   return { el: box, set };
+}
+
+/**
+ * − 값 ＋ 로 정수 하나를 고르는 칸. presets를 주면 자주 쓰는 값을 바로 고르는 버튼 묶음을 옆에 둔다.
+ * onPick(n)은 지금 값과 다른 값일 때만 부른다. 화면은 set(n)을 다시 불러야 바뀐다(방장 권한 같은 검사를 부르는 쪽이 하게).
+ * set(n, { disabled })는 버튼을 새로 만들지 않아 누르던 버튼의 키보드 포커스가 남는다.
+ */
+export function createStepper({ label, min, max, step = 1, presets = [], fmt = String, onPick, cls = '' }) {
+  let cur = min;
+  let off = false;
+  const out = h('output', { class: 'sk-stepper-val', 'aria-live': 'polite' });
+  const pick = (n) => {
+    const v = clamp(Math.round(n), min, max);
+    if (!off && v !== cur) onPick(v);
+  };
+  const minus = btn('−', () => pick(cur - step), 'sk-btn--icon', { 'aria-label': `${label} 줄이기` });
+  const plus = btn('＋', () => pick(cur + step), 'sk-btn--icon', { 'aria-label': `${label} 늘리기` });
+  const quick = presets.length ? createChoiceRow({ label: `${label} 빠른 선택`, onPick: (id) => pick(Number(id)), cls: 'sk-stepper-quick' }) : null;
+  const el = h('div', { class: 'sk-stepper' + (cls ? ' ' + cls : ''), role: 'group', 'aria-label': label }, minus, out, plus, quick && quick.el);
+
+  function set(n, { disabled = false } = {}) {
+    cur = clamp(Math.round(num(n, min)), min, max);
+    off = !!disabled;
+    setText(out, fmt(cur));
+    minus.disabled = off || cur <= min;
+    plus.disabled = off || cur >= max;
+    if (quick) {
+      quick.set(presets.map((v) => ({ id: String(v), label: fmt(v) })), String(cur));
+      for (const b of quick.el.children) b.disabled = off;
+    }
+  }
+  set(min);
+  return { el, set };
 }

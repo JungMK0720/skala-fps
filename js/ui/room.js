@@ -1,15 +1,15 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 대기실 화면. 팀 또는 개인전 명단, 준비와 시작, 모드·규칙·맵 변경, 채팅을 다룬다.
+ * Purpose: 대기실 화면. 팀 또는 개인전 명단, 준비와 시작, 모드·규칙·개인전 목표 킬·맵 변경, 채팅을 다룬다.
  *          폭파 미션은 팀 칼럼에 전반 진영(먼저 공격/수비)을 붙이고, 규칙은 클래식, 맵은 미션 맵만 고른다.
  */
-// SKALA 작전 UI — 방(대기실): 팀 칼럼(팀전·폭파 미션) / 한 줄 명단(개인전), 준비/시작, 모드·규칙·맵 변경, 채팅
+// SKALA 작전 UI — 방(대기실): 팀 칼럼(팀전·폭파 미션) / 한 줄 명단(개인전), 준비/시작, 모드·규칙·목표 킬·맵 변경, 채팅
 import { h, btn, setText, num, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, modeLabel, MODE_ICON, MODE_NAME, SIDE_NAME, bombSide } from './dom.js';
-import { makeScreen, mapCard, createChoiceRow } from './parts.js';
+import { makeScreen, mapCard, createChoiceRow, createStepper } from './parts.js';
 import { mapList, mapInfo } from './icons.js';
 import { RULE_CHOICES, MODE_IDS, mapsForMode, missionMaps, ruleForMode } from './lobby.js';
-import { RULESETS, normalizeRuleset } from '../game/modes.js';
+import { RULESETS, normalizeRuleset, FFA_KILLS, FFA_KILL_PRESETS, normalizeKillTarget } from '../game/modes.js';
 
 const CHAT_MAX = 30;
 const CHAT_LEN = 120;
@@ -110,6 +110,21 @@ export function createRoom(ctx) {
     ctx.emit('room:ruleset', { ruleset: next });
   }
 
+  // ---------- 목표 킬(개인전만. 방장만 5~20 안에서 바꾼다. 다른 사람은 글과 모드 칩으로 확인) ----------
+  const killPick = createStepper({
+    label: '목표 킬', min: FFA_KILLS.min, max: FFA_KILLS.max, presets: FFA_KILL_PRESETS, fmt: (n) => `${n}킬`, onPick: pickKills, cls: 'sk-kill-pick',
+  });
+  const killDesc = h('p', { class: 'sk-set-hint' });
+  const killBox = h('div', { class: 'sk-room-kills', hidden: true },
+    h('h3', { class: 'sk-room-kills-title', text: '🎯 목표 킬' }), killPick.el, killDesc);
+  function pickKills(n) {
+    const me = normPlayers(p).find((x) => x.me);
+    const next = normalizeKillTarget(n);
+    if (!me || !me.host || p.starting || modeKey(p.mode) !== 'ffa' || next === normalizeKillTarget(p.killTarget)) return;
+    screen.update({ killTarget: next }); // 즉시 반영, 다음 update가 오면 그 값이 우선
+    ctx.emit('room:killTarget', { killTarget: next });
+  }
+
   // ---------- 맵 ----------
   const mapCur = h('div', { class: 'sk-room-mapcur' });
   const mapPick = h('div', { class: 'sk-mapcards sk-mapcards--sm', role: 'radiogroup', 'aria-label': '맵 변경' });
@@ -182,7 +197,7 @@ export function createRoom(ctx) {
           ffaCol,
           h('section', { class: 'sk-panel sk-steel sk-chat' }, h('h2', { class: 'sk-panel-title', text: '💬 채팅' }), chatLog, chatForm)),
         h('aside', { class: 'sk-room-side' },
-          h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title', text: '🎮 규칙' }), rulePick.el, ruleDesc),
+          h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title', text: '🎮 규칙' }), rulePick.el, ruleDesc, killBox),
           h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title', text: '🗺️ 맵' }), mapCur, mapPick, mapNote))),
       h('footer', { class: 'sk-room-foot sk-steel' }, status, h('div', { class: 'sk-room-foot-actions' }, readyBtn, startBtn))));
 
@@ -197,10 +212,11 @@ export function createRoom(ctx) {
     const ffa = mode === 'ffa';
     const bomb = mode === 'bomb';
     const rs = ruleForMode(mode, p.ruleset);
+    const kills = normalizeKillTarget(p.killTarget);
 
     setText(title, p.name || '대기실');
     setText(ruleChip, `${RULESETS[rs].icon} ${RULESETS[rs].name}`);
-    setText(modeChip, `${MODE_ICON[mode]} ${modeLabel(mode, { killTarget: p.killTarget })}`);
+    setText(modeChip, `${MODE_ICON[mode]} ${modeLabel(mode, { killTarget: kills })}`);
     modeChip.classList.toggle('is-ffa', ffa);
     modeChip.classList.toggle('is-bomb', bomb);
     const m = mapInfo(ctx.maps, p.maps, p.mapId);
@@ -260,6 +276,14 @@ export function createRoom(ctx) {
     if (isHost && !bomb) rulePick.set(RULE_CHOICES, rs);
     if (bomb) setText(ruleDesc, '폭파 미션은 클래식 규칙만 써요');
     else setText(ruleDesc, isHost ? RULESETS[rs].desc : `${RULESETS[rs].desc} · 규칙은 방장만 바꿀 수 있어요.`);
+
+    // 목표 킬: 개인전에서만 보인다. 고르는 칸은 방장에게만
+    killBox.hidden = !ffa;
+    killPick.el.hidden = !isHost;
+    killPick.set(kills, { disabled: !isHost || !!p.starting });
+    setText(killDesc, isHost
+      ? `먼저 ${kills}킬을 채우면 우승해요. ${FFA_KILLS.min}~${FFA_KILLS.max}킬 중에서 고를 수 있어요.`
+      : `먼저 ${kills}킬을 채우면 우승해요 · 목표 킬은 방장만 바꿀 수 있어요.`);
 
     // 맵: 이 규칙(폭파 미션은 미션 맵)으로 고를 수 있는 맵만 (바뀐 경우에만 다시 그린다)
     const maps = mapsForMode(mapList(ctx.maps, p.maps), mode, rs);

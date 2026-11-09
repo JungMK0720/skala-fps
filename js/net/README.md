@@ -85,13 +85,13 @@ await net.close();
 | `subscribe(fn) → off` | `fn(rooms, { synced })`. 즉시 1회 호출, 첫 동기화 때 1회(비어 있어도), 이후 바뀔 때마다 호출. 구독자가 0명이고 방장이 아니면 로비 채널에서 나간다 |
 | `rooms()` | 현재 목록 사본. 정렬: waiting 먼저, 이름순 |
 | `synced` / `ready()` | 로비 presence를 받았는지 / 참가 완료 Promise |
-| `createRoom({ name, mapId='jetty', max=8, topology?, ...extra })` | 방 생성 → `Room`(내가 방장, term 1). `max`는 2~16. `extra`는 meta에 들어간다(게임은 `mode`, `ruleset`을 넣는다) |
+| `createRoom({ name, mapId='jetty', max=8, topology?, ...extra })` | 방 생성 → `Room`(내가 방장, term 1). `max`는 2~16. `extra`는 meta에 들어간다(게임은 `mode`, `ruleset`, 개인전이면 `killTarget`을 넣는다) |
 | `joinRoom(roomId, opts?)` | 참가 → `Room` |
 
-방 항목: `{ roomId, name, mapId, hostId, hostName, players, max, status, mode, ruleset }`. 방장이 로비 presence에 track한다.
+방 항목: `{ roomId, name, mapId, hostId, hostName, players, max, status, mode, ruleset, locked, killTarget? }`. 방장이 로비 presence에 track한다.
 방장이 바뀌면 새 방장이 `term+1`로 다시 track하고, 같은 `roomId`가 겹치면 term이 큰 쪽을 쓴다. 인원이 0이 되면 목록에서 빠진다.
 
-presence 객체는 키가 10개까지인데 로비 항목은 `roomId, name, mapId, hostId, hostName, players, max, status, term, mode`로 이미 10개다. 그래서 규칙은 키를 늘리지 않고 `mode` 값에 함께 싣는다: `'team'`, `'ffa'`, `'bomb'`(폭파 미션, 규칙은 언제나 클래식), `'team:knife'`, `'ffa:sniper'`(`packRoomKind`, `unpackRoomKind`). 클래식은 규칙을 적지 않으므로 규칙이 없는 옛 항목은 클래식으로 읽힌다. 항목을 만들고 읽는 곳은 `lobbyEntry`, `readLobbyEntry` 하나씩이다. 키를 더하고 싶으면 `tests/session-wiring.test.mjs`의 키 수 검사가 막는다.
+presence 객체는 키가 10개까지인데 로비 항목은 `roomId, name, mapId, hostId, hostName, players, max, status, term, mode`로 이미 10개다. 그래서 규칙은 키를 늘리지 않고 `mode` 값에 함께 싣는다: `'team'`, `'ffa'`, `'bomb'`(폭파 미션, 규칙은 언제나 클래식), `'team:knife'`, `'ffa:sniper'`(`packRoomKind`, `unpackRoomKind`). 클래식은 규칙을 적지 않으므로 규칙이 없는 옛 항목은 클래식으로 읽힌다. 비밀번호 방은 셋째 칸에 `p`, 개인전 목표 킬(1~99 정수, 게임은 5~20만 쓴다)은 넷째 칸에 싣는다: `'ffa:classic::10'`, `'ffa:knife:p:5'`. 셋째 칸까지만 읽던 클라이언트도 비밀번호 여부를 그대로 읽고, 목표 킬이 없는 개인전 항목은 게임이 20킬로 읽는다. 팀전·폭파 미션 항목에는 목표 킬을 싣지 않는다. 항목을 만들고 읽는 곳은 `lobbyEntry`, `readLobbyEntry` 하나씩이다. 키를 더하고 싶으면 `tests/session-wiring.test.mjs`의 키 수 검사가 막는다.
 
 ### `Room`
 | 멤버 | 설명 |
@@ -100,7 +100,7 @@ presence 객체는 키가 10개까지인데 로비 항목은 `roomId, name, mapI
 | `room.me` | 내 플레이어 객체 (players()와 같은 모양) |
 | `room.isHost()` / `room.hostId()` | 방장 여부 / 방장 id |
 | `room.players()` | `[{ id, name, team, ready, joinedAt, ping, isHost, ...updateMe 필드 }]` joinedAt 순 |
-| `room.meta` | `{ roomId, name, mapId, max, status, topo, net, hz, hostId, term, mode?, ruleset?, ...extra }`. 방장이 바뀌어도 이어진다. `ruleset`이 없으면 클래식으로 읽는다 |
+| `room.meta` | `{ roomId, name, mapId, max, status, topo, net, hz, hostId, term, mode?, ruleset?, killTarget?, ...extra }`. 방장이 바뀌어도 이어진다. `ruleset`이 없으면 클래식으로 읽는다. `killTarget`은 게임이 5~20으로 다시 자른다 |
 | `room.rate` | 지금 내가 보낼 수 있는 초당 프레임 수(방장이 정한 `meta.hz`). 보간 지연 계산에 쓴다 |
 | `room.now()` | 방 시계(방장 `Date.now()` 기준). NTP 방식으로 맞춘다. `room.clockInfo()` → `{ offset, delay, samples }`(오차 ≤ delay/2) |
 | `room.send(event, payload, { merge })` | 방 전체. `event`는 1~64자, `_`로 시작 금지. payload는 JSON 가능 값 |

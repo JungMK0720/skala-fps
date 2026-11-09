@@ -713,7 +713,8 @@ export function createPractice({ ctx, world, ui }) {
         kills: kills.get(me.id) || 0, deaths: deaths.get(me.id) || 0, headshots: heads.get(me.id) || 0,
         halfShots: myHalfShots, knifeKills: myKnifeKills,
         win: !!ev.winner && ev.winner === (ffa ? me.id : me.team), draw: !ev.winner,
-        seconds: Math.round(simMs / opts.timeScale / 1000)
+        seconds: Math.round(simMs / opts.timeScale / 1000),
+        ...(ffa ? { killTarget: opts.killTarget } : {})   // 짧은 개인전은 승리 보상을 줄인다(account/economy.js)
       });
       if (res) reward = { gained: res.gained, breakdown: res.breakdown, points: res.points };
     }

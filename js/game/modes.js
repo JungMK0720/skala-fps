@@ -2,12 +2,34 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 무기 규칙(룰셋) 정의. 클래식·칼전·스나전이 어떤 슬롯과 무기를 허용하는지 한곳에서 정한다.
- *          팀전/개인전(rules.mode)과는 별개 축이다. 순수 모듈이라 node 테스트에서 그대로 import할 수 있다.
+ *          팀전/개인전(rules.mode)과는 별개 축이다. 멀티 개인전 방의 목표 킬 범위도 여기서 정한다.
+ *          순수 모듈이라 node 테스트에서 그대로 import할 수 있다.
  */
 import { getDef, PRIMARY_IDS, MELEE_IDS } from '../weapons/defs.js';
 
 export const RULESET_IDS = Object.freeze(['classic', 'knife', 'sniper']);
 export const DEFAULT_RULESET = 'classic';
+
+/**
+ * 멀티 개인전 방의 목표 킬. 방장이 방을 만들 때와 대기실에서 min~max 안에서 고르고, 고른 적이 없으면 def다.
+ * match.js는 연습장 주소 값(killtarget)도 받아야 해서 5~50으로 따로 자른다.
+ */
+export const FFA_KILLS = Object.freeze({ min: 5, max: 20, def: 20 });
+/** 대기실의 빠른 선택 버튼 */
+export const FFA_KILL_PRESETS = Object.freeze([5, 10, 15, 20]);
+
+/** 숫자나 숫자 글자면 min~max 안의 정수(벗어나면 가까운 끝), 비었거나 숫자가 아니면 null */
+export function parseKillTarget(v) {
+  const ok = (typeof v === 'number') || (typeof v === 'string' && v.trim() !== '');
+  const n = ok ? Math.round(Number(v)) : NaN;
+  return Number.isFinite(n) ? Math.min(FFA_KILLS.max, Math.max(FFA_KILLS.min, n)) : null;
+}
+
+/** parseKillTarget과 같고, 읽을 수 없으면 def(고른 적이 없는 방) */
+export function normalizeKillTarget(v) {
+  const k = parseKillTarget(v);
+  return k === null ? FFA_KILLS.def : k;
+}
 
 /**
  * slots        : 쓸 수 있는 무기 슬롯(1 주무기 · 2 보조 · 3 근접 · 4 투척)
