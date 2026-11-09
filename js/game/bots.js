@@ -397,6 +397,9 @@ export function createBot(opts = {}) {
   let chase = null;                 // {goal, lookAt, arrivedAt, until}
   let investigate = null;           // {goal, until, t}
   let search = null;                // {until, nextLook, lookYaw}
+  // 폭파 미션 목표(view.objective, BOTS_API 12절): 교전이 없으면 그곳으로 가고, 닿으면 멈춰 둘레를 본다
+  let objective = null;             // {x,y,z, radius, hold, urgent, look}
+  let objHold = false, objScanT = 0, objScanYaw = 0;
 
   function setMode(m) { if (m !== mode) { mode = m; modeSince = clock; if (m === 'engage') eng.engageSince = clock; } }
 
@@ -1016,6 +1019,7 @@ export function createBot(opts = {}) {
     rk.yaw = 0; rk.pitch = 0; rk.kickCfg = null;
     eng.strafeDir = 0; eng.advance = false; eng.blockSince = -1; eng.nextHop = 0; lastCoverTry = -99; damagedAt = -99;
     hunt.goal = null; hunt.targetId = null; hunt.nextAt = 0; hunt.skip.clear(); flight = false; P.failStreak = 0;
+    objHold = false;
     plan.laneChecked = false;
     setMode('patrol');
   }
@@ -1074,6 +1078,7 @@ export function createBot(opts = {}) {
     alliesKnown.length = 0;
     if (!ffa && Array.isArray(view.allies)) for (const a of view.allies) if (a && a.alive !== false) alliesKnown.push(rv(a.pos));
     buildFoes();
+    readObjective(view.objective);
 
     // 피격 감지
     if (hp < lastHp - 0.5) {
@@ -1124,6 +1129,12 @@ export function createBot(opts = {}) {
         const s = sounds.length ? sounds[sounds.length - 1] : null;
         if (s && clock - s.t < 6 && (!investigate || investigate.t < s.t)) startInvestigate(s);
         else if (mode === 'patrol' && lost && clock - lost.seenAt < 6 && !lost.chased) startChase(lost);
+      }
+      // 급한 목표(폭탄 설치하러 가기·해체하러 가기)가 있으면 소리 조사·추적보다 목표가 먼저다
+      if (objective && objective.urgent && (mode === 'investigate' || mode === 'chase')) {
+        investigate = null; chase = null; search = null;
+        clearPath();
+        setMode('patrol');
       }
     }
 
@@ -1194,7 +1205,7 @@ export function createBot(opts = {}) {
       // 순찰
       setMode('patrol');
       patrolMove(mv);
-      look = plan.holdSpot && clock < plan.holdUntil ? holdLook() : (lookAhead() || null);
+      look = objHold ? objectiveLook() : plan.holdSpot && clock < plan.holdUntil ? holdLook() : (lookAhead() || null);
     }
     if (alert && clock < alert.until && !combat) { look = alert; lookRate = D.aimRate; lookMax = D.maxTurn; }
     else if (alert && clock >= alert.until) alert = null;
@@ -1347,7 +1358,48 @@ export function createBot(opts = {}) {
       eng.blockSince = -1;
     }
   }
+  /** view.objective → 목표 { x,y,z, radius, hold, urgent, look } | null. 잘못된 값은 목표 없음 */
+  function readObjective(ob) {
+    if (!ob || typeof ob !== 'object' || !ob.pos) { objective = null; objHold = false; return; }
+    const p = rv(ob.pos);
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.z)) { objective = null; objHold = false; return; }
+    const prev = objective;
+    objective = {
+      x: p.x, y: p.y, z: p.z,
+      radius: Math.max(0.3, num(ob.radius, 1.2)), hold: ob.hold !== false, urgent: !!ob.urgent,
+      look: ob.look ? rv(ob.look) : null
+    };
+    if (prev && dist2(prev, objective) > 1.5) objHold = false;   // 목표가 바뀌었다
+  }
+  /** 목표로 간다. 닿았으면(hold) 멈춘다. 경로가 없으면 false(평소 순찰로) */
+  function objectiveMove(mv) {
+    const ob = objective;
+    if (!ob) return false;
+    const arrived = dist2(pos, ob) <= ob.radius && Math.abs(ob.y - pos.y) < 1.6;
+    if (arrived) {
+      if (!ob.hold) { objHold = false; return false; }
+      if (!objHold) { objHold = true; objScanT = 0; objScanYaw = yaw; clearPath(); }
+      mv.stop = true;
+      return true;
+    }
+    // 머무는 목표에서 조금 밀려났으면(교전 뒤) 다시 간다
+    if (objHold && dist2(pos, ob) <= ob.radius + 1.2) { mv.stop = true; return true; }
+    objHold = false;
+    if (planTo(ob, 'objective', false) && followPath(mv)) { hopOver(mv, Infinity); return true; }
+    return false;
+  }
+  /** 목표에서 버틸 때 바라볼 곳: look이 있으면 그쪽(좌우로 조금씩), 없으면 천천히 둘러본다 */
+  function objectiveLook() {
+    if (clock >= objScanT) {
+      objScanT = clock + rand(1.4, 2.8);
+      const base = objective && objective.look ? yawOf(objective.look.x - pos.x, objective.look.z - pos.z) : objScanYaw + rand(1.2, 2.4);
+      objScanYaw = objective && objective.look ? base + rand(-0.5, 0.5) : base;
+    }
+    const ly = objective && objective.look ? objective.look.y + EYE : eye.y;
+    return { x: eye.x - Math.sin(objScanYaw) * 20, y: ly, z: eye.z - Math.cos(objScanYaw) * 20 };
+  }
   function patrolMove(mv) {
+    if (objective && objectiveMove(mv)) return;
     if (meleeOnly && huntMove(mv)) return;
     // 저격수: 자리 잡고 버티기
     if (plan.holdSpot && clock < plan.holdUntil) {
@@ -1730,6 +1782,10 @@ export function createBot(opts = {}) {
     /** 고른 무기의 def.kind: 'rifle'|'dmr'|'smg'|'shotgun'|'sniper'|'pistol'|'melee' */
     role: W[gear[homeSlot]].kind,
     stats,
+    /** 지금 노리는(보이는) 적 id | null — debug()보다 가볍다(연습장 폭파 미션이 설치·해체를 미룰 때 본다) */
+    get targetId() { return targetId; },
+    /** 폭파 미션 목표에 닿아 멈춰 있는가 */
+    get atObjective() { return objHold; },
     /**
      * 부활 (개인전 match.js 'spawn' 이벤트를 받았을 때). 몸 위치·무기는 엔진이 옮기고, 이 함수는 두뇌를 새 목숨으로 맞춘다.
      * @param {object} [s] { x, y, z, rotY, loadout|primary: 규칙에서 쓸 수 있는 무기 id, protectMs } 또는 spawn 이벤트 그대로 { spawn:{x,y,z,rotY}, loadout, protectMs }
@@ -1803,7 +1859,8 @@ export function createBot(opts = {}) {
         mode, gameMode: ffa ? 'ffa' : 'team', ruleset: rules.id, primary: gear[homeSlot], weapon: slotWeapon(curSlot), homeSlot, target: targetId, hp, lane: plan.lane, slot: curSlot, wantSlot: wpn.wantSlot, crouch: wantCrouch,
         goal: P.goal, path: P.pts ? P.pts.slice(P.idx).map((p) => ({ x: p.x, y: p.y, z: p.z })) : null,
         memory: [...mem.values()].map((m) => ({ id: m.id, visible: m.visible, age: +(clock - m.seenAt).toFixed(2), pos: { ...m.pos } })),
-        sounds: sounds.length, stuckLevel: stk.level, holding: !!(plan.holdSpot && clock < plan.holdUntil), losCalls
+        sounds: sounds.length, stuckLevel: stk.level, holding: !!(plan.holdSpot && clock < plan.holdUntil), losCalls,
+        objective: objective ? { x: objective.x, y: objective.y, z: objective.z, urgent: objective.urgent, hold: objective.hold } : null, atObjective: objHold
       };
     },
     dispose() { mem.clear(); sounds.length = 0; clearPath(); view = null; nav = null; }

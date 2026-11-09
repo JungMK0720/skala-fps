@@ -142,6 +142,7 @@ ctx.registerScreen('match', {
 | `input:aim` | `{ active, source: 'user'\|'reset'\|'release' }` — 우클릭(hold/toggle 설정 반영) |
 | `input:reload` / `input:jump` | `{}` |
 | `input:inspect` | `{}` — F(무기 살펴보기) |
+| `input:use` | `{ down }` — E(폭파 미션 설치·해체, 누르고 있는 동안). 휴대폰은 설치/해체 버튼(`input.touch.use`) |
 | `input:slot` | `{ slot: 1..4 }` |
 | `input:cycle` | `{ dir: 1\|-1 }` — 휠(1 = 다음) |
 | `input:walk` | `{ down }` — Shift |

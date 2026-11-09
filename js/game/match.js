@@ -19,13 +19,15 @@
  *   // 클라이언트: const view = applySnapshot(snap);   (m.state와 같은 모양)
  *
  * 모드: rules.mode 'team'(기본, 5판 3선승 팀 섬멸전) / 'ffa'(개인전, 20킬·5분·부활) — FFA 계약은 MODES.md 3.1
- * 규칙: rules.ruleset 'classic'(기본) / 'knife' / 'sniper' — 모드와 직교한다. 정의는 modes.js
+ *       / 'bomb'(폭파 미션, 공격·수비 · A/B 구역 폭탄 설치 · 5판 3선승) — 계약은 MODES.md 5절, MATCH_API.md 13절
+ * 규칙: rules.ruleset 'classic'(기본) / 'knife' / 'sniper' — 모드와 직교한다. 정의는 modes.js. 폭파 미션은 클래식 고정
  * 계약서: js/game/MATCH_API.md
  */
 import {
   WEAPONS, WEAPON_IDS, PRIMARY_IDS, PARTS, getDef, normalizePart, computeDamage, isHalfShot, minShotInterval
 } from '../weapons/defs.js';
 import { DEFAULT_RULESET, normalizeRuleset, isWeaponAllowed, pickableWeapons, defaultPick } from './modes.js';
+import { BOMB, normalizeMission, siteAt, siteContains, reach, vecOf, sideFor, otherTeam, blastDamage } from './mission.js';
 
 export { PARTS, PRIMARY_IDS };
 // 형식이 호환되지 않게 바뀔 때만 올린다. 뒤에 칸·키를 더하는 것은 옛 값을 기본값으로 읽으므로 그대로 둔다
@@ -47,7 +49,9 @@ export const REASON_LABELS = Object.freeze({
   maxRounds: '최대 라운드 도달',
   roundCap: '라운드 상한 도달',
   forfeit: '상대 팀 전원 퇴장',
-  abandoned: '전원 퇴장'
+  abandoned: '전원 퇴장',
+  bomb: '폭탄 폭파',       // 폭파 미션 전용(13절)
+  defuse: '폭탄 해체'
 });
 
 /** 팀전 규칙 기본값. ruleset은 숫자 표(스냅샷 ru)에 넣지 않고 따로 싣기 때문에 여기에 없다(기본 'classic') */
@@ -64,7 +68,33 @@ export const DEFAULT_RULES = Object.freeze({
 });
 const RULE_KEYS = Object.freeze(Object.keys(DEFAULT_RULES));
 
-export const MODES = Object.freeze(['team', 'ffa']);
+export const MODES = Object.freeze(['team', 'ffa', 'bomb']);
+/**
+ * 폭파 미션 규칙 기본값 — createMatch({ rules: { mode: 'bomb' }, mission }). 팀전 규칙 키 + 폭탄 시간 + 진영 교대.
+ * 무기 규칙은 클래식 고정이다(ruleset을 줘도 무시한다).
+ */
+export const DEFAULT_BOMB_RULES = Object.freeze({
+  mode: 'bomb',
+  ruleset: 'classic',
+  roundsToWin: 3,
+  maxRounds: 5,
+  maxTotalRounds: 9,
+  roundTimeMs: BOMB.roundTimeMs,   // 1:40
+  loadoutMs: BOMB.loadoutMs,
+  roundEndMs: BOMB.roundEndMs,
+  hp: 100,
+  maxPlayers: 8,
+  maxPerTeam: 4,
+  plantMs: BOMB.plantMs,           // 설치 3초
+  defuseMs: BOMB.defuseMs,         // 해체 5초
+  fuseMs: BOMB.fuseMs,             // 설치 뒤 35초에 폭발
+  swapAfter: BOMB.swapAfter,       // 2라운드가 끝나면 공수 교대
+  firstAttack: 'owner'             // 전반 공격 팀
+});
+/** 폭파 미션 스냅샷 bru 표의 순서 */
+const BOMB_RULE_KEYS = Object.freeze(['plantMs', 'defuseMs', 'fuseMs', 'swapAfter']);
+const BOMB_STATE_CODE = Object.freeze({ none: 'n', carried: 'c', dropped: 'd', planted: 'p', defused: 'f', exploded: 'x' });
+const BOMB_STATE_FROM = Object.freeze({ n: 'none', c: 'carried', d: 'dropped', p: 'planted', f: 'defused', x: 'exploded' });
 /** 개인전(FFA) 규칙 기본값 — createMatch({ rules: { mode: 'ffa', ... } }). 팀전 규칙 키는 쓰지 않는다 */
 export const DEFAULT_FFA_RULES = Object.freeze({
   mode: 'ffa',
@@ -100,8 +130,8 @@ const MAX_VICTIMS = 16;
 const SNAPSHOT_BUDGET = 1800;
 /** matchEnd.stats 최대 줄 수(경기 이벤트가 커지지 않게) */
 const MAX_STATS_ROWS = 12;
-const REASON_CODE = Object.freeze({ elimination: 'e', time: 't', hp: 'h', draw: 'd' });
-const REASON_FROM_CODE = Object.freeze({ e: 'elimination', t: 'time', h: 'hp', d: 'draw' });
+const REASON_CODE = Object.freeze({ elimination: 'e', time: 't', hp: 'h', draw: 'd', bomb: 'b', defuse: 'f' });
+const REASON_FROM_CODE = Object.freeze({ e: 'elimination', t: 'time', h: 'hp', d: 'draw', b: 'bomb', f: 'defuse' });
 /** defs.maxRange → 방장 사거리 허용치 배율 / 근접 사거리 여유(m) */
 const RANGE_SLACK = 1.05;
 const MELEE_SLACK_M = 0.7;
@@ -247,6 +277,39 @@ export function damageFor(weaponId, part, dist = 0, kind, victimHp = DEFAULT_RUL
 
 const rulesetIn = (v) => normalizeRuleset(typeof v === 'string' ? v : DEFAULT_RULESET);
 const isFfaMode = (m) => typeof m === 'string' && m.trim().toLowerCase() === 'ffa';
+const isBombMode = (m) => typeof m === 'string' && m.trim().toLowerCase() === 'bomb';
+
+function sanitizeBombRules(src) {
+  const D = DEFAULT_BOMB_RULES;
+  const team = (k, min) => {
+    const n = toNum(src[k]);
+    return Number.isFinite(n) && n >= min ? Math.floor(n) : D[k];
+  };
+  const pick = (k, min, max) => {
+    const n = toNum(src[k]);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.floor(n))) : D[k];
+  };
+  const out = {
+    mode: 'bomb',
+    ruleset: 'classic',
+    roundsToWin: team('roundsToWin', 1),
+    maxRounds: team('maxRounds', 1),
+    maxTotalRounds: team('maxTotalRounds', 1),
+    roundTimeMs: team('roundTimeMs', 1),
+    loadoutMs: team('loadoutMs', 0),
+    roundEndMs: team('roundEndMs', 0),
+    hp: team('hp', 1),
+    maxPlayers: team('maxPlayers', 2),
+    maxPerTeam: team('maxPerTeam', 1),
+    plantMs: pick('plantMs', 0, 60000),
+    defuseMs: pick('defuseMs', 0, 60000),
+    fuseMs: pick('fuseMs', 1000, 600000),
+    swapAfter: pick('swapAfter', 1, 99),
+    firstAttack: src.firstAttack === 'charterer' ? 'charterer' : 'owner'
+  };
+  if (out.maxTotalRounds < out.maxRounds) out.maxTotalRounds = out.maxRounds;
+  return Object.freeze(out);
+}
 
 function sanitizeFfaRules(src) {
   const pick = (k, min, max) => {
@@ -269,6 +332,7 @@ function sanitizeFfaRules(src) {
 function sanitizeRules(r) {
   const src = r && typeof r === 'object' ? r : {};
   if (isFfaMode(src.mode)) return sanitizeFfaRules(src);
+  if (isBombMode(src.mode)) return sanitizeBombRules(src);
   const pick = (k, min) => {
     const n = toNum(src[k]);
     return Number.isFinite(n) && n >= min ? Math.floor(n) : DEFAULT_RULES[k];
@@ -372,9 +436,12 @@ function ffaSpawnList(spawns) {
  * @param {{owner?:Array<{x:number,z:number,rotY?:number}>, charterer?:Array}} [opts.spawns]
  * @param {number} [opts.seed]         스폰 섞기 난수 시드(테스트용)
  * @param {() => number} [opts.rng]    난수 함수(seed보다 우선)
- * @param {() => Object<string,{x:number,z:number}|number[]>} [opts.getPositions]  FFA 스폰 선택용 현재 위치
+ * @param {() => Object<string,{x:number,z:number}|number[]>} [opts.getPositions]  FFA 스폰 선택용 · 폭파 미션 판정용 현재 위치(발, y 포함 권장)
  * @param {Object<string,{kills?,deaths?,headshots?,halfShots?,damage?,name?,team?,bot?,loadout?}>} [opts.carry]
  *        이어받을 기록(방장 이전). players에 없는 id는 접속 끊김 기록으로 남는다
+ * @param {object} [opts.mission]      폭파 미션: 맵 데이터의 mission 칸(또는 맵 데이터) — mission.normalizeMission이 읽는다
+ * @param {number} [opts.roundOffset]  폭파 미션 방장 이전: 이미 끝난 라운드 수(공수 교대 계산에 더한다)
+ * @param {(ids:string[]) => string} [opts.chooseCarrier]  폭파 미션 시험용: 라운드마다 폭탄을 받을 사람(없으면 무작위)
  */
 export function createMatch(opts = {}) {
   const o = opts && typeof opts === 'object' ? opts : {};
@@ -383,6 +450,10 @@ export function createMatch(opts = {}) {
   const rng = makeRng(o);
   const spawns = sanitizeSpawns(o.spawns);
   const ffa = rules.mode === 'ffa';
+  const bombMode = rules.mode === 'bomb';
+  const mission = bombMode ? normalizeMission(o.mission) : null;
+  const roundOffset = Math.max(0, Math.floor(toNum(o.roundOffset) || 0));
+  const chooseCarrier = typeof o.chooseCarrier === 'function' ? o.chooseCarrier : null;
   const getPositions = typeof o.getPositions === 'function' ? o.getPositions : null;
   const ffaSpots = ffa ? ffaSpawnList(spawns) : [];
   const spotUsed = [];       // FFA: 스폰 지점별 마지막 사용 시각(방장 시계)
@@ -402,6 +473,14 @@ export function createMatch(opts = {}) {
   let result = null;         // matchEnd 뒤 { winner, reason, mvpId }
   let seq = 0;
   let disposed = false;
+  // 폭파 미션(MATCH_API 13절)
+  let attackTeam = null;     // 이번 라운드 공격 팀
+  const bomb = { state: 'none', carrier: null, pos: null, site: null, explodeAt: 0 };
+  let act = null;            // 진행 중인 설치·해체 { kind:'plant'|'defuse', id, start, until, from:{x,y,z}, site }
+  let liveEndAt = 0;         // 설치 전 live가 시간으로 끝나는 방장 시각
+  const lastPos = new Map(); // id → { x, y, z } 마지막으로 안 발 위치
+  const roundSpawn = new Map(); // id → 이번 라운드 스폰(위치를 모를 때 폭탄을 떨어뜨릴 자리)
+  let posCheckAt = -Infinity;
 
   // ── 조회 ───────────────────────────────────────────────
   function connectedCount(team, exceptId) {
@@ -471,6 +550,15 @@ export function createMatch(opts = {}) {
     return { x: side * (8 + 1.5 * i), z: 0, rotY: side < 0 ? -Math.PI / 2 : Math.PI / 2 };
   }
 
+  /** 라운드 스폰 후보. 폭파 미션은 팀이 아니라 진영(공격·수비) 스폰을 쓴다(없으면 팀 스폰) */
+  function spawnPool(team) {
+    if (bombMode && mission) {
+      const list = team === attackTeam ? mission.attack : mission.defense;
+      if (list.length) return list;
+    }
+    return spawns[team];
+  }
+
   function startRound(events) {
     round += 1;
     const prev = history[history.length - 1];
@@ -483,14 +571,18 @@ export function createMatch(opts = {}) {
       clearFireRecord(p);
       p.grenades = 0;
     }
+    if (bombMode) resetBombRound();
     for (const team of TEAM_IDS) {
-      const pool = shuffle(spawns[team].map((s) => ({ ...s })), rng);
+      const pool = shuffle(spawnPool(team).map((s) => ({ ...s })), rng);
       let i = 0;
       for (const p of players.values()) {
         if (p.playing && p.team === team) assigned[p.id] = spawnFor(pool, i++, team);
       }
     }
-    events.push({ type: 'roundStart', round, replay: !!prev && prev.winner === null, spawns: assigned, score: { ...score }, ruleset: rules.ruleset });
+    const ev = { type: 'roundStart', round, replay: !!prev && prev.winner === null, spawns: assigned, score: { ...score }, ruleset: rules.ruleset };
+    if (bombMode) ev.attack = attackTeam;
+    events.push(ev);
+    if (bombMode) giveBomb(events, assigned);
     setPhase('loadout', rules.loadoutMs, events);
   }
 
@@ -498,27 +590,32 @@ export function createMatch(opts = {}) {
     const loadouts = {};
     for (const p of players.values()) if (p.playing && p.connected) loadouts[p.id] = p.loadout;
     setPhase('live', rules.roundTimeMs, events, { loadouts });
+    if (bombMode) { liveEndAt = now + rules.roundTimeMs; posCheckAt = -Infinity; }
     checkElimination(events);
   }
 
   function endRound(events, winner, reason) {
+    if (bombMode) act = null;   // 라운드가 끝나면 진행 중인 설치·해체는 조용히 끝난다
     if (winner) score[winner] += 1;
-    history.push({ round, winner, reason });
+    history.push(bombMode ? { round, winner, reason, attack: attackTeam } : { round, winner, reason });
     const decisive = score.owner + score.charterer;
     if (winner && score[winner] >= rules.roundsToWin) decided = { winner, reason: 'wins' };
     else if (decisive >= rules.maxRounds) decided = { winner: leader(), reason: 'maxRounds' };
     else if (history.length >= rules.maxTotalRounds) decided = { winner: leader(), reason: 'roundCap' };
     if (decided) finalRound = round;
     const ow = teamAlive('owner'), ch = teamAlive('charterer');
-    events.push({
+    const ev = {
       type: 'roundEnd', round, winner, reason, score: { ...score }, final: !!decided,
       alive: { owner: ow.alive, charterer: ch.alive }, hp: { owner: ow.hp, charterer: ch.hp }
-    });
+    };
+    if (bombMode) { ev.attack = attackTeam; ev.site = bomb.site; }
+    events.push(ev);
     setPhase('roundEnd', rules.roundEndMs, events);
   }
 
   function checkElimination(events) {
     if (phase !== 'live' && phase !== 'loadout') return false;
+    if (bombMode) return checkBombElimination(events);
     const a = teamAlive('owner').alive, b = teamAlive('charterer').alive;
     if (a > 0 && b > 0) return false;
     if (a > 0) endRound(events, 'owner', 'elimination');
@@ -557,7 +654,7 @@ export function createMatch(opts = {}) {
 
   function onTimeout(events) {
     if (phase === 'loadout') beginLive(events);
-    else if (phase === 'live') timeUp(events);
+    else if (phase === 'live') { if (bombMode) bombTimeUp(events); else timeUp(events); }
     else if (phase === 'roundEnd') {
       if (decided) finishMatch(events, decided.winner, decided.reason);
       else startRound(events);
@@ -594,6 +691,7 @@ export function createMatch(opts = {}) {
       type: 'kill', killer: a.id, victim: v.id, weaponId, part: info.part, head, halfShot,
       killerName: a.name, victimName: v.name, killerTeam: a.team, victimTeam: v.team
     });
+    if (bombMode) bombDeath(events, v);
   }
 
   /** claim.t → { ms, host }. ms 권장, 초(무기 모듈 ev.t)는 자동 인식, 생략하면 방장 시계 */
@@ -658,12 +756,281 @@ export function createMatch(opts = {}) {
     return true;
   }
 
+  // ── 폭파 미션 (MATCH_API 13절, MODES.md 5절) ──────────────
+  const defenseTeam = () => otherTeam(attackTeam);
+  const arr3 = (p) => (p ? [round2(p.x), p.y == null ? null : round2(p.y), round2(p.z)] : null);
+
+  /** 라운드 시작: 이번 라운드 공격 팀을 정하고 폭탄 상태를 비운다 */
+  function resetBombRound() {
+    attackTeam = sideFor(roundOffset + round, rules.firstAttack, rules.swapAfter);
+    bomb.state = 'none'; bomb.carrier = null; bomb.pos = null; bomb.site = null; bomb.explodeAt = 0;
+    act = null;
+    liveEndAt = 0;
+    lastPos.clear();
+    roundSpawn.clear();
+    posCheckAt = -Infinity;
+  }
+
+  /** 공격 팀 참가자 중 한 명(무작위)에게 폭탄을 준다. 스폰 자리는 위치를 모를 때 쓰려고 기억한다 */
+  function giveBomb(events, assigned) {
+    for (const [id, s] of Object.entries(assigned || {})) roundSpawn.set(id, { x: s.x, y: Number.isFinite(s.y) ? s.y : null, z: s.z });
+    const pool = [...players.values()].filter((p) => p.playing && p.connected && p.team === attackTeam);
+    if (!pool.length) return;
+    let p = null;
+    if (chooseCarrier) {   // 시험용(연습장 &bombcarrier=): 후보 id 목록 → 받을 사람 id. 후보가 아니면 무작위
+      try { const id = chooseCarrier(pool.map((q) => q.id)); p = pool.find((q) => q.id === id) || null; } catch (_) { p = null; }
+    }
+    if (!p) p = pool[Math.min(pool.length - 1, Math.floor(rng() * pool.length))];
+    bomb.state = 'carried';
+    bomb.carrier = p.id;
+    events.push({ type: 'bomb', act: 'give', id: p.id });
+  }
+
+  /** id의 발 위치 { x, y|null, z }: 이번에 받은 위치 → 마지막으로 안 위치 → 이번 라운드 스폰 */
+  function posOf(id, raw) {
+    const v = raw ? vecOf(raw[id]) : null;
+    if (v) { lastPos.set(id, v); return v; }
+    return lastPos.get(id) || roundSpawn.get(id) || null;
+  }
+
+  function cancelAct(events, reason) {
+    if (!act) return;
+    events.push({ type: 'bomb', act: act.kind + 'Cancel', id: act.id, reason });
+    act = null;
+  }
+
+  /** 폭탄을 든 사람이 쓰러지거나 나갔다 → 그 자리에 떨어진다 */
+  function dropBomb(events, id) {
+    const pos = posOf(id, readPositions());
+    bomb.state = 'dropped';
+    bomb.carrier = null;
+    bomb.pos = pos ? { x: pos.x, y: pos.y, z: pos.z } : { x: 0, y: null, z: 0 };
+    events.push({ type: 'bomb', act: 'drop', id, pos: arr3(bomb.pos) });
+  }
+
+  function bombDeath(events, v) {
+    if (act && act.id === v.id) cancelAct(events, 'died');
+    if (bomb.state === 'carried' && bomb.carrier === v.id && phase === 'live') dropBomb(events, v.id);
+  }
+
+  function bombLeave(events, p) {
+    if (act && act.id === p.id) cancelAct(events, 'left');
+    if (bomb.state !== 'carried' || bomb.carrier !== p.id) return;
+    if (phase === 'live') { dropBomb(events, p.id); return; }
+    // 로드아웃 중에 나갔으면 다른 공격 팀원에게 넘긴다(없으면 폭탄 없이 진행)
+    bomb.state = 'none';
+    bomb.carrier = null;
+    if (phase === 'loadout') giveBomb(events, null);
+  }
+
+  /**
+   * 설치 전: 공격 전멸 → 수비 승(동시 전멸도 수비 승), 수비 전멸 → 공격 승.
+   * 설치 뒤: 수비 전멸 → 공격 승. 공격이 전멸해도 폭발·해체까지 라운드는 이어진다.
+   */
+  function checkBombElimination(events) {
+    if (phase !== 'live' && phase !== 'loadout') return false;
+    const atk = teamAlive(attackTeam).alive, def = teamAlive(defenseTeam()).alive;
+    if (bomb.state === 'planted') {
+      if (def > 0) return false;
+      endRound(events, attackTeam, 'elimination');
+      return true;
+    }
+    if (atk > 0 && def > 0) return false;
+    endRound(events, atk === 0 ? defenseTeam() : attackTeam, 'elimination');
+    return true;
+  }
+
+  function bombTimeUp(events) {
+    endRound(events, defenseTeam(), 'time');
+  }
+
+  /** 설치·해체 중인 사람이 움직였으면 취소, 떨어진 폭탄 위에 선 공격 팀원은 줍는다(50 ms마다) */
+  function checkPositions(events) {
+    if (phase !== 'live' || !getPositions) return;
+    if (now - posCheckAt < 50) return;
+    posCheckAt = now;
+    const raw = readPositions();
+    if (act) {
+      const a = players.get(act.id);
+      const v = a && isActive(a) ? posOf(a.id, raw) : null;
+      const site = act.kind === 'plant' && mission ? mission.sites.find((s) => s.id === act.site) : null;
+      if (!a || !isActive(a)) cancelAct(events, 'died');
+      else if (v && (reach(v, act.from).d > BOMB.moveCancel || (site && !siteContains(site, v, 0.5)))) cancelAct(events, 'moved');
+    }
+    if (bomb.state === 'dropped' && bomb.pos) {
+      let best = null, bd = Infinity;
+      for (const p of players.values()) {
+        if (!isActive(p) || p.team !== attackTeam) continue;
+        const v = posOf(p.id, raw);
+        if (!v) continue;
+        const r = reach(v, bomb.pos);
+        if (r.d <= BOMB.pickupRange && r.dy <= BOMB.reachY && r.d < bd) { best = p; bd = r.d; }
+      }
+      if (best) {
+        bomb.state = 'carried';
+        bomb.carrier = best.id;
+        bomb.pos = null;
+        events.push({ type: 'bomb', act: 'pick', id: best.id });
+      }
+    }
+  }
+
+  /** live 다음 일의 방장 시각: 설치·해체 완료, 폭발, (설치 전) 시간 종료 중 가장 이른 것 */
+  function bombDue() {
+    const planted = bomb.state === 'planted';
+    return Math.min(act ? act.until : Infinity, planted ? bomb.explodeAt : Infinity, planted ? Infinity : liveEndAt);
+  }
+
+  /** 지금(now) 때가 된 일 하나를 처리한다. 같은 순간이면 폭발이 해체보다, 설치 완료가 시간 종료보다 먼저다 */
+  function bombFire(events) {
+    const planted = bomb.state === 'planted';
+    const actDue = act ? act.until : Infinity;
+    const boomDue = planted ? bomb.explodeAt : Infinity;
+    const timeDue = planted ? Infinity : liveEndAt;
+    if (boomDue <= now && boomDue <= actDue) { explode(events); return; }
+    if (actDue <= now && actDue <= timeDue) { completeAct(events); return; }
+    if (timeDue <= now) bombTimeUp(events);
+  }
+
+  function completeAct(events) {
+    const a = act;
+    act = null;
+    const p = players.get(a.id);
+    if (!p || !isActive(p)) return;
+    if (a.kind === 'plant') {
+      if (bomb.state !== 'carried' || bomb.carrier !== a.id) return;
+      bomb.state = 'planted';
+      bomb.carrier = null;
+      bomb.pos = { x: a.from.x, y: a.from.y, z: a.from.z };
+      bomb.site = a.site;
+      bomb.explodeAt = now + rules.fuseMs;
+      events.push({ type: 'bomb', act: 'plant', id: a.id, site: a.site, pos: arr3(bomb.pos), ms: rules.fuseMs });
+      checkBombElimination(events);
+      return;
+    }
+    if (bomb.state !== 'planted') return;
+    bomb.state = 'defused';
+    events.push({ type: 'bomb', act: 'defuse', id: a.id, site: bomb.site, pos: arr3(bomb.pos) });
+    endRound(events, defenseTeam(), 'defuse');
+  }
+
+  /** 폭발: 가까이 있던 사람에게 큰 피해(벽은 보지 않는다, 킬은 아무에게도 주지 않는다) → 공격 승 */
+  function explode(events) {
+    bomb.state = 'exploded';
+    act = null;
+    const c = bomb.pos;
+    events.push({ type: 'bomb', act: 'explode', site: bomb.site, pos: arr3(c) });
+    if (c) {
+      const raw = readPositions();
+      const center = { x: round2(c.x), y: c.y == null ? 0 : round2(c.y), z: round2(c.z) };
+      for (const p of players.values()) {
+        if (!isActive(p)) continue;
+        const v = posOf(p.id, raw);
+        if (!v) continue;
+        const dy = v.y == null || c.y == null ? 0 : v.y + 1 - (c.y + 0.3);
+        const dmg = blastDamage(Math.hypot(v.x - c.x, dy, v.z - c.z), BOMB);
+        if (dmg > 0) hurt(events, p, p, 'bomb', dmg, { part: null, kind: null, head: false, center, self: true });
+      }
+    }
+    endRound(events, attackTeam, 'bomb');
+  }
+
+  function syncTimeLeft() {
+    if (phase !== 'live') return;
+    timeLeft = Math.max(0, (bomb.state === 'planted' ? bomb.explodeAt : liveEndAt) - now);
+  }
+
+  /** 폭파 미션 tick: 페이즈 시간은 팀전처럼, live 안에서는 설치·해체·폭발·시간 종료를 시각 순서대로 처리한다 */
+  function tickBomb(dt) {
+    const events = [];
+    const end = now + dt;
+    if (phase === 'live') checkPositions(events);
+    for (let guard = 0; guard < 400 && now < end; guard++) {
+      if (phase === 'live') {
+        const due = bombDue();
+        if (due > end) { now = end; break; }
+        now = Math.max(now, due);
+        bombFire(events);
+      } else if (isTimed(phase)) {
+        const until = now + timeLeft;
+        if (until > end) { timeLeft = until - end; now = end; break; }
+        now = until;
+        timeLeft = 0;
+        onTimeout(events);
+      } else { now = end; break; }
+    }
+    if (now < end) now = end;
+    syncTimeLeft();
+    return events;
+  }
+
+  /**
+   * 설치·해체 의도(클라이언트는 시작·취소만 보낸다). 방장이 위치·생존·시간을 직접 재서 확정한다.
+   * action: 'plant' | 'defuse' | 'cancel'. opt.reason(취소): 'released'(기본) | 'moved' | 'fired'
+   */
+  function bombIntent(idRaw, action, opt) {
+    if (disposed) return [];
+    const id = normId(idRaw);
+    const kind = text(action).trim().toLowerCase();
+    const no = (reason) => reject('bomb', reason, id, { act: kind.slice(0, 12) || null });
+    if (!bombMode) return no('not_bomb');
+    if (kind !== 'plant' && kind !== 'defuse' && kind !== 'cancel') return no('bad_action');
+    if (kind === 'cancel') {
+      if (!act || act.id !== id) return [];
+      const r = text(opt && opt.reason).trim();
+      const events = [];
+      cancelAct(events, r === 'moved' || r === 'fired' ? r : 'released');
+      return events;
+    }
+    if (phase !== 'live') return no('not_live');
+    const p = players.get(id);
+    if (!p || !p.connected) return no('unknown_player');
+    if (!isActive(p)) return no('dead');
+    if (act) return act.id === id && act.kind === kind ? [] : no('busy');
+    const pos = posOf(id, readPositions());
+    if (!pos) return no('no_position');
+    if (kind === 'plant') {
+      if (p.team !== attackTeam) return no('not_attacker');
+      if (bomb.state !== 'carried' || bomb.carrier !== id) return no('no_bomb');
+      const site = mission ? siteAt(mission.sites, pos, 0.5) : null;   // 네트워크 지연 몫으로 0.5 m 여유
+      if (!site) return no('not_in_site');
+      act = { kind, id, start: now, until: now + rules.plantMs, from: { x: pos.x, y: pos.y, z: pos.z }, site: site.id };
+      return [{ type: 'bomb', act: 'plantStart', id, site: site.id, ms: rules.plantMs }];
+    }
+    if (p.team === attackTeam) return no('not_defender');
+    if (bomb.state !== 'planted' || !bomb.pos) return no('not_planted');
+    const r = reach(pos, bomb.pos);
+    if (r.d > BOMB.defuseRange + 0.5 || r.dy > BOMB.reachY) return no('too_far');
+    act = { kind, id, start: now, until: now + rules.defuseMs, from: { x: pos.x, y: pos.y, z: pos.z }, site: bomb.site };
+    return [{ type: 'bomb', act: 'defuseStart', id, site: bomb.site, ms: rules.defuseMs }];
+  }
+
+  /** 스냅샷에 붙는 폭파 미션 칸(7절 형식 + 13.6절) */
+  function bombHead() {
+    const p = bomb.pos;
+    return {
+      mo: 'bomb',
+      bru: BOMB_RULE_KEYS.map((k) => rules[k]),
+      fa: teamIndex(rules.firstAttack),
+      at: teamIndex(attackTeam),
+      bo: [
+        BOMB_STATE_CODE[bomb.state] || 'n', bomb.carrier || '',
+        p ? round2(p.x) : null, p && p.y != null ? round2(p.y) : null, p ? round2(p.z) : null,
+        bomb.site || '',
+        bomb.state === 'planted' ? Math.max(0, Math.ceil(bomb.explodeAt - now)) : null,
+        act ? (act.kind === 'plant' ? 'p' : 'f') : '', act ? act.id : '',
+        act ? Math.max(0, Math.ceil(act.until - now)) : 0, act ? Math.round(act.until - act.start) : 0
+      ]
+    };
+  }
+
   // ── 공개 API ───────────────────────────────────────────
   function tick(dtMs) {
     if (disposed) return [];
     const dt = toNum(dtMs);
     if (!(dt > 0) || !Number.isFinite(dt)) return [];
     if (ffa) return tickFfa(dt);
+    if (bombMode) return tickBomb(dt);
     now += dt;
     const events = [];
     let rem = dt;
@@ -727,6 +1094,7 @@ export function createMatch(opts = {}) {
     const events = [{ type: 'leave', id, name: p.name, team: p.team, wasAlive }];
     if (phase === 'matchEnd') return events;
     if (ffa) { checkFfaForfeit(events); return events; }
+    if (bombMode) bombLeave(events, p);
     if (checkForfeit(events)) return events;
     if (wasAlive) checkElimination(events);
     return events;
@@ -764,6 +1132,7 @@ export function createMatch(opts = {}) {
     if (disposed) return [];
     if (phase !== 'warmup') return reject('start', phase === 'matchEnd' ? 'match_over' : 'already_started', null);
     if (ffa) return startFfa();
+    if (bombMode && !(mission && mission.sites.length)) return reject('start', 'no_mission', null);
     if (!connectedCount('owner') || !connectedCount('charterer')) return reject('start', 'need_both_teams', null);
     const events = [];
     startRound(events);
@@ -775,12 +1144,14 @@ export function createMatch(opts = {}) {
     const c = claim && typeof claim === 'object' ? claim : {};
     const aId = normId(c.attackerId), vId = normId(c.victimId);
     const wid = normalizeWeaponId(c.weaponId);
-    const no = (reason) => reject('claimHit', reason, aId, {
+    const pre = [];   // 폭파 미션: 공격하면 그 사람의 설치·해체가 취소된다(판정이 거절돼도)
+    const no = (reason) => pre.concat(reject('claimHit', reason, aId, {
       victim: echoId(vId), weaponId: wid || text(c.weaponId).slice(0, 24) || null
-    });
+    }));
     if (phase !== 'live') return no('not_live');
     const a = players.get(aId);
     if (!a) return no('unknown_attacker');
+    if (bombMode && act && act.id === a.id && isActive(a)) cancelAct(pre, 'fired');
     const v = players.get(vId);
     if (!v) return no('unknown_victim');
     if (a === v) return no('self_hit');
@@ -801,7 +1172,7 @@ export function createMatch(opts = {}) {
     if (ffa && v.protectUntil > now) return no('protected');
     if (!gate(a, wid, w, kind, claimTime(a, c.t), normShotId(c.shotId), count)) return no('too_fast');
     const raw = computeDamage(wid, part || undefined, dist, kind, count);
-    const events = [];
+    const events = pre;
     hurt(events, a, v, wid, raw, { part, kind, head: part === 'head', half: isHalfShot(wid, part), count });
     if (ffa) checkKillTarget(events);
     else checkElimination(events);
@@ -827,6 +1198,7 @@ export function createMatch(opts = {}) {
     if (ffa) a.protectUntil = 0;   // FFA: 던지면 부활 보호가 끝난다(자폭 피해도 받는다)
     const center = normVec(c.center);
     const events = [];
+    if (bombMode && act && act.id === a.id) cancelAct(events, 'fired');
     const seen = new Set();
     for (const vic of c.victims.slice(0, MAX_VICTIMS)) {
       const vId = normId(vic && vic.id);
@@ -873,10 +1245,13 @@ export function createMatch(opts = {}) {
       tl: isTimed(phase) ? Math.max(0, Math.ceil(timeLeft)) : null,
       sc: [score.owner, score.charterer],
       ru: RULE_KEYS.map((k) => rules[k]),
-      h: history.map((r) => [teamIndex(r.winner), REASON_CODE[r.reason] || r.reason]),
+      h: history.map((r) => (bombMode
+        ? [teamIndex(r.winner), REASON_CODE[r.reason] || r.reason, teamIndex(r.attack)]
+        : [teamIndex(r.winner), REASON_CODE[r.reason] || r.reason])),
       fin: finalRound,
       res: result ? [teamIndex(result.winner), result.reason, result.mvpId] : null
     };
+    if (bombMode) Object.assign(head, bombHead());
     const all = [...players.values()];
     const keep = new Set();
     const rows = [];
@@ -1119,12 +1494,15 @@ export function createMatch(opts = {}) {
   applyCarry(o.carry);
 
   return {
-    tick, addPlayer, removePlayer, setTeam, setLoadout, start, claimHit, claimExplosion, snapshot, dispose,
+    tick, addPlayer, removePlayer, setTeam, setLoadout, start, claimHit, claimExplosion, bombIntent, snapshot, dispose,
     /** 읽기 전용 뷰. 접근할 때마다 새 복사본(= applySnapshot(snapshot())) */
     get state() { return applySnapshot(snapshot()); },
     get rules() { return rules; },
     get ruleset() { return rules.ruleset; },
-    get weaponRules() { return WEAPON_RULES; }
+    get weaponRules() { return WEAPON_RULES; },
+    /** 폭파 미션: 정규화한 미션 칸(구역·진영 스폰) | null, 이번 라운드 공격 팀 | null */
+    get mission() { return mission; },
+    get attack() { return bombMode ? attackTeam : null; }
   };
 }
 
@@ -1181,15 +1559,18 @@ export function applySnapshot(snap) {
     }
     teams[t] = { players: n, alive, hp };
   }
+  const bombView = snap.mo === 'bomb';
   const history = (Array.isArray(snap.h) ? snap.h : []).map((r, i) => {
     const code = Array.isArray(r) ? text(r[1]) : '';
-    return { round: i + 1, winner: teamAt(Array.isArray(r) ? r[0] : -1), reason: REASON_FROM_CODE[code] || code };
+    const h = { round: i + 1, winner: teamAt(Array.isArray(r) ? r[0] : -1), reason: REASON_FROM_CODE[code] || code };
+    if (bombView) h.attack = teamAt(Array.isArray(r) ? r[2] : -1);
+    return h;
   });
   const last = history[history.length - 1];
   const sc = Array.isArray(snap.sc) ? snap.sc : [];
   const res = Array.isArray(snap.res) ? snap.res : null;
   const tl = toNum(snap.tl);
-  return {
+  const view = {
     phase: PHASES.includes(snap.ph) ? snap.ph : 'warmup',
     round: Math.max(0, int(snap.rn)),
     roundsPlayed: history.length,
@@ -1202,6 +1583,39 @@ export function applySnapshot(snap) {
     history,
     lastRound: last ? { ...last, final: last.round === int(snap.fin) } : null,
     result: res ? { winner: teamAt(res[0]), reason: text(res[1]), mvpId: text(res[2]) || null } : null
+  };
+  if (bombView) addBombView(view, snap, teamAt);
+  return view;
+}
+
+/** 폭파 미션 스냅샷 칸(mo:'bomb', bru, fa, at, bo) → 뷰에 mode·attack·defense·firstAttack·bomb를 더한다(13.6절) */
+function addBombView(view, snap, teamAt) {
+  const num = (v) => { const n = toNum(v); return Number.isFinite(n) ? n : null; };
+  const rules = { ...view.rules, mode: 'bomb', ruleset: 'classic' };
+  BOMB_RULE_KEYS.forEach((k, i) => {
+    const n = num(Array.isArray(snap.bru) ? snap.bru[i] : undefined);
+    rules[k] = n == null ? DEFAULT_BOMB_RULES[k] : n;
+  });
+  const firstAttack = teamAt(snap.fa) || 'owner';
+  rules.firstAttack = firstAttack;
+  const b = Array.isArray(snap.bo) ? snap.bo : [];
+  const x = num(b[2]), y = num(b[3]), z = num(b[4]);
+  const ak = text(b[7]);
+  view.mode = 'bomb';
+  view.ruleset = 'classic';
+  view.rules = rules;
+  view.attack = teamAt(snap.at);
+  view.defense = otherTeam(view.attack);
+  view.firstAttack = firstAttack;
+  view.bomb = {
+    state: BOMB_STATE_FROM[text(b[0])] || 'none',
+    carrier: text(b[1]) || null,
+    pos: x != null && z != null ? [x, y, z] : null,
+    site: text(b[5]) || null,
+    explodeInMs: num(b[6]) == null ? null : Math.max(0, num(b[6])),
+    action: ak === 'p' || ak === 'f'
+      ? { kind: ak === 'p' ? 'plant' : 'defuse', id: text(b[8]), leftMs: Math.max(0, num(b[9]) || 0), totalMs: Math.max(0, num(b[10]) || 0) }
+      : null
   };
 }
 

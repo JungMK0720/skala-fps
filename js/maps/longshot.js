@@ -444,7 +444,7 @@ const bannerBlue = [
   // 안뜰 안쪽: 스폰에서 팀 색이 보인다
   { type: 'banner', x: -54.78, y: FIRE + 2.2, z: 0, rotY: SHOW_WEST, w: 1.5, h: 2.2, emblem: 'ring', bg: '#22407a', fg: '#e6efff' }
 ];
-const bannerOrange = rotate180(bannerBlue).map((b) => ({ ...b, text: b.text ? '오렌지' : b.text, bg: '#e8731c', fg: '#fff3e2', emblem: 'diamond' }));
+const bannerOrange = rotate180(bannerBlue).map((b) => ({ ...b, text: b.text ? '레드' : b.text, bg: '#b8323b', fg: '#ffeaea', emblem: 'diamond' }));
 
 const decorCenter = [
   { type: 'sign', x: 0, y: DECK + 2.05, z: 2.15, rotY: SHOW_SOUTH, w: 3.4, h: 0.6, text: '독수리 관측소', bg: '#1f2d3a', fg: '#ffe2b0' },

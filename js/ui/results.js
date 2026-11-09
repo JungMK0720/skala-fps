@@ -2,8 +2,9 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 결과 화면. 팀전은 승리 팀·라운드 기록·MVP, 개인전은 시상대와 순위표를 보여 주고, reward 값이 있으면 획득 포인트를 올라가는 숫자로 보여 준다.
+ *          폭파 미션은 팀전 화면에 라운드마다 끝난 방식(💥 폭파 · ✂️ 해체 · ☠️ 전멸 · ⏱ 시간)과 이긴 진영(공격/수비)을 더한다.
  */
-import { h, btn, setText, num, fmtPoints, TEAMS, teamKey, modeKey, FFA_TARGET } from './dom.js';
+import { h, btn, setText, num, fmtPoints, TEAMS, teamKey, modeKey, FFA_TARGET, SIDE_NAME, bombSide } from './dom.js';
 import { makeScreen } from './parts.js';
 import { mapInfo } from './icons.js';
 import { normStatPlayers, byPerformance, rankPlayers } from './scoreboard.js';
@@ -18,12 +19,38 @@ const FFA_REASON = {
   draw: () => '기록이 같아 승부를 가리지 못했어요',
 };
 
-function normRounds(list) {
+/** 폭파 미션 라운드가 끝난 방식(reasonCode) → 아이콘과 기본 문구 */
+const BOMB_REASON = Object.freeze({
+  bomb: Object.freeze({ icon: '💥', label: '폭탄 폭파' }),
+  defuse: Object.freeze({ icon: '✂️', label: '폭탄 해체' }),
+  elimination: Object.freeze({ icon: '☠️', label: '전멸' }),
+  time: Object.freeze({ icon: '⏱', label: '시간 종료' }),
+});
+const bombReason = (code) => (typeof code === 'string' && Object.prototype.hasOwnProperty.call(BOMB_REASON, code) ? BOMB_REASON[code] : null);
+
+/** rounds 항목 → { n, winner, reason, reasonCode, attack }. reasonCode·attack은 폭파 미션만 쓴다 */
+export function normRounds(list) {
   return (Array.isArray(list) ? list : []).map((r, i) => {
     const o = typeof r === 'string' ? { winner: r } : r || {};
     const w = o.winner === 'draw' ? 'draw' : teamKey(o.winner) || 'draw';
-    return { n: o.n != null ? o.n : o.round != null ? o.round : i + 1, winner: w, reason: o.reason || '' };
+    return {
+      n: o.n != null ? o.n : o.round != null ? o.round : i + 1, winner: w, reason: o.reason || '',
+      reasonCode: typeof o.reasonCode === 'string' ? o.reasonCode : '', attack: teamKey(o.attack),
+    };
   });
+}
+
+/**
+ * 폭파 미션 라운드 칸에 쓸 글자 → { icon, reason, won, side, title }.
+ * won: 이긴 진영('attack'|'defense', 무승부·공격 팀을 모르면 ''), side: '공격 승' 같은 줄, title: 칸 툴팁
+ */
+export function bombRoundInfo(r) {
+  const why = bombReason(r.reasonCode);
+  const reason = r.reason || (why ? why.label : '');
+  const won = r.winner === 'draw' ? '' : bombSide(r.winner, r.attack);
+  const side = won ? `${SIDE_NAME[won]} 승` : '';
+  const title = [`R${r.n}`, reason && (why ? `${why.icon} ${reason}` : reason), side, r.attack ? `${TEAMS[r.attack].name} 공격` : ''].filter(Boolean).join(' · ');
+  return { icon: why ? why.icon : '', reason, won, side, title };
 }
 
 export function createResults(ctx) {
@@ -149,20 +176,38 @@ export function createResults(ctx) {
 
   function render(p) {
     renderReward(p.reward);
-    const ffa = modeKey(p.mode) === 'ffa';
-    el.dataset.mode = ffa ? 'ffa' : 'team';
+    const mode = modeKey(p.mode);
+    const ffa = mode === 'ffa';
+    el.dataset.mode = mode;
     teamGrid.hidden = ffa;
     podium.hidden = !ffa;
     setText(backBtn, p.backLabel || '방으로 돌아가기');
     setText(lobbyBtn, p.lobbyLabel || '로비로');
     lobbyBtn.hidden = p.lobbyLabel === false;
     if (ffa) { renderFfa(p); return; }
-    setText(kicker, 'MATCH RESULT');
+    setText(kicker, mode === 'bomb' ? 'BOMB MISSION' : 'MATCH RESULT');
     setText(tableTitle, '개인 기록');
-    renderTeam(p);
+    renderTeam(p, mode === 'bomb');
   }
 
-  function renderTeam(p) {
+  /** 라운드 칸. 폭파 미션이면 끝난 방식 아이콘과 이긴 진영 줄을 더한다 */
+  function roundItem(r, bomb) {
+    const who = r.winner === 'draw' ? '무승부' : `${TEAMS[r.winner].emoji} ${TEAMS[r.winner].name}`;
+    if (!bomb) {
+      return h('li', { class: `sk-res-round t-${r.winner}`, title: r.reason || null },
+        h('span', { class: 'sk-res-rn', text: `R${r.n}` }),
+        h('span', { class: 'sk-res-rw', text: who }),
+        r.reason ? h('span', { class: 'sk-res-reason', text: r.reason }) : null);
+    }
+    const info = bombRoundInfo(r);
+    return h('li', { class: `sk-res-round t-${r.winner}`, title: info.title, dataset: { reason: r.reasonCode } },
+      h('span', { class: 'sk-res-rn', text: `R${r.n}` }),
+      h('span', { class: 'sk-res-rw', text: who }),
+      info.reason ? h('span', { class: 'sk-res-reason' }, info.icon ? h('span', { class: 'sk-res-ico', text: info.icon, 'aria-hidden': 'true' }) : null, info.reason) : null,
+      info.side ? h('span', { class: 'sk-res-side', dataset: { side: info.won }, text: info.side }) : null);
+  }
+
+  function renderTeam(p, bomb = false) {
     const winner = p.winner === 'draw' ? 'draw' : teamKey(p.winner) || 'draw';
     const sc = p.score || {};
     const players = normStatPlayers(p).sort(byPerformance);
@@ -171,7 +216,7 @@ export function createResults(ctx) {
 
     el.dataset.winner = winner;
     setText(titleEl, winner === 'draw' ? '무승부' : `${TEAMS[winner].name} 팀 승리`);
-    setText(scoreEl, `블루 ${Math.floor(num(sc.owner, 0))} : ${Math.floor(num(sc.charterer, 0))} 오렌지`);
+    setText(scoreEl, `${bomb ? '폭파 미션 · ' : ''}블루 ${Math.floor(num(sc.owner, 0))} : ${Math.floor(num(sc.charterer, 0))} 레드`);
     let v = '';
     if (myTeam && winner !== 'draw') v = myTeam === winner ? '🏆 우리 팀이 이겼어요!' : '패배 — 다음 매치를 노려 보세요.';
     else if (winner === 'draw') v = '승부를 가리지 못했어요.';
@@ -179,10 +224,7 @@ export function createResults(ctx) {
     setText(verdict, [v, m && m.name].filter(Boolean).join(' · '));
 
     const rs = normRounds(p.rounds);
-    rounds.replaceChildren(...(rs.length ? rs.map((r) => h('li', { class: `sk-res-round t-${r.winner}`, title: r.reason || null },
-      h('span', { class: 'sk-res-rn', text: `R${r.n}` }),
-      h('span', { class: 'sk-res-rw', text: r.winner === 'draw' ? '무승부' : `${TEAMS[r.winner].emoji} ${TEAMS[r.winner].name}` }),
-      r.reason ? h('span', { class: 'sk-res-reason', text: r.reason }) : null))
+    rounds.replaceChildren(...(rs.length ? rs.map((r) => roundItem(r, bomb))
       : [h('li', { class: 'sk-res-round', text: '라운드 기록이 없어요.' })]));
 
     // MVP: 지정값 → 최다 킬(동률이면 데스 적은 순 → 헤드샷 많은 순)

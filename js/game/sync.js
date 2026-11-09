@@ -34,7 +34,7 @@
 import {
   EV, isGameEvent, decodeMessage, byteSize, FLAG, vec3,
   encodeState, encodeStateBody, bodyNearlyEqual, encodeFire, encodeHit, encodeGrenade, decodeGrenade,
-  encodeMatch, encodeMatchEvent, encodeLoadout, encodeChat, encodePing, encodePong, encodeDrop, encodePick
+  encodeMatch, encodeMatchEvent, encodeLoadout, encodeChat, encodePing, encodePong, encodeDrop, encodePick, encodeBomb
 } from './protocol.js';
 import { createInterp } from './interp.js';
 
@@ -174,7 +174,7 @@ function makeRate(windowMs = 5000) {
  *  room           net Room (send, sendTo, on, me, isHost, hostId, players, rate?)
  *  getLocalState  () → { pos, vel, yaw, pitch, slot, hp, onGround, zoom, walking, alive, reloading } | null
  *  onRemoteState  (id, state, info) — 원격 상태가 새로 도착(최신만)
- *  onEvent        (evt) — { type: 'fire'|'hitClaim'|'grenade'|'match'|'loadout'|'chat'|'host'|'leave'|'closed', ... }
+ *  onEvent        (evt) — { type: 'fire'|'hitClaim'|'grenade'|'match'|'loadout'|'chat'|'drop'|'pick'|'bomb'|'host'|'leave'|'closed', ... }
  *  rateHz         기본 10
  *  now            시계 함수(기본 performance.now)
  */
@@ -525,6 +525,26 @@ export function createSync(opts = {}) {
     return true;
   }
 
+  /**
+   * (폭파 미션) 설치·해체 시작이나 취소 의도 → 방장. act: 'plant' | 'defuse' | 'cancel', reason(취소): 'released' | 'moved' | 'fired'.
+   * 판정은 방장의 match.bombIntent가 한다. 내가 방장이면 보내지 않고 onEvent('bomb')로 바로 돌려준다. → id(실패 0)
+   */
+  function sendBomb(act, reason) {
+    if (disposed) return 0;
+    const payload = encodeBomb(itemId + 1, act, reason);
+    const dec = decodeMessage(EV.bomb, payload);
+    if (!dec) return 0;
+    const id = ++itemId;
+    if (amHost) {
+      loopQ.push({ type: 'bomb', from: me, act: dec.data.act, reason: dec.data.reason, local: true });
+      kick();
+      return id;
+    }
+    reliable.push({ ev: EV.bomb, payload, to: 'host', merge: false, left: o.reliableRepeat, nextAt: -Infinity, kind: 'bomb' });
+    kick();
+    return id;
+  }
+
   /** 총을 주웠다 → 다른 사람 화면에서 그 총을 지운다 */
   function sendPick(dropId) {
     if (disposed || dropId == null) return false;
@@ -542,7 +562,7 @@ export function createSync(opts = {}) {
       id, interp: createInterp({ intervalHint: () => 1000 / stateHz(), ...(o.interp || {}) }), maxSeq: -Infinity, state: null, lastHeard: t, firstAt: t, seqLog: [],
       listed: playerIds.has(id), loadout: null, loadoutJson: '',
       seenHit: makeSeen(), seenNade: makeSeen(), seenChat: makeSeen(), seenFire: makeSeen(64), seenLoadout: makeSeen(32),
-      seenDrop: makeSeen(32), seenPick: makeSeen(32)
+      seenDrop: makeSeen(32), seenPick: makeSeen(32), seenBomb: makeSeen(32)
     };
     remotes.set(id, r);
     return r;
@@ -620,6 +640,11 @@ export function createSync(opts = {}) {
         if (r.seenPick(x.id)) { S.dup++; break; }
         emit({ type: 'pick', from, dropId: x.dropId });
         break;
+      case 'bomb':
+        if (!amHost) { S.ignored++; break; }
+        if (r.seenBomb(x.id)) { S.dup++; break; }
+        emit({ type: 'bomb', from, act: x.act, reason: x.reason });
+        break;
       case 'ping':
         onPing(from, x, t, msg.t);
         break;
@@ -688,7 +713,7 @@ export function createSync(opts = {}) {
         const d = decodeMessage(EV.hit, r.payload).data;
         loopQ.push({ type: 'hitClaim', from: me, ...d, age: 0, local: true });
       }
-      reliable = reliable.filter((r) => r.kind !== 'hit');
+      reliable = reliable.filter((r) => r.kind !== 'hit' && r.kind !== 'bomb');   // 폭탄 의도는 새 방장이 라운드를 다시 시작하므로 버린다
       // 새 스냅샷 번호는 마지막으로 받은 것 다음부터. 스냅샷 자체는 경기 모듈이 lastMatch()를 보고 다시 공지한다
       // (endsAt 등 방장 시계 값은 새 방장 기준으로 다시 계산해야 하므로 자동으로 재전송하지 않는다)
       matchSeqOut = Math.max(matchSeqOut, matchSeqIn);
@@ -698,7 +723,7 @@ export function createSync(opts = {}) {
       const r = h ? remotes.get(h) : null;
       const seed = r && r.interp.size ? (clock.rtt == null ? 50 : clock.rtt / 2) - r.interp.base() : undefined;
       clock.reset(seed);
-      reliable = reliable.filter((x) => x.kind !== 'hit');
+      reliable = reliable.filter((x) => x.kind !== 'hit' && x.kind !== 'bomb');
       pendingPing = null;
       pingSent.clear();
       pingNextAt = -Infinity;
@@ -865,6 +890,7 @@ export function createSync(opts = {}) {
     sendGrenade,
     sendDrop,
     sendPick,
+    sendBomb,
     sendMatch,
     sendLoadout,
     sendChat,

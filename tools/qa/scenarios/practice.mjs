@@ -95,7 +95,7 @@ async function checkMatch(t, page, combo, expectedMatches, pointsBefore) {
     t.check(view.mode === 'team', '팀전 결과 화면', view);
     t.check(view.kicker === 'MATCH RESULT', '팀전 결과 머리말', view);
     t.check(['owner', 'charterer', 'draw'].includes(view.winner), '팀전은 승패가 정해진다', view);
-    t.check(/블루 \d+ : \d+ 오렌지/.test(view.score), '팀전 점수 표시', view);
+    t.check(/블루 \d+ : \d+ 레드/.test(view.score), '팀전 점수 표시', view);
     t.check(view.rounds >= 1, '라운드 기록이 있다', view);
     t.check(view.rows === 4, '팀전 표에 4명이 있다', view);
     t.check(sum.roundEnds >= 1, '라운드가 끝난다', sum);

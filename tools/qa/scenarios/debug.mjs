@@ -95,7 +95,8 @@ export default {
 
     t.setSection('dev/ui-demo.html');
     page = await t.newPage();
-    const screens = ['menu', 'menu-account', 'settings', 'controls', 'lobby', 'lobby-empty', 'lobby-loading', 'lobby-error', 'create', 'room', 'room-guest', 'loadout', 'hud', 'hud-low', 'scope', 'scoreboard', 'results', 'pause', 'create-ffa', 'room-ffa', 'room-ffa-guest', 'loadout-ffa', 'hud-ffa', 'respawn', 'scoreboard-ffa', 'results-ffa', 'emotes-idle', 'emotes', 'emote-active'];
+    const screens = ['menu', 'menu-account', 'settings', 'controls', 'lobby', 'lobby-empty', 'lobby-loading', 'lobby-error', 'create', 'room', 'room-guest', 'loadout', 'hud', 'hud-low', 'scope', 'scoreboard', 'results', 'pause', 'create-ffa', 'room-ffa', 'room-ffa-guest', 'loadout-ffa', 'hud-ffa', 'respawn', 'scoreboard-ffa', 'results-ffa', 'emotes-idle', 'emotes', 'emote-active',
+      'create-bomb', 'room-bomb', 'hud-bomb', 'hud-bomb-plant', 'scoreboard-bomb', 'results-bomb'];
     for (const screen of screens) {
       await page.open(`${t.base}dev/ui-demo.html?screen=${screen}`, { width: 960, height: 540 });
       await page.waitFor(`document.querySelector('.sk-ui') && document.querySelector('.sk-ui').children.length > 0`, 15000, { label: `ui-demo ${screen}` });

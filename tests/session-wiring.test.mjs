@@ -160,7 +160,19 @@ function fakeNet(hub, id, name) {
 const WORLD_CALLS = [
   'unloadMap', 'setRuleset', 'reset', 'spawnLocal', 'setLocalLoadout', 'setLocalHp', 'killLocal', 'addActor', 'removeActor', 'setActorState',
   'actorFire', 'actorGrenade', 'actorDeath', 'feedbackDamage', 'setRound', 'setControlsEnabled', 'setScoreboard', 'setHint', 'setPauseOptions',
-  'setMode', 'setRespawn', 'setProtect', 'setActorProtect', 'sound', 'addDrop', 'removeDrop'];
+  'setMode', 'setRespawn', 'setProtect', 'setActorProtect', 'sound', 'addDrop', 'removeDrop', 'setBomb', 'bombEvent'];
+/** 폭파 미션 시험용 미션 칸과 맵 목록(미션 맵 하나) */
+const BOMB_MISSION = {
+  sites: [{ id: 'A', x: 10, y: 0, z: 10, w: 6, d: 6 }, { id: 'B', x: 10, y: 0, z: -10, w: 6, d: 6 }],
+  attack: [{ x: -20, z: 0, rotY: 0 }, { x: -22, z: 0, rotY: 0 }],
+  defense: [{ x: 20, z: 0, rotY: 0 }, { x: 22, z: 0, rotY: 0 }]
+};
+const BOMB_MAPS = [...MAP_LIST, { id: 'relay', name: '중계 기지', rulesets: ['classic'], tag: '폭파 미션', mission: true }];
+const bombMaps = {
+  MAP_LIST: BOMB_MAPS,
+  mapsForRuleset: (id) => BOMB_MAPS.filter((m) => m.rulesets.includes(id)),
+  mapsForMode: (mode, id) => (mode === 'bomb' ? BOMB_MAPS.filter((m) => m.mission) : BOMB_MAPS.filter((m) => m.rulesets.includes(id)))
+};
 /** 방장은 위치로 사격 거리를 다시 잰다: 쏘는 사람을 상대 옆(d m)에 세우고 위치가 방장에게 퍼질 때까지 기다린다 */
 async function standNear(env, shooter, victim, d = 1.2) {
   shooter.world.pos = [victim.world.pos[0] + d, victim.world.pos[1], victim.world.pos[2]];
@@ -237,11 +249,12 @@ function stage(t, { rules, ffaRules } = {}) {
   const clients = [];
   const env = {
     clock, hub, clients,
-    client(id, name, account, extra = {}) {
+    client(id, name, account, extraIn = {}) {
+      const { maps = fakeMaps, ...extra } = extraIn;
       const c = { id, world: fakeWorld(), ui: fakeUi(), account: fakeAccount(name, account), logs: [] };
       c.session = createSession({
         world: c.world, ui: c.ui,
-        ctx: { account: c.account, maps: fakeMaps, session: { name: '임시이름' }, flags: {}, onFrame: () => () => {} },
+        ctx: { account: c.account, maps, session: { name: '임시이름' }, flags: {}, onFrame: () => () => {} },
         net: fakeNet(hub, id, name), now: clock.now, log: (...a) => c.logs.push(a), setScreens: false,
         hostTickMs: 50, loadoutLeadMs: 200,
         rules: { loadoutMs: 1500, roundEndMs: 300, roundTimeMs: 60000, roundsToWin: 1, maxRounds: 1, ...rules },
@@ -559,6 +572,121 @@ describe('세션 연결', () => {
     a.ui.fire('room:map', { mapId: 'nexus' });
     assert.equal(a.session.room.meta.mapId, 'nexus');
     assert.equal(env.hub.list()[0].ruleset, 'sniper', '로비 목록에도 반영');
+    env.dispose();
+  });
+
+  test('폭파 미션: 미션 맵·클래식 고정 → E 의도가 방장에게 → 설치 → 해체 → 수비 승 결과', async (t) => {
+    const env = stage(t);
+    const mk = (id, name) => {
+      const c = env.client(id, name, {}, { maps: bombMaps, bombRules: { plantMs: 600, defuseMs: 800, fuseMs: 20000 } });
+      c.world.loadMap = async (...args) => { c.world.loaded = args; return { spawns: SPAWNS, mission: BOMB_MISSION, mapName: args[0] }; };
+      return c;
+    };
+    const a = mk('a', '하늘');
+    const b = mk('b', '구름');
+    await startMatch(env, [a, b], { mapId: 'jetty', mode: 'bomb', ruleset: 'knife' });
+    assert.equal(env.hub.lastCreate.mode, 'bomb');
+    assert.equal(env.hub.lastCreate.ruleset, 'classic', '폭파 미션은 클래식 고정');
+    assert.equal(env.hub.lastCreate.mapId, 'relay', '미션 맵으로 바뀐다');
+    assert.deepEqual(a.world.loaded, ['relay', { mode: 'bomb', ruleset: 'classic' }]);
+    assert.equal(a.session.match.rules.mode, 'bomb');
+    assert.equal(a.session.match.rules.plantMs, 600);
+    await env.run(1600);
+    assert.equal(a.session.state.matchPhase, 'live');
+    assert.equal(a.session.match.attack, 'owner');
+    // 공격 진영 스폰에 서고, 폭탄은 공격 팀 한 명(a)에게
+    const sp = a.world.last('spawnLocal')[0].spawn;
+    assert.ok(BOMB_MISSION.attack.some((s) => s.x === sp.x && s.z === sp.z), `공격 진영 스폰: ${JSON.stringify(sp)}`);
+    const st = b.world.last('setBomb')[0];
+    assert.equal(st.attack, 'owner');
+    assert.equal(st.state, 'carried');
+    assert.equal(st.carrier, 'a');
+    assert.equal(a.world.last('setRound')[0].mode, 'bomb');
+    assert.equal(a.world.last('setRound')[0].attack, 'owner');
+    assert.ok(a.world.calls('bombEvent').some(([e]) => e.act === 'give' && e.id === 'a'));
+    // 구역 밖에서 누르면 방장이 거절한다(상태는 그대로)
+    a.world.fire('bombAction', { act: 'plant' });
+    await env.run(200);
+    assert.equal(a.session.match.state.bomb.action, null);
+    // A 구역에서 설치
+    a.world.pos = [10, 0, 10];
+    await env.run(200);
+    a.world.fire('bombAction', { act: 'plant' });
+    await env.run(200);
+    assert.equal(a.session.match.state.bomb.action.kind, 'plant');
+    await env.run(600);
+    const planted = b.world.last('setBomb')[0];
+    assert.equal(planted.state, 'planted');
+    assert.equal(planted.site, 'A');
+    assert.ok(b.world.calls('bombEvent').some(([e]) => e.act === 'plant' && e.site === 'A'), '멤버도 설치 이벤트를 받는다');
+    // 수비(b)가 폭탄 옆에서 해체: 의도는 g2b로 방장에게 간다
+    b.world.pos = [10.6, 0, 10.4];
+    await env.run(400);
+    b.world.fire('bombAction', { act: 'defuse' });
+    await env.run(200);
+    assert.equal(env.hub.decoded(EV.bomb, 'b').at(-1).act, 'defuse');
+    assert.equal(a.session.match.state.bomb.action.kind, 'defuse');
+    await env.run(1200);
+    assert.equal(b.session.phase, 'results');
+    const res = b.ui.lastShown('results');
+    assert.equal(res.mode, 'bomb');
+    assert.equal(res.winner, 'charterer');
+    assert.equal(res.rounds[0].reasonCode, 'defuse');
+    assert.equal(res.rounds[0].attack, 'owner');
+    assert.equal(res.rounds[0].reason, '폭탄 해체');
+    assert.equal(b.account.recorded[0].mode, 'bomb');
+    assert.equal(b.account.recorded[0].win, true);
+    env.dispose();
+  });
+
+  test('폭파 미션 방장 이전: 새 방장이 미션 칸으로 그 라운드를 다시 하고, 남은 공격수가 설치해 폭발로 끝난다', async (t) => {
+    const env = stage(t);
+    const mk = (id, name) => {
+      const c = env.client(id, name, {}, { maps: bombMaps, bombRules: { plantMs: 600, defuseMs: 800, fuseMs: 3000 } });
+      c.world.loadMap = async (...args) => ({ spawns: SPAWNS, mission: BOMB_MISSION, mapName: args[0] });
+      return c;
+    };
+    const a = mk('a', '하늘');
+    const b = mk('b', '구름');
+    const c = mk('c', '바다');
+    await startMatch(env, [a, b, c], { mapId: 'relay', mode: 'bomb' });
+    await env.run(1600);
+    assert.equal(a.session.state.matchPhase, 'live');
+    assert.deepEqual([a.session.state.team, b.session.state.team, c.session.state.team], ['owner', 'charterer', 'owner']);
+
+    // 방장(공격)이 나간다 → 구름(수비)이 이어받아 같은 라운드를 처음부터: 폭탄은 남은 공격수(바다)에게
+    await a.session.leave();
+    await env.run(100);
+    assert.equal(b.session.isHost, true);
+    const m = b.session.match;
+    assert.ok(m, '새 방장이 경기를 돌린다');
+    assert.equal(m.rules.mode, 'bomb');
+    assert.equal(m.mission.sites.length, 2, '미션 칸을 이어받는다');
+    assert.equal(m.attack, 'owner');
+    assert.equal(m.state.bomb.carrier, 'c');
+    assert.equal(m.state.round, 1);
+    await env.run(1600);
+    assert.equal(b.session.state.matchPhase, 'live');
+    assert.equal(c.world.last('setBomb')[0].carrier, 'c');
+
+    // 바다가 A 구역에서 설치 → 폭발 → 공격(블루) 승
+    c.world.pos = [10, 0, 10];
+    await env.run(300);
+    c.world.fire('bombAction', { act: 'plant' });
+    await env.run(900);
+    assert.equal(b.world.last('setBomb')[0].state, 'planted');
+    await env.run(3300);
+    assert.ok(c.world.calls('bombEvent').some(([e]) => e.act === 'explode'), '폭발 이벤트');
+    await env.run(600);
+    assert.equal(c.session.phase, 'results');
+    const res = c.ui.lastShown('results');
+    assert.equal(res.mode, 'bomb');
+    assert.equal(res.winner, 'owner');
+    assert.equal(res.rounds.at(-1).reasonCode, 'bomb');
+    assert.equal(c.account.recorded.length, 1);
+    assert.equal(c.account.recorded[0].win, true);
+    assert.equal(b.account.recorded[0].win, false);
+    assert.equal(a.account.recorded.length, 0, '나간 사람은 기록하지 않는다');
     env.dispose();
   });
 
@@ -1403,7 +1531,7 @@ describe('로비·대기실 화면', () => {
       mvp: { id: 'b', name: '하늘', team: 'charterer', kills: 9, deaths: 0, head: 4 }
     });
     const box = results.el.all((k) => k.classList.contains('sk-mvp'))[0];
-    assert.ok(box.textContent.includes('오렌지'), box.textContent);
+    assert.ok(box.textContent.includes('레드'), box.textContent);
     assert.ok(box.textContent.includes('9'));
     results.dispose();
   });

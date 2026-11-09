@@ -140,11 +140,17 @@ function shortName(name) {
   return /[A-Za-z].*\d|\d.*[A-Za-z]/.test(first) ? first : String(name);
 }
 
+/** 무기 표에 없는 피해 원인. 폭파 미션의 폭탄 폭발은 킬피드·점수판·결과에서 '💥 폭탄'이다 */
+const SPECIAL_WEAPONS = Object.freeze({
+  bomb: Object.freeze({ id: 'bomb', name: '폭탄', short: '폭탄', icon: '💥' }),
+});
+const specialWeapon = (id) => (id != null && Object.prototype.hasOwnProperty.call(SPECIAL_WEAPONS, String(id)) ? SPECIAL_WEAPONS[String(id)] : null);
+
 /** 무기 id(또는 정의 객체) → { id, icon, name, short } */
 export function weaponInfo(registry, ref, extra = {}) {
   const isObj = ref && typeof ref === 'object';
   const id = isObj ? ref.id : ref;
-  const def = { ...((id != null && registry.get(String(id))) || {}), ...(isObj ? ref : {}) };
+  const def = { ...((id != null && registry.get(String(id))) || specialWeapon(id) || {}), ...(isObj ? ref : {}) };
   const name = extra.weaponName || def.name || def.label || (id != null ? String(id) : '');
   return {
     id: id == null ? '' : String(id),
@@ -166,11 +172,12 @@ const FALLBACK_MAPS = [
   { id: 'nexus', name: '넥서스', nameEn: 'Nexus', desc: '' },
 ];
 
+/** mission: 폭파 미션을 할 수 있는 맵(A·B 구역이 있음). MAP_LIST 항목에 없으면 false */
 export function normMap(m) {
-  if (typeof m === 'string') return { id: m, name: m, nameEn: '', desc: '', tag: '', rulesets: null, test: false };
+  if (typeof m === 'string') return { id: m, name: m, nameEn: '', desc: '', tag: '', rulesets: null, test: false, mission: false };
   return {
     id: String(m.id), name: m.name || String(m.id), nameEn: m.nameEn || '', desc: m.desc || '',
-    tag: m.tag || '', rulesets: Array.isArray(m.rulesets) ? m.rulesets : null, test: !!m.test,
+    tag: m.tag || '', rulesets: Array.isArray(m.rulesets) ? m.rulesets : null, test: !!m.test, mission: m.mission === true,
   };
 }
 

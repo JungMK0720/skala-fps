@@ -145,31 +145,34 @@ props 없음. 계정에서 읽습니다. 닉네임 변경(같은 검사 + 저장
 - `tab` props는 `show`로 열 때만 따릅니다. 계정이 바뀌어 `update`될 때는 보던 탭·스크롤·누른 버튼을 그대로 둡니다.
   초상은 `ui.setAvatarArt`로 받은 그림입니다. 탭을 처음 열 때 그리고(캐릭터 × 팀마다 한 번) 그 뒤로는 저장한 그림을 씁니다. 그림이 없으면(데모, WebGL 없음) 캐릭터 아이콘을 보여 줍니다.
 
-> **모드(MODES.md 3.3):** `mode`는 `'team'`(팀전) 또는 `'ffa'`(개인전)이고, **생략하면 `'team'`**입니다. 팀전 화면과 동작은 이전과 같습니다.
+> **모드(MODES.md 3.3 · 5절):** `mode`는 `'team'`(팀전) · `'ffa'`(개인전) · `'bomb'`(폭파 미션)이고, **생략하면 `'team'`**입니다. 팀전 화면과 동작은 이전과 같습니다.
+> 폭파 미션은 팀으로 나뉘는 모드라서 팀 칼럼 · 팀 색 · 팀 시작 조건을 팀전과 똑같이 씁니다. 규칙은 언제나 클래식이고, 맵은 `MAP_LIST` 항목의 `mission: true`(클래식을 고를 수 있는 맵)만 고릅니다. 팀 이름은 블루 🟦 / 레드 🟥입니다(내부 id `owner`·`charterer`는 그대로).
 
 ### `lobby`
 ```js
 { rooms: [{ roomId, name, mapId, hostName, players /*수 또는 배열*/, max, status: 'waiting'|'playing',
-            mode? /*'team'|'ffa'*/, killTarget? /*개인전 목표 킬, 기본 20*/ }],
+            mode? /*'team'|'ffa'|'bomb'*/, killTarget? /*개인전 목표 킬, 기본 20*/ }],
   loading?, error?, joining? /*roomId*/, name?, maps?, maxPlayers? /*기본 6*/ }
 ```
 대기 중인 방이 먼저 나옵니다. 꽉 찬 방과 게임 중인 방은 참가 버튼이 꺼집니다. 방이 없으면 빈 상태를, `loading`이면 스피너를, `error`면 경고와 [다시 시도]를 보여 줍니다.
-- 방 항목에 모드 배지가 붙습니다: "팀전 · 5판 3선승" / "개인전 · 20킬".
-- [방 만들기] 시트: 방 이름(24자), **모드(팀전/개인전, 기본 팀전)**, 맵 카드(이름·영문·설명·미니 아이콘), 최대 인원 2~6 스테퍼. → `lobby:create { name, mapId, max, mode }`
+- 방 항목에 규칙 · 모드 배지가 붙습니다: "클래식 · 팀전" / "칼전 · 개인전" / "클래식 · 폭파 미션"(`sk-mode-badge--bomb`, 폭파 미션은 규칙 값과 상관없이 클래식). 게임 중인 팀전 · 폭파 미션 방은 잠기고, 개인전은 중간 참가할 수 있습니다.
+- [방 만들기] 시트: 방 이름(24자), 규칙, **모드(팀전/개인전/폭파 미션, 기본 팀전)**, 맵 카드(이름·영문·설명·미니 아이콘), 최대 인원 2~6 스테퍼. → `lobby:create { name, mapId, max, mode, ruleset, password? }`
+  - 폭파 미션(💣 "공격·수비 · A/B 구역에 폭탄"): 규칙 버튼이 꺼지고 클래식으로 고정됩니다("폭파 미션은 클래식 규칙만 써요"). 맵 카드는 미션 맵만 보입니다. 미션 맵이 하나도 없으면 폭파 미션 버튼이 꺼집니다. 보내는 값은 `mode: 'bomb', ruleset: 'classic'`입니다. 다른 모드로 돌아가면 전에 고른 규칙을 다시 씁니다.
 
 ### `room`
 ```js
 { roomId, name, mapId, max = 8, teamMax? /*기본 ceil(max/2)*/, hostId?, meId?,
-  mode? /*'team'|'ffa'*/, killTarget? /*기본 20*/,
+  mode? /*'team'|'ffa'|'bomb'*/, killTarget? /*기본 20*/, ruleset?, firstAttack? /*폭파 미션 전반 공격 팀, 기본 'owner'*/,
   players: [{ id, name, team: 'owner'|'charterer'|null, ready, ping, host?, me?, bot? }],
   chat: [{ name, text, team? } | { system: true, text }], starting?, maps? }
 ```
 - 방장은 `p.host` 또는 `id === hostId`, 나는 `p.me` 또는 `id === meId`로 판단합니다.
-- 머리글에 모드 칩이 붙습니다: "⚔️ 팀전 · 5판 3선승" / "🎯 개인전 · 20킬". **방장만** 머리글 오른쪽의 [⚔️ 팀전 | 🎯 개인전] 버튼으로 모드를 바꿀 수 있습니다. 바꾸면 화면에 바로 반영하고 `room:mode { mode }`를 보냅니다. 다음 `update`가 오면 그 값이 우선합니다. 다른 사람에게는 모드 칩만 보입니다.
-- **팀전**: 팀 칼럼 🟦 블루 / 🟧 오렌지에 👑, '나' 태그, 핑(색 구분), 준비 상태, 빈 자리를 보여 줍니다. 팀이 없는 플레이어는 '배정 대기' 줄에 나옵니다.
+- 머리글에 모드 칩이 붙습니다: "⚔️ 팀전 · 5판 3선승" / "🎯 개인전 · 20킬" / "💣 폭파 미션 · 5판 3선승". **방장만** 머리글 오른쪽의 [⚔️ 팀전 | 🎯 개인전 | 💣 폭파 미션] 버튼으로 모드를 바꿀 수 있습니다. 바꾸면 화면에 바로 반영하고 `room:mode { mode }`를 보냅니다. 다음 `update`가 오면 그 값이 우선합니다. 다른 사람에게는 모드 칩만 보입니다. 미션 맵이 없으면 폭파 미션 버튼은 꺼집니다.
+- **팀전**: 팀 칼럼 🟦 블루 / 🟥 레드에 👑, '나' 태그, 핑(색 구분), 준비 상태, 빈 자리를 보여 줍니다. 팀이 없는 플레이어는 '배정 대기' 줄에 나옵니다.
+- **폭파 미션**: 팀 칼럼은 팀전과 같고, 팀 머리에 전반 진영 '먼저 공격'(기본 블루) / '먼저 수비'와 "💣 2라운드 뒤 공수 교대" 줄이 붙습니다. 규칙 칩은 🔫 클래식이고 규칙 버튼은 숨깁니다(`room:ruleset`을 보내지 않음). 맵 고르기는 미션 맵만 보여 줍니다. 세션이 규칙 클래식과 미션 맵을 맞춥니다.
 - **개인전**: 팀 칼럼 대신 한 줄 명단 "🎯 개인전 · 모두가 적"을 보여 줍니다. 팀 버튼이 없고, 빈 자리는 "빈 자리 ×N" 한 줄로 묶습니다. `team` 값은 무시합니다.
 - **[게임 시작]**(방장만): 방장은 자동으로 준비로 칩니다. 켜지지 않으면 사유를 보여 줍니다. `room:start { roomId, mapId, mode }`
-  - 팀전: 양 팀이 각각 1명 이상이고, 팀 미배정이 없고, 방장을 뺀 전원이 준비일 때만 켜집니다.
+  - 팀전 · 폭파 미션: 양 팀이 각각 1명 이상이고, 팀 미배정이 없고, 방장을 뺀 전원이 준비일 때만 켜집니다.
   - 개인전: 2명 이상이고 방장을 뺀 전원이 준비일 때만 켜집니다.
 - [준비하기]는 누르는 즉시 화면에 반영(낙관적 갱신)되고 `room:ready`를 보냅니다. 다음 `update`가 오면 그 값이 우선합니다.
 - 채팅: 최근 30줄을 보여 줍니다. **보낸 메시지는 UI가 직접 넣지 않습니다.** 엔진이 자기 메시지도 `chat` 배열에 넣어 `update`하세요(Supabase broadcast는 기본적으로 자기에게 되돌아오지 않습니다).
@@ -206,7 +209,8 @@ props 없음. 계정에서 읽습니다. 닉네임 변경(같은 검사 + 저장
 | `weaponName` | 탄약 위 무기 이름(생략하면 슬롯에서 찾음) |
 | `spread` (rad, 반각) / `spreadPx` / `fov` | 동적 크로스헤어 간격. 픽셀 = tan(spread)/tan(fov/2)·화면높이/2. `fov`를 생략하면 설정값을 씀(줌 중이면 현재 카메라 fov를 넘기세요) |
 | `roundTime` (초) | `1:23`. 10초 이하면 빨간 깜빡임. `null`이면 `-:--`. 개인전에서는 경기 남은 시간 |
-| `score` (팀전) | `{ owner, charterer, target = 3, bestOf = 5, round? }` → "블루 2 : 1 오렌지 · 5판 3선승". 매치 포인트를 자동 표시 |
+| `score` (팀전) | `{ owner, charterer, target = 3, bestOf = 5, round? }` → "블루 2 : 1 레드 · 5판 3선승". 매치 포인트를 자동 표시 |
+| `score` (폭파 미션) | 팀전 값 + `{ mode:'bomb', attack:'owner'\|'charterer' }` → 팀 이름 옆에 이번 라운드 '공격'/'수비' 꼬리표, 가운데 "폭파 미션 · 5판 3선승 · 라운드 3" |
 | `score` (개인전) | `{ mode:'ffa', kills, rank, total, leaderName, leaderKills, target = 20 }` → "🎯 7킬 · 2위/5 · 1위 하늘 12 / 20". 팀 칸 대신 내 킬 / 순위 칸을 보여 주고, 1위면 금색으로 표시. 킬피드도 중립 색으로 바뀜 |
 | `alive`, `teamSize` | `{ owner, charterer }` 생존자 수 / 팀 인원(점으로 표시). 팀전 전용 |
 | `team` | 내 팀. '내 팀' 표시(개인전은 `null`) |
@@ -215,15 +219,32 @@ props 없음. 계정에서 읽습니다. 닉네임 변경(같은 검사 + 저장
 | `hint` / `spectate` | 하단 안내 문구 / "👁️ 관전 중 · 이름". 빈 값이면 숨김 |
 | `crosshair: false` | 크로스헤어 숨김 |
 | `emote` | `{ name, icon } \| null` → 하단에 "💃 탱고 · 움직이면 취소"(아이콘이 없으면 🕺). 켜져 있는 동안(3인칭) 크로스헤어·히트마커를 숨김 |
+| `bomb` | 폭파 미션 표시(아래 표). `null`이면 모두 지움 |
+
+`bomb` (매 프레임 넣어도 됨. 바뀐 값만 DOM에 쓰고 표식은 `transform`으로만 옮김. `hud.reset()`도 지움. 정리 규칙은 `bombSpec()`)
+
+| 키 | 의미 |
+|---|---|
+| `side` | `'attack'`\|`'defense'`\|`null`(관전). 점수 아래 진영 패널의 '공격'(주황) / '수비'(강철 파랑) 칩. 팀 색과 다르다 |
+| `goal` / `status` / `tone` | 목표 문장 / 폭탄 상태 줄(`''`이면 숨김) / 상태 줄 색 `'attack'`\|`'defense'`\|`'warn'`\|`''` |
+| `timer` | 폭발까지 남은 초. 패널 오른쪽 큰 빨간 카운트다운, 10초 밑은 0.1초 단위(`bombTimerText`)이고 고동친다. `null`이면 숨김 |
+| `carrying` | 내가 폭탄을 들었다 → 체력 칸 오른쪽 "💣 폭탄 소지" |
+| `progress` | `{ kind:'plant'\|'defuse', ratio 0~1, label }` → 크로스헤어 아래 막대(설치 주황 · 해체 파랑)와 "설치 중… 1.8초". `null`이면 숨김 |
+| `prompt` | 아래 가운데 안내 "E 길게 눌러 설치"(`''`이면 숨김). 이모트 안내와 같이 뜨면 이모트 안내가 위로 비킨다. 휴대폰은 막대가 뜨면 안내를 가린다 |
+| `markers` | `[{ id, label, kind:'site'\|'bomb', x, y, on, edge, planted, dist }]` 화면 좌표(CSS px, HUD 왼쪽 위 기준). `on:false`면 숨김, `edge`는 화면 끝에 붙인 표식(흐리게), `planted`는 빨갛게 고동, `dist`는 아래 "23 m". 구역은 `label`('A'), `kind:'bomb'`은 `label`과 상관없이 💣 |
+
+- 진영 패널은 `side`·`goal`·`status`·`timer` 중 하나라도 있으면 보입니다. 패널이 있는 동안 상단 배너는 그 아래로 내려갑니다.
+- 휴대폰(`html.pc-touch`)은 패널을 줄인 점수 바로 아래에 좁게 두고, 속도계와 배너를 그 아래로 내립니다. 위쪽 버튼 줄과 아래 조작 버튼을 가리지 않습니다.
 
 - `hitmarker(head, kill)`: 헤드샷은 핑크, 킬은 빨강으로 표시합니다.
 - `damageFrom(angle)`: 화면 중앙을 도는 붉은 호가 1.3초 동안 보이고 가장자리가 번쩍입니다. 동시에 최대 6개까지 표시합니다.
-- `center(text, ms = 2000, { sub, tone })`: `ms`가 0, 음수, Infinity이면 다음 호출 때까지 유지합니다. `''`이면 지웁니다. `tone`을 생략하면 문구에 '블루'/'오렌지'/'매치 포인트'가 있는지 보고 색을 정합니다.
+- `center(text, ms = 2000, { sub, tone })`: `ms`가 0, 음수, Infinity이면 다음 호출 때까지 유지합니다. `''`이면 지웁니다. `tone`을 생략하면 문구에 '블루'/'레드'/'매치 포인트'가 있는지 보고 색을 정합니다.
 - `killfeed.push({ killer, victim, weaponId, head, killerTeam, victimTeam, mode?, mine? })`: `[죽인 사람] [아이콘 무기] [헤드샷] [죽은 사람]` 형식이고, 최근 5개를 5초 동안 보여 줍니다.
   - `killer`가 없거나 `victim`과 같으면 자폭으로 표시합니다.
   - 내 이름이 들어간 줄은 강조합니다. `mine: true/false`로 직접 정할 수도 있습니다.
   - 개인전이면 팀 색 없이 중립 색입니다. `mode:'ffa'`로 직접 정할 수 있고, 생략하면 HUD `score.mode`를 따릅니다.
   - `weaponName`/`weaponIcon`으로 이름과 아이콘을 덮어쓸 수 있습니다.
+  - `weaponId: 'bomb'`(폭파 미션 폭발)은 무기 표에 없어도 "💥 폭탄"입니다(`icons.js` `weaponInfo`, 점수판 · 결과도 같다).
 
 ### `emotes` — 이모트 휠 (MODES.md 4.2)
 ```js
@@ -259,12 +280,13 @@ ui.chat.open() / close() / isOpen() / clear()
 
 ### `scoreboard`
 ```js
-{ mode? /*'ffa'면 개인전*/, target? /*개인전 목표 킬, 기본 20*/,
+{ mode? /*'ffa'면 개인전, 'bomb'이면 폭파 미션*/, target? /*개인전 목표 킬, 기본 20*/, attack? /*폭파 미션 이번 라운드 공격 팀*/,
   players: [{ id?, name, team, kills, deaths, head /*또는 headshots*/, ping, alive, me?, bot?,
-              rank?, respawnIn? /*ms, 개인전 부활 대기*/, protect? }] /*또는 teams: { owner:[…], charterer:[…] }*/,
+              rank?, respawnIn? /*ms, 개인전 부활 대기*/, protect?, bomb? /*폭파 미션: 폭탄을 든 사람*/ }] /*또는 teams: { owner:[…], charterer:[…] }*/,
   score, round?, mapId? | mapName?, meId? }
 ```
 - 팀전: 팀별로 킬 많은 순 → 데스 적은 순 → 헤드샷 많은 순으로 정렬합니다. 전사한 플레이어는 흐리게 표시합니다.
+- 폭파 미션: 팀전 표와 같고, 제목이 "폭파 미션 · 5판 3선승", 팀 머리에 `attack`(없으면 `score.attack`) 기준 '공격'/'수비' 꼬리표, `bomb: true`인 줄에 💣가 붙습니다. 누구에게 💣를 보여 줄지는 세션이 정합니다.
 - 개인전: 제목 "개인전 · 목표 20킬" 아래 순위 번호가 붙은 한 목록입니다. 킬↓ → 데스↑ → 헤드샷↓ 순이고, 같은 기록은 같은 순위입니다(모두 `rank`를 주면 그대로 씀).
   - 상태 칸: 생존 / 🛡 보호 / ☠ N초(`respawnIn`) / ☠ 부활 대기
   - 머리글에 내 순위를 보여 줍니다.
@@ -274,6 +296,8 @@ ui.chat.open() / close() / isOpen() / clear()
 // 팀전
 { winner: 'owner'|'charterer'|'draw', score: { owner, charterer }, rounds: ['owner', { winner, reason }, …],
   players: [...scoreboard와 같음], mvp? /*이름 또는 객체*/, myTeam?, mapId?, backLabel?, lobbyLabel? /*false면 숨김*/, reward? }
+// 폭파 미션: 팀전 값 + mode와 라운드마다 끝난 방식 · 공격 팀
+{ mode: 'bomb', ...팀전과 같음, rounds: [{ round, winner: 'owner'|'charterer'|'draw', reason /*문구*/, reasonCode: 'bomb'|'defuse'|'elimination'|'time', attack: 'owner'|'charterer' }] }
 // 개인전
 { mode: 'ffa', ranking: [{ rank, id, name, kills, deaths, head /*또는 headshots*/, me?, bot? }],
   winnerId?, winnerName?, reason: 'kills'|'time'|'forfeit'|'draw', target, mapId?, meId?, backLabel?, lobbyLabel?, reward? }
@@ -281,6 +305,7 @@ ui.chat.open() / close() / isOpen() / clear()
 ```
 - `reward`가 있으면 "+N P"가 0부터 올라가고 항목별 점수와 보유 포인트를 함께 보여 줍니다. 없으면 숨깁니다. 같은 값으로 `update`해도 다시 세지 않습니다.
 - 팀전: MVP를 생략하면 최다 킬(동률이면 데스 적은 순 → 헤드샷 많은 순)로 정합니다.
+- 폭파 미션: 머리말 "BOMB MISSION", 점수 줄 "폭파 미션 · 블루 3 : 2 레드". 라운드 칸에 끝난 방식(💥 폭탄 폭파 · ✂️ 폭탄 해체 · ☠️ 전멸 · ⏱ 시간 종료, `reason`이 없으면 이 문구)과 이긴 진영 "공격 승"/"수비 승"이 붙고, 툴팁은 "R1 · 💥 폭탄 폭파 · 공격 승 · 블루 공격"입니다. 나머지(MVP · 표 · 보상)는 팀전과 같습니다. `data-mode="bomb"`.
 - 개인전: 제목은 "🏆 하늘 우승!" 또는 "무승부"(`reason:'draw'`이거나 우승자 없음)입니다.
   - 부제는 사유 문구입니다: 먼저 20킬 달성 / 시간 종료 · 최다 킬 우승 / 다른 플레이어가 모두 나가 기권승 / 무승부.
   - 그 아래 내 순위, **🥇🥈🥉 시상대**(2위·1위·3위 배치), 순위표가 이어집니다. 라운드 기록과 MVP 칸은 숨깁니다.
@@ -305,11 +330,11 @@ ui.chat.open() / close() / isOpen() / clear()
 | `settings:change` | `{ settings, key, value, changed[] }` | 슬라이더를 움직이는 동안 계속 발생 |
 | `lobby:refresh` / `lobby:back` | `{}` | |
 | `lobby:join` | `{ roomId }` | |
-| `lobby:create` | `{ name, mapId, max, mode, ruleset }` | `mode`: `'team'`(기본) / `'ffa'`. `ruleset`: `'classic'`(기본) / `'knife'` / `'sniper'`. 시트에서 규칙을 바꾸면 맵이 그 규칙의 첫 맵(칼전은 빨랫줄 옥상)으로 바뀐다 |
+| `lobby:create` | `{ name, mapId, max, mode, ruleset, password? }` | `mode`: `'team'`(기본) / `'ffa'` / `'bomb'`. `ruleset`: `'classic'`(기본) / `'knife'` / `'sniper'`. 시트에서 규칙을 바꾸면 맵이 그 규칙의 첫 맵(칼전은 빨랫줄 옥상)으로 바뀐다. 폭파 미션은 언제나 `'classic'`과 미션 맵 |
 | `room:team` | `{ team }` | 팀전만 |
 | `room:ready` | `{ ready }` | |
-| `room:mode` | `{ mode }` | 방장만. `'team'` / `'ffa'` |
-| `room:ruleset` | `{ ruleset }` | 방장만. 규칙을 바꾸면 그 규칙에 맞는 맵으로 다시 고른다 |
+| `room:mode` | `{ mode }` | 방장만. `'team'` / `'ffa'` / `'bomb'`(세션이 규칙 클래식 · 미션 맵으로 맞춘다) |
+| `room:ruleset` | `{ ruleset }` | 방장만. 규칙을 바꾸면 그 규칙에 맞는 맵으로 다시 고른다. 폭파 미션에서는 보내지 않는다 |
 | `room:start` | `{ roomId, mapId, mode }` | 방장만, 조건을 만족할 때만 |
 | `room:map` | `{ mapId }` | 방장만 |
 | `room:chat` | `{ text }` | 공백을 정리한 1~120자 |
@@ -318,6 +343,13 @@ ui.chat.open() / close() / isOpen() / clear()
 | `loadout:equip` | `{ slot, id }` | `slot`: `'secondary'` / `'melee'`. 빠른 교체 줄 |
 | `results:back` / `results:lobby` | `{}` | |
 | `pause:resume` / `pause:leave` | `{}` | 둘 다 일시정지 화면을 스스로 닫음 |
+
+### 폭파 미션 입력(엔진 bus, UI 이벤트 아님)
+
+| 이벤트 | payload | 비고 |
+|---|---|---|
+| `input:use` | `{ down }` | engine/input.js. PC는 E 키(누를 때 `true`, 눌려 있었으면 뗄 때 `false`, 키 반복 무시, 입력이 꺼져 있으면 누르지 않음), 휴대폰은 설치/해체 버튼(`input.touch.use(down)`). 폴링은 `input.state.use`. 잠금 · 창 포커스를 잃거나 `setEnabled(false)`면 뗀다 |
+| `touch:use` | `{ on, label }` | World가 보낸다(설치 · 해체할 수 있을 때 `on: true`). engine/touch.js가 설치/해체 버튼(`.pc-tb--use`, 기본 글자 '설치')을 보이거나 숨기고 글자를 바꾼다. 누르는 중에 숨으면 그 자리에서 뗀다(`input:use { down:false }`) |
 
 ## 설정
 
@@ -343,6 +375,7 @@ ui.chat.open() / close() / isOpen() / clear()
   - 팀전: `?screen=menu|settings|controls|lobby|lobby-empty|lobby-loading|lobby-error|create|room|room-guest|loadout|hud|hud-low|scope|scoreboard|results|pause`
   - 개인전: `create-ffa|room-ffa|room-ffa-guest|loadout-ffa|hud-ffa|respawn|scoreboard-ffa|results-ffa`
   - 이모트: `emotes-idle|emotes|emote-active`
+  - 폭파 미션: `create-bomb|room-bomb|hud-bomb|hud-bomb-plant|scoreboard-bomb|results-bomb`. `hud-bomb`은 수비가 설치된 폭탄을 해체하는 장면(진영 패널 · 10초 밑 카운트다운 · 설치된 표식 · 가장자리 표식 · 해체 막대 · 안내), `hud-bomb-plant`는 공격이 폭탄을 들고 설치하는 장면(폭탄 소지 · 설치 막대)이다. 미션 맵은 맵 목록의 `mission: true`(목 데이터는 탱크 팜)
 - 이모트 휠: HUD에서 **B를 누르고 있으면** 휠이 열리고, 마우스를 움직이면(상대 이동) 가상 커서가 움직입니다.
   - B를 떼면 강조된 칸이 시작되고, 안 움직이고 떼면 아무 일도 없습니다. WASD를 누른 채 떼면 "멈춘 상태에서만 할 수 있어요"가 뜹니다.
   - 휠이 열린 동안 좌클릭은 바로 시작하고, 우클릭·Esc는 닫기만 합니다.

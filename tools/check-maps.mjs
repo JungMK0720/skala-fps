@@ -1,23 +1,28 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 맵 데이터 검사기(npm run check:maps). 게임과 같은 물리 코드로 스폰, 발판 궤적, 포털, 비밀 스팟, 길 찾기를 시뮬레이션해
+ * Purpose: 맵 데이터 검사기(npm run check:maps). 게임과 같은 물리 코드로 스폰, 발판 궤적, 포털, 비밀 스팟, 길 찾기, 폭파 미션 구역을 시뮬레이션해
  *          맵 제작 실수를 찾는다. 오류가 있으면 종료 코드 1. 사용법: node tools/check-maps.mjs [맵 id] [--json] [--file 경로]
  */
 import { existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PLAYER, TEAM_IDS, TICK_DT } from '../js/core/consts.js';
-import { getGroundY, moveCharacter, overlapsCapsule, raycastWorld } from '../js/engine/physics.js';
+import { findFloor, getGroundY, moveCharacter, overlapsCapsule, raycastWorld } from '../js/engine/physics.js';
 import { PAD_HEIGHT_TOL, stepTriggers } from '../js/engine/triggers.js';
+import { SITE_IDS, normalizeMission, placeMission, siteAt, siteContains } from '../js/game/mission.js';
 import { NAV_EDGE, buildNavGrid } from '../js/game/navgrid.js';
 import { buildCollision, validateMap } from '../js/maps/collision.js';
 
 /** 새 맵 전용 요구 사항(팀 스폰 수, 개인전 스폰 수, 경고를 오류로 취급)을 적용할 id. rulesets가 있는 맵도 같다(테스트 맵 제외) */
-const NEW_MAPS = new Set(['alley', 'dojo', 'longshot', 'nexus']);
+const NEW_MAPS = new Set(['alley', 'dojo', 'longshot', 'nexus', 'relay']);
 const EXEMPT_MAPS = new Set(['testyard']);
 const MIN_TEAM_SPAWNS = 4;
 const MIN_FFA_SPAWNS = 6;
+const MIN_MISSION_SPAWNS = 4;    // 폭파 미션 진영마다 스폰 수
+const MIN_SITE_NODES = 16;       // 구역 안 걷기 칸(내비 1 m 칸) 수
+const MISSION_LEAD = 10;         // 수비가 공격보다 이만큼(m) 먼저 구역에 닿아야 한다
+const MISSION_SIDES = ['attack', 'defense'];
 
 const PAD_XZ_TOLERANCE = 2;      // 착지와 target의 수평 거리(m)
 const PAD_Y_TOLERANCE = 0.6;     // 착지 바닥과 target의 높이 차(m)
@@ -356,13 +361,113 @@ function checkProps(data, world, out) {
   });
 }
 
+/* ---------------- 폭파 미션 ---------------- */
+
+/** 출발점부터 경유점을 따라간 길이(m) */
+function pathLength(from, path) {
+  let len = 0, px = from.x, py = from.y, pz = from.z;
+  for (const w of path) {
+    len += Math.hypot(w.x - px, w.y - py, w.z - pz);
+    px = w.x; py = w.y; pz = w.z;
+  }
+  return len;
+}
+
+const r1 = (v) => Math.round(v * 10) / 10;
+const boxesOverlap = (a, b) => a.minX < b.maxX && b.minX < a.maxX && a.minZ < b.maxZ && b.minZ < a.maxZ && a.minY < b.maxY && b.minY < a.maxY;
+
+/**
+ * 폭파 미션 칸 검사(docs/MAP_GUIDE.md 10절). 게임과 같은 normalizeMission·siteContains로 읽는다.
+ * 구역 A·B, 구역 안 걷기 칸 수, 진영 스폰(수, 설 자리, 구역 밖), 스폰에서 각 구역까지 내비 경로 길이를 본다.
+ * 경로 끝은 구역 중심에 가장 가까운 걷기 칸이다.
+ * @param data 맵 데이터 @param nav buildNavGrid(data) @param out 오류·경고를 더할 { errors, warnings } @param col buildCollision(data)
+ * @returns {null | { sites: [{ id, name, nodes, area, attack: {min, avg, n}|null, defense }], attack, defense, los }} mission이 없으면 null
+ */
+export function checkMission(data, nav, out = { errors: [], warnings: [] }, col = buildCollision(data)) {
+  if (!data || data.mission === undefined || data.mission === null) return null;
+  const report = { sites: [], attack: 0, defense: 0, los: 0 };
+  const m = normalizeMission(data);
+  if (!m) { out.errors.push('mission: no valid site; sites needs [{ id, x, y, z, w, h, d }]'); return report; }
+  const { world, size } = col;
+
+  // 구역: A·B가 있는지, 맵 안인지, 서로 겹치지 않는지, 바닥 칸이 넉넉한지
+  const ids = m.sites.map((s) => s.id);
+  for (const id of SITE_IDS) if (!ids.includes(id)) out.errors.push(`mission.sites: site ${id} is missing (got ${ids.join(', ')})`);
+  for (const id of ids) if (!SITE_IDS.includes(id)) out.warnings.push(`mission.sites: site ${id} is not one of ${SITE_IDS.join(', ')}`);
+  const d = nav.debug();
+  const sites = m.sites.map((s) => {
+    if (s.minX < -size.x / 2 || s.maxX > size.x / 2 || s.minZ < -size.z / 2 || s.maxZ > size.z / 2) {
+      out.errors.push(`mission site ${s.id}: box x ${s.minX}..${s.maxX}, z ${s.minZ}..${s.maxZ} is outside size ${size.x} x ${size.z}`);
+    }
+    const cells = [];
+    for (let n = 0; n < d.x.length; n++) if (d.good[n] && siteContains(s, { x: d.x[n], y: d.y[n], z: d.z[n] })) cells.push(n);
+    if (cells.length < MIN_SITE_NODES) out.errors.push(`mission site ${s.id}: ${cells.length} walkable navgrid cells inside (need ${MIN_SITE_NODES}); clear the floor or move the box onto it`);
+    let target = null, best = Infinity;
+    for (const n of cells) {
+      const score = Math.hypot(d.x[n] - s.x, d.z[n] - s.z) + Math.abs(d.y[n] - s.y);
+      if (score < best) { best = score; target = { x: d.x[n], y: d.y[n], z: d.z[n] }; }
+    }
+    return { site: s, target, entry: { id: s.id, name: s.name, nodes: cells.length, area: r1(cells.length * d.cell * d.cell), attack: null, defense: null } };
+  });
+  for (let i = 0; i < m.sites.length; i++) {
+    for (let j = 0; j < i; j++) if (boxesOverlap(m.sites[i], m.sites[j])) out.errors.push(`mission sites ${m.sites[j].id} and ${m.sites[i].id} overlap`);
+  }
+
+  // 진영 스폰: 수, 설 자리, 구역 밖, 서로 간격
+  const placed = placeMission(m, world, findFloor, getGroundY);
+  for (const side of MISSION_SIDES) {
+    const list = placed[side];
+    report[side] = list.length;
+    if (list.length < MIN_MISSION_SPAWNS) out.errors.push(`mission.${side}: ${list.length} < ${MIN_MISSION_SPAWNS} spawns`);
+    list.forEach((p, i) => {
+      const label = `mission.${side}[${i}]`;
+      if (Math.abs(p.x) > size.x / 2 || Math.abs(p.z) > size.z / 2) out.errors.push(`${label} ${fmt(p.x, p.y, p.z)} is outside size`);
+      checkStanding(world, label, p.x, p.y, p.z, out);
+      if (isNarrowPerch(world, p.x, p.y, p.z)) out.errors.push(`${label} ${fmt(p.x, p.y, p.z)}: stands on a narrow top; it was probably placed inside a solid and lifted by the floor search`);
+      const inside = siteAt(m.sites, p);
+      if (inside) out.errors.push(`${label} ${fmt(p.x, p.y, p.z)} is inside site ${inside.id}; spawns must stand outside the sites`);
+      const n = nav.nodeAt(p, false), q = n >= 0 ? nav.node(n) : null;
+      if (!q || Math.hypot(q.x - p.x, q.z - p.z) > 1.6) out.warnings.push(`${label} has no navgrid node nearby; bots spawned here will wander`);
+      for (let j = 0; j < i; j++) {
+        const o = list[j];
+        if (Math.hypot(p.x - o.x, p.z - o.z) < SPAWN_MIN_GAP && Math.abs(p.y - o.y) < H) out.warnings.push(`${label} is within ${SPAWN_MIN_GAP} m of mission.${side}[${j}]`);
+      }
+    });
+  }
+  const far = col.theme.fog[1];
+  const seen = [];
+  placed.attack.forEach((a, i) => placed.defense.forEach((b, j) => {
+    if (hasEnemySight(world, a, b, far)) seen.push(`attack[${i}] <-> defense[${j}] (${r2(Math.hypot(a.x - b.x, a.z - b.z))} m)`);
+  }));
+  if (seen.length) out.warnings.push(`line of sight between mission spawns: ${seen.slice(0, 3).join(', ')}${seen.length > 3 ? ` and ${seen.length - 3} more` : ''}`);
+  report.los = seen.length;
+
+  // 길: 진영 스폰마다 구역 중심 쪽 걷기 칸까지. 수비가 공격보다 MISSION_LEAD m 이상 가까워야 한다
+  for (const { site, target, entry } of sites) {
+    for (const side of MISSION_SIDES) {
+      const lens = [];
+      placed[side].forEach((p, i) => {
+        const path = target && nav.findPath(p, target);
+        if (!path) { out.errors.push(`mission.${side}[${i}] cannot reach site ${site.id} on the navgrid`); return; }
+        lens.push(pathLength(p, path));
+      });
+      if (lens.length) entry[side] = { min: r1(Math.min(...lens)), avg: r1(lens.reduce((a, b) => a + b, 0) / lens.length), n: lens.length };
+    }
+    if (entry.attack && entry.defense && entry.defense.min > entry.attack.min - MISSION_LEAD) {
+      out.warnings.push(`mission site ${site.id}: defense needs ${entry.defense.min} m and attack ${entry.attack.min} m; defense should be at least ${MISSION_LEAD} m closer`);
+    }
+    report.sites.push(entry);
+  }
+  return report;
+}
+
 /**
  * 맵 데이터 하나를 검사한다.
- * @returns {{id, strict, ok, errors, warnings, counts, nav, pads, secrets, los}}
+ * @returns {{id, strict, ok, errors, warnings, counts, nav, pads, secrets, los, mission}} mission은 checkMission 결과(없으면 null)
  */
 export function checkMap(id, data) {
   const strict = !EXEMPT_MAPS.has(id) && (NEW_MAPS.has(id) || Array.isArray(data && data.rulesets));
-  const out = { id, strict, ok: false, errors: [], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0 };
+  const out = { id, strict, ok: false, errors: [], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null };
   const v = validateMap(data);
   out.errors.push(...v.errors);
   (strict ? out.errors : out.warnings).push(...v.warnings);
@@ -380,6 +485,7 @@ export function checkMap(id, data) {
   out.los = checkSpawns(data, col, strict, out);
   const nav = checkWalkability(data, col, out);
   out.nav = { nodes: nav.info.nodes, good: nav.info.good, ms: Math.round(nav.info.buildMs) };
+  out.mission = checkMission(data, nav, out, col);
   checkProps(data, world, out);
 
   const padSims = triggers.pads.map((pad) => ({ pad, sim: checkPad(world, pad, triggers.secrets, out) }));
@@ -454,9 +560,16 @@ function printTable(reports) {
   for (const r of reports) console.log(line(cols.map((c) => c[2](r))));
 }
 
+/** 폭파 미션 줄: 진영 스폰 수, 구역마다 진영별 최단·평균 경로와 바닥 칸 */
+function printMission(m) {
+  console.log(`  mission: 공격 스폰 ${m.attack} · 수비 스폰 ${m.defense}${m.los ? ` · 서로 보이는 쌍 ${m.los}` : ''}`);
+  const side = (v) => (v ? `${Math.round(v.min)} m(평균 ${Math.round(v.avg)})` : '길 없음');
+  for (const s of m.sites) console.log(`  ${s.id}: 공격 ${side(s.attack)} / 수비 ${side(s.defense)} · 바닥 ${s.nodes}칸 ${s.area} m² · ${s.name}`);
+}
+
 function printDetails(reports) {
   for (const r of reports) {
-    if (!r.errors.length && !r.warnings.length && !r.pads.length && !r.secrets.length) continue;
+    if (!r.errors.length && !r.warnings.length && !r.pads.length && !r.secrets.length && !r.mission) continue;
     console.log(`\n[${r.id}]${r.strict ? ' (new-map rules)' : ''}`);
     for (const p of r.pads) {
       console.log(p.landing
@@ -464,6 +577,7 @@ function printDetails(reports) {
         : `  pad ${p.index}: no landing`);
     }
     for (const s of r.secrets) console.log(`  secret ${s.id}: ${s.via ? `via ${s.via}` : 'unreachable'}`);
+    if (r.mission) printMission(r.mission);
     for (const e of r.errors) console.log(`  ERROR ${e}`);
     for (const w of r.warnings) console.log(`  warn  ${w}`);
   }
@@ -502,11 +616,11 @@ async function main() {
   const args = process.argv.slice(2);
   const targets = await loadTargets(args);
   const reports = targets.map((t) => {
-    if (t.error) return { id: t.id, strict: true, ok: false, errors: [t.error], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0 };
+    if (t.error) return { id: t.id, strict: true, ok: false, errors: [t.error], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null };
     try {
       return checkMap(t.id, t.data);
     } catch (err) {
-      return { id: t.id, strict: true, ok: false, errors: [`checker crashed: ${err && err.stack ? err.stack : err}`], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0 };
+      return { id: t.id, strict: true, ok: false, errors: [`checker crashed: ${err && err.stack ? err.stack : err}`], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null };
     }
   });
   const ok = reports.length > 0 && reports.every((r) => !r.errors.length);

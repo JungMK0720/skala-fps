@@ -26,7 +26,7 @@ function pageSetup(opts) {
   const IDLE = Object.freeze({ forward: 0, strafe: 0, jump: false, walk: false, yawDelta: 0, pitchDelta: 0, fire: false, zoom: false, reload: false, slot: null });
   const BUS_EVENTS = new Set(['player:jump', 'player:land', 'player:pad', 'player:portal', 'player:secret', 'player:fell', 'player:spawn', 'player:death', 'input:inspect', 'screen:change', 'app:error', 'map:error', 'screen:unavailable', 'account:change']);
   const WORLD_EVENTS = ['fire', 'hitClaim', 'explosion', 'grenade', 'localDeath', 'loadoutPick', 'pause', 'leave'];
-  const MATCH_EVENTS = new Set(['damage', 'kill', 'reject', 'roundStart', 'roundEnd', 'matchEnd', 'spawn', 'phase']);
+  const MATCH_EVENTS = new Set(['damage', 'kill', 'reject', 'roundStart', 'roundEnd', 'matchEnd', 'spawn', 'phase', 'bomb']);
   const plain = (o) => {
     const out = {};
     for (const k of Object.keys(o || {})) {
@@ -83,7 +83,7 @@ function pageSetup(opts) {
       if (!run || qa.hooked === run) return;
       qa.hooked = run;
       const m = run.match;
-      for (const name of ['tick', 'claimHit', 'claimExplosion', 'setLoadout']) {
+      for (const name of ['tick', 'claimHit', 'claimExplosion', 'setLoadout', 'bombIntent']) {
         const fn = m[name];
         m[name] = (...args) => {
           const evs = fn.apply(m, args);
@@ -134,10 +134,27 @@ function pageSetup(opts) {
       return true;
     },
 
-    /** 봇을 움직이지도 쏘지도 않는 표적으로 만든다 */
-    freezeBots() {
-      for (const b of qa.run.bots) { b.brain.think = () => IDLE; b.cmd = IDLE; b.yawRate = 0; b.pitchRate = 0; b.rateTicks = 0; }
-      return qa.run.bots.length;
+    /** 봇을 움직이지도 쏘지도 않는 표적으로 만든다. team을 주면 그 팀 봇만 */
+    freezeBots(team) {
+      let n = 0;
+      for (const b of qa.run.bots) {
+        if (team && b.team !== team) continue;
+        if (!b.brain.__think) b.brain.__think = b.brain.think;
+        b.brain.think = () => IDLE; b.cmd = IDLE; b.yawRate = 0; b.pitchRate = 0; b.rateTicks = 0;
+        n++;
+      }
+      return n;
+    },
+    /** freezeBots를 되돌린다. team을 주면 그 팀 봇만 */
+    unfreezeBots(team) {
+      let n = 0;
+      for (const b of qa.run.bots) {
+        if ((team && b.team !== team) || !b.brain.__think) continue;
+        b.brain.think = b.brain.__think;
+        delete b.brain.__think;
+        n++;
+      }
+      return n;
     },
     /** 이 자리가 발판·포털에서 떨어져 있는가. 발판 위에 세우면 플레이어나 표적이 날아가 버린다 */
     clearOfTriggers(x, z, margin = 1.5) {

@@ -407,6 +407,66 @@ export default {
       t.errorsOk('손님: 다시 멀티로');
       t.page = host;
 
+      t.setSection('폭파 미션 짧게');
+      // 셋째 방: 방장이 대기실에서 폭파 미션으로 바꾸면 규칙은 클래식, 맵은 미션 맵이 된다. 방장(블루)이 A에 설치하고 손님(레드)이 해체한다
+      await host.clickText('.sk-lobby .sk-bar-actions .sk-btn', '방 만들기');
+      await host.waitFor(`!!document.querySelector('.sk-create-sheet')`, 3000, { label: '방 만들기 시트' });
+      await host.fn(() => { const el = document.querySelector('.sk-create-sheet input'); el.focus(); el.select(); });
+      await host.type('폭파 방');
+      await host.clickText('.sk-create-sheet .sk-form-actions .sk-btn', '방 만들기');
+      await host.waitFor('__qa.ctx.screen === "room" && __qa.ui.isVisible("room")', 10000, { label: '폭파 방 대기실' });
+      await guest.waitFor(`document.querySelectorAll('.sk-room-row').length === 1 && /폭파 방/.test(document.querySelector('.sk-room-row').textContent)`, 10000, { label: '목록에 폭파 방' });
+      await guest.click('.sk-room-join');
+      await guest.waitFor('__qa.ctx.screen === "room" && __qa.ui.isVisible("room")', 15000, { label: '손님이 폭파 방에' });
+      await host.click('.sk-modepick--bar .sk-mode-btn[data-mode="bomb"]');
+      await guest.waitFor(`/폭파 미션/.test(document.querySelector('.sk-bar-sub.sk-chips').textContent)`, 5000, { label: '손님 화면에 폭파 미션' });
+      await t.shot('bomb-room');
+      if ((await guest.eval(`document.querySelector('.sk-ready-btn').getAttribute('aria-pressed')`)) !== 'true') await guest.click('.sk-ready-btn');
+      await host.waitFor(`!document.querySelector('.sk-room-foot .sk-btn--primary').disabled`, 5000, { label: '폭파 미션 시작 가능' });
+      await host.click('.sk-room-foot .sk-btn--primary');
+      await host.waitFor('__qa.ctx.screen === "match" && __qa.world.internals.rnd.phase === "live"', 40000, { label: '폭파 미션 시작' });
+      await guest.waitFor('__qa.ctx.screen === "match" && __qa.world.internals.rnd.phase === "live"', 15000, { label: '손님 폭파 미션 시작' });
+      const side = (page) => page.eval('(() => { const h = __qa.world.internals.bombView.hud(); return { mode: __qa.world.mode, ruleset: __qa.world.ruleset, side: h && h.side, carrying: h && h.carrying, bomb: __qa.world.bomb && __qa.world.bomb.state, map: __qa.ctx.map && __qa.ctx.map.id }; })()');
+      const hs = await side(host), gs = await side(guest);
+      t.check(hs.mode === 'bomb' && hs.ruleset === 'classic' && hs.map === 'relay', '방장: 폭파 미션 · 클래식 · 미션 맵', hs);
+      t.check(hs.side === 'attack' && hs.carrying, '방장(블루)이 공격이고 폭탄을 든다', hs);
+      t.check(gs.mode === 'bomb' && gs.side === 'defense' && !gs.carrying, '손님(레드)은 수비', gs);
+      await lockPointer(host);
+      await lockPointer(guest);
+      await host.eval(`(() => { const s = __qa.world.internals.bombView.sites.find((x) => x.id === 'A'); __qa.teleport(s.x, s.y + 0.2, s.z, 0); return true; })()`);
+      await waitTicks(host, 30);
+      await host.key('KeyE', 'down');
+      await host.waitFor('__qa.world.bomb && __qa.world.bomb.state === "planted"', 9000, { label: '방장 설치' }).catch((e) => t.check(false, 'E를 누르고 있으면 설치된다', e.message));
+      await host.key('KeyE', 'up');
+      await eventually(t, guest, '__qa.world.bomb && __qa.world.bomb.state === "planted" && __qa.world.bomb.site === "A"', '손님 화면에도 A 구역에 설치됨', 5000);
+      await guest.eval(`(() => { const b = __qa.world.bomb; __qa.teleport(b.pos[0] + 0.7, (b.pos[1] || 0) + 0.2, b.pos[2], 0); return true; })()`);
+      await waitTicks(guest, 30);
+      await guest.eval(`(() => { const b = __qa.world.bomb; __qa.aimAt([b.pos[0], (b.pos[1] || 0) + 0.1, b.pos[2]]); })()`);
+      await sleep(400);   // 손님 위치가 방장에게 퍼질 때까지
+      await t.shot('bomb-planted-host');
+      t.page = guest;
+      await t.shot('bomb-planted-guest');
+      t.page = host;
+      await guest.key('KeyE', 'down');
+      await eventually(t, guest, '__qa.world.bomb && __qa.world.bomb.state === "defused"', '손님이 E를 누르고 있으면 해체된다', 12000);
+      await guest.key('KeyE', 'up');
+      const hist = await host.eval('(() => { const v = window.__skalafpsSession && window.__skalafpsSession.view; return v ? v.history : null; })()');
+      t.check(Array.isArray(hist) && hist[0] && hist[0].reason === 'defuse' && hist[0].winner === 'charterer' && hist[0].attack === 'owner', '1라운드: 해체로 수비(레드) 승', hist);
+      t.errorsOk('폭파 미션');
+      t.page = guest;
+      t.errorsOk('손님: 폭파 미션');
+      t.page = host;
+      // 손님이 나가면 방장 혼자 남아 기권승으로 끝난다 → 둘 다 로비로
+      await guest.eval(`document.exitPointerLock()`);
+      await guest.waitFor('__qa.ui.isVisible("pause")', 3000, { label: '손님 일시정지' });
+      await guest.click('.sk-pause-btns .sk-btn--danger');
+      await guest.click('.sk-pause .sk-confirm .sk-btn--danger');
+      await guest.waitFor('__qa.ctx.screen === "lobby" || __qa.ctx.screen === "menu"', 10000, { label: '손님이 폭파 방에서 나감' });
+      await host.waitFor('__qa.ui.isVisible("results")', 15000, { label: '방장 결과 화면(기권승)' }).catch((e) => t.check(false, '상대가 나가면 결과 화면', e.message));
+      if (await host.eval('__qa.ui.isVisible("results")')) await host.click('.sk-res-actions .sk-btn--ghost');
+      await host.waitFor('__qa.ctx.screen === "lobby" || __qa.ctx.screen === "menu"', 10000, { label: '방장이 로비로' });
+      t.errorsOk('폭파 미션 끝');
+
       t.setSection('나가기');
       if (await host.eval('__qa.ui.isVisible("lobby")')) await host.click('.sk-lobby .sk-bar .sk-btn--ghost');
       await host.waitFor('__qa.ctx.screen === "menu" && __qa.ui.isVisible("menu")', 8000, { label: '방장 메뉴로' });

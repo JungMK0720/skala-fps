@@ -3,7 +3,7 @@
  * Author: Minkyu Jung
  * Purpose: 시나리오 2. 메인 메뉴, 마이페이지(이름 변경·전적·장비·캐릭터), 상점(구매·포인트 부족·장착·새로고침 유지·이모트 휠·캐릭터), 연습장 설정 시트를 진짜 클릭으로 검사한다.
  */
-import { MAPS, mapsForRuleset } from '../../../js/maps/index.js';
+import { MAPS, MAP_LIST, mapsForRuleset } from '../../../js/maps/index.js';
 import { RULESET_IDS, RULESETS } from '../../../js/game/modes.js';
 import { AVATARS, AVATAR_IDS, DEFAULT_AVATAR } from '../../../js/core/avatar-defs.js';
 import { LOW_QUALITY, NICK, lockPointer, openGame, readyGame, sleep, startPractice, waitRun, waitTicks } from '../kit.mjs';
@@ -209,6 +209,19 @@ export default {
     await page.clickText(seg('모드'), '개인전');
     const ffaCounts = await page.eval(`[...document.querySelectorAll('.sk-seg[aria-label="인원"] .sk-seg-btn')].length`);
     t.check(ffaCounts === 7, '개인전 봇 수 선택 7칸', ffaCounts);
+    // 폭파 미션: 규칙은 클래식만, 맵은 미션 칸이 있는 맵만
+    await page.clickText(seg('모드'), '폭파 미션');
+    const bombSheet = await page.eval(`({
+      rules: [...document.querySelectorAll('.sk-seg[aria-label="규칙"] .sk-seg-btn')].map((b) => b.textContent),
+      maps: [...document.querySelectorAll('.sk-mapcards .sk-mapcard-name')].map((n) => n.textContent),
+      counts: [...document.querySelectorAll('.sk-seg[aria-label="인원"] .sk-seg-btn')].length,
+      hint: [...document.querySelectorAll('.sk-sheet .sk-field-hint')].map((n) => n.textContent).join(' | ')
+    })`);
+    const missionNames = MAP_LIST.filter((m) => m.mission && !m.test).map((m) => m.name);
+    t.check(bombSheet.rules.join() === RULESETS.classic.name, '폭파 미션은 클래식 규칙만', bombSheet.rules);
+    t.check(missionNames.length > 0 && JSON.stringify(bombSheet.maps) === JSON.stringify(missionNames), '폭파 미션은 미션 맵만', { got: bombSheet.maps, want: missionNames });
+    t.check(bombSheet.counts === 4 && /클래식 규칙만/.test(bombSheet.hint) && /폭탄/.test(bombSheet.hint), '폭파 미션 인원(팀당)과 안내', bombSheet);
+    await t.shot('practice-sheet-bomb');
     await page.clickText(seg('모드'), '팀전');
     await page.clickText(seg('인원'), '1 vs 1');
     await page.clickText(seg('난이도'), '쉬움');

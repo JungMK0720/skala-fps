@@ -78,7 +78,7 @@ export function fmtTime(sec) {
 
 export const TEAMS = Object.freeze({
   owner: Object.freeze({ key: 'owner', name: '블루', en: 'Blue', emoji: '🟦' }),
-  charterer: Object.freeze({ key: 'charterer', name: '오렌지', en: 'Orange', emoji: '🟧' }),
+  charterer: Object.freeze({ key: 'charterer', name: '레드', en: 'Red', emoji: '🟥' }),
 });
 export const TEAM_KEYS = Object.freeze(['owner', 'charterer']);
 export const teamKey = (t) => (t === 'owner' || t === 'charterer' ? t : '');
@@ -107,17 +107,27 @@ export function fmtPlayTime(sec) {
   return minutes ? `${minutes}분 ${String(t % 60).padStart(2, '0')}초` : `${t}초`;
 }
 
-// ---------- 모드 (MODES.md 3.3) — mode를 생략하면 'team' ----------
-export const modeKey = (m) => (m === 'ffa' ? 'ffa' : 'team');
+// ---------- 모드 (MODES.md 3.3 · 5절) — mode를 생략하면 'team'. 폭파 미션('bomb')도 팀으로 나뉜다 ----------
+export const modeKey = (m) => (m === 'ffa' ? 'ffa' : m === 'bomb' ? 'bomb' : 'team');
 export const FFA_TARGET = 20;
-export const MODE_ICON = Object.freeze({ team: '⚔️', ffa: '🎯' });
-export const MODE_NAME = Object.freeze({ team: '팀전', ffa: '개인전' });
-/** "팀전 · 5판 3선승" / "개인전 · 20킬" */
+export const MODE_ICON = Object.freeze({ team: '⚔️', ffa: '🎯', bomb: '💣' });
+export const MODE_NAME = Object.freeze({ team: '팀전', ffa: '개인전', bomb: '폭파 미션' });
+/** "팀전 · 5판 3선승" / "개인전 · 20킬" / "폭파 미션 · 5판 3선승" */
 export function modeLabel(mode, opts = {}) {
-  if (modeKey(mode) === 'ffa') return `개인전 · ${Math.max(1, Math.floor(num(opts.killTarget, FFA_TARGET)))}킬`;
+  const key = modeKey(mode);
+  if (key === 'ffa') return `개인전 · ${Math.max(1, Math.floor(num(opts.killTarget, FFA_TARGET)))}킬`;
   const target = Math.max(1, Math.floor(num(opts.target, 3)));
   const bestOf = Math.max(1, Math.floor(num(opts.bestOf, target * 2 - 1)));
-  return `팀전 · ${bestOf}판 ${target}선승`;
+  return `${MODE_NAME[key]} · ${bestOf}판 ${target}선승`;
+}
+
+/** 폭파 미션 진영 이름 */
+export const SIDE_NAME = Object.freeze({ attack: '공격', defense: '수비' });
+/** 이번 라운드 공격 팀(attack)으로 본 team의 진영: 'attack' | 'defense' | ''(둘 중 하나라도 모르면) */
+export function bombSide(team, attack) {
+  const a = teamKey(attack);
+  const t = teamKey(team);
+  return a && t ? (t === a ? 'attack' : 'defense') : '';
 }
 
 /** fps.css가 페이지에 없으면 모듈 위치 기준으로 붙인다. 붙였으면 그 link를 돌려준다. */

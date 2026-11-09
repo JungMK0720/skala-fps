@@ -2,12 +2,13 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 대기실 화면. 팀 또는 개인전 명단, 준비와 시작, 모드·규칙·맵 변경, 채팅을 다룬다.
+ *          폭파 미션은 팀 칼럼에 전반 진영(먼저 공격/수비)을 붙이고, 규칙은 클래식, 맵은 미션 맵만 고른다.
  */
-// SKALA 작전 UI — 방(대기실): 팀 칼럼(팀전) / 한 줄 명단(개인전), 준비/시작, 모드·규칙·맵 변경, 채팅
-import { h, btn, setText, num, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, modeLabel, MODE_ICON } from './dom.js';
+// SKALA 작전 UI — 방(대기실): 팀 칼럼(팀전·폭파 미션) / 한 줄 명단(개인전), 준비/시작, 모드·규칙·맵 변경, 채팅
+import { h, btn, setText, num, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, modeLabel, MODE_ICON, MODE_NAME, SIDE_NAME, bombSide } from './dom.js';
 import { makeScreen, mapCard, createChoiceRow } from './parts.js';
 import { mapList, mapInfo } from './icons.js';
-import { RULE_CHOICES, mapsForRule } from './lobby.js';
+import { RULE_CHOICES, MODE_IDS, mapsForMode, missionMaps, ruleForMode } from './lobby.js';
 import { RULESETS, normalizeRuleset } from '../game/modes.js';
 
 const CHAT_MAX = 30;
@@ -40,24 +41,26 @@ export function createRoom(ctx) {
   const countChip = h('span', { class: 'sk-chip' });
   const idChip = h('span', { class: 'sk-chip sk-chip--dim' });
 
-  // ---------- 팀 칼럼 ----------
+  // ---------- 팀 칼럼(폭파 미션은 머리에 전반 진영 '먼저 공격'/'먼저 수비') ----------
   function teamCol(team) {
     const T = TEAMS[team];
     const count = h('span', { class: 'sk-team-count' });
     const move = btn('이 팀으로 이동', () => ctx.emit('room:team', { team }), 'sk-btn--sm');
     const list = h('ul', { class: 'sk-team-list', 'aria-label': `${T.name} 팀 명단` });
+    const side = h('span', { class: 'sk-team-side', hidden: true });
     const el = h('section', { class: `sk-team sk-team--${team} sk-steel` },
       h('header', { class: 'sk-team-head' },
         h('h2', { class: 'sk-team-name' },
           h('span', { class: 'sk-team-emoji', text: T.emoji, 'aria-hidden': 'true' }),
-          h('span', { text: T.name }), h('small', { text: T.en })),
+          h('span', { text: T.name }), h('small', { text: T.en }), side),
         count, move),
       list);
-    return { el, count, move, list };
+    return { el, count, move, list, side };
   }
   const cols = { owner: teamCol('owner'), charterer: teamCol('charterer') };
   const waiting = h('p', { class: 'sk-unassigned' });
-  const teamsWrap = h('div', { class: 'sk-room-teams' }, waiting, cols.owner.el, h('div', { class: 'sk-vs', text: 'VS', 'aria-hidden': 'true' }), cols.charterer.el);
+  const bombNote = h('p', { class: 'sk-room-note', hidden: true, text: '💣 2라운드 뒤 공수 교대' });
+  const teamsWrap = h('div', { class: 'sk-room-teams' }, waiting, cols.owner.el, h('div', { class: 'sk-vs', text: 'VS', 'aria-hidden': 'true' }), cols.charterer.el, bombNote);
 
   // ---------- 개인전 명단(팀 버튼 없음) ----------
   const ffaCount = h('span', { class: 'sk-team-count' });
@@ -71,15 +74,17 @@ export function createRoom(ctx) {
     ffaList);
 
   // ---------- 모드(방장만 바꿀 수 있음 → 머리글 오른쪽 전환 버튼, 다른 사람은 모드 칩만) ----------
-  const modeBtns = ['team', 'ffa'].map((m) => btn([
+  const modeBtns = MODE_IDS.map((m) => btn([
     h('span', { class: 'sk-mode-ico', text: MODE_ICON[m], 'aria-hidden': 'true' }),
-    h('span', { class: 'sk-mode-txt' }, h('b', { text: m === 'ffa' ? '개인전' : '팀전' })),
+    h('span', { class: 'sk-mode-txt' }, h('b', { text: MODE_NAME[m] })),
   ], () => pickMode(m), 'sk-mode-btn', { role: 'radio', 'data-mode': m }));
   const modePick = h('div', { class: 'sk-modepick sk-modepick--bar', role: 'radiogroup', 'aria-label': '모드 변경(방장)', title: '방장만 모드를 바꿀 수 있어요' }, modeBtns);
+  const hasMissionMap = () => missionMaps(mapList(ctx.maps, p.maps)).length > 0;
   function pickMode(m) {
     const players = normPlayers(p);
     const me = players.find((x) => x.me);
     if (!me || !me.host || p.starting || modeKey(m) === modeKey(p.mode)) return;
+    if (modeKey(m) === 'bomb' && !hasMissionMap()) return; // 미션 맵이 없으면 폭파 미션을 고를 수 없다
     screen.update({ mode: modeKey(m) }); // 즉시 반영, 다음 update가 오면 그 값이 우선
     ctx.emit('room:mode', { mode: modeKey(m) });
   }
@@ -94,13 +99,13 @@ export function createRoom(ctx) {
   }
   const emptyRow = (n) => h('li', { class: 'sk-pl sk-pl--empty' }, h('span', { class: 'sk-pl-crown' }), h('span', { class: 'sk-pl-name', text: n > 1 ? `빈 자리 ×${n}` : '빈 자리' }));
 
-  // ---------- 규칙(방장만 바꿀 수 있음. 바꾸면 세션이 이 규칙으로 고를 수 있는 맵으로 맞춘다) ----------
+  // ---------- 규칙(방장만 바꿀 수 있음. 바꾸면 세션이 이 규칙으로 고를 수 있는 맵으로 맞춘다. 폭파 미션은 클래식 고정) ----------
   const rulePick = createChoiceRow({ label: '규칙 변경(방장)', onPick: pickRule });
   const ruleDesc = h('p', { class: 'sk-set-hint' });
   function pickRule(id) {
     const me = normPlayers(p).find((x) => x.me);
     const next = normalizeRuleset(id);
-    if (!me || !me.host || p.starting || next === normalizeRuleset(p.ruleset)) return;
+    if (!me || !me.host || p.starting || modeKey(p.mode) === 'bomb' || next === normalizeRuleset(p.ruleset)) return;
     screen.update({ ruleset: next }); // 즉시 반영, 다음 update가 오면 그 값이 우선
     ctx.emit('room:ruleset', { ruleset: next });
   }
@@ -190,19 +195,21 @@ export function createRoom(ctx) {
     const cap = Math.max(1, num(p.teamMax, Math.ceil(max / 2)));
     const mode = modeKey(p.mode);
     const ffa = mode === 'ffa';
-    const rs = normalizeRuleset(p.ruleset);
+    const bomb = mode === 'bomb';
+    const rs = ruleForMode(mode, p.ruleset);
 
     setText(title, p.name || '대기실');
     setText(ruleChip, `${RULESETS[rs].icon} ${RULESETS[rs].name}`);
     setText(modeChip, `${MODE_ICON[mode]} ${modeLabel(mode, { killTarget: p.killTarget })}`);
     modeChip.classList.toggle('is-ffa', ffa);
+    modeChip.classList.toggle('is-bomb', bomb);
     const m = mapInfo(ctx.maps, p.maps, p.mapId);
     setText(mapChip, `🗺️ ${m ? m.name : '맵 미정'}`);
     setText(countChip, `👥 ${players.length}/${max}`);
     setText(idChip, p.roomId ? `#${p.roomId}` : '');
     idChip.hidden = !p.roomId;
 
-    // 명단: 팀전 = 팀 칼럼 두 개, 개인전 = 한 줄 명단
+    // 명단: 팀전·폭파 미션 = 팀 칼럼 두 개, 개인전 = 한 줄 명단
     teamsWrap.hidden = ffa;
     ffaCol.hidden = !ffa;
     const byTeam = { owner: [], charterer: [] };
@@ -224,37 +231,51 @@ export function createRoom(ctx) {
       setText(waiting, unassigned.length ? `⏳ 팀 배정 대기: ${unassigned.map((x) => x.name).join(', ')}` : '');
       waiting.hidden = !unassigned.length;
     }
+    // 폭파 미션: 전반 진영(firstAttack, 기본은 블루가 먼저 공격)과 공수 교대 안내
+    const first = teamKey(p.firstAttack) || 'owner';
+    for (const t of TEAM_KEYS) {
+      const role = bomb ? bombSide(t, first) : '';
+      const tag = cols[t].side;
+      tag.hidden = !role;
+      tag.dataset.side = role;
+      setText(tag, role ? `먼저 ${SIDE_NAME[role]}` : '');
+    }
+    bombNote.hidden = !bomb;
 
     // 모드 전환: 방장만(머리글 오른쪽). 다른 사람은 모드 칩으로 확인
+    const missionReady = hasMissionMap();
     for (const b of modeBtns) {
-      const on = b.getAttribute('data-mode') === mode;
+      const id = b.getAttribute('data-mode');
+      const on = id === mode;
       b.classList.toggle('is-on', on);
       b.setAttribute('aria-checked', on ? 'true' : 'false');
-      b.disabled = !!p.starting;
+      b.disabled = !!p.starting || (id === 'bomb' && !missionReady && !on);
+      if (id === 'bomb') b.title = missionReady ? '' : '폭파 미션을 할 수 있는 맵이 아직 없어요';
     }
     modePick.hidden = !isHost;
     modeChip.title = isHost ? '' : '모드는 방장만 바꿀 수 있어요';
 
-    // 규칙: 방장만 바꾼다. 다른 사람은 설명과 칩으로 확인
-    rulePick.el.hidden = !isHost;
-    if (isHost) rulePick.set(RULE_CHOICES, rs);
-    setText(ruleDesc, isHost ? RULESETS[rs].desc : `${RULESETS[rs].desc} · 규칙은 방장만 바꿀 수 있어요.`);
+    // 규칙: 방장만 바꾼다. 다른 사람은 설명과 칩으로 확인. 폭파 미션은 클래식뿐이라 고르는 버튼이 없다
+    rulePick.el.hidden = !isHost || bomb;
+    if (isHost && !bomb) rulePick.set(RULE_CHOICES, rs);
+    if (bomb) setText(ruleDesc, '폭파 미션은 클래식 규칙만 써요');
+    else setText(ruleDesc, isHost ? RULESETS[rs].desc : `${RULESETS[rs].desc} · 규칙은 방장만 바꿀 수 있어요.`);
 
-    // 맵: 이 규칙으로 고를 수 있는 맵만 (바뀐 경우에만 다시 그린다)
-    const maps = mapsForRule(mapList(ctx.maps, p.maps), rs);
+    // 맵: 이 규칙(폭파 미션은 미션 맵)으로 고를 수 있는 맵만 (바뀐 경우에만 다시 그린다)
+    const maps = mapsForMode(mapList(ctx.maps, p.maps), mode, rs);
     const sig = JSON.stringify([isHost, p.mapId, maps]);
     if (sig !== mapSig) {
       mapSig = sig;
       mapCur.replaceChildren(m ? mapCard(m) : h('p', { class: 'sk-set-hint', text: '맵이 아직 정해지지 않았어요.' }));
       mapPick.hidden = !isHost;
       mapPick.replaceChildren(...(isHost ? maps.map(pickerCard) : []));
-      setText(mapNote, isHost ? '방장: 카드를 눌러 맵을 바꿀 수 있어요.' : '맵은 방장만 바꿀 수 있어요.');
+      setText(mapNote, !isHost ? '맵은 방장만 바꿀 수 있어요.' : maps.length ? '방장: 카드를 눌러 맵을 바꿀 수 있어요.' : '폭파 미션을 할 수 있는 맵이 없어요.');
     }
 
     renderChat(p.chat);
 
     // 시작 조건(방장은 자동 준비)
-    //   팀전: 양 팀 1명 이상 + 팀 미배정 없음 + 방장 외 전원 준비
+    //   팀전·폭파 미션: 양 팀 1명 이상 + 팀 미배정 없음 + 방장 외 전원 준비
     //   개인전: 2명 이상 + 방장 외 전원 준비
     const notReady = players.filter((x) => !x.host && !x.ready);
     let reason = '';

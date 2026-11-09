@@ -306,4 +306,43 @@ describe('터치 모드 입력', () => {
     assert.ok(!input.state.forward && !input.state.fire && !input.state.jump && !input.state.crouch);
     input.dispose();
   });
+
+  test('폭탄 설치·해체 버튼: 누르고 뗄 때 한 번씩 input:use를 내고, 잠금이 풀리면 뗀다', async () => {
+    const { input, of } = stage();
+    await input.requestLock();
+    input.touch.use(false);
+    assert.equal(of('input:use').length, 0, '누르지 않았으면 뗌도 없다');
+    input.touch.use(true);
+    input.touch.use(true);
+    assert.equal(input.state.use, true);
+    input.touch.use(false);
+    assert.equal(input.state.use, false);
+    assert.deepEqual(of('input:use').map((e) => e.down), [true, false], '두 번 눌러도 한 번');
+    input.touch.use(true);
+    input.exitLock();
+    assert.equal(input.state.use, false);
+    assert.deepEqual(of('input:use').at(-1), { down: false });
+    input.dispose();
+  });
+
+  test('E 키: 반복은 무시하고, 입력이 꺼지면 누를 수 없고 눌려 있던 것은 뗀다', async () => {
+    const { input, of } = stage(false);
+    const key = (type, repeat = false) => globalThis.window.fire(type, { code: 'KeyE', repeat, target: null, preventDefault() {} });
+    key('keyup');
+    assert.equal(of('input:use').length, 0, '누르지 않고 떼면 아무것도 없다');
+    key('keydown');
+    key('keydown', true);
+    assert.equal(input.state.use, true);
+    key('keyup');
+    assert.deepEqual(of('input:use').map((e) => e.down), [true, false]);
+    key('keydown');
+    input.setEnabled(false);
+    assert.equal(input.state.use, false);
+    assert.deepEqual(of('input:use').at(-1), { down: false }, '입력을 끄면 뗀다');
+    key('keydown');
+    input.touch.use(true);
+    assert.equal(input.state.use, false, '꺼져 있으면 눌리지 않는다');
+    assert.equal(of('input:use').length, 4);
+    input.dispose();
+  });
 });

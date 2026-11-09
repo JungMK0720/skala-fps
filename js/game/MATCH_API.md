@@ -7,8 +7,8 @@
 방장은 그 이벤트와 `snapshot()`을 방 채널로 보낸다. 상태가 바뀔 때마다 보내고, 그 밖에는 1 Hz 정도로 보낸다.
 다른 클라이언트는 받은 스냅샷을 `applySnapshot()`으로 풀어 화면에 쓴다(`m.state`와 같은 모양).
 
-**모드**: `rules.mode`는 `'team'`(기본, 1~10절)과 `'ffa'`(개인전, **11절**) 두 가지다.
-FFA인지는 `view.mode === 'ffa'`로 가른다. 팀전 뷰에는 `mode` 키가 없다.
+**모드**: `rules.mode`는 `'team'`(기본, 1~10절), `'ffa'`(개인전, **11절**), `'bomb'`(폭파 미션, **13절**) 세 가지다.
+FFA인지는 `view.mode === 'ffa'`, 폭파 미션인지는 `view.mode === 'bomb'`로 가른다. 팀전 뷰에는 `mode` 키가 없다.
 
 **규칙**: `rules.ruleset`은 `'classic'`(기본)·`'knife'`·`'sniper'`이고 모드와 직교한다(**12절**).
 
@@ -37,7 +37,8 @@ const { stats, mvp } = standings(view);      // 점수판·결과 화면용 순�
 | `createMatch(opts)` | 경기 객체를 만든다(방장 전용). 2절 |
 | `applySnapshot(snap)` | 스냅샷을 화면용 상태로 푼다(`m.state` 모양). 잘못된 입력이면 `null` |
 | `standings(view)` | 상태 → `{ stats: [{id,name,team,bot,connected,kills,deaths,headshots,halfShots,damage}] (MVP 순), mvp }`. FFA 뷰면 `{ stats, mvp, ranking, winnerId, leader }`(11.9절) |
-| `MODES`, `DEFAULT_FFA_RULES`, `FFA_REASON_LABELS` | `['team','ffa']` / FFA 규칙 기본값 / FFA `matchEnd.reason` → 화면 문구 |
+| `MODES`, `DEFAULT_FFA_RULES`, `FFA_REASON_LABELS` | `['team','ffa','bomb']` / FFA 규칙 기본값 / FFA `matchEnd.reason` → 화면 문구 |
+| `DEFAULT_BOMB_RULES` | 폭파 미션 규칙 기본값(13.1절). 구역 판정·공수 교대·폭발 피해 도우미는 `js/game/mission.js` |
 | `WEAPON_RULES` | 무기 판정 표(동결). `rulesFromDefs(WEAPONS)`의 결과다. 4절 |
 | `rulesFromDefs(defs = WEAPONS)` | `defs.js`의 무기 표 → 판정 표. 피해 수치는 담지 않는다 |
 | `damageFor(weaponId, part, dist, kind, victimHp=100, count=1)` | 방장이 적용할 데미지를 미리 계산한다(히트마커 예측용, 수류탄은 0). `computeDamage`를 체력에서 자른 값 |
@@ -55,6 +56,7 @@ const { stats, mvp } = standings(view);      // 점수판·결과 화면용 순�
 | `spawns` | 없음 | 맵 `spawns` 그대로(x·z·y는 소수 2자리, rotY는 3자리로 반올림). 없으면 겹치지 않는 대체 위치 |
 | `seed` / `rng` | `Math.random` | 스폰 섞기 난수(테스트 재현용) |
 | `getPositions` | 없음 | **FFA**: `() => ({ [id]: {x,z} \| [x,y,z] })`. 부활 지점을 고를 때 부른다(11.3절) |
+| `mission`, `roundOffset`, `chooseCarrier` | 없음 | 폭파 미션(13.1절) |
 | `carry` | 없음 | 이어받을 기록 `{ [id]: { kills, deaths, headshots, halfShots, damage, name?, team?, bot?, loadout? } }`(방장 이전, 11.10절). `players`에 없는 id는 접속 끊김 기록으로 남는다. `loadout`은 이 규칙에서 고를 수 있을 때만 받는다 |
 
 아래 표는 팀전 규칙이다. FFA 규칙은 11.1절에 있다.
@@ -81,6 +83,7 @@ const { stats, mvp } = standings(view);      // 점수판·결과 화면용 순�
 | `setTeam(id, team)` | warmup만 | `team`. 같은 팀이면 `[]` |
 | `setLoadout(id, weaponId)` | loadout만(FFA는 live도) | `pickableWeapons(ruleset)`에 있는 무기만 받는다. 그 밖은 `reject 'bad_weapon'`. 같은 값이면 `[]`. 표시 이름(`'SK-7'`)도 받는다 |
 | `claimHit(claim)` / `claimExplosion(claim)` | live만 | 5절 |
+| `bombIntent(id, action, opt)` | live만 | 폭파 미션 설치·해체 의도(13.2절). 다른 모드는 `reject 'not_bomb'` |
 | `snapshot()` | 항상 | 7절 |
 | `dispose()` | — | 이후 모든 메서드는 `[]` |
 | `state` (getter) | — | 읽기 전용 뷰. 접근할 때마다 새 복사본이고, `applySnapshot(snapshot())`과 같다 |
@@ -472,3 +475,90 @@ publish(h.m.start());                                      // sync.sendMatch(h.m
 - `setLoadout`은 `pickableWeapons(ruleset)`에 있는 id만 받는다. 고르지 않으면 `defaultPick(ruleset)`이다.
 - `player.loadout`, `phase.loadouts`, `spawn.loadout`은 규칙의 `pickSlot` 무기다. 칼전이면 칼 id다.
 - `roundStart`, `spawn`, 스냅샷(`rs`), 뷰(`view.ruleset`, `view.rules.ruleset`)에 규칙이 실린다. `restoreMatch`·`restoreFfaMatch`는 `view.rules`를 그대로 넘겨 규칙을 이어받는다.
+
+## 13. 폭파 미션 — `rules.mode: 'bomb'` (계약: MODES.md 5절)
+### 13.1 만들기
+```js
+import { createMatch } from './game/match.js';
+const m = createMatch({
+  rules: { mode: 'bomb' },                 // + 팀전 규칙 키, plantMs·defuseMs·fuseMs·swapAfter·firstAttack
+  players: [{ id: 'u1', name: '하늘', team: 'owner' }, { id: 'u2', name: '구름', team: 'charterer' }],
+  spawns: map.spawns,                      // 미션 스폰이 비었을 때만 쓴다
+  mission: map.mission,                    // { sites:[{id,x,y,z,w,h,d}], attack:[스폰], defense:[스폰] } — mission.normalizeMission이 읽는다
+  getPositions: () => ({ u1: [x, y, z], u2: { x, y, z } })   // 발 위치(y 포함). 판정에 꼭 필요하다
+});
+```
+
+| opts | 설명 |
+|---|---|
+| `mission` | 맵의 미션 칸(또는 맵 데이터). 구역이 하나도 없으면 `start()`가 `reject 'no_mission'` |
+| `getPositions` | 구역 안·해체 거리·움직임 취소·떨어진 폭탄 줍기·폭발 피해를 여기서 잰다. 모르는 사람은 마지막으로 안 위치, 그것도 없으면 라운드 스폰 |
+| `roundOffset` | 방장 이전: 이미 끝난 라운드 수. 공수 교대를 전체 라운드 번호로 센다(session.restoreMatch가 넘긴다) |
+| `chooseCarrier` | 시험용: `(ids) → id`. 라운드마다 폭탄을 받을 사람(후보가 아니면 무작위) |
+
+| rules | 기본 | 의미 |
+|---|---|---|
+| `roundsToWin` / `maxRounds` / `maxTotalRounds` | 3 / 5 / 9 | 팀전과 같다. 폭파 미션에는 무승부 라운드가 없다 |
+| `roundTimeMs` / `loadoutMs` / `roundEndMs` | 100000 / 5000 / 5000 | 1:40 / 5초 / 5초 |
+| `plantMs` / `defuseMs` / `fuseMs` | 3000 / 5000 / 35000 | 설치 / 해체 / 설치 뒤 폭발까지 |
+| `swapAfter` | 2 | 이 라운드 수가 끝나면 공수 교대 |
+| `firstAttack` | `'owner'` | 전반 공격 팀 |
+| `ruleset` | `'classic'` | 언제나 클래식이다 |
+
+### 13.2 메서드
+| 메서드 | 설명 |
+|---|---|
+| `bombIntent(id, action, { reason }?)` | `action`: `'plant'` · `'defuse'` · `'cancel'`. 성공하면 `bomb` 이벤트(`plantStart`·`defuseStart`·`plantCancel`·`defuseCancel`). 같은 의도를 다시 보내면 `[]`. 남의 취소는 `[]` |
+| `mission` (getter) | 정규화한 미션 칸 \| `null` |
+| `attack` (getter) | 이번 라운드 공격 팀 \| `null`(폭파 미션이 아니면 `null`) |
+
+`bombIntent` 거절 사유(`{ type:'reject', action:'bomb', reason, by, act }`):
+`not_bomb`(다른 모드) · `bad_action` · `not_live` · `unknown_player` · `dead` · `busy`(다른 사람이 설치·해체 중) · `no_position` ·
+`not_attacker` · `no_bomb`(폭탄을 안 들었다) · `not_in_site`(구역 0.5 m 여유 밖) · `not_defender` · `not_planted` · `too_far`(폭탄 2.0 m 밖이거나 높이 차 1.6 m 넘음).
+
+- 설치·해체는 시작 시각의 위치에서 0.6 m 넘게 움직이면(설치는 구역에서 0.5 m 넘게 벗어나도) `moved`, 그 사람의 `claimHit`·`claimExplosion`이 오면 `fired`, 쓰러지면 `died`, 나가면 `left`로 취소된다.
+- 진행은 `tick`이 방장 시계로 센다. live 안에서는 설치·해체 완료, 폭발, (설치 전) 시간 종료를 시각 순서대로 처리한다. 같은 순간이면 폭발 → 해체 완료, 설치 완료 → 시간 종료 순이다.
+
+### 13.3 흐름
+```
+warmup ──start()──▶ loadout(5s) ─▶ live(1:40) ─▶ roundEnd(5s) ─┬─▶ loadout … (2라운드 뒤 공수 교대)
+                       ▲    폭탄 give        └ 설치되면 폭탄 시계 35초   └─▶ matchEnd(선승)
+                       └ roundStart(attack, 진영 스폰)
+```
+- 승패는 MODES.md 5.2절. 이벤트 순서: `roundStart → bomb(give) → phase(loadout)`, 설치 `bomb(plantStart) … bomb(plant)`, 폭발 `bomb(explode) → damage·kill(폭발 피해) → roundEnd → phase`, 해체 `bomb(defuse) → roundEnd → phase`.
+- 전멸 판정: 설치 전에는 공격 0명 → 수비 승(동시 전멸 포함), 수비 0명 → 공격 승. 설치 뒤에는 수비 0명 → 공격 승, 공격 0명은 라운드를 끝내지 않는다.
+- 폭발 피해: `blastDamage(거리)` — 7 m 안 500, 16 m까지 160 → 0(가슴 높이까지 거리). 피해·킬 이벤트는 `weaponId: 'bomb'`, `attacker === victim`(`self: true`, `center`)이라 킬은 아무에게도 가지 않고 데스만 는다.
+
+### 13.4 이벤트 (폭파 미션에서 새로 생기거나 다른 것)
+| type | 필드 |
+|---|---|
+| `bomb` | `act`: `give` · `drop` · `pick` · `plantStart` · `plantCancel` · `plant` · `defuseStart` · `defuseCancel` · `defuse` · `explode`, `id`(그 사람, explode는 없음), `site`(구역 id), `pos`([x,y,z], drop·plant·defuse·explode), `ms`(start: 걸리는 ms, plant: 폭발까지 ms), `reason`(cancel: `moved`·`fired`·`released`·`died`·`left`) |
+| `roundStart` | 팀전 필드 + `attack`(이번 라운드 공격 팀). `spawns`는 진영 스폰 |
+| `roundEnd` | 팀전 필드 + `attack`, `site`(설치된 구역 또는 `null`). `reason`: `bomb` · `defuse` · `elimination` · `time` |
+
+protocol은 `bomb` 이벤트를 `MATCH_EVENT_FIELDS.bomb = ['act', 'id', 'site', 'pos']` 순서로 싣고 나머지 키는 끝 객체로 무손실 전달한다.
+
+### 13.5 상태 뷰 · 스냅샷
+`applySnapshot(snap)`과 `m.state`는 팀전 뷰에 다음을 더한다:
+```js
+{
+  mode: 'bomb', ruleset: 'classic',
+  attack: 'owner' | 'charterer' | null, defense: 'charterer' | 'owner' | null, firstAttack: 'owner',
+  rules: { ...팀전 규칙, mode: 'bomb', plantMs, defuseMs, fuseMs, swapAfter, firstAttack },
+  history: [{ round, winner, reason, attack }],
+  timeLeftMs,     // live: 설치 전 라운드 남은 시간 / 설치 뒤 폭발까지 남은 시간
+  bomb: {
+    state: 'none' | 'carried' | 'dropped' | 'planted' | 'defused' | 'exploded',
+    carrier: id | null, pos: [x, y|null, z] | null, site: 'A' | 'B' | null,
+    explodeInMs: number | null,                                   // 설치됐을 때만
+    action: { kind: 'plant' | 'defuse', id, leftMs, totalMs } | null
+  }
+}
+```
+- 직렬화: 팀전 형식에 `mo:'bomb'`, `bru:[plantMs, defuseMs, fuseMs, swapAfter]`, `fa`(전반 공격 팀 번호), `at`(이번 공격 팀 번호, -1 없음),
+  `bo:[상태 'n'|'c'|'d'|'p'|'f'|'x', carrier, x, y, z, site, 폭발까지 ms|null, 진행 'p'|'f'|'', 진행하는 id, 남은 ms, 전체 ms]`가 붙고, `h` 줄은 `[winnerIdx, 사유 코드('b' 폭파 · 'f' 해체 …), attackIdx]`다.
+- 4명 경기에서 스냅샷은 약 0.8 KB다. 예산(1800 B)과 protocol 부가 영역(8192 B) 안에서 무손실 통과를 `tests/bomb.test.mjs`가 확인한다.
+- 방장 이전: `restoreMatch`(session.js)가 `mission`·`getPositions`·`roundOffset`을 안쪽 경기에 넘기고, 라운드 기록의 공격 팀까지 잇는다.
+
+### 13.6 시험
+`tests/bomb.test.mjs`: 미션 도우미(구역 판정·공수 교대·폭발 피해·문구), 설치 → 폭발, 해체, 같은 순간 처리, 전멸(설치 전·후), 시간 종료(설치 중 포함), 떨굼·줍기, 잘못된 의도 거절, 움직임·사격·손 뗌·쓰러짐 취소, 공수 교대와 5라운드, 나감, 스냅샷 protocol 왕복, restoreMatch, g2b 왕복, 로비 항목.

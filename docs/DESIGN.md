@@ -184,6 +184,7 @@ export default {
 - 연습장 설정 시트: 규칙 → 모드 → 맵(`mapsForRuleset`) → 인원 → 난이도 순. 시트는 지난 설정(없으면 `alley`, 개인전, 봇 5)을 기억한다. 규칙을 바꾸면 그 규칙의 기본 맵으로 옮긴다(칼전 `rooftop`). 방 만들기 시트도 같다. 메뉴의 빠른 시작 버튼은 없앴다.
 - 봇(`bots.js`): 무기 정보는 `defs`에서 만든다(`BOT_WEAPON_INFO` 복제 제거). `ruleset`을 받아 칼전이면 칼만 들고 거리를 좁혀 베고, 스나전이면 저격 위주. 봇 주무기는 `pickableWeapons(ruleset)`에서 고른다.
 - 멀티: 방 메타에 `ruleset`. 로비 배지 "칼전 · 개인전", 방 만들기 시트에서 고르고 방장이 대기실에서 바꿀 수 있다.
+- 폭파 미션(`bomb`): 팀 모드의 하나로 규칙은 클래식 고정, 미션 칸이 있는 맵만 고른다(MODES.md 5절, MAP_GUIDE.md 10절).
 
 ## 7. 계정 · 닉네임 · 포인트 (`js/account/`)
 
@@ -242,7 +243,7 @@ account.remoteEnabled
 | 난이도 배율(봇전) | 쉬움 0.7 · 보통 1 · 어려움 1.4 | - |
 | 비밀 스팟 첫 발견 | 맵에 적힌 값(기본 100) | 같음 |
 
-`summary = { online, ruleset, mode, mapId, difficulty, kills, deaths, headshots, halfShots, win, draw, seconds }`. 연습장과 세션이 경기 끝에 한 번 부르고, 결과 화면에 "+120 P"를 보여 준다.
+`summary = { online, ruleset, mode, mapId, difficulty, kills, deaths, headshots, halfShots, win, draw, seconds }`. 폭파 미션(`mode: 'bomb'`)도 같은 표를 쓴다(설치·해체 보너스는 없다). 연습장과 세션이 경기 끝에 한 번 부르고, 결과 화면에 "+120 P"를 보여 준다.
 
 ### Supabase (`supabase/schema.sql`, 새 프로젝트 전용)
 테이블 `public.fps_players(id, token_hash unique, name, name_key unique, points, owned jsonb, loadout jsonb, stats jsonb, secrets jsonb, created_at, updated_at)`. RLS 켜고 anon 직접 접근 없음. RPC(SECURITY DEFINER): `fps_check_nickname(p_name)`, `fps_claim_nickname(p_token, p_name)`, `fps_get_profile(p_token)`, `fps_save_profile(p_token, p_points, p_owned, p_loadout, p_stats, p_secrets)`, `fps_top_players(p_limit)`, `fps_features()`(서버가 아는 기능, 캐릭터 구매 열기). 설정 절차는 `docs/SUPABASE_SETUP.md`. 멀티 채널은 `skalafps:lobby`, `skalafps:room:<id>`이며 테이블이 필요 없다.

@@ -27,20 +27,20 @@ const textOf = (v, max) => (typeof v === 'string' ? sanitizeName(v, max) : '');
 const intOf = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.trunc(v) : 0);
 
 /**
- * presence 객체는 키가 10개까지라(limits.FREE_PLAN) 모드와 규칙을 mode 키 하나에 싣는다: 'team', 'ffa', 'team:knife', 'ffa:sniper'.
+ * presence 객체는 키가 10개까지라(limits.FREE_PLAN) 모드와 규칙을 mode 키 하나에 싣는다: 'team', 'ffa', 'bomb', 'team:knife', 'ffa:sniper'.
  * 클래식은 규칙을 적지 않으므로 규칙이 없는 옛 항목은 그대로 클래식으로 읽힌다. 비밀번호 방은 끝에 ':p'를 붙인다('team:classic:p').
  */
 export function packRoomKind(mode, ruleset, locked = false) {
-  const m = mode === 'ffa' ? 'ffa' : 'team';
+  const m = mode === 'ffa' || mode === 'bomb' ? mode : 'team';
   const rs = typeof ruleset === 'string' && RULESET_RE.test(ruleset) ? ruleset : DEFAULT_RULESET;
   if (locked) return `${m}:${rs}:p`;
   return rs === DEFAULT_RULESET ? m : `${m}:${rs}`;
 }
 
-/** → { mode:'team'|'ffa', ruleset }. 어떤 규칙 이름이 있는지는 게임이 안다(모르는 이름은 화면에서 클래식으로 읽는다) */
+/** → { mode:'team'|'ffa'|'bomb', ruleset }. 어떤 규칙 이름이 있는지는 게임이 안다(모르는 이름은 화면에서 클래식으로 읽는다) */
 export function unpackRoomKind(v) {
   const [m, rs, flag] = (typeof v === 'string' ? v : '').split(':');
-  return { mode: m === 'ffa' ? 'ffa' : 'team', ruleset: rs && RULESET_RE.test(rs) ? rs : DEFAULT_RULESET, locked: flag === 'p' };
+  return { mode: m === 'ffa' || m === 'bomb' ? m : 'team', ruleset: rs && RULESET_RE.test(rs) ? rs : DEFAULT_RULESET, locked: flag === 'p' };
 }
 
 /** (방장) 로비에 track할 한 줄. 키를 더하면 presence 한도를 넘는다 */

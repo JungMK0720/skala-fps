@@ -430,7 +430,7 @@ const decorCenter = [
 
 const TEAM_LOOK = {
   blue: { bg: '#0c2f5c', fg: '#35e0ff', word: '블루' },
-  orange: { bg: '#5c1a33', fg: '#ff4d8d', word: '오렌지' }
+  orange: { bg: '#5c1a1f', fg: '#ff5a5f', word: '레드' }
 };
 
 /** 쪽(x 부호)에 맞춰 네온·현수막 색을 정한다. 대칭 복사가 끝난 뒤에 부른다 */
