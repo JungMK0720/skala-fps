@@ -5,6 +5,7 @@
  *          포인트는 계정이 바뀔 때마다 바로 갱신한다. 이벤트: shop:back, shop:preview { id }, ui:sound { name:'purchase' }.
  *          카드는 다시 만들지 않고 고쳐서 키보드 포커스를 잃지 않는다.
  *          캐릭터 탭: 초상(ui.setAvatarArt로 받은 그림, 없으면 아이콘)·구매·장착. 초상은 탭을 처음 열 때 그린다.
+ *          서버가 캐릭터를 모르면(account.avatarShop) 구매 버튼을 끄고 안내한다. props.tab은 show로 열 때만 따른다.
  */
 import { h, btn, fmtPoints, setText } from './dom.js';
 import { avatarArtEl, barMeters, makeScreen, normWeapon, pointsBadge } from './parts.js';
@@ -17,6 +18,9 @@ const TAB_LABELS = { rifle: '라이플', sniper: '저격', smg: 'SMG·샷건', p
 export const EMOTE_TAB = 'emote';
 /** 캐릭터 탭 id */
 export const AVATAR_TAB = 'avatar';
+/** 캐릭터 구매가 닫혀 있을 때 안내(account.avatarShop) */
+const CLOSED_NOTE = '캐릭터 구매는 서버 업데이트 뒤에 열려요. 기본 캐릭터와 이미 가진 캐릭터는 지금도 입을 수 있어요.';
+const CHECKING_NOTE = '캐릭터 구매를 열 수 있는지 서버에 확인하고 있어요.';
 /** 상점에서 다루는 슬롯과 계정 장비 칸. 슬롯 4(수류탄)는 팔지 않는다. */
 const SLOT_KEYS = { 1: 'primary', 2: 'secondary', 3: 'melee' };
 
@@ -221,10 +225,12 @@ export function createShop(ctx) {
       onclick: () => { artTeam = team; paintAll(); } }, h('span', { class: 'sk-av-dot', style: `background:${TEAMS[team].light}`, 'aria-hidden': 'true' }), `${TEAMS[team].name} 팀`);
     return { team, el };
   });
+  const shopNote = h('p', { class: 'sk-av-closed', role: 'status', hidden: true });
   const avBox = h('section', { class: 'sk-av-box sk-steel', 'aria-label': '내 캐릭터' },
     h('div', { class: 'sk-av-boxtext' },
       h('h3', { class: 'sk-shop-name' }, '지금 캐릭터 · ', nowName),
-      h('p', { class: 'sk-lo-tagline', text: '모양만 다르고 몸 크기와 맞는 판정은 모두 같아요. 전투복과 표식은 팀 색이라 어느 캐릭터든 팀이 잘 보여요.' })),
+      h('p', { class: 'sk-lo-tagline', text: '모양만 다르고 몸 크기와 맞는 판정은 모두 같아요. 전투복과 표식은 팀 색이라 어느 캐릭터든 팀이 잘 보여요.' }),
+      shopNote),
     h('div', { class: 'sk-seg sk-av-teams', role: 'radiogroup', 'aria-label': '초상 팀 색' }, ...teamBtns.map((b) => b.el)));
 
   function buildAvatarCard(a) {
@@ -246,18 +252,22 @@ export function createShop(ctx) {
     return card;
   }
 
-  function paintAvatarCard(card, now, drawArt) {
+  /** 캐릭터 구매를 열었는가. 계정이 모르면(옛 계정 대역) 연 것으로 본다 */
+  const avatarShopState = () => (ctx.account && typeof ctx.account.avatarShop === 'string' ? ctx.account.avatarShop : 'open');
+
+  function paintAvatarCard(card, now, drawArt, open) {
     const a = ctx.account;
     const owned = a.isOwned(card.id);
     const equipped = owned && now === card.id;
-    const short = owned ? 0 : Math.max(0, (card.a.price || 0) - a.profile.points);
+    const closed = !owned && !open;   // 서버가 캐릭터를 알기 전에는 사지 못한다(장착은 된다)
+    const short = owned || closed ? 0 : Math.max(0, (card.a.price || 0) - a.profile.points);
     card.el.classList.toggle('is-owned', owned);
     card.el.classList.toggle('is-equipped', equipped);
     setText(card.state, equipped ? '장착 중' : owned ? '보유' : fmtPoints(card.a.price));
     setText(card.need, short ? `${fmtPoints(short)} 더 필요해요` : '');
-    setText(card.action, equipped ? '장착 중' : owned ? '장착' : `구매 ${fmtPoints(card.a.price)}`);
-    card.action.disabled = equipped || short > 0;
-    card.action.classList.toggle('sk-btn--primary', !owned && !short);
+    setText(card.action, equipped ? '장착 중' : owned ? '장착' : closed ? '구매 준비 중' : `구매 ${fmtPoints(card.a.price)}`);
+    card.action.disabled = equipped || closed || short > 0;
+    card.action.classList.toggle('sk-btn--primary', !owned && !closed && !short);
     card.action.classList.toggle('sk-btn--ghost', equipped);
     if (drawArt) card.art.paint(ctx.avatarArt, artTeam);
   }
@@ -272,6 +282,8 @@ export function createShop(ctx) {
         say(`${name}을(를) 샀어요. 남은 포인트 ${fmtPoints(r.points)}. 장착을 누르면 바로 입어요.`);
       } else if (r.reason === 'points') {
         say(`포인트가 모자라요. ${fmtPoints((card.a.price || 0) - r.points)} 더 필요해요.`);
+      } else if (r.reason === 'closed') {
+        say(CLOSED_NOTE);
       } else {
         say('이 캐릭터는 살 수 없어요.');
       }
@@ -284,14 +296,17 @@ export function createShop(ctx) {
 
   function paintAvatars() {
     const now = avatarNow();
+    const state = avatarShopState();
     setText(nowName, avName(now));
+    setText(shopNote, state === 'checking' ? CHECKING_NOTE : state === 'closed' ? CLOSED_NOTE : '');
+    shopNote.hidden = state === 'open';
     for (const b of teamBtns) {
       const on = b.team === artTeam;
       b.el.classList.toggle('is-on', on);
       b.el.setAttribute('aria-checked', on ? 'true' : 'false');
     }
     const drawArt = tabId === AVATAR_TAB;   // 초상은 캐릭터 탭이 보일 때만 그린다(처음 한 번만 실제로 그리고 그 뒤로는 저장한 그림)
-    for (const card of avCards.values()) paintAvatarCard(card, now, drawArt);
+    for (const card of avCards.values()) paintAvatarCard(card, now, drawArt, state === 'open');
   }
 
   function paintAll() {
@@ -359,11 +374,13 @@ export function createShop(ctx) {
     tabId = null;
   }
 
-  function render(p, { first }) {
+  function render(p, { first, fresh }) {
     if (!ctx.account) return;
     if (first) say('');
     if (builtFor !== ctx.weapons.size) build();
-    const want = p && p.tab;
+    // props의 tab은 show로 열 때만 따른다. update(계정이 바뀔 때마다)에서 따르면 보던 탭으로 되돌아가고,
+    // 카드를 다시 붙이느라 누른 버튼의 포커스와 스크롤을 잃는다
+    const want = fresh && p && p.tab;
     if (want && tabs.some((t) => t.id === want)) showTab(want);
     else if (tabs.length && !tabs.some((t) => t.id === tabId)) showTab(tabs[0].id);
     paintAll();

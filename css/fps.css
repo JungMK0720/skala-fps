@@ -1062,6 +1062,7 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
 .sk-av-boxtext { flex: 1 1 260px; min-width: 0; }
 .sk-av-boxtext .sk-lo-tagline { display: block; margin-top: 2px; white-space: normal; }
 .sk-av-now { color: var(--sk-cyan-hi); }
+.sk-av-closed { margin-top: 6px; font-size: 12.5px; font-weight: 700; line-height: 1.4; color: var(--sk-gold, #ffd166); }
 .sk-av-teams { flex: none; align-self: center; }
 .sk-av-team { gap: 7px; padding: 0 12px; }
 .sk-av-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255, 255, 255, .4); }

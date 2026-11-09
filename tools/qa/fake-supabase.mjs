@@ -37,10 +37,11 @@ function decodeFrame(buf) {
 }
 
 /**
- * @param {{ takenNames?: string[], delayMs?: number }} [options] takenNames: 이미 등록된 것으로 칠 닉네임, delayMs: 메시지 지연
+ * @param {{ takenNames?: string[], delayMs?: number, features?: boolean }} [options] takenNames: 이미 등록된 것으로 칠 닉네임, delayMs: 메시지 지연,
+ *   features: false면 schema.sql을 다시 실행하기 전의 서버처럼 fps_features를 모른다(캐릭터 구매가 닫힌다)
  * @returns {Promise<{ url, config, stats, close() }>} config는 js/config.js에 넣을 글자
  */
-export async function startFakeSupabase({ takenNames = [], delayMs = 0 } = {}) {
+export async function startFakeSupabase({ takenNames = [], delayMs = 0, features = true } = {}) {
   const players = new Map();          // 토큰 → 프로필
   const topics = new Map();           // 전체 topic → Set(연결)
   const conns = new Set();
@@ -73,6 +74,8 @@ export async function startFakeSupabase({ takenNames = [], delayMs = 0 } = {}) {
         return { ok: true };
       case 'fps_top_players':
         return { ok: true, players: [] };
+      case 'fps_features':
+        return features ? { ok: true, avatars: true } : { ok: false, error: 'UNKNOWN' };
       default:
         return { ok: false, error: 'UNKNOWN' };
     }

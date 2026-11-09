@@ -318,6 +318,13 @@ begin
     'profile', jsonb_build_object('points', v_points, 'owned', v.owned || v_new, 'stats', v_stats));
 end $$;
 
+-- 이 서버가 아는 기능. 클라이언트는 시작할 때 한 번 묻고, 캐릭터 구매는 avatars가 true일 때만 연다.
+-- 이 파일을 다시 실행하기 전의 서버에는 이 함수가 없어(404) 구매가 닫힌 채로 남으므로, 서버가 모르는 캐릭터를 사서 포인트를 잃지 않는다.
+create or replace function public.fps_features() returns jsonb
+language sql stable security definer set search_path = public, extensions as $$
+  select jsonb_build_object('ok', true, 'avatars', true)
+$$;
+
 -- 순위표에는 이름, 킬, 승리, 포인트만 내보낸다.
 create or replace function public.fps_top_players(p_limit int default 20) returns jsonb
 language sql stable security definer set search_path = public, extensions as $$
@@ -351,12 +358,14 @@ revoke all on function public.fps_claim_nickname(text, text) from public;
 revoke all on function public.fps_get_profile(text) from public;
 revoke all on function public.fps_save_profile(text, int, jsonb, jsonb, jsonb, jsonb) from public;
 revoke all on function public.fps_top_players(int) from public;
+revoke all on function public.fps_features() from public;
 
 grant execute on function public.fps_check_nickname(text) to anon, authenticated;
 grant execute on function public.fps_claim_nickname(text, text) to anon, authenticated;
 grant execute on function public.fps_get_profile(text) to anon, authenticated;
 grant execute on function public.fps_save_profile(text, int, jsonb, jsonb, jsonb, jsonb) to anon, authenticated;
 grant execute on function public.fps_top_players(int) to anon, authenticated;
+grant execute on function public.fps_features() to anon, authenticated;
 
 -- API가 새 함수를 바로 보도록 스키마 캐시를 다시 읽게 한다.
 notify pgrst, 'reload schema';

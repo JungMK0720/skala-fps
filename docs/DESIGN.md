@@ -193,6 +193,7 @@ account.profile                // 읽기 전용 스냅샷 { nickname, points, ow
 account.loadout                // 현재 장비
 account.avatar                 // 장착한 캐릭터 id(= loadout.avatar)
 account.equipAvatar(id)        → { ok, reason?:'unknown'|'unowned' }
+account.avatarShop             // 캐릭터 구매 'open' | 'checking' | 'closed'. 닫혀 있으면 buy(캐릭터)는 reason 'closed'
 account.hasNickname()
 await account.checkNickname(name) → { ok, reason?:'format'|'reserved'|'taken'|'network', offline:boolean }
 await account.setNickname(name)   → { ok, name, reason?, offline }
@@ -227,6 +228,7 @@ account.remoteEnabled
 - 전투복은 팀 `color`, 가슴 표식·완장·띠는 팀 `light`라 어느 캐릭터든 팀이 잘 보인다. 개인전은 다른 사람을 모두 한 팀 색으로 그린다(적은 한 가지 색).
 - 장비 칸 `loadout.avatar`. 모르거나 가지지 않은 id면 기본 캐릭터로 정규화한다. 가격표는 이 표가 정본이고 `fps_item_price`와 같아야 한다(`tests/account.test.mjs`).
 - 서버(`fps_save_profile`)는 `loadout.avatar`가 가격표에 있는 `av_` 캐릭터이고 기본이거나 가진 것인지 확인하고, 아니면 `av_trooper`로 저장한다. 칸이 없는 옛 클라이언트의 장비는 그대로 둔다.
+- 구매는 서버가 캐릭터를 알 때만 연다: 시작할 때 `fps_features`를 한 번 묻고 `avatars:true`면 연다(404·오류·값 없음은 닫힘, 연결이 돌아오면 다시 묻는다). 오프라인·로컬은 늘 열려 있다. 옛 서버는 모르는 물건을 버리면서 줄어든 포인트는 받아들이므로, 서버 SQL보다 먼저 배포돼도 포인트를 잃지 않게 하는 장치다.
 - 다른 사람에게는 방 presence의 `av` 칸으로 알린다(늦게 들어온 사람도 presence로 바로 안다). 받는 쪽은 모르는 값을 기본 캐릭터로 그린다. 꾸미기라 판정에 영향이 없어 서버 확인 없이 보낸 값을 그대로 그린다.
 - 연습장 봇은 캐릭터를 차례로 섞어 쓴다. 3인칭 이모트 때 내 몸도 내 캐릭터다.
 
@@ -243,7 +245,7 @@ account.remoteEnabled
 `summary = { online, ruleset, mode, mapId, difficulty, kills, deaths, headshots, halfShots, win, draw, seconds }`. 연습장과 세션이 경기 끝에 한 번 부르고, 결과 화면에 "+120 P"를 보여 준다.
 
 ### Supabase (`supabase/schema.sql`, 새 프로젝트 전용)
-테이블 `public.fps_players(id, token_hash unique, name, name_key unique, points, owned jsonb, loadout jsonb, stats jsonb, secrets jsonb, created_at, updated_at)`. RLS 켜고 anon 직접 접근 없음. RPC(SECURITY DEFINER): `fps_check_nickname(p_name)`, `fps_claim_nickname(p_token, p_name)`, `fps_get_profile(p_token)`, `fps_save_profile(p_token, p_points, p_owned, p_loadout, p_stats, p_secrets)`, `fps_top_players(p_limit)`. 설정 절차는 `docs/SUPABASE_SETUP.md`. 멀티 채널은 `skalafps:lobby`, `skalafps:room:<id>`이며 테이블이 필요 없다.
+테이블 `public.fps_players(id, token_hash unique, name, name_key unique, points, owned jsonb, loadout jsonb, stats jsonb, secrets jsonb, created_at, updated_at)`. RLS 켜고 anon 직접 접근 없음. RPC(SECURITY DEFINER): `fps_check_nickname(p_name)`, `fps_claim_nickname(p_token, p_name)`, `fps_get_profile(p_token)`, `fps_save_profile(p_token, p_points, p_owned, p_loadout, p_stats, p_secrets)`, `fps_top_players(p_limit)`, `fps_features()`(서버가 아는 기능, 캐릭터 구매 열기). 설정 절차는 `docs/SUPABASE_SETUP.md`. 멀티 채널은 `skalafps:lobby`, `skalafps:room:<id>`이며 테이블이 필요 없다.
 
 ## 8. UI
 

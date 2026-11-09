@@ -91,13 +91,18 @@ function fakeServer() {
       if (!row) return { ok: false, error: 'NOT_FOUND' };
       // 진짜 서버처럼 받아들인 값을 돌려준다. capPoints를 넣으면 포인트를 그만큼으로 깎는다(늘어나는 속도 한도 흉내)
       const points = server.capPoints == null ? p_points : Math.min(p_points, server.capPoints);
-      // unpriced(id)가 true인 물건은 가격표에 없는 것처럼 버린다(가격표를 아직 고치지 않은 서버 흉내)
-      const owned = server.unpriced ? p_owned.filter((id) => !server.unpriced(id)) : p_owned;
+      // unpriced(id)가 true인 물건은 가격표에 없는 것처럼 버린다. 옛 서버(oldSchema)는 캐릭터를 모른다.
+      // 진짜 옛 fps_save_profile처럼 모르는 물건은 버리면서 줄어든 포인트는 그대로 받아들인다
+      const unpriced = server.unpriced || (server.oldSchema ? (id) => id.startsWith('av_') : null);
+      const owned = unpriced ? p_owned.filter((id) => !unpriced(id)) : p_owned;
       rows.set(p_token, { ...row, points, owned, loadout: p_loadout, stats: p_stats, secrets: p_secrets });
       return { ok: true, clamped: points !== p_points || owned.length !== p_owned.length, profile: { points, owned, stats: p_stats } };
     },
     fps_top_players() {
       return { ok: true, players: [...rows.values()].map((r) => ({ name: r.name, kills: r.stats.kills || 0, wins: r.stats.wins || 0, points: r.points })) };
+    },
+    fps_features() {
+      return { ok: true, avatars: true };
     }
   };
   const server = {
@@ -107,6 +112,8 @@ function fakeServer() {
     capPoints: null,
     /** (id) => true면 저장할 때 그 물건을 owned에서 버린다 */
     unpriced: null,
+    /** true면 schema.sql을 다시 실행하기 전의 서버: fps_features가 없어(404 PGRST202) 캐릭터를 모르고 가격표에도 없다 */
+    oldSchema: false,
     /** Promise를 넣으면 풀릴 때까지 응답을 미룬다 */
     gate: null,
     calls: [],
@@ -120,6 +127,9 @@ function fakeServer() {
       server.calls.push({ fn, args, url, init });
       if (server.gate) await server.gate;
       if (server.down) throw new TypeError('Failed to fetch');
+      if (server.oldSchema && fn === 'fps_features') {
+        return { ok: false, status: 404, json: async () => ({ code: 'PGRST202', message: 'Could not find the function public.fps_features' }) };
+      }
       return { ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(handlers[fn](args))) };
     }
   };
@@ -954,6 +964,53 @@ describe('createAccount 상점과 장비', () => {
     assert.equal(account.isOwned('no_such'), false);
   });
 
+  test('캐릭터 구매 열기: 오프라인은 바로 열고, 서버를 쓰면 fps_features 답을 기다린다', async (t) => {
+    const offline = makeAccount(t).account;
+    assert.equal(offline.avatarShop, 'open', '서버 없이(로컬) 쓰면 늘 열려 있다');
+
+    const server = fakeServer();
+    let release;
+    server.gate = new Promise((resolve) => { release = resolve; });
+    const { account, bus } = makeAccount(t, { server });
+    assert.equal(account.avatarShop, 'checking');
+    assert.deepEqual(account.buy('av_scout'), { ok: false, reason: 'closed', points: START_POINTS }, '묻는 동안에도 사지 못한다');
+    assert.ok(account.buy('pt_magnum').ok, '무기는 기다리지 않는다');
+    server.gate = null;
+    release();
+    await account.ready;
+    assert.equal(account.avatarShop, 'open');
+    assert.ok(bus.of('account:change').length >= 2, '열리면 화면이 다시 그리도록 알린다');
+    assert.equal(server.count('fps_features'), 1);
+  });
+
+  test('시작할 때 서버에 닿지 못하면 닫아 두고, 연결이 돌아오면(online) 다시 묻는다', async (t) => {
+    const server = fakeServer();
+    server.down = true;
+    const target = new EventTarget();
+    const { account } = makeAccount(t, { server, target });
+    await account.ready;
+    assert.equal(account.avatarShop, 'closed');
+    assert.equal(account.buy('av_scout').reason, 'closed');
+    server.down = false;
+    target.dispatchEvent(new Event('online'));
+    await settle();
+    assert.equal(account.avatarShop, 'open');
+    assert.ok(account.buy('av_scout').ok);
+  });
+
+  test('구매가 닫혀 있어도 이미 가진 캐릭터는 입는다', async (t) => {
+    const server = fakeServer();
+    server.oldSchema = true;
+    const storage = fakeStorage();
+    storage.setItem(PROFILE_KEY, JSON.stringify({ v: PROFILE_VERSION, profile: { points: 100, owned: ['av_ranger'], createdAt: 5 }, sync: { dirty: false, pendingClaim: null } }));
+    const { account } = makeAccount(t, { server, storage });
+    await account.ready;
+    assert.equal(account.avatarShop, 'closed');
+    assert.deepEqual(account.equipAvatar('av_ranger'), { ok: true });
+    assert.equal(account.avatar, 'av_ranger');
+    assert.equal(account.profile.points, 100);
+  });
+
   test('캐릭터 구매와 장착', (t) => {
     const storage = fakeStorage();
     const { account, bus } = makeAccount(t, { storage });
@@ -1127,7 +1184,7 @@ describe('createAccount 상점과 장비', () => {
 describe('createAccount 저장 디바운스', () => {
   async function onlineAccount(t, opts = {}) {
     t.mock.timers.enable({ apis: ['setTimeout'] });
-    const server = fakeServer();
+    const server = opts.server || fakeServer();
     const made = makeAccount(t, { server, ...opts });
     await made.account.ready;
     await made.account.setNickname('철수');
@@ -1179,23 +1236,44 @@ describe('createAccount 저장 디바운스', () => {
     assert.equal([...server.rows.values()][0].loadout.avatar, 'av_scout');
   });
 
-  test('서버 가격표에 캐릭터가 아직 없어도 깨지지 않는다: 기본 캐릭터는 그대로, 받지 않은 캐릭터는 기본으로', async (t) => {
-    const { account, server } = await onlineAccount(t);
-    server.unpriced = (id) => id.startsWith('av_');
+  test('schema.sql을 다시 실행하기 전의 서버: 캐릭터 구매가 닫혀 포인트를 잃지 않는다. 기본 캐릭터와 무기는 그대로', async (t) => {
+    const server = fakeServer();
+    server.oldSchema = true;
+    const { account } = await onlineAccount(t, { server });
+    assert.equal(account.avatarShop, 'closed', 'fps_features가 없으면(404) 닫는다');
+    const points = account.profile.points;
+    assert.deepEqual(account.buy('av_scout'), { ok: false, reason: 'closed', points }, '캐릭터는 살 수 없다');
+    assert.equal(account.profile.points, points, '포인트가 그대로다');
+    assert.equal(account.isOwned('av_scout'), false);
+    assert.equal(account.buy(DEFAULT_AVATAR).reason, 'owned', '기본 캐릭터는 원래 가진다');
+    assert.ok(account.equipAvatar(DEFAULT_AVATAR).ok, '기본 캐릭터 장착은 된다');
+
+    assert.ok(account.buy('pt_magnum').ok, '무기는 그대로 산다');
     account.recordMatch({ kills: 1 });
     t.mock.timers.tick(SAVE_DEBOUNCE_MS);
     await settle();
+    const row = [...server.rows.values()][0];
+    assert.equal(account.profile.points, START_POINTS - priceOf('pt_magnum') + 15, '무기 값과 경기 보상만 반영된다');
+    assert.equal(row.points, account.profile.points, '서버와 포인트가 같다');
+    assert.ok(row.owned.includes('pt_magnum') && !row.owned.some((id) => id.startsWith('av_')), '옛 서버는 캐릭터를 모른다');
     assert.equal(account.isOwned(DEFAULT_AVATAR), true, '기본 캐릭터는 서버 owned에 없어도 가진다');
     assert.equal(account.avatar, DEFAULT_AVATAR);
+  });
 
-    assert.ok(account.buy('av_scout').ok);
-    assert.ok(account.equipAvatar('av_scout').ok);
+  test('서버가 캐릭터를 알면(fps_features avatars:true) 구매가 열리고 포인트가 서버까지 맞게 간다', async (t) => {
+    const { account, server } = await onlineAccount(t);
+    assert.equal(account.avatarShop, 'open');
+    const price = priceOf('av_scout');
+    assert.deepEqual(account.buy('av_scout'), { ok: true, points: START_POINTS - price });
     t.mock.timers.tick(SAVE_DEBOUNCE_MS);
     await settle();
-    assert.equal(account.isOwned('av_scout'), false, '서버가 버린 캐릭터는 가지지 않은 것으로 따른다');
-    assert.equal(account.avatar, DEFAULT_AVATAR, '장착도 기본 캐릭터로 돌아간다');
-    assert.equal(account.profile.loadout.primary, DEFAULT_LOADOUT.primary, '다른 장비는 그대로');
+    const row = [...server.rows.values()][0];
+    assert.equal(row.points, START_POINTS - price);
+    assert.ok(row.owned.includes('av_scout'));
+    assert.equal(account.isOwned('av_scout'), true, '서버가 받아들인 캐릭터는 남는다');
+    assert.equal(server.count('fps_features'), 0, '시작할 때 한 번 묻고(위에서 기록을 비웠다) 사고 저장할 때는 다시 묻지 않는다');
   });
+
 
   test('성공하면 dirty가 풀리고, 저장 중에 또 바뀌면 유지한다', async (t) => {
     const { account, server, storage } = await onlineAccount(t);
@@ -1597,12 +1675,14 @@ describe('createRemote', () => {
     await remote.getProfile('t');
     await remote.saveProfile('t', profile, { keepalive: true });
     await remote.topPlayers(7);
+    await remote.features();
     const seen = calls.map((c) => [c.url.split('/rpc/')[1], Object.keys(JSON.parse(c.init.body)).sort().join()]);
     assert.deepEqual(seen, [
       ['fps_claim_nickname', 'p_name,p_token'],
       ['fps_get_profile', 'p_token'],
       ['fps_save_profile', 'p_loadout,p_owned,p_points,p_secrets,p_stats,p_token'],
-      ['fps_top_players', 'p_limit']
+      ['fps_top_players', 'p_limit'],
+      ['fps_features', '']
     ]);
     assert.equal(calls[2].init.keepalive, true);
     assert.equal(calls[1].init.keepalive, false);
@@ -1705,7 +1785,8 @@ describe('supabase/schema.sql', () => {
     fps_claim_nickname: 'text, text',
     fps_get_profile: 'text',
     fps_save_profile: 'text, int, jsonb, jsonb, jsonb, jsonb',
-    fps_top_players: 'int'
+    fps_top_players: 'int',
+    fps_features: ''
   };
   const INTERNAL = {
     fps_clean_name: 'text', fps_name_error: 'text', fps_token_hash: 'text', fps_owned_ok: 'jsonb',
@@ -1771,6 +1852,14 @@ describe('supabase/schema.sql', () => {
       ...WEAPON_IDS.map((id) => [id, getDef(id).price]), ...EMOTES.map((e) => [e.id, e.price]), ...AVATARS.map((a) => [a.id, a.price])
     ]));
     assert.equal(Object.keys(listed).length, WEAPON_IDS.length + EMOTE_IDS.length + AVATAR_IDS.length);
+  });
+
+  test('fps_features는 캐릭터 구매를 연다(클라이언트가 읽는 모양 { ok:true, avatars:true })', () => {
+    const m = code.match(/function public\.fps_features\(\)[\s\S]*?\$\$;/);
+    assert.ok(m, 'fps_features 정의');
+    assert.ok(m[0].includes("jsonb_build_object('ok', true, 'avatars', true)"), m[0]);
+    const remoteSrc = readFileSync(new URL('../js/account/remote.js', import.meta.url), 'utf8');
+    assert.ok(remoteSrc.includes("call('fps_features'"), '클라이언트가 같은 이름을 부른다');
   });
 
   test('저장은 장착한 캐릭터를 확인한다: 가격표의 av_ 캐릭터이고 기본이거나 가진 것, 아니면 기본 캐릭터', () => {
