@@ -250,6 +250,25 @@ export default {
     t.check(again.mapId === 'dojo' && again.mode === 'team' && again.ruleset === 'knife' && again.size === 1 && again.n === 1, '연습장 시트가 지난 설정을 기억한다', again);
     await page.waitFor('__qa.run.phase === "live"', 15000, { label: 'live 단계' });
     await leaveToMenu(t, page);
+    // 칼전에서 폭파 미션으로 출격해도(출격은 클래식) 저장하는 규칙은 칼전이다: 다시 열어 팀전으로 바꾸면 칼전과 칼전 맵이 그대로다
+    await page.clickText('.sk-menu-btn', '연습장');
+    await page.waitFor('!!document.querySelector(".sk-sheet")', 3000, { label: '설정 시트' });
+    await page.clickText(seg('모드'), '폭파 미션');
+    await page.clickText('.sk-sheet-foot .sk-btn', '출격');
+    await waitRun(page);
+    const bombRun = await page.eval(`(() => { const o = __qa.run.opts; return { mode: o.mode, ruleset: o.ruleset, mapId: o.mapId }; })()`);
+    t.check(bombRun.mode === 'bomb' && bombRun.ruleset === 'classic' && bombRun.mapId === 'relay', '폭파 미션은 클래식 · 미션 맵으로 출격한다', bombRun);
+    await page.waitFor('__qa.run.phase === "live"', 30000, { label: '폭파 미션 live' });
+    await leaveToMenu(t, page);
+    await page.clickText('.sk-menu-btn', '연습장');
+    await page.waitFor('!!document.querySelector(".sk-sheet")', 3000, { label: '설정 시트' });
+    const onRule = () => page.eval(`[...document.querySelectorAll('.sk-seg[aria-label="규칙"] .sk-seg-btn.is-on')].map((b) => b.textContent).join()`);
+    t.check((await onRule()) === RULESETS.classic.name, '폭파 미션으로 다시 열면 클래식만', await onRule());
+    await page.clickText(seg('모드'), '팀전');
+    t.check((await onRule()) === RULESETS.knife.name, '폭파 미션으로 출격한 뒤에도 팀전으로 바꾸면 전 규칙(칼전)이 돌아온다', await onRule());
+    await page.clickText('.sk-mapcards .sk-mapcard', '벚꽃 도장');
+    await page.clickText('.sk-sheet-foot .sk-btn', '취소');
+    await page.waitFor('!document.querySelector(".sk-sheet")', 2000, { label: '시트 닫힘' });
     t.errorsOk('연습장 시트');
 
     t.setSection('상점: 이모트 휠');

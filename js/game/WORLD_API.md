@@ -168,6 +168,7 @@ await world.loadMap(mapId, { mode, ruleset });
 | `setRound({ mode: 'bomb', attack })` | 상단 점수에 공격·수비 표시(`hud.score.attack`) |
 | 이벤트 `bombAction` | `{ act: 'plant' \| 'defuse' \| 'cancel', reason? }` — 내 E 키(휴대폰 설치/해체 버튼) 의도. 멀티는 `sync.sendBomb(act, reason)`, 연습장은 `match.bombIntent(myId, act, { reason })` |
 | `bomb` / `bombPending` (getter) | 마지막 상태 / 보내고 확인을 기다리는 내 의도(시험용) |
+| `floorAt(x, fromY, z)` | 맵 충돌의 바닥 높이(`physics.getGroundY`, fromY 아래 가장 높은 윗면). 맵이 없으면 `null`. 방장 세션이 `createMatch({ floorAt })`로 넘겨 떨어진 폭탄을 바닥에 놓는다 |
 
 - **E 키**: core `input:use { down }`. 구역 안에서 폭탄을 들었거나(공격) 설치된 폭탄 1.5 m 안이고(수비), 땅 위에서 멈춰 있으면(0.5 m/s 미만) 시작을 보낸다.
   누르고 있는 동안 0.6 m 넘게 움직이거나(1.2 m/s 넘게), 쏘거나(사격·칼·투척), 손을 떼면 취소를 보낸다. 방장이 1.5초 안에 확인하지 않으면(거절) 접는다. 다시 하려면 다시 누른다.

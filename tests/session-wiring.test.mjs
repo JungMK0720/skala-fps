@@ -690,6 +690,70 @@ describe('세션 연결', () => {
     env.dispose();
   });
 
+  test('폭파 미션: 수류탄은 던지는 순간 해체를 끊고, 던진 뒤 시작한 해체는 그 수류탄이 터져도 이어진다', async (t) => {
+    const env = stage(t);
+    const mk = (id, name) => {
+      const c = env.client(id, name, {}, { maps: bombMaps, bombRules: { plantMs: 600, defuseMs: 1500, fuseMs: 20000 } });
+      c.world.loadMap = async (...args) => ({ spawns: SPAWNS, mission: BOMB_MISSION, mapName: args[0] });
+      return c;
+    };
+    const a = mk('a', '하늘');
+    const b = mk('b', '구름');
+    await startMatch(env, [a, b], { mapId: 'relay', mode: 'bomb' });
+    await env.run(1600);
+    a.world.pos = [10, 0, 10];
+    await env.run(200);
+    a.world.fire('bombAction', { act: 'plant' });
+    await env.run(900);
+    const bombOf = () => a.session.match.state.bomb;
+    assert.equal(bombOf().state, 'planted');
+    // 수비(구름)가 해체하다 수류탄을 던진다 → 방장이 던짐(g2x)을 받자마자 끊는다
+    b.world.pos = [10.6, 0, 10.4];
+    await env.run(400);
+    b.world.fire('bombAction', { act: 'defuse' });
+    await env.run(200);
+    assert.equal(bombOf().action.kind, 'defuse');
+    b.world.fire('grenade', { pos: [10.6, 1.5, 10.4], vel: [0, 2, 3], t: env.clock.t });
+    await env.run(200);
+    assert.equal(bombOf().action, null, '던지면 해체가 끊긴다');
+    assert.ok(b.world.calls('bombEvent').some(([e]) => e.act === 'defuseCancel' && e.reason === 'fired'), '취소 이유: 공격');
+    // 던진 뒤 다시 해체 → 그 수류탄이 방장 화면에서 터져도(claimExplosion) 이어진다
+    b.world.fire('bombAction', { act: 'defuse' });
+    await env.run(200);
+    assert.equal(bombOf().action.kind, 'defuse');
+    a.world.fire('explosion', { ownerId: 'b', center: [10.6, 0.2, 13.4], victims: [] });
+    await env.run(100);
+    assert.equal(bombOf().action && bombOf().action.kind, 'defuse', '터질 때는 끊지 않는다');
+    await env.run(1600);
+    assert.equal(b.session.phase, 'results');
+    assert.equal(b.ui.lastShown('results').rounds[0].reasonCode, 'defuse');
+    env.dispose();
+  });
+
+  test('대기실: 칼전 방을 폭파 미션으로 바꿨다가 되돌리면 칼전과 전 맵이 돌아온다', async (t) => {
+    const env = stage(t);
+    const a = env.client('a', '하늘', {}, { maps: bombMaps });
+    await a.session.open();
+    a.ui.fire('lobby:create', { name: '', max: 4, mapId: 'dojo', mode: 'team', ruleset: 'knife' });
+    await env.settle();
+    const meta = () => { const x = a.session.room.meta; return [x.mode, x.ruleset, x.mapId]; };
+    assert.deepEqual(meta(), ['team', 'knife', 'dojo']);
+    a.ui.fire('room:mode', { mode: 'bomb' });
+    assert.deepEqual(meta(), ['bomb', 'classic', 'relay'], '폭파 미션은 클래식 · 미션 맵');
+    a.ui.fire('room:mode', { mode: 'team' });
+    assert.deepEqual(meta(), ['team', 'knife', 'dojo'], '폭파 미션 전 규칙과 맵이 돌아온다');
+    assert.equal(env.hub.list()[0].ruleset, 'knife', '로비 목록에도 반영');
+    // 개인전으로 돌아가도 같다. 폭파 미션 안에서 고른 미션 맵이 전 규칙에서도 되면 그 맵을 둔다
+    a.ui.fire('room:mode', { mode: 'bomb' });
+    a.ui.fire('room:mode', { mode: 'ffa' });
+    assert.deepEqual(meta(), ['ffa', 'knife', 'dojo']);
+    a.ui.fire('room:ruleset', { ruleset: 'classic' });
+    a.ui.fire('room:mode', { mode: 'bomb' });
+    a.ui.fire('room:mode', { mode: 'team' });
+    assert.deepEqual(meta(), ['team', 'classic', 'relay'], '클래식이면 미션 맵도 팀전에서 쓸 수 있다');
+    env.dispose();
+  });
+
   test('방장 이전(라이브): 반샷·선택·규칙을 이어받고 기록은 한 번', async (t) => {
     const env = stage(t);
     const a = env.client('a', '하늘');

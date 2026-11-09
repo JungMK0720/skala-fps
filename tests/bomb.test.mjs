@@ -392,6 +392,66 @@ describe('폭파 미션 경기', () => {
     assert.ok(ev2.some((e) => e.type === 'matchEnd' && e.reason === 'forfeit'), '공격 팀이 모두 나가면 상대 승');
   });
 
+  test('수류탄이 터져도 던진 뒤에 시작한 설치·해체는 이어진다(던질 때의 취소는 세션이 보낸다)', () => {
+    const { m, pos } = bombMatch();
+    toLive(m);
+    pos.a1 = A.slice();
+    m.tick(100);
+    assert.equal(m.bombIntent('a1', 'plant')[0].act, 'plantStart');
+    m.tick(1000);
+    // 설치를 누르기 전에 던진 수류탄이 지금 터진다(방장 claimExplosion): 설치는 그대로다
+    const boom = m.claimExplosion({ attackerId: 'a1', center: { x: 20, y: 0, z: 8 }, victims: [] });
+    assert.equal(of(boom, 'bomb', 'plantCancel').length, 0, JSON.stringify(boom));
+    assert.equal(m.state.bomb.action.kind, 'plant');
+    assert.equal(of(m.tick(2100), 'bomb', 'plant').length, 1, '3초가 차면 설치된다');
+    // 해체도 같다. 던지는 순간에는 세션이 cancel 'fired'를 보내 끊는다
+    pos.d1 = [20.5, 0, 0];
+    m.tick(100);
+    assert.equal(m.bombIntent('d1', 'defuse')[0].act, 'defuseStart');
+    m.tick(500);
+    const boom2 = m.claimExplosion({ attackerId: 'd1', center: { x: 20, y: 0, z: -8 }, victims: [] });
+    assert.equal(of(boom2, 'bomb', 'defuseCancel').length, 0);
+    assert.equal(m.state.bomb.action.kind, 'defuse');
+    const thrown = m.bombIntent('d1', 'cancel', { reason: 'fired' });
+    assert.equal(thrown[0].act, 'defuseCancel');
+    assert.equal(thrown[0].reason, 'fired');
+  });
+
+  test('든 사람의 연결이 끊겨 위치가 먼저 사라져도 폭탄은 마지막으로 본 자리에 떨어진다', () => {
+    const { m, pos } = bombMatch();
+    toLive(m);
+    pos.a1 = [10, 0, 10];
+    m.tick(200);              // 방장 틱마다 든 사람의 위치를 새로 둔다
+    delete pos.a1;            // sync가 원격을 지웠다(removePlayer는 유예 뒤에 온다)
+    m.tick(200);
+    const drop = of(m.removePlayer('a1'), 'bomb', 'drop')[0];
+    assert.ok(drop, '떨어진다');
+    assert.deepEqual(drop.pos, [10, 0, 10], '라운드 스폰(0, 0, 30)이 아니라 마지막으로 본 자리');
+    pos.a2 = [10.5, 0, 10];
+    assert.equal(of(m.tick(200), 'bomb', 'pick')[0].id, 'a2', '그 자리에서 공격 팀원이 줍는다');
+  });
+
+  test('공중에서 쓰러져도 폭탄은 그 아래 바닥에 떨어지고 공격 팀원이 줍는다', () => {
+    const asked = [];
+    const { m, pos } = bombMatch({ floorAt: (x, fromY, z) => { asked.push([x, fromY, z]); return 0; } });
+    toLive(m);
+    pos.a1 = [5, 3, 10];      // 1.83 m 단에서 뛰어내리는 중
+    m.tick(100);
+    const drop = of(kill(m, 'd1', 'a1'), 'bomb', 'drop')[0];
+    assert.deepEqual(drop.pos, [5, 0, 10], '바닥 높이에 놓는다');
+    assert.deepEqual(asked.at(-1), [5, 3.4, 10], '발보다 0.4 m 위에서 아래로 찾는다');
+    pos.a2 = [5.4, 0, 10.2];
+    const pick = of(m.tick(200), 'bomb', 'pick');
+    assert.equal(pick.length, 1);
+    assert.equal(pick[0].id, 'a2');
+    // floorAt이 없거나 엉뚱한 값을 주면 높이를 그대로 둔다
+    const bad = bombMatch({ floorAt: () => { throw new Error('맵 없음'); } });
+    toLive(bad.m);
+    bad.pos.a1 = [5, 3, 10];
+    bad.m.tick(100);
+    assert.deepEqual(of(kill(bad.m, 'd1', 'a1'), 'bomb', 'drop')[0].pos, [5, 3, 10]);
+  });
+
   test('스냅샷이 protocol을 거쳐도 폭탄 상태가 그대로다', () => {
     const { m, pos } = bombMatch();
     toLive(m);

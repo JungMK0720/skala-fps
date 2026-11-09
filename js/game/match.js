@@ -442,6 +442,7 @@ function ffaSpawnList(spawns) {
  * @param {object} [opts.mission]      폭파 미션: 맵 데이터의 mission 칸(또는 맵 데이터) — mission.normalizeMission이 읽는다
  * @param {number} [opts.roundOffset]  폭파 미션 방장 이전: 이미 끝난 라운드 수(공수 교대 계산에 더한다)
  * @param {(ids:string[]) => string} [opts.chooseCarrier]  폭파 미션 시험용: 라운드마다 폭탄을 받을 사람(없으면 무작위)
+ * @param {(x:number, fromY:number, z:number) => number} [opts.floorAt]  폭파 미션: fromY 아래 바닥 높이(맵 충돌). 떨어진 폭탄을 바닥에 놓는다
  */
 export function createMatch(opts = {}) {
   const o = opts && typeof opts === 'object' ? opts : {};
@@ -455,6 +456,7 @@ export function createMatch(opts = {}) {
   const roundOffset = Math.max(0, Math.floor(toNum(o.roundOffset) || 0));
   const chooseCarrier = typeof o.chooseCarrier === 'function' ? o.chooseCarrier : null;
   const getPositions = typeof o.getPositions === 'function' ? o.getPositions : null;
+  const floorAt = typeof o.floorAt === 'function' ? o.floorAt : null;
   const ffaSpots = ffa ? ffaSpawnList(spawns) : [];
   const spotUsed = [];       // FFA: 스폰 지점별 마지막 사용 시각(방장 시계)
   let recentSpots = [];      // FFA: 최근에 쓴 지점 번호(마지막 2곳)
@@ -799,12 +801,20 @@ export function createMatch(opts = {}) {
     act = null;
   }
 
-  /** 폭탄을 든 사람이 쓰러지거나 나갔다 → 그 자리에 떨어진다 */
+  /** 발 아래 바닥 높이(floorAt이 없거나 높이를 모르면 그대로). 공중에서 쓰러져도 폭탄은 바닥에 놓여 공격 팀원이 줍는다 */
+  function floorUnder(pos) {
+    if (!floorAt || !pos || pos.y == null) return pos ? pos.y : null;
+    let y = null;
+    try { y = toNum(floorAt(pos.x, pos.y + 0.4, pos.z)); } catch (_) { y = null; }   // 0.4 m 여유: 발이 바닥에 살짝 묻혀도 그 바닥을 찾는다(클라이언트 모형과 같다)
+    return Number.isFinite(y) && y <= pos.y + 0.4 ? y : pos.y;
+  }
+
+  /** 폭탄을 든 사람이 쓰러지거나 나갔다 → 그 자리 바닥에 떨어진다(나갔으면 마지막으로 본 자리) */
   function dropBomb(events, id) {
     const pos = posOf(id, readPositions());
     bomb.state = 'dropped';
     bomb.carrier = null;
-    bomb.pos = pos ? { x: pos.x, y: pos.y, z: pos.z } : { x: 0, y: null, z: 0 };
+    bomb.pos = pos ? { x: pos.x, y: floorUnder(pos), z: pos.z } : { x: 0, y: null, z: 0 };
     events.push({ type: 'bomb', act: 'drop', id, pos: arr3(bomb.pos) });
   }
 
@@ -844,12 +854,16 @@ export function createMatch(opts = {}) {
     endRound(events, defenseTeam(), 'time');
   }
 
-  /** 설치·해체 중인 사람이 움직였으면 취소, 떨어진 폭탄 위에 선 공격 팀원은 줍는다(50 ms마다) */
+  /**
+   * 설치·해체 중인 사람이 움직였으면 취소, 떨어진 폭탄 위에 선 공격 팀원은 줍는다(50 ms마다).
+   * 폭탄을 든 사람의 위치도 새로 둔다: 연결이 끊기면 위치가 먼저 사라지고(sync) removePlayer는 유예 뒤에 오므로, 그때 마지막으로 본 자리에 떨어뜨린다
+   */
   function checkPositions(events) {
     if (phase !== 'live' || !getPositions) return;
     if (now - posCheckAt < 50) return;
     posCheckAt = now;
     const raw = readPositions();
+    if (bomb.state === 'carried' && bomb.carrier != null) posOf(bomb.carrier, raw);
     if (act) {
       const a = players.get(act.id);
       const v = a && isActive(a) ? posOf(a.id, raw) : null;
@@ -1198,7 +1212,8 @@ export function createMatch(opts = {}) {
     if (ffa) a.protectUntil = 0;   // FFA: 던지면 부활 보호가 끝난다(자폭 피해도 받는다)
     const center = normVec(c.center);
     const events = [];
-    if (bombMode && act && act.id === a.id) cancelAct(events, 'fired');
+    // 폭파 미션: 수류탄은 던질 때 설치·해체를 취소한다(세션·연습장이 bombIntent cancel 'fired'). 2.5초 뒤 터질 때는 취소하지 않는다
+    // — 던지고 나서 시작한 설치·해체가 자기 수류탄 폭발로 끊기면 안 된다
     const seen = new Set();
     for (const vic of c.victims.slice(0, MAX_VICTIMS)) {
       const vId = normId(vic && vic.id);

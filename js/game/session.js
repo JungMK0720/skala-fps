@@ -265,7 +265,7 @@ export function matchSummary(o) {
  * 새 match.js 경기를 감싼다. 진행 중이던 라운드는 처음(loadout)부터 다시 한다.
  * match.js와 같은 메서드·이벤트·스냅샷 형식을 쓴다(라운드 번호·점수·통계는 합친 값).
  * ==================================================================== */
-export function restoreMatch({ snapshot: source, players = [], spawns, seed, rng, mission, getPositions } = {}) {
+export function restoreMatch({ snapshot: source, players = [], spawns, seed, rng, mission, getPositions, floorAt } = {}) {
   const view = applySnapshot(source);
   if (!view) throw new Error('restoreMatch: 스냅샷을 읽을 수 없어요');
   const R = Object.freeze({ ...DEFAULT_RULES, ...view.rules });
@@ -296,7 +296,7 @@ export function restoreMatch({ snapshot: source, players = [], spawns, seed, rng
   const inner = createMatch({
     rules: { ...R, roundsToWin: 999, maxRounds: 999, maxTotalRounds: 999 },
     players, spawns, seed, rng, carry: picks,
-    ...(bombMode ? { mission, getPositions, roundOffset: off } : {})
+    ...(bombMode ? { mission, getPositions, floorAt, roundOffset: off } : {})
   });
   let decided = null;     // { winner, reason, finalRound }
   let endLeft = 0;        // 승부가 난 마지막 roundEnd 남은 ms
@@ -891,6 +891,7 @@ export function createSession(options = {}) {
     phase = 'room';
     lastMode = roomMode();
     lastRuleset = roomRuleset();
+    beforeBomb = null;
     const list = r.players();
     const mine = list.find((x) => x.id === me);
     const fix = {};
@@ -1023,6 +1024,8 @@ export function createSession(options = {}) {
   function roomRuleset() { return room ? normalizeRuleset(room.meta.ruleset) : DEFAULT_RULESET; }
   let lastMode = 'team';
   let lastRuleset = DEFAULT_RULESET;
+  /** (방장) 폭파 미션으로 바꾸기 전 { ruleset, mapId }. 다른 모드로 돌아가면 그 규칙(과 쓸 수 있으면 그 맵)으로 되돌린다 */
+  let beforeBomb = null;
   function onMeta() {
     if (!room) return;
     const m = roomMode();
@@ -1050,16 +1053,30 @@ export function createSession(options = {}) {
     safeMeta({ ruleset: rs, mapId: validMapFor(rs, room.meta.mapId) });
     onMeta();
   }
-  /** (방장) 모드 바꾸기 → 방 메타 · 로비 목록. 폭파 미션이면 규칙을 클래식으로, 맵을 미션 맵으로 같이 바꾼다 */
+  /**
+   * (방장) 모드 바꾸기 → 방 메타 · 로비 목록. 폭파 미션이면 규칙을 클래식으로, 맵을 미션 맵으로 같이 바꾼다.
+   * 폭파 미션에서 나오면 전에 고른 규칙으로 돌아가고, 지금 맵을 그 규칙에서 못 쓰면 전 맵(그것도 안 되면 그 규칙의 첫 맵)으로 바꾼다
+   */
   function setMode(mode) {
     if (!room || phase !== 'room' || !room.isHost() || hm) return;
     const m = modeOf(mode);
-    if (m === roomMode()) return;
+    const from = roomMode();
+    if (m === from) return;
     if (m === 'bomb') {
       const mapId = validMapFor('classic', room.meta.mapId, 'bomb');
       if (!bombMapOk(mapId)) { pushChat({ system: true, text: '폭파 미션을 할 수 있는 맵이 없어요.' }); return; }
+      beforeBomb = { ruleset: roomRuleset(), mapId: room.meta.mapId || null };
       safeMeta({ mode: m, ruleset: 'classic', mapId });
-    } else safeMeta({ mode: m });
+    } else if (from === 'bomb' && beforeBomb) {
+      const rs = normalizeRuleset(beforeBomb.ruleset);
+      const cur = room.meta.mapId;
+      const mapId = cur && validMapFor(rs, cur, m) === cur ? cur : validMapFor(rs, beforeBomb.mapId || cur, m);
+      beforeBomb = null;
+      safeMeta({ mode: m, ruleset: rs, mapId });
+    } else {
+      beforeBomb = null;
+      safeMeta({ mode: m });
+    }
     onMeta();
   }
 
@@ -1204,6 +1221,8 @@ export function createSession(options = {}) {
     }
     return out;
   }
+  /** (방장, 폭파 미션) fromY 아래 바닥 높이 — 떨어진 폭탄을 바닥에 놓는다. world에 맵이 없으면 undefined(match가 높이를 그대로 둔다) */
+  const floorAt = (x, fromY, z) => W('floorAt', x, fromY, z);
 
   function hostStart() {
     if (!room || phase !== 'room' || !room.isHost() || hm) return;
@@ -1237,7 +1256,8 @@ export function createSession(options = {}) {
       players: list.map((x) => (ffa ? { id: x.id, name: x.name } : { id: x.id, name: x.name, team: x.team })),
       spawns: current.spawns || undefined,
       getPositions: ffa || bomb ? positions : undefined,
-      mission: bomb ? current.mission || undefined : undefined
+      mission: bomb ? current.mission || undefined : undefined,
+      floorAt: bomb ? floorAt : undefined
     });
     h.members = new Set(list.map((x) => x.id));
     h.prepDeadline = now() + o.prepTimeoutMs;
@@ -1450,7 +1470,7 @@ export function createSession(options = {}) {
       const bomb = c.mode === 'bomb';
       const m = restoreMatch({
         snapshot: snap, players, spawns: c.spawns || undefined,
-        ...(bomb ? { mission: c.mission || undefined, getPositions: positions } : {})
+        ...(bomb ? { mission: c.mission || undefined, getPositions: positions, floorAt } : {})
       });
       hm = {
         mid: c.mid, mapId: c.mapId, mode: bomb ? 'bomb' : 'team', ruleset: c.ruleset, m, preparing: false, prepDeadline: 0, acks: new Set(),
@@ -2379,6 +2399,8 @@ export function createSession(options = {}) {
         if (phase === 'match' && current && current.loaded && e.from !== me) {
           W('actorGrenade', { id: e.from, grenadeId: e.gid, pos: e.pos, vel: e.vel, t: e.localT });
         }
+        // (방장) 폭파 미션: 던지는 순간 그 사람의 설치·해체를 취소한다. 터질 때(claimExplosion)는 취소하지 않는다
+        if (hm && hm.mode === 'bomb' && hostReady()) publishReal(hm.m.bombIntent(String(e.from), 'cancel', { reason: 'fired' }));
         break;
       case 'loadout': {
         const from = String(e.from);

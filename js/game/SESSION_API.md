@@ -181,7 +181,7 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
   이어받을 때 나 혼자만 남았으면(match `start()`가 `need_players`로 거절) 나간 사람을 잠깐 넣었다가 바로 `removePlayer`해서 match가 `forfeit`(우승 = 나)으로 끝내게 한다.
 - 경기 스냅샷에는 세션 키 `gm`('team'|'ffa')을 붙인다(늦게 들어온 사람·새 방장이 모드를 안다).
 
-## 5. `restoreMatch({ snapshot, players, spawns, seed?, rng?, mission?, getPositions? })` · `restoreFfaMatch(...)`
+## 5. `restoreMatch({ snapshot, players, spawns, seed?, rng?, mission?, getPositions?, floorAt? })` · `restoreFfaMatch(...)`
 `match.js`의 `createMatch`와 **같은 메서드·이벤트·스냅샷 형식**을 가진 객체를 돌려준다(`tick, start, addPlayer, removePlayer, setTeam, setLoadout, claimHit, claimExplosion, snapshot, dispose, state, rules, weaponRules`) + `restored: { rounds, score }`.
 - 안쪽에서 새 `createMatch`(같은 규칙, 선승·라운드 상한 999)를 돌리고, 라운드 번호·점수·라운드 기록·개인 기록(킬·데스·헤드샷·피해·**반샷**)을 이전 스냅샷 값과 합친다. 고른 무기도 이어받는다. 승부(3선승·5판·9라운드 상한)는 합친 점수로 이 래퍼가 판정한다.
 - 이어받기 전에 나간 사람의 기록은 스냅샷 예산(1800B) 안에서 접속 끊김 줄로 남는다(결과 화면에 나옴).
@@ -244,16 +244,16 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 ## 9. 폭파 미션 (MODES.md 5절)
 | 단계 | 세션이 하는 일 |
 |---|---|
-| 방 | 방 메타 `mode: 'bomb'`(net이 `'bomb'`을 그대로 싣는다). 방장 `room:mode { mode: 'bomb' }` → `updateMeta({ mode, ruleset: 'classic', mapId: 미션 맵 })`. 미션 맵이 없으면 바꾸지 않고 안내. `room:ruleset`은 무시, `room:map`은 미션 맵만 |
+| 방 | 방 메타 `mode: 'bomb'`(net이 `'bomb'`을 그대로 싣는다). 방장 `room:mode { mode: 'bomb' }` → `updateMeta({ mode, ruleset: 'classic', mapId: 미션 맵 })`. 미션 맵이 없으면 바꾸지 않고 안내. `room:ruleset`은 무시, `room:map`은 미션 맵만. 다른 모드로 돌아가면 바꾸기 전 규칙으로, 지금 맵을 그 규칙에서 못 쓰면 바꾸기 전 맵(그것도 안 되면 그 규칙의 첫 맵)으로 되돌린다(방장 세션이 기억, 방이 바뀌면 지운다) |
 | 방 만들기 | `lobby:create { mode: 'bomb' }` → 규칙 클래식, 맵은 `maps.mapsForMode('bomb')`의 맵으로 |
 | 시작 | 팀전과 같은 조건(양 팀 1명 이상, 모두 준비). 미션 맵이 아니면 시작하지 않고 안내 |
-| 경기 | `createMatch({ rules: { ...o.rules, ...o.bombRules, mode: 'bomb' }, mission: world.loadMap 결과의 mission, getPositions })`. `positions()`는 발 x·y·z |
-| 의도 | world `bombAction { act, reason }` → `sync.sendBomb(act, reason)` → 방장 sync `bomb` 이벤트 → `m.bombIntent(from, act, { reason })`. 방장은 원격 사격 메시지(`fire`)에도 그 사람의 설치·해체를 취소한다 |
+| 경기 | `createMatch({ rules: { ...o.rules, ...o.bombRules, mode: 'bomb' }, mission: world.loadMap 결과의 mission, getPositions, floorAt })`. `positions()`는 발 x·y·z, `floorAt`은 `world.floorAt`(떨어진 폭탄을 바닥에) |
+| 의도 | world `bombAction { act, reason }` → `sync.sendBomb(act, reason)` → 방장 sync `bomb` 이벤트 → `m.bombIntent(from, act, { reason })`. 방장은 원격 사격(`fire`)과 수류탄 투척(`grenade`, 던지는 순간) 메시지에도 그 사람의 설치·해체를 `fired`로 취소한다. 터지는 `claimExplosion`은 취소하지 않는다 |
 | 반영 | 경기 이벤트 `bomb` → `world.bombEvent({ ...e, name })`. 스냅샷마다 `world.setBomb(bombInfo(view))`, `world.setRound`에 `mode: 'bomb', attack` |
 | 문구 | 라운드 시작 "라운드 3 · 공수 교대" + 진영·목표, live "작전 개시!" + 진영 목표, 라운드 끝 "레드 팀 승리 · 폭탄 해체 · 수비 승 · 블루 1 : 1 레드" |
 | 점수판 | `{ mode: 'bomb', attack, players[].bomb }` — 폭탄을 든 사람은 내가 공격 팀일 때만 싣는다 |
 | 결과 | `{ mode: 'bomb', rounds: [{ round, winner, reason(문구), reasonCode, attack }] }`, 계정 summary `mode: 'bomb'` |
-| 방장 이전 | `restoreMatch({ ..., mission, getPositions })`, `hm.mode = 'bomb'`. 그 라운드를 처음부터(폭탄도 새로 준다) |
+| 방장 이전 | `restoreMatch({ ..., mission, getPositions, floorAt })`, `hm.mode = 'bomb'`. 그 라운드를 처음부터(폭탄도 새로 준다) |
 
 옵션: `bombRules` — 폭파 미션일 때만 더 얹는 rules(시험: `{ plantMs: 600, defuseMs: 800, fuseMs: 20000 }`).
 시험: `tests/session-wiring.test.mjs` '폭파 미션' — 미션 맵·클래식 고정, 구역 밖 의도 거절, E 의도 → 설치, 멤버 해체 의도가 g2b로 방장에게, 수비 승 결과(`reasonCode`·`attack`), 계정 summary `mode: 'bomb'`.

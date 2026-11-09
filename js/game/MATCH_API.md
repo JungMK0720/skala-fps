@@ -492,7 +492,8 @@ const m = createMatch({
 | opts | 설명 |
 |---|---|
 | `mission` | 맵의 미션 칸(또는 맵 데이터). 구역이 하나도 없으면 `start()`가 `reject 'no_mission'` |
-| `getPositions` | 구역 안·해체 거리·움직임 취소·떨어진 폭탄 줍기·폭발 피해를 여기서 잰다. 모르는 사람은 마지막으로 안 위치, 그것도 없으면 라운드 스폰 |
+| `getPositions` | 구역 안·해체 거리·움직임 취소·떨어진 폭탄 줍기·폭발 피해를 여기서 잰다. 모르는 사람은 마지막으로 안 위치, 그것도 없으면 라운드 스폰. 폭탄을 든 사람의 위치는 live 동안 50 ms마다 새로 둬서, 연결이 끊겨 위치가 먼저 사라져도 마지막으로 본 자리에 떨어진다 |
+| `floorAt` | `(x, fromY, z) → 바닥 높이`(맵 충돌, `physics.getGroundY`). 떨어진 폭탄을 발보다 0.4 m 위에서 아래로 찾은 바닥에 놓는다(공중에서 쓰러져도 줍는 높이 검사와 화면 모형이 같은 높이를 본다). 없거나 값이 이상하면 발 높이 그대로 |
 | `roundOffset` | 방장 이전: 이미 끝난 라운드 수. 공수 교대를 전체 라운드 번호로 센다(session.restoreMatch가 넘긴다) |
 | `chooseCarrier` | 시험용: `(ids) → id`. 라운드마다 폭탄을 받을 사람(후보가 아니면 무작위) |
 
@@ -516,7 +517,7 @@ const m = createMatch({
 `not_bomb`(다른 모드) · `bad_action` · `not_live` · `unknown_player` · `dead` · `busy`(다른 사람이 설치·해체 중) · `no_position` ·
 `not_attacker` · `no_bomb`(폭탄을 안 들었다) · `not_in_site`(구역 0.5 m 여유 밖) · `not_defender` · `not_planted` · `too_far`(폭탄 2.0 m 밖이거나 높이 차 1.6 m 넘음).
 
-- 설치·해체는 시작 시각의 위치에서 0.6 m 넘게 움직이면(설치는 구역에서 0.5 m 넘게 벗어나도) `moved`, 그 사람의 `claimHit`·`claimExplosion`이 오면 `fired`, 쓰러지면 `died`, 나가면 `left`로 취소된다.
+- 설치·해체는 시작 시각의 위치에서 0.6 m 넘게 움직이면(설치는 구역에서 0.5 m 넘게 벗어나도) `moved`, 그 사람의 `claimHit`이 오거나 던지는 순간 세션이 `bombIntent(id, 'cancel', { reason: 'fired' })`를 보내면 `fired`, 쓰러지면 `died`, 나가면 `left`로 취소된다. 수류탄이 터지는 `claimExplosion`(던지고 2.5초 뒤)은 취소하지 않는다 — 던진 뒤에 시작한 설치·해체가 끊기지 않게.
 - 진행은 `tick`이 방장 시계로 센다. live 안에서는 설치·해체 완료, 폭발, (설치 전) 시간 종료를 시각 순서대로 처리한다. 같은 순간이면 폭발 → 해체 완료, 설치 완료 → 시간 종료 순이다.
 
 ### 13.3 흐름
