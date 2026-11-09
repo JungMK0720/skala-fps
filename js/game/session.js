@@ -14,8 +14,8 @@
  *
  * 흐름
  *   로비   net.lobby.subscribe → ui 'lobby'. 방 만들기(최대 6명, 모드·규칙·맵) / 참가. 표시 이름은 계정 닉네임
- *   방     presence → ui 'room'(팀·준비·방장·핑·채팅). 팀·준비 = room.updateMe, 맵·모드·규칙 = room.updateMeta(방장)
- *   시작   방장 [게임 시작] → 'mx' prep 알림 + 맵 로드 → createMatch({ rules: { ruleset } }) → 준비 스냅샷 → 모두 맵 로드(ack) → start()
+ *   방     presence → ui 'room'(팀·준비·방장·핑·채팅). 팀·준비 = room.updateMe, 맵·모드·규칙·개인전 목표 킬(5~20) = room.updateMeta(방장)
+ *   시작   방장 [게임 시작] → 'mx' prep 알림 + 맵 로드 → createMatch({ rules: { ruleset, killTarget } }) → 준비 스냅샷 → 모두 맵 로드(ack) → start()
  *   경기   방장이 match.js를 돌리고(tick·claimHit·claimExplosion·setLoadout·addPlayer/removePlayer) sync.sendMatch로 뿌린다.
  *          모두(방장 포함) 같은 경로로 스냅샷·이벤트를 world·ui에 반영한다.
  *          로컬 상태는 sync가 min(10, room.rate)Hz로 보내고, 원격은 sync.getRemote(보간)를 매 프레임 world.setActorState로.
@@ -32,7 +32,9 @@ import { checkHitClaim, createMoveGuard, createStrikes, GUARD } from './antichea
 import { lineOfSight } from '../engine/physics.js';
 import { createMatch, applySnapshot, standings, REASON_LABELS, DEFAULT_RULES, TEAM_IDS, normalizeWeaponId } from './match.js';
 import { getDef, GRENADE_IDS, DEFAULT_LOADOUT as DEFAULT_GEAR } from '../weapons/defs.js';
-import { RULESETS, DEFAULT_RULESET, normalizeRuleset, rulesetOf, isWeaponAllowed, pickableWeapons, defaultPick } from './modes.js';
+import {
+  RULESETS, DEFAULT_RULESET, normalizeRuleset, rulesetOf, isWeaponAllowed, pickableWeapons, defaultPick, FFA_KILLS, normalizeKillTarget, parseKillTarget
+} from './modes.js';
 import { avatarIdOf } from '../core/avatar-defs.js';
 import { BOMB_REASON_LABELS } from './mission.js';
 
@@ -166,6 +168,9 @@ const modeOf = (v) => (v === 'ffa' || v === 'bomb' ? v : 'team');
 const MODE_LABEL = Object.freeze({ team: '팀전 · 5판 3선승', ffa: '개인전 · 모두가 적', bomb: '폭파 미션 · 5판 3선승' });
 /** 팀으로 나뉘는 모드(팀전·폭파 미션) */
 const isTeamMode = (m) => m !== 'ffa';
+/** 목표 킬 안내를 이 시간 안에 다시 바꾸면 채팅에 새 줄을 더하지 않고 마지막 안내 줄을 고친다(방장이 ＋를 연달아 누를 때) */
+const KILL_NOTE_MERGE_MS = 5000;
+const killNoteText = (k) => `목표 킬이 ${k}킬로 바뀌었어요 · 먼저 ${k}킬을 채우면 우승`;
 
 /* ======================================================================
  * 규칙 · 장비 · 결과 도우미 (순수 함수, tests/session-wiring.test.mjs)
@@ -241,6 +246,7 @@ function myStats(view, event, me) {
 /**
  * 경기 결과 → account.recordMatch의 summary. 결과표에 내가 없으면 null.
  * 킬·데스·헤드샷·반샷은 방장이 확정한 값이다(방장이 바뀌었으면 합산된 값). knifeKills만 내가 본 킬 이벤트로 세므로 킬 수를 넘지 못하게 자른다.
+ * 개인전이면 그 경기의 목표 킬(killTarget)도 싣는다. 짧은 판의 승리 보상을 줄이는 데 쓴다(account/economy.js).
  * o: { view, event, me, mode, ruleset, mapId, team, knifeKills, seconds }
  */
 export function matchSummary(o) {
@@ -256,7 +262,8 @@ export function matchSummary(o) {
     kills, deaths: row.deaths | 0, headshots: row.headshots | 0, halfShots: row.halfShots | 0,
     knifeKills: Math.min(kills, o.knifeKills | 0),
     win: !!winner && winner === (ffa ? me : o.team), draw: !winner,
-    seconds: Math.max(0, Math.round(Number(o.seconds) || 0))
+    seconds: Math.max(0, Math.round(Number(o.seconds) || 0)),
+    ...(ffa ? { killTarget: ffaTarget(o.view) } : {})
   };
 }
 
@@ -832,7 +839,8 @@ export function createSession(options = {}) {
     try {
       const r = await net.createRoom({
         name: cleanText(p && p.name, 24) || `${playerName}의 방`, mapId: validMapFor(ruleset, (p && p.mapId) || o.mapId, mode), max,
-        mode, ruleset, password: cleanPassword(p && p.password) || undefined
+        mode, ruleset, killTarget: mode === 'ffa' ? normalizeKillTarget(p && p.killTarget) : undefined,
+        password: cleanPassword(p && p.password) || undefined
       });
       await attachRoom(r);
     } catch (e) {
@@ -892,6 +900,8 @@ export function createSession(options = {}) {
     lastMode = roomMode();
     lastRuleset = roomRuleset();
     beforeBomb = null;
+    lastKills = roomKillTarget();
+    killNote = null;
     const list = r.players();
     const mine = list.find((x) => x.id === me);
     const fix = {};
@@ -905,7 +915,7 @@ export function createSession(options = {}) {
         ? (lastMode === 'ffa' ? '개인전 방을 열었어요. 2명 이상 모이고 모두 준비하면 시작할 수 있어요.'
           : lastMode === 'bomb' ? '폭파 미션 방을 열었어요. 블루 팀이 먼저 공격하고 2라운드 뒤 공수를 바꿔요.'
             : '방을 열었어요. 동료가 들어오면 팀을 나누고 준비하세요.')
-        : `${r.meta.name || '방'}에 들어왔어요 · ${RULESETS[lastRuleset].name} · ${MODE_LABEL[lastMode]}`
+        : `${r.meta.name || '방'}에 들어왔어요 · ${RULESETS[lastRuleset].name} · ${lastMode === 'ffa' ? `개인전 · 먼저 ${lastKills}킬` : MODE_LABEL[lastMode]}`
     }, false);
     renderRoom(true);
     screen('room');
@@ -936,6 +946,7 @@ export function createSession(options = {}) {
       mapId: meta.mapId,
       mode: roomMode(),
       ruleset: roomRuleset(),
+      killTarget: roomKillTarget(),
       max: meta.max,
       teamMax: teamCap(),
       hostId,
@@ -1022,27 +1033,44 @@ export function createSession(options = {}) {
   function roomMode() { return room ? modeOf(room.meta.mode) : 'team'; }
   /** 방 규칙. 규칙이 없는 메타는 클래식으로 읽는다 */
   function roomRuleset() { return room ? normalizeRuleset(room.meta.ruleset) : DEFAULT_RULESET; }
+  /** 개인전 목표 킬. 고른 적이 없거나 틀린 값이면 기본 20킬, 범위 밖이면 5~20 안으로 */
+  function roomKillTarget() { return room ? normalizeKillTarget(room.meta.killTarget) : FFA_KILLS.def; }
   let lastMode = 'team';
   let lastRuleset = DEFAULT_RULESET;
   /** (방장) 폭파 미션으로 바꾸기 전 { ruleset, mapId }. 다른 모드로 돌아가면 그 규칙(과 쓸 수 있으면 그 맵)으로 되돌린다 */
   let beforeBomb = null;
+  let lastKills = FFA_KILLS.def;
+  /** 마지막 목표 킬 안내 줄 { line, at } */
+  let killNote = null;
   function onMeta() {
     if (!room) return;
     const m = roomMode();
+    const k = roomKillTarget();
     if (m !== lastMode) {
       lastMode = m;
       pushChat({
         system: true,
-        text: m === 'ffa' ? '개인전으로 바뀌었어요 · 모두가 적'
+        text: m === 'ffa' ? `개인전으로 바뀌었어요 · 모두가 적 · 먼저 ${k}킬`
           : m === 'bomb' ? '폭파 미션으로 바뀌었어요 · 공격 팀이 A·B 구역에 폭탄을 설치해요' : '팀전으로 바뀌었어요 · 5판 3선승'
       }, false);
+    } else if (k !== lastKills && m === 'ffa') {
+      noteKills(k);
     }
+    lastKills = k;
     const rs = roomRuleset();
     if (rs !== lastRuleset) {
       lastRuleset = rs;
       pushChat({ system: true, text: `규칙이 ${RULESETS[rs].name}으로 바뀌었어요 · ${RULESETS[rs].desc}` }, false);
     }
     if (phase === 'room') renderRoom();
+  }
+  /** 목표 킬 안내. 방장이 연달아 바꾸면 채팅이 그 안내로 가득 차지 않게 마지막 안내 줄을 고친다 */
+  function noteKills(k) {
+    const line = { system: true, text: killNoteText(k) };
+    const t = now();
+    if (killNote && chat[chat.length - 1] === killNote.line && t - killNote.at < KILL_NOTE_MERGE_MS) chat[chat.length - 1] = line;
+    else pushChat(line, false);
+    killNote = { line, at: t };
   }
   /** (방장) 규칙 바꾸기 → 방 메타 · 로비 목록. 지금 맵을 이 규칙에서 못 쓰면 쓸 수 있는 맵으로 같이 바꾼다 */
   function setRoomRuleset(id) {
@@ -1077,6 +1105,14 @@ export function createSession(options = {}) {
       beforeBomb = null;
       safeMeta({ mode: m });
     }
+    onMeta();
+  }
+  /** (방장, 개인전) 목표 킬 바꾸기 → 방 메타 · 로비 목록. 5~20 밖의 값은 가까운 끝으로 자르고, 숫자가 아니면 무시한다 */
+  function setKillTarget(v) {
+    if (!room || phase !== 'room' || !room.isHost() || hm || roomMode() !== 'ffa') return;
+    const k = parseKillTarget(v);
+    if (k === null || k === roomKillTarget()) return;
+    safeMeta({ killTarget: k });
     onMeta();
   }
 
@@ -1194,10 +1230,11 @@ export function createSession(options = {}) {
     return '';
   }
 
+  /** 방장이 만드는 경기 규칙. 개인전 목표 킬은 방 메타(방장이 고른 값)에서 온다. 시험용 o.ffaRules가 있으면 그 값이 이긴다 */
   function matchRules(mode, ruleset) {
     const max = clampInt(room && room.meta.max, 2, 16, maxPlayers);
     const r = { ...(o.rules || {}), maxPlayers: max, maxPerTeam: Math.max(1, Math.ceil(max / 2)), ruleset };
-    if (mode === 'ffa') Object.assign(r, o.ffaRules || {}, { mode: 'ffa' });
+    if (mode === 'ffa') Object.assign(r, { killTarget: roomKillTarget() }, o.ffaRules || {}, { mode: 'ffa' });
     else if (mode === 'bomb') Object.assign(r, o.bombRules || {}, { mode: 'bomb', ruleset: 'classic' });
     return r;
   }
@@ -1240,7 +1277,7 @@ export function createSession(options = {}) {
     // status 'playing'은 내 맵을 다 불러온 뒤(hostCreate)에 건다: net은 'playing'이면 방장 침묵 8초(대기 중 32초)로
     // 방장을 바꾸는데, 맵 빌드·셰이더 컴파일로 메인 스레드가 오래 막히면 멀쩡한 방장이 교체될 수 있다
     try { room.send(CONTROL_EVENT, { k: 'prep', mid, map: mapId, mode, rs: ruleset }); } catch (e) { report(e, 'prep'); }
-    trace('host start', mid, mapId, mode, ruleset);
+    trace('host start', mid, mapId, mode, ruleset, mode === 'ffa' ? `${roomKillTarget()}킬` : '');
     enterMatch(mid, mapId, mode, ruleset);   // 방장도 같은 길로 맵을 불러온다 → 다 되면 hostCreate()
   }
 
@@ -2615,6 +2652,7 @@ export function createSession(options = {}) {
     ui.on('room:map', (p) => setMap(p && p.mapId)),
     ui.on('room:mode', (p) => setMode(p && p.mode)),
     ui.on('room:ruleset', (p) => setRoomRuleset(p && p.ruleset)),
+    ui.on('room:killTarget', (p) => setKillTarget(p && p.killTarget)),
     ui.on('room:chat', (p) => sendChat(p && p.text)),
     ui.on('chat:send', (p) => sendChat(p && p.text)),
     ui.on('chat:open', () => onChatOpen()),

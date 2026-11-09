@@ -238,12 +238,13 @@ account.remoteEnabled
 |---|---|---|
 | 킬 | 5 | 10 |
 | 헤드샷 보너스 | 3 | 5 |
-| 승리 | 30 | 60 |
+| 승리 | 30 | 60 (개인전은 목표 킬에 비례: × 목표 킬/20, 20킬보다 긴 판은 그대로) |
 | 완주 | 10 | 20 |
 | 난이도 배율(봇전) | 쉬움 0.7 · 보통 1 · 어려움 1.4 | - |
 | 비밀 스팟 첫 발견 | 맵에 적힌 값(기본 100) | 같음 |
 
-`summary = { online, ruleset, mode, mapId, difficulty, kills, deaths, headshots, halfShots, win, draw, seconds }`. 폭파 미션(`mode: 'bomb'`)도 같은 표를 쓴다(설치·해체 보너스는 없다). 연습장과 세션이 경기 끝에 한 번 부르고, 결과 화면에 "+120 P"를 보여 준다.
+`summary = { online, ruleset, mode, mapId, difficulty, kills, deaths, headshots, halfShots, win, draw, seconds, killTarget? }`. 폭파 미션(`mode: 'bomb'`)도 같은 표를 쓴다(설치·해체 보너스는 없다). 연습장과 세션이 경기 끝에 한 번 부르고, 결과 화면에 "+120 P"를 보여 준다.
+개인전 승리 보상은 `round(승리 × 목표 킬 / 20)`이다(`FFA_FULL_WIN_KILLS`). 멀티 10킬 판은 30, 5킬 판은 15이고 내역 줄은 "승리(10킬 판)"이다. 5킬보다 작은 값은 5킬로, `killTarget`이 없는 예전 기록과 20킬보다 긴 판(연습장 주소 값)은 표의 값 그대로다. 봇전은 줄인 값에 난이도 배율을 곱한다. 킬·헤드샷·완주 보상은 줄이지 않는다.
 
 ### Supabase (`supabase/schema.sql`, 새 프로젝트 전용)
 테이블 `public.fps_players(id, token_hash unique, name, name_key unique, points, owned jsonb, loadout jsonb, stats jsonb, secrets jsonb, created_at, updated_at)`. RLS 켜고 anon 직접 접근 없음. RPC(SECURITY DEFINER): `fps_check_nickname(p_name)`, `fps_claim_nickname(p_token, p_name)`, `fps_get_profile(p_token)`, `fps_save_profile(p_token, p_points, p_owned, p_loadout, p_stats, p_secrets)`, `fps_top_players(p_limit)`, `fps_features()`(서버가 아는 기능, 캐릭터 구매 열기). 설정 절차는 `docs/SUPABASE_SETUP.md`. 멀티 채널은 `skalafps:lobby`, `skalafps:room:<id>`이며 테이블이 필요 없다.

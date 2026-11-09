@@ -79,14 +79,16 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 
 ### 로비
 - `ui.show('lobby', { rooms, loading, error, joining, name })`, `net.lobby.subscribe`로 실시간 갱신한다. 방에 들어가면 구독을 끈다(presence 예산). 방 항목에 `mode`('team'|'ffa')와 `ruleset`이 실린다(net 로비 presence). 목록 배지는 "칼전 · 개인전"이고, 규칙이 없는 옛 항목은 클래식으로 읽는다.
-- `lobby:create {name,mapId,max,mode,ruleset}` → `net.createRoom({ ..., mode, ruleset })`(max 2..6, mode·ruleset은 방 메타, 맵은 `maps.mapsForRuleset(ruleset)`에 있어야 하고 아니면 그 규칙의 첫 맵, 이름이 비면 "닉네임의 방"). `lobby:join {roomId}` → `net.joinRoom`. 실패하면 `error`에 한국어 사유(`ROOM_FULL` → "방이 가득 찼어요." 등).
+- `lobby:create {name,mapId,max,mode,ruleset,killTarget?}` → `net.createRoom({ ..., mode, ruleset, killTarget? })`(max 2..6, mode·ruleset·개인전 목표 킬(5~20으로 자른다)은 방 메타, 맵은 `maps.mapsForRuleset(ruleset)`에 있어야 하고 아니면 그 규칙의 첫 맵, 이름이 비면 "닉네임의 방"). `lobby:join {roomId}` → `net.joinRoom`. 실패하면 `error`에 한국어 사유(`ROOM_FULL` → "방이 가득 찼어요." 등).
 - 연결 중에 누른 방 만들기·참가는 연결되면 실행한다.
 - `lobby:refresh`는 다시 구독(연결 실패 상태면 다시 연결), `lobby:back`은 `'exit'` + core `menu`.
 
 ### 방(대기실)
-- `ui.show('room', { roomId, name, mapId, mode, ruleset, max, teamMax, hostId, meId, players[{id,name,team,ready,ping,host,me}], chat })`. presence(`room.players()`)가 바뀔 때마다 다시 그린다.
+- `ui.show('room', { roomId, name, mapId, mode, ruleset, killTarget, max, teamMax, hostId, meId, players[{id,name,team,ready,ping,host,me}], chat })`. `killTarget`은 방 메타의 목표 킬(없거나 틀리면 20). presence(`room.players()`)가 바뀔 때마다 다시 그린다.
 - `room:mode {mode}` → 방장만 `updateMeta({ mode })`(대기실에서만). 모두에게 방 메타 → 대기실 다시 그림 + "개인전으로 바뀌었어요" 안내, 로비 목록도 바뀐다.
 - `room:ruleset {ruleset}` → 방장만 `updateMeta({ ruleset, mapId })`(대기실에서만). 지금 맵을 그 규칙에서 못 쓰면 `maps.mapsForRuleset(ruleset)`의 첫 맵으로 같이 바꾼다. 모두에게 "규칙이 칼전으로 바뀌었어요" 안내.
+- `room:killTarget {killTarget}` → 방장만, 개인전 방만 `updateMeta({ killTarget })`(대기실에서만). 5~20 밖은 가까운 끝으로 자르고 숫자가 아니면 무시한다(`modes.parseKillTarget`). 모두에게 "목표 킬이 N킬로 바뀌었어요" 안내를 띄우되, 5초 안에 다시 바꾸면 새 줄을 더하지 않고 마지막 안내 줄을 고친다. 팀전으로 바꿔도 값은 메타에 남아 개인전으로 돌아오면 그대로 쓴다.
+  [게임 시작] 때 이 값이 `createMatch({ rules: { mode:'ffa', killTarget } })`로 간다. 이후 멤버·중간 참가자·새 방장은 경기 스냅샷의 규칙(`ru`)으로 목표 킬을 읽는다.
 - 들어오면 인원이 적은 팀으로 자동 배정한다. `room:team` → `room.updateMe({ team })`(팀 정원 = ceil(max/2)), `room:ready` → `updateMe({ ready })`, `room:map` → 방장만 `updateMeta({ mapId })`(규칙에 안 맞는 맵은 무시).
 - **캐릭터**: 들어올 때 팀 배정과 같은 `updateMe`에 `av`(내 캐릭터 = `ctx.account.avatar`)를 싣는다. 장착을 바꾸면 `account:change`로 알고 값이 다를 때만 `updateMe({ av })`(presence 호출 한도). presence라 늦게 들어온 사람도 바로 안다.
   받는 쪽은 명단(`room.players()`의 `av`)을 `avatarIdOf`로 읽어(모르는 값·옛 클라이언트는 기본 캐릭터) `addActor`와 매 프레임 `setActorState`에 `avatar`로 넘긴다. 디버그 `state.avatars` = `{ id: 캐릭터 }`.
@@ -156,7 +158,7 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 - 내가 나감: `sync.dispose()`(남은 이벤트 송신) → `room.leave()` → 로비. 일시정지 [나가기](world `leave`), 대기실 [← 나가기], 결과 [로비로] 모두 같다.
 - 결과: `standings(view)` → `ui.show('results', { winner, score, rounds[{round,winner,reason(한국어)}], players, mvp, myTeam, mapId, meId, ruleset, reward })`. 방장은 방 상태를 `waiting`으로 바꾼다.
   [방으로 돌아가기] → 대기실(warmup). 다음 경기는 다시 준비 → 시작(새 `mid`).
-- **계정 기록**: 결과를 보여 줄 때 `ctx.account.recordMatch({ online:true, ruleset, mode, mapId, kills, deaths, headshots, halfShots, knifeKills, win, draw, seconds })`를 **경기(`mid`)당 한 번** 부르고 결과를 `reward`로 넘긴다. 킬·데스·헤드샷·반샷은 방장이 확정한 값이다. `knifeKills` = 내 킬 중 `getDef(weaponId).kind === 'melee'`인 수(킬 수를 넘지 못하게 자른다). `seconds`는 처음 출격부터 잰다.
+- **계정 기록**: 결과를 보여 줄 때 `ctx.account.recordMatch({ online:true, ruleset, mode, mapId, kills, deaths, headshots, halfShots, knifeKills, win, draw, seconds, killTarget? })`를 **경기(`mid`)당 한 번** 부르고 결과를 `reward`로 넘긴다. 개인전이면 그 경기의 목표 킬(`killTarget`)을 실어 짧은 판의 승리 보상을 비례해 줄인다(DESIGN 7절). 킬·데스·헤드샷·반샷은 방장이 확정한 값이다. `knifeKills` = 내 킬 중 `getDef(weaponId).kind === 'melee'`인 수(킬 수를 넘지 못하게 자른다). `seconds`는 처음 출격부터 잰다.
   방장이 바뀌어도 `mid`가 그대로이고 값은 합산되어 있어 두 번 세지 않는다. 경기 중에 나간 사람, 취소된 경기, 한 번도 출격하지 않은 관전자는 기록하지 않는다.
 - 경기 화면을 떠날 때 `world.unloadMap()`(액터·HUD·잠금 정리)을 부른다.
 

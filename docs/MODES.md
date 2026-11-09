@@ -44,7 +44,7 @@
 | rules | 기본 | 의미 |
 |---|---|---|
 | `mode` | `'team'` | `'team'`(지금 그대로) / `'ffa'`(개인전) |
-| `killTarget` | 20 | 먼저 이 킬 수에 닿으면 우승(5~50) |
+| `killTarget` | 20 | 먼저 이 킬 수에 닿으면 우승. match.js는 5~50으로 자르고(연습장 주소 값), 멀티 방은 **방장이 5~20 안에서 고른다**(`modes.FFA_KILLS`). 승리 보상은 목표 킬에 비례한다(20킬 판이 전부, DESIGN 7절) |
 | `timeLimitMs` | 300000 | 5분. 끝나면 킬 많은 순(동률이면 데스 적은 순 → 헤드샷 많은 순 → 그래도 같으면 무승부) |
 | `respawnMs` | 3000 | 죽고 나서 부활까지 |
 | `spawnProtectMs` | 1500 | 부활 직후 무적. 그 사람이 먼저 공격(히트 주장)하면 바로 끝 |
@@ -73,11 +73,11 @@
 ### 3.3 UI (`ui/*`)
 | 화면 | 바뀌는 점 |
 |---|---|
-| `lobby` | 방 항목 `mode` → 배지 "팀전 · 5판 3선승" / "개인전 · 20킬". 방 만들기 시트에 모드 선택 → `lobby:create { name, mapId, max, mode }` |
-| `room` | props `mode`. FFA면 팀 칼럼 대신 한 줄 명단 "개인전 · 모두가 적"(팀 버튼 없음). 시작 조건: 2명 이상 + 방장 빼고 전원 준비. 방장만 모드 전환 → `room:mode { mode }`. 머리글에 모드 칩 |
+| `lobby` | 방 항목 `mode` → 배지 "클래식 · 팀전" / "칼전 · 개인전 · 10킬"(목표 킬이 없으면 20킬). 방 만들기 시트에 모드 선택, 개인전이면 목표 킬 5~20 스테퍼 → `lobby:create { name, mapId, max, mode, ruleset, killTarget? }` |
+| `room` | props `mode`, `killTarget`. FFA면 팀 칼럼 대신 한 줄 명단 "개인전 · 모두가 적"(팀 버튼 없음). 시작 조건: 2명 이상 + 방장 빼고 전원 준비. 방장만 모드 전환 → `room:mode { mode }`. FFA면 규칙 칸 아래 "🎯 목표 킬": 방장만 − 값 ＋·빠른 선택(5·10·15·20)으로 5~20킬 → `room:killTarget { killTarget }`. 머리글에 모드 칩 "🎯 개인전 · N킬" |
 | `hud` | `score: { mode:'ffa', kills, rank, total, leaderName, leaderKills, target }` → "🎯 7킬 · 2위/5 · 1위 하늘 12 / 20". `roundTime` = 경기 남은 시간. 새 `respawn: { seconds, killer?, weaponName? }` → "💀 하늘에게 당했어요 · 3초 뒤 부활"(null이면 숨김). `protect: true` → "🛡 보호 중" |
 | `loadout` | `compact: true` → 화면을 덮지 않는 하단 작은 패널(죽어 있는 동안 다음 무기 고르기, 1·2 키·클릭, `loadout:pick {id, auto}`) |
-| `scoreboard` | `mode:'ffa'` → 한 목록, 순위 번호, 킬↓·데스↑·헤드샷↓, 제목 "개인전 · 목표 20킬" |
+| `scoreboard` | `mode:'ffa'` → 한 목록, 순위 번호, 킬↓·데스↑·헤드샷↓, 제목 "개인전 · 목표 N킬"(그 경기의 목표 킬) |
 | `results` | `{ mode:'ffa', ranking:[{rank,id,name,kills,deaths,head,me,bot}], winnerId?, winnerName?, reason, target, mapId }` → 🥇🥈🥉 시상대 + 표, "🏆 하늘 우승!" / "무승부" |
 | 킬피드 | FFA면 팀 색 없이 중립, 내 줄 강조 |
 | 조작법 | "Ctrl 또는 C: 앉기(누르고 있는 동안)", "앉은 채 앞으로 갈 때는 C 추천(Ctrl+W는 브라우저 탭 닫기)" |
@@ -89,6 +89,7 @@
 
 ### 3.5 멀티 (`session.js`)
 - 방 메타 `mode`(기본 'team'). 방장 `room:mode` → `updateMeta({ mode })`, 로비 목록에도 `mode`.
+- 방 메타 `killTarget`(개인전 목표 킬, 없으면 20). 방장 `room:killTarget` → `updateMeta({ killTarget })`(5~20으로 자름), 로비 목록에는 `mode` 값 넷째 칸으로(`'ffa:classic::10'`). 경기는 `createMatch({ rules:{ mode:'ffa', killTarget } })`.
 - FFA 방: 팀 배정 없음, 시작 2명 이상 + 준비. 경기: `createMatch({ rules:{ mode:'ffa' }, getPositions })`, `spawn` 이벤트 반영, 부활 화면(`hud.respawn` + `loadout compact`), 늦게 온 사람은 바로 참가(부활 대기 후 스폰), 방장 이전 복원, 결과 FFA.
 
 ---

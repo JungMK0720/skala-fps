@@ -15,7 +15,7 @@ import {
   cleanNickname, nicknameKey, validateNickname
 } from '../js/account/nickname.js';
 import {
-  MATCH_POINTS, MAX_POINTS, START_POINTS, defaultOwned, matchReward, priceOf, secretReward
+  FFA_FULL_WIN_KILLS, MATCH_POINTS, MAX_POINTS, START_POINTS, defaultOwned, matchReward, priceOf, secretReward
 } from '../js/account/economy.js';
 import { authHeaders, createRemote, RPC_TIMEOUT_MS } from '../js/account/remote.js';
 import {
@@ -318,6 +318,32 @@ describe('economy', () => {
 
   test('무승부는 승리 점수를 받지 않는다', () => {
     assert.equal(matchReward({ win: true, draw: true }).gained, 10);
+  });
+
+  test('개인전 승리 보상은 목표 킬에 비례해 줄인다(20킬 판이 전부)', () => {
+    const win = (o) => matchReward({ online: true, mode: 'ffa', win: true, ...o });
+    const winRow = (r) => r.breakdown.find((row) => row.label.startsWith('승리'));
+    assert.equal(FFA_FULL_WIN_KILLS, 20);
+    assert.deepEqual(winRow(win({ killTarget: 20 })), { label: '승리', points: 60 });
+    assert.deepEqual(winRow(win({ killTarget: 10 })), { label: '승리(10킬 판)', points: 30 });
+    assert.equal(winRow(win({ killTarget: 5 })).points, 15);
+    assert.equal(winRow(win({ killTarget: 7 })).points, 21);
+    assert.equal(win({ killTarget: 10 }).gained, 30 + 20, '완주 보상은 줄이지 않는다');
+    assert.equal(sum(win({ killTarget: 13, kills: 13, headshots: 4 }).breakdown), win({ killTarget: 13, kills: 13, headshots: 4 }).gained);
+
+    // 표의 값 전부: 목표 킬을 싣지 않던 예전 기록, 20킬보다 긴 연습장 판, 숫자가 아닌 값, 팀전·폭파 미션
+    assert.equal(winRow(win({})).points, 60);
+    assert.equal(winRow(win({ killTarget: 50 })).points, 60);
+    assert.equal(winRow(win({ killTarget: 'x' })).points, 60);
+    assert.equal(winRow(matchReward({ online: true, mode: 'team', win: true, killTarget: 5 })).points, 60);
+    assert.equal(winRow(matchReward({ online: true, mode: 'bomb', win: true, killTarget: 5 })).points, 60);
+    assert.equal(winRow(win({ killTarget: 2 })).points, 15, '5킬보다 작은 값은 5킬로 본다');
+
+    // 봇전: 30을 같은 비율로 줄인 뒤 난이도 배율
+    const bot = matchReward({ online: false, mode: 'ffa', difficulty: 'hard', kills: 5, win: true, killTarget: 5 });
+    assert.equal(winRow(bot).points, 8, '30 × 5/20 = 7.5는 반올림해 8');
+    assert.equal(bot.gained, Math.round((5 * 5 + 8 + 10) * 1.4));
+    assert.equal(sum(bot.breakdown), bot.gained);
   });
 
   test('비밀 스팟 보상', () => {
@@ -1118,6 +1144,18 @@ describe('createAccount 상점과 장비', () => {
     assert.equal(s.draws, 1);
     assert.equal(s.kills, 8);
     assert.equal(s.secondsPlayed, 132);
+  });
+
+  test('recordMatch: 목표 킬이 짧은 개인전은 승리 보상만 줄고 전적의 승리는 그대로 센다', (t) => {
+    const { account } = makeAccount(t);
+    const r = account.recordMatch({
+      online: true, ruleset: 'classic', mode: 'ffa', mapId: 'jetty', killTarget: 5,
+      kills: 5, deaths: 2, headshots: 1, halfShots: 0, knifeKills: 0, win: true, draw: false, seconds: 80
+    });
+    assert.equal(r.gained, 5 * 10 + 5 + 15 + 20);
+    assert.ok(r.breakdown.some((row) => row.label === '승리(5킬 판)' && row.points === 15), JSON.stringify(r.breakdown));
+    assert.equal(account.profile.stats.wins, 1);
+    assert.equal(account.profile.stats.matches, 1);
   });
 
   test('포인트에는 상한이 있다', (t) => {

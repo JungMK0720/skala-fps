@@ -26,28 +26,41 @@ const nowMs = () => (globalThis.performance && performance.now ? performance.now
 const textOf = (v, max) => (typeof v === 'string' ? sanitizeName(v, max) : '');
 const intOf = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.trunc(v) : 0);
 
+/** 개인전 목표 킬 칸: 1~99의 정수만 싣는다. 어느 범위를 고를 수 있는지는 게임이 정한다(game/modes.js FFA_KILLS) */
+function killsOf(v) {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d{1,2}$/.test(v) ? Number(v) : NaN;
+  return Number.isInteger(n) && n >= 1 && n <= 99 ? n : 0;
+}
+
 /**
  * presence 객체는 키가 10개까지라(limits.FREE_PLAN) 모드와 규칙을 mode 키 하나에 싣는다: 'team', 'ffa', 'bomb', 'team:knife', 'ffa:sniper'.
  * 클래식은 규칙을 적지 않으므로 규칙이 없는 옛 항목은 그대로 클래식으로 읽힌다. 비밀번호 방은 끝에 ':p'를 붙인다('team:classic:p').
+ * 개인전 목표 킬은 넷째 칸에 싣는다('ffa:classic::10', 'ffa:knife:p:5'). 셋째 칸까지만 읽던 클라이언트도 비밀번호 여부를 그대로 읽는다.
+ * 목표 킬이 없는 개인전 항목은 게임 기본값(20킬)으로 읽힌다.
  */
-export function packRoomKind(mode, ruleset, locked = false) {
+export function packRoomKind(mode, ruleset, locked = false, killTarget) {
   const m = mode === 'ffa' || mode === 'bomb' ? mode : 'team';
   const rs = typeof ruleset === 'string' && RULESET_RE.test(ruleset) ? ruleset : DEFAULT_RULESET;
+  const kills = m === 'ffa' ? killsOf(killTarget) : 0;
+  if (kills) return `${m}:${rs}:${locked ? 'p' : ''}:${kills}`;
   if (locked) return `${m}:${rs}:p`;
   return rs === DEFAULT_RULESET ? m : `${m}:${rs}`;
 }
 
-/** → { mode:'team'|'ffa'|'bomb', ruleset }. 어떤 규칙 이름이 있는지는 게임이 안다(모르는 이름은 화면에서 클래식으로 읽는다) */
+/** → { mode:'team'|'ffa'|'bomb', ruleset, locked, killTarget? }. 어떤 규칙 이름이 있는지는 게임이 안다(모르는 이름은 화면에서 클래식으로 읽는다) */
 export function unpackRoomKind(v) {
-  const [m, rs, flag] = (typeof v === 'string' ? v : '').split(':');
-  return { mode: m === 'ffa' || m === 'bomb' ? m : 'team', ruleset: rs && RULESET_RE.test(rs) ? rs : DEFAULT_RULESET, locked: flag === 'p' };
+  const [m, rs, flag, k] = (typeof v === 'string' ? v : '').split(':');
+  const out = { mode: m === 'ffa' || m === 'bomb' ? m : 'team', ruleset: rs && RULESET_RE.test(rs) ? rs : DEFAULT_RULESET, locked: flag === 'p' };
+  const kills = out.mode === 'ffa' ? killsOf(k) : 0;
+  if (kills) out.killTarget = kills;
+  return out;
 }
 
 /** (방장) 로비에 track할 한 줄. 키를 더하면 presence 한도를 넘는다 */
 export function lobbyEntry(meta, { roomId, hostId, hostName, players, term }) {
   return {
     roomId, name: meta.name, mapId: meta.mapId, hostId, hostName, players, max: meta.max, status: meta.status, term,
-    mode: packRoomKind(meta.mode, meta.ruleset, meta.locked)
+    mode: packRoomKind(meta.mode, meta.ruleset, meta.locked, meta.killTarget)
   };
 }
 

@@ -18,7 +18,7 @@
  *   broadcast(m.snapshot());               // 이벤트가 나왔을 때 + 1 Hz 정도
  *   // 클라이언트: const view = applySnapshot(snap);   (m.state와 같은 모양)
  *
- * 모드: rules.mode 'team'(기본, 5판 3선승 팀 섬멸전) / 'ffa'(개인전, 20킬·5분·부활) — FFA 계약은 MODES.md 3.1
+ * 모드: rules.mode 'team'(기본, 5판 3선승 팀 섬멸전) / 'ffa'(개인전, 목표 킬(기본 20)·5분·부활) — FFA 계약은 MODES.md 3.1
  *       / 'bomb'(폭파 미션, 공격·수비 · A/B 구역 폭탄 설치 · 5판 3선승) — 계약은 MODES.md 5절, MATCH_API.md 13절
  * 규칙: rules.ruleset 'classic'(기본) / 'knife' / 'sniper' — 모드와 직교한다. 정의는 modes.js. 폭파 미션은 클래식 고정
  * 계약서: js/game/MATCH_API.md

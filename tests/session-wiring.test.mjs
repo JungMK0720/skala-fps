@@ -754,6 +754,87 @@ describe('세션 연결', () => {
     env.dispose();
   });
 
+  test('개인전 목표 킬: 방장만 5~20킬로 바꾸고, 경기는 그 킬 수에 닿으면 끝난다', async (t) => {
+    const env = stage(t, { ffaRules: { timeLimitMs: 60000 } });
+    const a = env.client('a', '하늘');
+    const b = env.client('b', '구름', { loadout: { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' } });
+    await a.session.open();
+    a.ui.fire('lobby:create', { name: '', max: 2, mapId: 'alley', mode: 'ffa', ruleset: 'knife', killTarget: 3 });
+    await env.settle();
+    assert.equal(env.hub.lastCreate.killTarget, 5, '5킬보다 낮은 값은 5킬로');
+    assert.equal(a.ui.props('room').killTarget, 5);
+    assert.equal(env.hub.list()[0].killTarget, 5, '로비 목록에도 간다');
+
+    await b.session.open();
+    b.ui.fire('lobby:join', { roomId: env.hub.roomId });
+    await env.settle();
+    assert.equal(b.ui.props('room').killTarget, 5);
+    assert.ok(b.ui.props('room').chat.some((l) => l.system && l.text.includes('먼저 5킬')), '들어온 사람에게 목표 킬을 알린다');
+
+    b.ui.fire('room:killTarget', { killTarget: 10 });
+    assert.equal(a.session.room.meta.killTarget, 5, '방장이 아니면 못 바꾼다');
+
+    // 방장이 연달아 바꾸면 안내는 한 줄을 고쳐 쓴다
+    const notes = () => b.ui.props('room').chat.filter((l) => l.system && l.text.startsWith('목표 킬이'));
+    a.ui.fire('room:killTarget', { killTarget: 99 });
+    assert.equal(a.session.room.meta.killTarget, 20, '20킬보다 높은 값은 20킬로');
+    a.ui.fire('room:killTarget', { killTarget: 12 });
+    a.ui.fire('room:killTarget', { killTarget: '7' });
+    assert.equal(b.ui.props('room').killTarget, 7);
+    assert.equal(notes().length, 1, JSON.stringify(notes()));
+    assert.ok(notes()[0].text.includes('7킬로'), notes()[0].text);
+    assert.equal(env.hub.list()[0].killTarget, 7);
+    a.ui.fire('room:killTarget', { killTarget: 'abc' });
+    a.ui.fire('room:killTarget', {});
+    assert.equal(a.session.room.meta.killTarget, 7, '숫자가 아니면 무시한다');
+
+    // 팀전에서는 바꾸지 않고 로비 항목에도 싣지 않는다. 개인전으로 돌아오면 고른 값이 남아 있다
+    a.ui.fire('room:mode', { mode: 'team' });
+    a.ui.fire('room:killTarget', { killTarget: 15 });
+    assert.equal(a.session.room.meta.killTarget, 7);
+    assert.equal(env.hub.list()[0].killTarget, undefined);
+    a.ui.fire('room:mode', { mode: 'ffa' });
+    assert.equal(b.ui.props('room').killTarget, 7);
+    assert.ok(b.ui.props('room').chat.at(-1).text.includes('먼저 7킬'), b.ui.props('room').chat.at(-1).text);
+    a.ui.fire('room:killTarget', { killTarget: 5 });
+    assert.equal(b.ui.props('room').killTarget, 5);
+
+    b.ui.fire('room:ready', { ready: true });
+    a.ui.fire('room:start', {});
+    await env.settle();
+    await env.run(250);
+    assert.equal(a.session.match.rules.killTarget, 5, '방장이 고른 값으로 경기를 만든다');
+    await env.run(1700);
+    assert.equal(a.session.state.matchPhase, 'live');
+    assert.equal(b.world.last('setRound')[0].target, 5, '멤버 HUD의 목표 킬');
+
+    // 방장(맞는 쪽)이 다가간다. 방장 자신의 위치는 이동 검사를 받지 않아서 여러 번 옮겨도 된다
+    const stab = async (i) => {
+      await env.run(400);   // 부활(300ms)을 기다린다
+      a.world.pos = [b.world.pos[0] + 1.2, b.world.pos[1], b.world.pos[2]];
+      await env.run(400);
+      b.world.fire('hitClaim', { victimId: 'a', part: 'body', weaponId: 'ml_knife', dist: 1, kind: 'stab', t: env.clock.t, count: 1, shotId: 20 + i });
+      await env.run(200);
+    };
+    for (let i = 1; i <= 4; i++) {
+      await stab(i);
+      assert.equal(a.world.calls('killLocal').length, i, `${i}번째 킬`);
+    }
+    assert.equal(a.session.state.matchPhase, 'live', '4킬로는 끝나지 않는다');
+    await stab(5);
+    await env.run(400);
+    assert.equal(b.session.phase, 'results');
+    const res = b.ui.lastShown('results');
+    assert.equal(res.target, 5);
+    assert.equal(res.reason, 'kills');
+    assert.equal(res.winnerId, 'b');
+    assert.equal(b.account.recorded[0].win, true);
+    assert.equal(b.account.recorded[0].kills, 5);
+    assert.equal(b.account.recorded[0].killTarget, 5, '짧은 판의 승리 보상을 줄이도록 목표 킬을 싣는다');
+    assert.equal(a.account.recorded[0].killTarget, 5);
+    env.dispose();
+  });
+
   test('방장 이전(라이브): 반샷·선택·규칙을 이어받고 기록은 한 번', async (t) => {
     const env = stage(t);
     const a = env.client('a', '하늘');
@@ -1162,6 +1243,35 @@ describe('로비 메타', () => {
     assert.equal(ruleBadge('없는규칙', 'ffa'), '클래식 · 개인전');
   });
 
+  test('개인전 목표 킬은 mode 값 넷째 칸으로 오가고, 셋째 칸까지만 읽던 클라이언트도 비밀번호 여부를 그대로 읽는다', () => {
+    assert.equal(packRoomKind('ffa', 'classic', false, 10), 'ffa:classic::10');
+    assert.equal(packRoomKind('ffa', 'knife', true, 5), 'ffa:knife:p:5');
+    assert.equal(packRoomKind('team', 'classic', false, 10), 'team', '팀전에는 싣지 않는다');
+    assert.equal(packRoomKind('ffa', 'sniper', false, undefined), 'ffa:sniper', '고른 적이 없으면 예전 모양 그대로');
+    for (const bad of ['5:p', 'x', 0, 100, 7.5, -3, null, {}]) {
+      assert.equal(packRoomKind('ffa', 'classic', false, bad), 'ffa', `잘못된 값 ${JSON.stringify(bad)}은 싣지 않는다`);
+    }
+    assert.deepEqual(unpackRoomKind('ffa:classic::10'), { mode: 'ffa', ruleset: 'classic', locked: false, killTarget: 10 });
+    assert.deepEqual(unpackRoomKind('ffa:knife:p:5'), { mode: 'ffa', ruleset: 'knife', locked: true, killTarget: 5 });
+    assert.deepEqual(unpackRoomKind('team:classic::10'), { mode: 'team', ruleset: 'classic', locked: false });
+    assert.deepEqual(unpackRoomKind('ffa:classic::abc'), { mode: 'ffa', ruleset: 'classic', locked: false });
+    assert.deepEqual(unpackRoomKind('ffa:classic::999'), { mode: 'ffa', ruleset: 'classic', locked: false });
+    // 예전 unpackRoomKind는 [모드, 규칙, 표시]만 읽고 표시가 'p'면 비밀번호 방으로 본다
+    const oldLocked = (v) => v.split(':')[2] === 'p';
+    assert.equal(oldLocked(packRoomKind('ffa', 'knife', true, 5)), true);
+    assert.equal(oldLocked(packRoomKind('ffa', 'classic', false, 10)), false);
+
+    const entry = lobbyEntry({ name: '방', mapId: 'alley', max: 6, status: 'waiting', mode: 'ffa', ruleset: 'classic', locked: true, killTarget: 12 }, {
+      roomId: 'r1', hostId: 'h', hostName: '하늘', players: 2, term: 1
+    });
+    assert.ok(Object.keys(entry).length <= FREE_PLAN.presenceKeysPerObject, `키 ${Object.keys(entry).length}개`);
+    const room = readLobbyEntry(copy(entry));
+    assert.equal(room.killTarget, 12);
+    assert.equal(room.locked, true);
+    assert.equal(ruleBadge(room.ruleset, room.mode, room.killTarget), '클래식 · 개인전 · 12킬');
+    assert.equal(ruleBadge('knife', 'team', 12), '칼전 · 팀전', '팀전 배지에는 붙이지 않는다');
+  });
+
   test('채널 이름은 consts.NET에서 온다', () => {
     assert.equal(LOBBY_TOPIC, NET.LOBBY_CHANNEL);
     assert.equal(ROOM_TOPIC_PREFIX, NET.ROOM_CHANNEL_PREFIX);
@@ -1220,6 +1330,12 @@ describe('로비 메타', () => {
       assert.equal(room.meta.ruleset, 'sniper');
       assert.equal(net.lobby.rooms()[0].ruleset, 'sniper');
       assert.equal(net.lobby.rooms()[0].mapId, 'longshot');
+
+      assert.equal(room.updateMeta({ killTarget: 10 }), true);
+      assert.equal(room.meta.killTarget, 10);
+      assert.equal(tracked().mode, 'ffa:sniper::10', '목표 킬은 mode 값에 실려 키가 늘지 않는다');
+      assert.ok(Object.keys(tracked()).length <= FREE_PLAN.presenceKeysPerObject);
+      assert.equal(net.lobby.rooms()[0].killTarget, 10);
 
       room.updateMe({ name: '새이름' });
       assert.equal(net.lobby.rooms()[0].hostName, '새이름', '닉네임이 바뀌면 로비 목록의 방장 이름도 바뀐다');
@@ -1476,11 +1592,12 @@ describe('로비·대기실 화면', () => {
       name: '하늘',
       rooms: [
         { roomId: 'r1', name: '칼방', mapId: 'rooftop', hostName: '구름', players: 1, max: 2, status: 'waiting', mode: 'ffa', ruleset: 'knife' },
-        { roomId: 'r2', name: '옛방', mapId: 'jetty', hostName: '바다', players: 1, max: 2, status: 'waiting', mode: 'team' }
+        { roomId: 'r2', name: '옛방', mapId: 'jetty', hostName: '바다', players: 1, max: 2, status: 'waiting', mode: 'team' },
+        { roomId: 'r3', name: '짧은 판', mapId: 'jetty', hostName: '별', players: 1, max: 4, status: 'waiting', mode: 'ffa', killTarget: 10 }
       ]
     });
     const badges = lobby.el.all((k) => k.classList.contains('sk-mode-badge')).map((k) => k.textContent);
-    assert.deepEqual(badges, ['칼전 · 개인전', '클래식 · 팀전']);
+    assert.deepEqual(badges, ['칼전 · 개인전 · 20킬', '클래식 · 팀전', '클래식 · 개인전 · 10킬'], '목표 킬을 고른 적이 없는 개인전 방은 20킬');
     const maps = lobby.el.all((k) => k.classList.contains('sk-room-map')).map((k) => k.textContent);
     assert.equal(maps[0], '빨랫줄 옥상 · 칼전 전용');
 
@@ -1506,7 +1623,73 @@ describe('로비·대기실 화면', () => {
     assert.equal(created.name, '하늘의 방');
     assert.equal(created.mapId, 'rooftop');
     assert.equal(created.mode, 'team');
+    assert.ok(!('killTarget' in created), '팀전 방에는 목표 킬을 보내지 않는다');
+
+    // 개인전을 고르면 목표 킬 칸이 나온다
+    byText(lobby.el, '방 만들기')[0].fire('click');
+    const aria = (label) => form.all((k) => k.getAttribute('aria-label') === label)[0];
+    const killField = () => form.all((k) => k.classList.contains('sk-kill-pick'))[0];
+    const field = form.all((k) => k.classList.contains('sk-field') && k.children.includes(killField()))[0];
+    assert.equal(field.hidden, true, '팀전에서는 숨긴다');
+    form.all((k) => k.getAttribute('data-mode') === 'ffa')[0].fire('click');
+    assert.equal(field.hidden, false);
+    assert.ok(form.textContent.includes('모두가 적 · 20킬'));
+    assert.equal(aria('목표 킬 늘리기').disabled, true, '20킬이 끝');
+    aria('목표 킬 줄이기').fire('click');
+    assert.ok(killField().textContent.includes('19킬'));
+    form.all((k) => k.tagName === 'BUTTON' && k.textContent === '10킬')[0].fire('click');
+    assert.ok(form.textContent.includes('먼저 10킬을 채우면 우승'), '안내 글도 바뀐다');
+    form.fire('submit');
+    const ffa = lastEmit(ctx, 'lobby:create').payload;
+    assert.equal(ffa.mode, 'ffa');
+    assert.equal(ffa.killTarget, 10);
     lobby.dispose();
+  });
+
+  test('대기실: 개인전이면 방장만 목표 킬을 5~20킬로 바꾼다', () => {
+    const ctx = uiCtx();
+    const room = createRoom(ctx);
+    const props = {
+      roomId: 'r1', name: '방', mapId: 'alley', mode: 'ffa', ruleset: 'classic', killTarget: 20, max: 4, hostId: 'a', meId: 'a',
+      players: [{ id: 'a', name: '하늘' }, { id: 'b', name: '구름', ready: true }], chat: []
+    };
+    room.show(props);
+    const box = () => room.el.all((k) => k.classList.contains('sk-room-kills'))[0];
+    const picker = () => room.el.all((k) => k.classList.contains('sk-kill-pick'))[0];
+    const exact = (text) => room.el.all((k) => k.tagName === 'BUTTON' && k.textContent === text)[0];
+    const aria = (label) => room.el.all((k) => k.getAttribute('aria-label') === label)[0];
+    const kills = () => ctx.emitted.filter((e) => e.name === 'room:killTarget').map((e) => e.payload.killTarget);
+    assert.equal(box().hidden, false);
+    assert.equal(picker().hidden, false);
+    assert.ok(room.el.textContent.includes('개인전 · 20킬'), '모드 칩');
+    assert.equal(aria('목표 킬 늘리기').disabled, true, '20킬이 끝');
+
+    exact('10킬').fire('click');
+    assert.ok(room.el.textContent.includes('개인전 · 10킬'), '누르면 바로 보인다');
+    aria('목표 킬 줄이기').fire('click');
+    exact('5킬').fire('click');
+    assert.equal(aria('목표 킬 줄이기').disabled, true, '5킬이 끝');
+    aria('목표 킬 줄이기').fire('click');
+    exact('5킬').fire('click');
+    assert.deepEqual(kills(), [10, 9, 5], '범위 밖이나 같은 값은 보내지 않는다');
+
+    room.update({ starting: true });
+    exact('15킬').fire('click');
+    assert.deepEqual(kills(), [10, 9, 5], '시작하는 중에는 바꾸지 않는다');
+
+    // 다른 사람: 고르는 칸 없이 글로만 본다
+    room.show({ ...props, killTarget: 12, meId: 'b' });
+    assert.equal(box().hidden, false);
+    assert.equal(picker().hidden, true);
+    assert.ok(room.el.textContent.includes('먼저 12킬을 채우면 우승'));
+    assert.ok(room.el.textContent.includes('목표 킬은 방장만'));
+    exact('15킬').fire('click');
+    assert.deepEqual(kills(), [10, 9, 5], '방장이 아니면 보내지 않는다');
+
+    // 팀전에서는 목표 킬 칸이 없다
+    room.show({ ...props, mode: 'team', killTarget: undefined, players: [{ id: 'a', name: '하늘', team: 'owner' }] });
+    assert.equal(box().hidden, true);
+    room.dispose();
   });
 
   test('대기실: 방장은 규칙을 바꾸고 맵은 규칙에 맞는 것만 보인다', () => {

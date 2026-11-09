@@ -296,6 +296,14 @@ export default {
       await guest.waitFor(`/칼전/.test(document.querySelector('.sk-bar-sub.sk-chips').textContent)`, 5000, { label: '손님 화면에 칼전' });
       await host.click('.sk-modepick--bar .sk-mode-btn[data-mode="ffa"]');
       await guest.waitFor(`/개인전/.test(document.querySelector('.sk-bar-sub.sk-chips').textContent)`, 5000, { label: '손님 화면에 개인전' });
+      // 목표 킬: 방장만 고른다. 빠른 선택 5킬을 누르고 ＋ 한 번 → 6킬. 손님 화면의 칩과 채팅 안내가 따라온다
+      t.check(await host.eval('__qa.visible(".sk-room-kills .sk-kill-pick")'), '방장에게는 목표 킬 고르는 칸이 보인다');
+      t.check(await guest.eval('__qa.visible(".sk-room-kills") && !__qa.visible(".sk-room-kills .sk-kill-pick")'), '손님에게는 목표 킬 글만 보인다');
+      await host.clickText('.sk-room-kills .sk-choice', /^5킬$/);
+      await host.click('.sk-room-kills [aria-label="목표 킬 늘리기"]');
+      await eventually(t, guest, `/개인전 · 6킬/.test(document.querySelector('.sk-bar-sub.sk-chips').textContent)`, '손님 화면에 목표 6킬');
+      await eventually(t, guest, `[...document.querySelectorAll('.sk-room .sk-chat-sys')].filter((li) => li.textContent.startsWith('목표 킬이')).map((li) => li.textContent).join('|') === '목표 킬이 6킬로 바뀌었어요 · 먼저 6킬을 채우면 우승'`, '연달아 바꿔도 손님 채팅의 안내는 한 줄');
+      await t.shot('room-kill-target');
       const ready = await guest.eval(`document.querySelector('.sk-ready-btn').getAttribute('aria-pressed')`);
       if (ready !== 'true') await guest.click('.sk-ready-btn');
       await host.waitFor(`!document.querySelector('.sk-room-foot .sk-btn--primary').disabled`, 5000, { label: '시작 가능' });
@@ -306,6 +314,8 @@ export default {
         const slots = await page.eval('({ slots: __qa.arsenal.getAllowedSlots(), held: __qa.arsenal.getWeapon().slot, ruleset: __qa.world.ruleset, mode: __qa.world.mode })');
         t.check(slots.slots.join() === '3' && slots.held === 3 && slots.ruleset === 'knife' && slots.mode === 'ffa', '칼전 개인전이 양쪽에 적용된다', slots);
       }
+      await eventually(t, host, `__qa.text('.sk-tc-sub') === '개인전 · 6킬'`, '방장 HUD에 목표 6킬');
+      await eventually(t, guest, `__qa.text('.sk-tc-sub') === '개인전 · 6킬'`, '손님 HUD에 목표 6킬');
       await t.shot('knife-ffa');
       t.errorsOk('규칙 바꾸기');
 
@@ -339,12 +349,14 @@ export default {
         await third.waitFor(`document.querySelectorAll('.sk-room-row').length === 1`, 10000, { label: '셋째 로비에 방' });
         const row = await third.eval(`({ text: document.querySelector('.sk-room-row').textContent, disabled: document.querySelector('.sk-room-join').disabled })`);
         t.check(/게임 중/.test(row.text) && /중간 참가/.test(row.text) && !row.disabled, '경기 중인 개인전 방도 들어갈 수 있다', row);
+        t.check(/칼전 · 개인전 · 6킬/.test(row.text), '로비 목록 배지에 방장이 고른 목표 킬이 보인다', row);
         await third.click('.sk-room-join');
         await third.waitFor('__qa.ctx.screen === "match"', 30000, { label: '셋째가 경기 화면으로' });
         await third.waitFor('__qa.world.localAlive', 20000, { intervalMs: 100, label: '셋째 출격' })
           .then(() => t.check(true, '중간에 들어와도 곧 출격한다'), (err) => t.check(false, '중간에 들어와도 곧 출격한다', err.message));
         const mine = await third.eval('({ ruleset: __qa.world.ruleset, mode: __qa.world.mode, slots: __qa.arsenal.getAllowedSlots() })');
         t.check(mine.ruleset === 'knife' && mine.mode === 'ffa' && mine.slots.join() === '3', '들어온 사람에게도 방 규칙이 적용된다', mine);
+        await eventually(t, third, `__qa.text('.sk-tc-sub') === '개인전 · 6킬'`, '중간에 들어온 사람 HUD에도 목표 6킬');
         await eventually(t, host, `__qa.ctx.avatars.getTargets().length >= 2`, '방장 화면에 셋째가 보인다', 10000);
         await eventually(t, third, `__qa.ctx.avatars.list().some((a) => a.name.includes('손님') && a.avatarId === 'av_sapper')`, '중간에 들어온 사람에게도 손님 캐릭터가 보인다', 10000);
         t.page = third;

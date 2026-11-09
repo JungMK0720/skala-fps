@@ -405,7 +405,7 @@ ui.on('lobby:refresh', () => {
   setTimeout(() => ui.isVisible('lobby') && ui.update('lobby', { loading: false, rooms: ROOMS }), 600);
 });
 ui.on('lobby:back', () => ui.show('menu'));
-ui.on('lobby:create', ({ name, mapId, max, mode: roomMode }) => { const r = makeRoom(true, roomMode); Object.assign(r, { name, mapId, max }); ui.show('room', r); });
+ui.on('lobby:create', ({ name, mapId, max, mode: roomMode, killTarget }) => { const r = makeRoom(true, roomMode); Object.assign(r, { name, mapId, max }, roomMode === 'ffa' ? { killTarget } : {}); ui.show('room', r); });
 ui.on('lobby:join', ({ roomId }) => {
   ui.update('lobby', { joining: roomId });
   setTimeout(() => { if (ui.isVisible('lobby')) { ui.update('lobby', { joining: null }); showRoom(false); } }, 500);
@@ -429,7 +429,7 @@ ui.on('room:chat', ({ text }) => {
 ui.on('room:mode', ({ mode: roomMode }) => {
   // 세션 흉내: 개인전이면 팀 배정을 지우고, 팀전·폭파 미션이면 번갈아 배정. 폭파 미션은 클래식 규칙과 미션 맵으로 맞춘다
   room.mode = roomMode;
-  room.killTarget = roomMode === 'ffa' ? 20 : undefined;
+  room.killTarget = roomMode === 'ffa' ? room.killTarget || 20 : room.killTarget;
   if (roomMode === 'bomb') {
     room.ruleset = 'classic';
     if (!mapData.some((m) => m.id === room.mapId && m.mission === true)) room.mapId = missionMapId();
@@ -437,6 +437,11 @@ ui.on('room:mode', ({ mode: roomMode }) => {
   room.players = room.players.map((p, i) => ({ ...p, team: roomMode === 'ffa' ? null : i % 2 ? 'charterer' : 'owner', ready: p.host }));
   room.chat = [...room.chat, { system: true, text: `방장이 ${MODE_NAME[roomMode] || '팀전'}으로 바꿨어요.` }];
   ui.update('room', { mode: room.mode, killTarget: room.killTarget, ruleset: room.ruleset, mapId: room.mapId, players: room.players, chat: room.chat });
+});
+ui.on('room:killTarget', ({ killTarget }) => {
+  room.killTarget = killTarget;
+  room.chat = [...room.chat, { system: true, text: `목표 킬이 ${killTarget}킬로 바뀌었어요 · 먼저 ${killTarget}킬을 채우면 우승` }];
+  ui.update('room', { killTarget, chat: room.chat });
 });
 ui.on('room:leave', () => ui.show('lobby', lobbyProps()));
 ui.on('room:start', ({ mode: roomMode }) => {
