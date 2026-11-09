@@ -297,7 +297,7 @@ ui.chat.open() / close() / isOpen() / clear()
 | `settings:change` | `{ settings, key, value, changed[] }` | 슬라이더를 움직이는 동안 계속 발생 |
 | `lobby:refresh` / `lobby:back` | `{}` | |
 | `lobby:join` | `{ roomId }` | |
-| `lobby:create` | `{ name, mapId, max, mode, ruleset }` | `mode`: `'team'`(기본) / `'ffa'`. `ruleset`: `'classic'`(기본) / `'knife'` / `'sniper'` |
+| `lobby:create` | `{ name, mapId, max, mode, ruleset }` | `mode`: `'team'`(기본) / `'ffa'`. `ruleset`: `'classic'`(기본) / `'knife'` / `'sniper'`. 시트에서 규칙을 바꾸면 맵이 그 규칙의 첫 맵(칼전은 빨랫줄 옥상)으로 바뀐다 |
 | `room:team` | `{ team }` | 팀전만 |
 | `room:ready` | `{ ready }` | |
 | `room:mode` | `{ mode }` | 방장만. `'team'` / `'ffa'` |

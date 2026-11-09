@@ -1,8 +1,8 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 시나리오 15. 맵 둘러보기. 새 맵 넷을 코어만 띄워(?plugins=0) 카메라를 스폰, 발판, 포털, 비밀 스팟, 골목마다 옮겨 사진을 남긴다.
- *          기하와 분위기를 눈으로 볼 때 쓴다. 사용법: npm run qa -- --only maps [--filter dojo 또는 dojo/pad]
+ * Purpose: 시나리오 15. 맵 둘러보기. 새 맵 여섯을 코어만 띄워(?plugins=0) 카메라를 스폰, 발판, 포털, 비밀 스팟, 골목마다 옮겨 사진을 남긴다.
+ *          기하와 분위기를 눈으로 볼 때 쓴다. 사용법: npm run qa -- --only maps [--filter dojo 또는 dojo/pad 또는 rooftop,glasshouse]
  */
 import { MAPS } from '../../../js/maps/index.js';
 import { buildCollision } from '../../../js/maps/collision.js';
@@ -11,7 +11,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { qaInit, richProfile, sleep } from '../kit.mjs';
 
-const MAP_IDS = ['dojo', 'longshot', 'nexus', 'alley'];
+const MAP_IDS = ['rooftop', 'glasshouse', 'dojo', 'longshot', 'nexus', 'alley'];
 const SHEET = { cols: 2, rows: 3, w: 480, h: 270 };
 const DOWN = -Math.PI / 2 + 0.002;
 
@@ -25,6 +25,32 @@ const air = (name, x, y, z, lx, ly, lz) => view(name, x, y, z, lx, ly, lz, { cle
 /* ---------------- 맵마다 직접 고른 자리 ---------------- */
 
 const HAND = {
+  rooftop: [
+    view('bay-west', -8.6, 0, -10.6, -3, 1.6, -7),
+    view('ac-steps', -5.6, 0, -8.6, -3.15, 1.6, -10.4),
+    view('yard-sheets', 0, 0, -7.8, 0, 1.6, -2),
+    view('yard-to-west', 2.5, 0, -6, -8, 1.4, -3),
+    view('lane-west', -6.8, 0, -4.8, -6.5, 1.6, 4),
+    view('jar-terrace', -6.4, 0, -0.2, -9.5, 1, -3),
+    view('room-door', -6, 0, -0.9, -3, 1.6, -0.9),
+    view('room-in', -2.5, 0, -0.9, 2.5, 1.3, 0.9),
+    view('bench-east', 4.2, 0, -4.2, 9, 1, -3.7),
+    view('tank-east', 4, 0, 0.8, 7, 1.4, -2),
+    view('loft', 0.4, 3.04, -9.4, 0, 2, 4),
+    view('city-east', 9.4, 0, -10.6, 26, 3, -14)
+  ],
+  glasshouse: [
+    view('shed-in', -10.6, 0, -3.2, -10.1, 1.4, -6),
+    view('north-door', -10.1, 0, -5.6, 0, 1.6, -5.2),
+    view('bed', -8.2, 0, -6.4, 0, 1.6, -6.2),
+    view('aisle-north', -11, 0, -8.4, 11, 1.6, -8.4),
+    view('deck', -3, 0.45, -0.2, 3, 1.6, 0),
+    view('round-pot', -8, 0, 2.8, -6, 1.2, 0),
+    view('benches', -8.2, 0, 6.6, 0, 1, 6.3),
+    view('center-cross', -3.8, 0, -4.4, 4, 1.6, 4.4),
+    view('loft', -10, 2.75, 2.6, 0, 1.4, 0),
+    view('glass-out', -4, 0, -8.6, -4, 2.4, -24)
+  ],
   dojo: [
     view('court-n-pagoda', 0, 0.03, -11, 0, 3, 0),
     view('court-corner-ne', 9.5, 0.03, -9.5, -6, 1.6, 6),
@@ -221,7 +247,7 @@ function grabCell({ name, col, row, reset, W, H, cols, rows }) {
 
 export default {
   name: 'maps',
-  title: '새 맵 넷의 스폰, 발판, 포털, 비밀 스팟, 골목 사진',
+  title: '새 맵 여섯의 스폰, 발판, 포털, 비밀 스팟, 골목 사진',
   timeoutMs: 15 * 60 * 1000,
   async run(t) {
     for (const id of MAP_IDS) {

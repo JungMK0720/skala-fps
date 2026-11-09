@@ -1,13 +1,13 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 시나리오 6. 진짜 키 입력과 게임 틱으로 이동을 검사한다. 스페이스 유지 버니합, A/D와 마우스 스윙 가속, HUD 속도계, 앉기·걷기, 그리고 새 맵 넷의 발판·포털·비밀 스팟(한 번만 보상, 새로고침 유지)을 본다.
+ * Purpose: 시나리오 6. 진짜 키 입력과 게임 틱으로 이동을 검사한다. 스페이스 유지 버니합, A/D와 마우스 스윙 가속, HUD 속도계, 앉기·걷기, 그리고 새 맵 여섯의 발판·포털·비밀 스팟(한 번만 보상, 새로고침 유지)을 본다.
  */
 import { MAPS } from '../../../js/maps/index.js';
 import { LOW_QUALITY, lockPointer, openGame, readyGame, richProfile, sleep, waitLive, waitRun, waitTicks } from '../kit.mjs';
 
 /** 맵마다 쓰는 규칙 */
-const NEW_MAPS = [['alley', 'classic'], ['dojo', 'knife'], ['longshot', 'sniper'], ['nexus', 'classic']];
+const NEW_MAPS = [['alley', 'classic'], ['dojo', 'knife'], ['longshot', 'sniper'], ['nexus', 'classic'], ['rooftop', 'knife'], ['glasshouse', 'knife']];
 const hypot3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const hypot2 = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
 
@@ -286,7 +286,7 @@ async function triggersCheck(t, mapId, ruleset) {
   t.setSection(`${mapId}: 판정 표`);
   const page = await startMatch(t, mapId, ruleset);
   const trig = await page.eval(`(() => { const w = __qa.ctx.world.triggers; const pick = (p) => JSON.parse(JSON.stringify(p)); return { pads: w.pads.map(pick), portals: w.portals.map(pick), secrets: w.secrets.map(pick) }; })()`);
-  t.check(trig.pads.length === data.pads.length && trig.pads.length > 0, '발판이 모두 판정 표에 있다', trig.pads.length);
+  t.check(trig.pads.length === data.pads.length, '발판이 모두 판정 표에 있다', trig.pads.length);
   t.check(trig.portals.length === data.portals.length, '포털이 모두 판정 표에 있다', trig.portals.length);
   t.check(trig.secrets.length === data.secrets.length && trig.secrets.length > 0, '비밀 스팟이 모두 판정 표에 있다', trig.secrets.length);
   const inside = (s, p) => p[0] >= s.minX && p[0] <= s.maxX && p[2] >= s.minZ && p[2] <= s.maxZ && p[1] >= s.minY - 0.1 && p[1] < s.maxY;
@@ -350,10 +350,13 @@ async function triggersCheck(t, mapId, ruleset) {
 
   t.setSection(`${mapId}: 발판`);
   await lockPointer(page);
-  await ridePad(t, page, trig.pads[0], `${mapId} 발판 0`);
-  await sleep(450);   // 재발동 대기
-  await ridePad(t, page, trig.pads[0], `${mapId} 발판 0`, { walk: true });
-  await t.shot(`${mapId}-pad-landed`);
+  if (!trig.pads.length) t.note(`${mapId}에는 발판이 없다(설계대로)`);
+  else {
+    await ridePad(t, page, trig.pads[0], `${mapId} 발판 0`);
+    await sleep(450);   // 재발동 대기
+    await ridePad(t, page, trig.pads[0], `${mapId} 발판 0`, { walk: true });
+    await t.shot(`${mapId}-pad-landed`);
+  }
 
   t.setSection(`${mapId}: 포털`);
   if (!trig.portals.length) t.note(`${mapId}에는 포털이 없다(설계대로)`);
@@ -376,7 +379,7 @@ async function triggersCheck(t, mapId, ruleset) {
 
 export default {
   name: 'movement',
-  title: '버니합, 스윙 가속, 속도계, 앉기, 새 맵 넷의 발판·포털·비밀 스팟',
+  title: '버니합, 스윙 가속, 속도계, 앉기, 새 맵 여섯의 발판·포털·비밀 스팟',
   timeoutMs: 12 * 60 * 1000,
   async run(t) {
     const maps = NEW_MAPS.filter(([id]) => !t.filter || id.includes(t.filter));

@@ -17,7 +17,8 @@
  */
 import { DEFAULT_RULESETS, RULESET_NAMES } from './collision.js';
 
-export const MAP_IDS = Object.freeze(['alley', 'dojo', 'longshot', 'nexus', 'jetty', 'tankfarm', 'vlcc']);
+// 순서가 메뉴 순서이고, 규칙마다 처음 나오는 맵이 그 규칙의 기본 맵이다(칼전 rooftop, 클래식 alley, 스나전 longshot)
+export const MAP_IDS = Object.freeze(['rooftop', 'glasshouse', 'alley', 'longshot', 'dojo', 'nexus', 'jetty', 'tankfarm', 'vlcc']);
 
 const R90 = Math.PI / 2;
 
@@ -143,8 +144,10 @@ function isValid(data) {
 
 /** 맵 파일이 없을 때 메뉴에 보일 이름·규칙·배지 (DESIGN 5절 기준) */
 const KNOWN = {
+  rooftop: { name: '빨랫줄 옥상', nameEn: 'Clothesline Roof', rulesets: ['knife'], tag: '칼전 전용' },
+  glasshouse: { name: '선인장 온실', nameEn: 'Cactus Glasshouse', rulesets: ['knife'], tag: '칼전 전용' },
   alley: { name: '항구 골목', nameEn: 'Harbor Alley', rulesets: ['classic', 'knife'] },
-  dojo: { name: '벚꽃 도장', nameEn: 'Blossom Dojo', rulesets: ['knife'], tag: '칼전 전용' },
+  dojo: { name: '벚꽃 도장', nameEn: 'Blossom Dojo', rulesets: ['classic', 'knife', 'sniper'], tag: '통합' },
   longshot: { name: '협곡 저격장', nameEn: 'Canyon Range', rulesets: ['sniper'], tag: '스나 전용' },
   nexus: { name: '넥서스', nameEn: 'Nexus', rulesets: ['classic', 'knife', 'sniper'], tag: '통합' },
   jetty: { name: '원유 부두', nameEn: 'Crude Jetty' },

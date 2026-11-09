@@ -162,13 +162,15 @@ export default {
 - `js/maps/builder.js`: 발판·포털을 자동으로 그린다(빛나는 원판, 위로 흐르는 화살표, 포인트 라이트 없이 emissive). `map.update`에서 움직인다.
 - `validateMap`이 새 필드를 검사하고, `tools/check-maps.mjs`가 **스폰이 벽에 박히지 않는지, 발판 궤적이 target 근처에 실제로 착지하는지, 비밀 스팟이 발판·점프로 갈 수 있는지(시뮬레이션)**를 확인한다.
 - 새 재질 12종(`consts.MATS`)과 장식 타입: `tree`(분홍 벚나무, 충돌 없음), `bamboo`, `lantern`, `banner`, `rope`, `vent`, `crateStack`.
-- `js/maps/index.js`: `MAP_IDS = ['alley','dojo','longshot','nexus','jetty','tankfarm','vlcc']`. 파일이 없거나 깨지면 기존처럼 테스트 맵으로 대체한다. `MAP_LIST` 항목에 `rulesets`, `tag`. `mapsForRuleset(id)` 추가.
+- `js/maps/index.js`: `MAP_IDS = ['rooftop','glasshouse','alley','longshot','dojo','nexus','jetty','tankfarm','vlcc']`. 파일이 없거나 깨지면 기존처럼 테스트 맵으로 대체한다. `MAP_LIST` 항목에 `rulesets`, `tag`. `mapsForRuleset(id)` 추가. 순서가 메뉴 순서이고, 규칙마다 처음 나오는 맵이 그 규칙의 기본 맵이다(클래식 `alley`, 칼전 `rooftop`, 스나전 `longshot`).
 
-### 새 맵 네 개
+### 새 맵 여섯 개
 | id | 이름 | 규칙 | 크기 기준 | 컨셉 |
 |---|---|---|---|---|
+| `rooftop` | 빨랫줄 옥상 | knife | 22×24 m | 칼전 전용, 칼전 기본 맵. 밤의 아파트 옥상. 계단실 앞 스폰에서 몇 초 만에 맞붙는다. 가운데 옥탑방(서문·동문), 어긋난 창고·보일러실, 장독대(0.6)와 평상(0.45), 몸은 지나가고 눈만 가리는 빨랫줄 이불. 실외기를 밟고 오르는 비밀 계단실 지붕 |
+| `glasshouse` | 선인장 온실 | knife | 24×20 m | 칼전 전용. 한낮의 유리 온실. 양끝 분갈이실(스폰, 남북 문)에서 나와 선인장 화단(0.8)·화분 작업대(0.95)·둥근 화분 사이를 돌고, 가운데 단상(0.45)의 선인장 분수를 끼고 싸운다. 작업대와 상자를 밟고 오르는 비밀 다락 |
 | `alley` | 항구 골목 | classic, knife | 약 56×36 m | 좁은 맵. 양쪽 스폰에서 평행한 좁은 골목 3개가 가운데 작은 광장으로 모인다. 교전 거리 10~25 m. 지붕 발판 1쌍과 비밀 옥상 1곳 |
-| `dojo` | 벚꽃 도장 | knife | 약 44×44 m | 칼전 전용. 시야가 짧고 기둥·낮은 벽·단차가 많은 원형에 가까운 안뜰. 발판으로 올라가는 회랑, 비밀 지붕 |
+| `dojo` | 벚꽃 도장 | classic, knife, sniper | 약 44×44 m | 통합 맵(처음엔 칼전 전용). 시야가 짧고 기둥·낮은 벽·단차가 많은 원형에 가까운 안뜰. 발판으로 올라가는 회랑, 비밀 지붕. 총 규칙을 위해 문 안 가림막을 넓혀 적 쪽 절반 어디서도 팀 스폰이 보이지 않는다 |
 | `longshot` | 협곡 저격장 | sniper | 약 130×60 m | 스나 전용. 양끝 고지대 진지와 긴 시야선, 가운데 은폐 협곡. 발판으로 가는 저격 둥지, 포털로 가는 비밀 관측소 |
 | `nexus` | 넥서스 | classic, knife, sniper | 약 90×70 m | 통합 맵. 칼전 구덩이, 라이플 골목, 저격 탑을 한 맵에 합친 다층 구조. 발판 다수, 비밀 2곳, 물리 소품 |
 
@@ -179,7 +181,7 @@ export default {
 `js/game/modes.js`가 정의한다(이미 작성됨). 모드(`team`/`ffa`)와 규칙(`classic`/`knife`/`sniper`)은 직교한다.
 - `world.loadMap(mapId, { mode, ruleset })` → `arsenal.setAllowedSlots`. 칼전은 뷰모델이 처음부터 칼.
 - `world.spawnLocal({ loadout })`: `loadout`은 `pickSlot`의 무기 id. 나머지 슬롯은 `ctx.account.loadout`에서 가져온다.
-- 연습장 설정 시트: 규칙 → 모드 → 맵(`mapsForRuleset`) → 인원 → 난이도 순. 시트는 지난 설정(없으면 `alley`, 개인전, 봇 5)을 기억한다. 메뉴의 빠른 시작 버튼은 없앴다.
+- 연습장 설정 시트: 규칙 → 모드 → 맵(`mapsForRuleset`) → 인원 → 난이도 순. 시트는 지난 설정(없으면 `alley`, 개인전, 봇 5)을 기억한다. 규칙을 바꾸면 그 규칙의 기본 맵으로 옮긴다(칼전 `rooftop`). 방 만들기 시트도 같다. 메뉴의 빠른 시작 버튼은 없앴다.
 - 봇(`bots.js`): 무기 정보는 `defs`에서 만든다(`BOT_WEAPON_INFO` 복제 제거). `ruleset`을 받아 칼전이면 칼만 들고 거리를 좁혀 베고, 스나전이면 저격 위주. 봇 주무기는 `pickableWeapons(ruleset)`에서 고른다.
 - 멀티: 방 메타에 `ruleset`. 로비 배지 "칼전 · 개인전", 방 만들기 시트에서 고르고 방장이 대기실에서 바꿀 수 있다.
 

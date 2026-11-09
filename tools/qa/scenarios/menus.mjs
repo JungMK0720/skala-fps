@@ -197,6 +197,7 @@ export default {
       for (const m of mapsForRuleset(id)) t.check(MAPS[m.id] && (MAPS[m.id].rulesets || ['classic', 'sniper']).includes(id), `${id}: ${m.id}의 rulesets가 맞다`);
       const on = await page.eval(`[...document.querySelectorAll('.sk-mapcards .sk-mapcard.is-on .sk-mapcard-name')].map((n) => n.textContent)`);
       t.check(on.length === 1 && want.includes(on[0]), `${id}: 고른 맵이 하나이고 목록 안에 있다`, on);
+      t.check(on[0] === want[0], `${id}: 규칙을 고르면 그 규칙의 첫 맵(칼전은 좁은 칼전 맵)이 골라진다`, { on, first: want[0] });
       t.check(new RegExp(RULESETS[id].desc).test(await textOf(page, '.sk-sheet .sk-field-hint')), `${id}: 규칙 설명`);
     }
     await t.shot('practice-sheet');

@@ -25,9 +25,10 @@ import { createRoom } from '../js/ui/room.js';
 import { createResults } from '../js/ui/results.js';
 
 const MAP_LIST = Object.freeze([
+  { id: 'rooftop', name: '빨랫줄 옥상', rulesets: ['knife'], tag: '칼전 전용' },
   { id: 'alley', name: '항구 골목', rulesets: ['classic', 'knife'], tag: '' },
-  { id: 'dojo', name: '벚꽃 도장', rulesets: ['knife'], tag: '칼전 전용' },
   { id: 'longshot', name: '협곡 저격장', rulesets: ['sniper'], tag: '스나 전용' },
+  { id: 'dojo', name: '벚꽃 도장', rulesets: ['classic', 'knife', 'sniper'], tag: '통합' },
   { id: 'nexus', name: '넥서스', rulesets: ['classic', 'knife', 'sniper'], tag: '통합' },
   { id: 'jetty', name: '부두', rulesets: ['classic', 'sniper'], tag: '' }
 ]);
@@ -475,10 +476,10 @@ describe('세션 연결', () => {
     const b = env.client('b', '구름', { loadout: { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' } });
     await startMatch(env, [a, b], { mapId: 'jetty', mode: 'ffa', ruleset: 'knife', max: 2 });
 
-    assert.equal(env.hub.lastCreate.mapId, 'alley', '이 규칙에서 못 쓰는 맵은 다시 고른다');
+    assert.equal(env.hub.lastCreate.mapId, 'rooftop', '이 규칙에서 못 쓰는 맵은 그 규칙의 첫 맵으로 다시 고른다');
     assert.deepEqual(env.hub.list()[0].ruleset, 'knife');
     assert.deepEqual(env.hub.list()[0].mode, 'ffa');
-    assert.deepEqual(b.world.calls('loadMap')[0], ['alley', { mode: 'ffa', ruleset: 'knife' }]);
+    assert.deepEqual(b.world.calls('loadMap')[0], ['rooftop', { mode: 'ffa', ruleset: 'knife' }]);
     assert.equal(a.session.match.rules.ruleset, 'knife');
 
     const screen = b.ui.lastShown('loadout');
@@ -534,7 +535,7 @@ describe('세션 연결', () => {
     const s = b.account.recorded[0];
     assert.equal(s.ruleset, 'knife');
     assert.equal(s.mode, 'ffa');
-    assert.equal(s.mapId, 'alley');
+    assert.equal(s.mapId, 'rooftop');
     assert.equal(s.kills, 1);
     assert.equal(s.knifeKills, 1);
     assert.equal(s.win, true);
@@ -552,7 +553,7 @@ describe('세션 연결', () => {
     assert.equal(a.session.room.meta.mapId, 'longshot', '칼전 맵은 스나전에서 못 쓴다');
     assert.equal(b.ui.props('room').ruleset, 'sniper');
     assert.equal(b.ui.props('room').mapId, 'longshot');
-    a.ui.fire('room:map', { mapId: 'dojo' });
+    a.ui.fire('room:map', { mapId: 'rooftop' });
     assert.equal(a.session.room.meta.mapId, 'longshot', '규칙에 안 맞는 맵은 거른다');
     a.ui.fire('room:map', { mapId: 'nexus' });
     assert.equal(a.session.room.meta.mapId, 'nexus');
@@ -959,8 +960,8 @@ describe('로비 메타', () => {
   });
 
   test('맵 고르기는 규칙에 맞는 맵만', () => {
-    assert.deepEqual(mapsForRule(MAP_LIST, 'knife').map((m) => m.id), ['alley', 'dojo', 'nexus']);
-    assert.deepEqual(mapsForRule(MAP_LIST, 'sniper').map((m) => m.id), ['longshot', 'nexus', 'jetty']);
+    assert.deepEqual(mapsForRule(MAP_LIST, 'knife').map((m) => m.id), ['rooftop', 'alley', 'dojo', 'nexus']);
+    assert.deepEqual(mapsForRule(MAP_LIST, 'sniper').map((m) => m.id), ['longshot', 'dojo', 'nexus', 'jetty']);
     assert.deepEqual(mapsForRule([{ id: 'old' }], 'classic').map((m) => m.id), ['old'], 'rulesets가 없으면 클래식·스나전');
     assert.deepEqual(mapsForRule([{ id: 'old' }], 'knife').map((m) => m.id), ['old'], '고를 맵이 없으면 그대로');
   });
@@ -1182,32 +1183,36 @@ describe('로비·대기실 화면', () => {
     lobby.show({
       name: '하늘',
       rooms: [
-        { roomId: 'r1', name: '칼방', mapId: 'dojo', hostName: '구름', players: 1, max: 2, status: 'waiting', mode: 'ffa', ruleset: 'knife' },
+        { roomId: 'r1', name: '칼방', mapId: 'rooftop', hostName: '구름', players: 1, max: 2, status: 'waiting', mode: 'ffa', ruleset: 'knife' },
         { roomId: 'r2', name: '옛방', mapId: 'jetty', hostName: '바다', players: 1, max: 2, status: 'waiting', mode: 'team' }
       ]
     });
     const badges = lobby.el.all((k) => k.classList.contains('sk-mode-badge')).map((k) => k.textContent);
     assert.deepEqual(badges, ['칼전 · 개인전', '클래식 · 팀전']);
     const maps = lobby.el.all((k) => k.classList.contains('sk-room-map')).map((k) => k.textContent);
-    assert.equal(maps[0], '벚꽃 도장 · 칼전 전용');
+    assert.equal(maps[0], '빨랫줄 옥상 · 칼전 전용');
 
     byText(lobby.el, '방 만들기')[0].fire('click');
     const form = lobby.el.all((k) => k.tagName === 'FORM')[0];
     assert.ok(form, '시트가 열린다');
     const cards = () => form.all((k) => k.classList.contains('sk-mapcard')).map((k) => k.textContent);
     assert.ok(cards().some((t) => t.includes('항구 골목')));
-    assert.ok(!cards().some((t) => t.includes('벚꽃 도장')), '클래식에서 칼전 전용 맵은 안 보인다');
+    assert.ok(cards().some((t) => t.includes('벚꽃 도장')), '통합 맵은 클래식에서도 보인다');
+    assert.ok(!cards().some((t) => t.includes('빨랫줄 옥상')), '클래식에서 칼전 전용 맵은 안 보인다');
+    const picked = () => form.all((k) => k.classList.contains('sk-mapcard') && k.classList.contains('is-on')).map((k) => k.textContent);
+    assert.ok(picked()[0].includes('항구 골목'), '클래식의 첫 맵');
 
     byText(form, '칼전')[0].fire('click');
-    assert.ok(cards().some((t) => t.includes('벚꽃 도장')));
+    assert.ok(cards().some((t) => t.includes('빨랫줄 옥상')));
     assert.ok(cards().some((t) => t.includes('칼전 전용')), '카드에 태그가 보인다');
     assert.ok(!cards().some((t) => t.includes('협곡 저격장')));
+    assert.ok(picked()[0].includes('빨랫줄 옥상'), '칼전을 고르면 항구 골목을 쓸 수 있어도 칼전 기본 맵으로 옮긴다');
 
     form.fire('submit');
     const created = lastEmit(ctx, 'lobby:create').payload;
     assert.equal(created.ruleset, 'knife');
     assert.equal(created.name, '하늘의 방');
-    assert.equal(created.mapId, 'alley');
+    assert.equal(created.mapId, 'rooftop');
     assert.equal(created.mode, 'team');
     lobby.dispose();
   });
@@ -1222,12 +1227,12 @@ describe('로비·대기실 화면', () => {
     room.show(props);
     const pickers = () => room.el.all((k) => k.classList.contains('sk-mapcard--sm')).map((k) => k.textContent);
     assert.ok(pickers().some((t) => t.includes('항구 골목')));
-    assert.ok(!pickers().some((t) => t.includes('벚꽃 도장')));
+    assert.ok(!pickers().some((t) => t.includes('빨랫줄 옥상')));
     assert.ok(room.el.textContent.includes('클래식'));
 
     byText(room.el, '칼전')[0].fire('click');
     assert.deepEqual(lastEmit(ctx, 'room:ruleset').payload, { ruleset: 'knife' });
-    assert.ok(pickers().some((t) => t.includes('벚꽃 도장') && t.includes('칼전 전용')), '작은 카드에도 태그');
+    assert.ok(pickers().some((t) => t.includes('빨랫줄 옥상') && t.includes('칼전 전용')), '작은 카드에도 태그');
     assert.ok(!pickers().some((t) => t.includes('협곡 저격장')));
 
     // 다른 사람은 고르는 버튼이 없다
