@@ -22,6 +22,9 @@
  *   account.equipEmote(slot, id)  휠 칸(0~7)에 가진 이모트를 넣는다. 다른 칸에 이미 있으면 두 칸을 맞바꾼다. reason은 equip과 같다
  *   account.avatar                장착한 캐릭터 id(core/avatar-defs.js). loadout.avatar와 같다
  *   account.equipAvatar(id)       가진 캐릭터를 장착한다. reason은 'unknown' | 'unowned'
+ *   account.avatarShop            캐릭터 구매: 'open' | 'checking'(서버에 묻는 중) | 'closed'(서버가 아직 캐릭터를 모름)
+ *                                 서버를 쓰면 시작할 때 fps_features를 한 번 묻고 avatars:true일 때만 연다. 오프라인·로컬은 늘 열려 있다.
+ *                                 열리기 전 buy(캐릭터)는 { ok:false, reason:'closed' }다. 기본 캐릭터와 이미 가진 캐릭터 장착은 그대로 된다
  *   recordMatch의 summary에 knifeKills를 넣으면 전적에 쌓인다(선택).
  *
  * 닉네임 게이트는 'account:change'도 들어야 한다. 프로필을 잃어도 토큰이 남아 있으면 동기화가 끝난 뒤 닉네임이 돌아온다.
@@ -95,6 +98,8 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
   let syncing = null;
   let queue = Promise.resolve();
   let disposed = false;
+  let avatarShop = remote.enabled ? 'checking' : 'open';      // 캐릭터 구매를 열었는가(서버 기능 확인)
+  let featureCheck = null;
 
   // ───────────── 내부 상태 ─────────────
   function readProfile() {
@@ -191,6 +196,7 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
 
   /** 네트워크가 돌아왔을 수 있을 때 못 끝낸 일을 이어서 한다 */
   function resumeRemote() {
+    if (avatarShop !== 'open') checkFeatures();
     if (!synced) return syncFromRemote();
     if (pendingClaim && !conflictName) retryNickname();
     return flush();
@@ -328,6 +334,29 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     return { ok: false, offline: true };
   }
 
+  // ───────────── 서버 기능 확인 ─────────────
+  /**
+   * 캐릭터는 서버 가격표가 캐릭터를 알 때만 판다. schema.sql을 다시 실행하기 전의 서버(fps_save_profile)는 모르는 물건을 버리지만
+   * 줄어든 포인트는 받아들이므로, 그 사이에 사면 포인트만 잃는다. 그래서 fps_features가 avatars:true라고 답할 때까지 닫아 둔다.
+   * 404(함수 없음), 어떤 오류, 값 없음은 모두 닫힘이다. 네트워크가 돌아오면(resumeRemote) 다시 묻는다.
+   */
+  function checkFeatures() {
+    if (!remote.enabled || disposed || avatarShop === 'open') return Promise.resolve(avatarShop === 'open');
+    if (!featureCheck) {
+      featureCheck = remote.features()
+        .then((r) => {
+          const next = r && r.ok === true && r.avatars === true ? 'open' : 'closed';
+          if (!disposed && next !== avatarShop) {
+            avatarShop = next;
+            announce();
+          }
+          return next === 'open';
+        })
+        .finally(() => { featureCheck = null; });
+    }
+    return featureCheck;
+  }
+
   // ───────────── 상점 · 장비 ─────────────
   function isOwned(id) {
     return profile.owned.includes(id);
@@ -337,6 +366,7 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     const price = priceOf(id);
     if (price === null) return { ok: false, reason: 'unknown', points: profile.points };
     if (isOwned(id)) return { ok: false, reason: 'owned', points: profile.points };
+    if (isAvatarId(id) && avatarShop !== 'open') return { ok: false, reason: 'closed', points: profile.points };
     if (profile.points < price) return { ok: false, reason: 'points', points: profile.points };
     profile.points -= price;
     profile.owned = normalizeOwned([...profile.owned, id]);
@@ -485,13 +515,15 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     flush();
   }
 
-  const ready = syncFromRemote();
+  // 시작 동기화와 서버 기능 확인을 함께 기다린다. 값은 동기화 결과다
+  const ready = Promise.all([syncFromRemote(), checkFeatures()]).then(([synced]) => synced);
 
   return Object.freeze({
     get profile() { return readProfile(); },
     get loadout() { return readProfile().loadout; },
     get emoteWheel() { return readProfile().loadout.emotes; },
     get avatar() { return readProfile().loadout.avatar; },
+    get avatarShop() { return avatarShop; },
     get remoteEnabled() { return remote.enabled; },
     get nicknamePending() { return !!pendingClaim; },
     get nicknameConflict() { return conflictName; },
