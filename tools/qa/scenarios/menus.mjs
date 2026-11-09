@@ -1,11 +1,11 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 시나리오 2. 메인 메뉴, 마이페이지(이름 변경·전적·장비), 상점(구매·포인트 부족·장착·새로고침 유지·이모트 휠), 빠른 시작, 연습장 설정 시트를 진짜 클릭으로 검사한다.
+ * Purpose: 시나리오 2. 메인 메뉴, 마이페이지(이름 변경·전적·장비), 상점(구매·포인트 부족·장착·새로고침 유지·이모트 휠), 연습장 설정 시트를 진짜 클릭으로 검사한다.
  */
 import { MAPS, mapsForRuleset } from '../../../js/maps/index.js';
 import { RULESET_IDS, RULESETS } from '../../../js/game/modes.js';
-import { LOW_QUALITY, NICK, lockPointer, openGame, readyGame, sleep, waitRun, waitTicks } from '../kit.mjs';
+import { LOW_QUALITY, NICK, lockPointer, openGame, readyGame, sleep, startPractice, waitRun, waitTicks } from '../kit.mjs';
 
 const shown = (page, sel) => page.fn((s) => window.__qa.visible(s), sel);
 const textOf = (page, sel) => page.fn((s) => window.__qa.text(s), sel);
@@ -28,7 +28,7 @@ async function leaveToMenu(t, page) {
 
 export default {
   name: 'menus',
-  title: '메뉴, 마이페이지, 상점, 빠른 시작, 연습장 설정 시트',
+  title: '메뉴, 마이페이지, 상점, 연습장 설정 시트',
   timeoutMs: 240000,
   async run(t) {
     t.setSection('메뉴');
@@ -37,7 +37,8 @@ export default {
     await page.waitFor('__qa.ui.isVisible("menu")', 5000, { label: '메뉴' });
     t.check((await textOf(page, '.sk-name-text')) === NICK, '메뉴 카드의 닉네임');
     t.check((await textOf(page, '.sk-player .sk-points-val')) === '500 P', '메뉴 카드의 포인트', await textOf(page, '.sk-player .sk-points-val'));
-    t.check(/항구 골목 · 개인전 · 봇 5/.test(await textOf(page, '.sk-menu-btn--main .sk-menu-sub')), '빠른 시작 기본 설정 문구', await textOf(page, '.sk-menu-btn--main .sk-menu-sub'));
+    t.check((await textOf(page, '.sk-menu-nav .sk-menu-btn:first-child .sk-menu-label')) === '멀티플레이', '멀티플레이가 맨 위 큰 버튼', await textOf(page, '.sk-menu-btn--main'));
+    t.check(!/빠른 시작/.test(await textOf(page, '.sk-menu-nav')), '빠른 시작 버튼이 없다');
 
     t.setSection('마이페이지: 이름 변경');
     await page.click('.sk-player-mypage');
@@ -166,13 +167,13 @@ export default {
     t.check(await page.eval('__qa.ui.isVisible("menu")'), 'Esc로 창만 닫히고 메뉴는 남는다');
     t.errorsOk('설정·조작법');
 
-    t.setSection('빠른 시작');
+    t.setSection('연습장 기본 출격');
     page = await openGame(t, '', { profile: { nickname: NICK, points: 500, createdAt: 1 }, settings: LOW_QUALITY, screen: 'menu', width: 640, height: 360 });
     await page.waitFor('__qa.ui.isVisible("menu")', 5000, { label: '메뉴' });
-    await page.click('.sk-menu-btn--main');
+    await startPractice(page);
     await waitRun(page);
     const quick = await page.eval(`(() => { const o = __qa.run.opts; return { mapId: o.mapId, mode: o.mode, ruleset: o.ruleset, bots: o.ffaBots, difficulty: o.difficulty, n: __qa.run.bots.length, menu: __qa.ui.isVisible('menu'), hud: __qa.ui.isVisible('hud') }; })()`);
-    t.check(quick.mapId === 'alley' && quick.mode === 'ffa' && quick.ruleset === 'classic' && quick.n === 5, '빠른 시작 기본값(항구 골목·개인전·봇 5)', quick);
+    t.check(quick.mapId === 'alley' && quick.mode === 'ffa' && quick.ruleset === 'classic' && quick.n === 5, '연습장 기본값(항구 골목·개인전·봇 5)', quick);
     t.check(!quick.menu && quick.hud, '메뉴가 닫히고 HUD가 뜬다', quick);
     await page.waitFor('__qa.ui.isVisible("loadout")', 5000, { label: '무기 선택 화면' });
     await t.shot('quick-start-loadout');
@@ -181,10 +182,10 @@ export default {
     await t.shot('quick-start-live');
     await leaveToMenu(t, page);
     t.check((await page.eval('__qa.profile().stats.matches')) === 0, '중간에 나가면 전적을 남기지 않는다');
-    t.errorsOk('빠른 시작');
+    t.errorsOk('연습장 기본 출격');
 
     t.setSection('연습장 설정 시트');
-    await page.clickText('.sk-menu-btn--wide', '연습장');
+    await page.clickText('.sk-menu-btn', '연습장');
     await page.waitFor('!!document.querySelector(".sk-sheet")', 3000, { label: '설정 시트' });
     await page.waitFor('document.querySelectorAll(".sk-mapcards .sk-mapcard").length > 0', 3000, { label: '맵 카드' });
     const seg = (label) => `.sk-seg[aria-label="${label}"] .sk-seg-btn`;
@@ -214,7 +215,7 @@ export default {
     await page.waitFor('!document.querySelector(".sk-sheet")', 2000, { label: '시트 닫힘' });
     t.check(await page.eval('__qa.ctx.screen === "menu"'), '취소하면 메뉴에 남는다');
 
-    await page.clickText('.sk-menu-btn--wide', '연습장');
+    await page.clickText('.sk-menu-btn', '연습장');
     await page.waitFor('!!document.querySelector(".sk-sheet")', 3000, { label: '설정 시트' });
     await page.clickText(seg('규칙'), RULESETS.knife.name);
     await page.clickText(seg('모드'), '팀전');
@@ -228,12 +229,10 @@ export default {
     t.check(started.world === 'knife' && started.slots.join() === '3', '칼전은 칼 슬롯만 쓴다', started);
     await page.waitFor('__qa.run.phase === "live"', 15000, { label: 'live 단계' });
     await leaveToMenu(t, page);
-    const label = await textOf(page, '.sk-menu-btn--main .sk-menu-sub');
-    t.check(/벚꽃 도장 · 팀전 · 1 vs 1/.test(label), '빠른 시작 문구가 지난 설정을 따른다', label);
-    await page.click('.sk-menu-btn--main');
+    await startPractice(page);
     await waitRun(page);
     const again = await page.eval(`(() => { const o = __qa.run.opts; return { mapId: o.mapId, mode: o.mode, ruleset: o.ruleset, size: o.size, difficulty: o.difficulty, n: __qa.run.bots.length }; })()`);
-    t.check(again.mapId === 'dojo' && again.mode === 'team' && again.ruleset === 'knife' && again.size === 1 && again.n === 1, '빠른 시작이 지난 설정으로 시작한다', again);
+    t.check(again.mapId === 'dojo' && again.mode === 'team' && again.ruleset === 'knife' && again.size === 1 && again.n === 1, '연습장 시트가 지난 설정을 기억한다', again);
     await page.waitFor('__qa.run.phase === "live"', 15000, { label: 'live 단계' });
     await leaveToMenu(t, page);
     t.errorsOk('연습장 시트');
@@ -311,7 +310,7 @@ export default {
     await page.reload();
     await readyGame(page, { screen: 'menu' });
     t.check((await page.eval('__qa.profile().loadout.emotes'))[0] === 'cheer', '새로고침 뒤에도 휠 유지');
-    await page.click('.sk-menu-btn--main');
+    await startPractice(page);
     await waitRun(page);
     await page.waitFor('__qa.run.phase === "live" && !__qa.ui.isVisible("loadout")', 20000, { label: 'live 단계' });
     await lockPointer(page);
