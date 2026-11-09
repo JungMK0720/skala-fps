@@ -324,6 +324,13 @@ export async function readyGame(page, { screen = null, timeoutMs = 60000 } = {})
   if (screen) await page.waitFor(`__qa.ctx.screen === ${JSON.stringify(screen)}`, timeoutMs, { label: `화면 ${screen}` });
 }
 
+/** 메뉴에서 연습장 설정 시트를 열고 지난 설정 그대로 출격한다(빠른 시작이 없어진 자리) */
+export async function startPractice(page) {
+  await page.clickText('.sk-menu-btn', '연습장');
+  await page.waitFor('!!document.querySelector(".sk-sheet .sk-sheet-foot")', 5000, { label: '연습장 설정 시트' });
+  await page.clickText('.sk-sheet-foot .sk-btn', '출격');
+}
+
 /** 연습장 경기가 시작될 때까지 */
 export async function waitRun(page, timeoutMs = 60000) {
   await page.waitFor('__qa.ctx.screen === "sandbox" && !!__qa.run', timeoutMs, { label: '연습장 경기 시작' });

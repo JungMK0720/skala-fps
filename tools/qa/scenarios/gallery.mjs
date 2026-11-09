@@ -47,7 +47,7 @@ export default {
     t.setSection('메뉴 화면');
     let page = await openGame(t, '', { profile, settings: LOW_QUALITY, screen: 'menu' });
     await see('menu', '.sk-menu');
-    await page.clickText('.sk-menu-btn--wide', '연습장');
+    await page.clickText('.sk-menu-btn', '연습장');
     await page.waitFor('!!document.querySelector(".sk-sheet")', 3000, { label: '연습장 시트' });
     await see('practice-sheet', '.sk-sheet');
     await page.press('Escape');

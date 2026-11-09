@@ -11,7 +11,7 @@
  *   await page.open('http://127.0.0.1:1234/skala-fps/', { width: 960, height: 540, clean: true, initScript: '...' });
  *   await page.eval('document.title');
  *   await page.waitFor('window.__skalafps && __skalafps.screen === "menu"', 20000);
- *   await page.click('.sk-menu-btn--main');  await page.type('닉네임');
+ *   await page.click('.sk-player-mypage');  await page.type('닉네임');
  *   await page.key('KeyW', 'down');  await page.key('KeyW', 'up');  await page.press('KeyR');
  *   await page.mouseMove(100, 100);  await page.mouseDown(0);  await page.mouseUp(0);  await page.mouseClick(100, 100);
  *   await page.screenshot('out.png');

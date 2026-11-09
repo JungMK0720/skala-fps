@@ -115,11 +115,10 @@ document.addEventListener('pointerlockchange', () => {
 
 ### `menu`
 ```js
-{ name?, quickLabel?, multiDisabled? }
+{ name?, multiDisabled? }
 ```
 - 닉네임은 계정의 것을 보여 줍니다. `name`은 계정에 닉네임이 없을 때(게이트를 건너뛴 시험 등) 대신 보여 주는 값입니다. 닉네임 입력칸은 없습니다. 처음 정하는 곳은 닉네임 게이트, 바꾸는 곳은 마이페이지입니다.
 - 플레이어 카드: 닉네임, 포인트, 마이페이지 버튼. 계정이 바뀌면 `ui.refreshAccount()`로 갱신됩니다.
-- `quickLabel`: 빠른 시작 버튼의 부제. 예: "항구 골목 · 개인전 · 봇 5".
 - 멀티플레이는 `account.remoteEnabled`가 false이면 꺼지고 사유를 보여 줍니다. `multiDisabled`가 문자열이면 그 사유로 끕니다.
 - 설정, 조작법은 메뉴 안의 시트로 열립니다(이벤트 없음. 설정 변경은 `settings:change`로 옵니다).
 
@@ -275,7 +274,6 @@ props 없음. `ui.setWeapons`로 등록한 무기 중 슬롯 1~3을 `def.categor
 | action | payload | 비고 |
 |---|---|---|
 | `needCursor` | `true` / `false` | 커서가 필요한 화면이 생기거나 없어질 때만 발생 |
-| `menu:quick` | `{ name, account }` | 빠른 시작 |
 | `menu:sandbox` | `{ name, account }` | 연습장(설정 시트) |
 | `menu:multi` | `{ name, account }` | 멀티플레이 |
 | `menu:mypage` / `menu:shop` | `{ name, account }` | 마이페이지 / 상점 |
