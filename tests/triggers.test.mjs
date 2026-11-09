@@ -449,19 +449,28 @@ test('map index lists every map with rulesets and filters by ruleset', async () 
   const index = await import('../js/maps/index.js').finally(() => { console.warn = realWarn; });
 
   const { MAP_IDS, MAPS, MAP_LIST, TEST_MAP, getMap, mapsForRuleset } = index;
-  assert.deepEqual([...MAP_IDS], ['alley', 'dojo', 'longshot', 'nexus', 'jetty', 'tankfarm', 'vlcc']);
+  assert.deepEqual([...MAP_IDS], ['rooftop', 'glasshouse', 'alley', 'longshot', 'dojo', 'nexus', 'jetty', 'tankfarm', 'vlcc']);
   assert.deepEqual(Object.keys(MAPS), [...MAP_IDS]);
   const entry = (id) => MAP_LIST.find((m) => m.id === id);
   assert.deepEqual(entry('jetty').rulesets, ['classic', 'sniper']);
-  assert.deepEqual(entry('dojo').rulesets, ['knife']);
+  assert.deepEqual(entry('dojo').rulesets, ['classic', 'knife', 'sniper']);
   assert.equal(entry('dojo').name, '벚꽃 도장');
-  assert.ok(entry('dojo').tag);
+  assert.equal(entry('dojo').tag, '통합');
+  // 좁은 칼전 전용 맵: 플레이 영역 한 변이 26 m 이하
+  for (const id of ['rooftop', 'glasshouse']) {
+    assert.deepEqual(entry(id).rulesets, ['knife'], id);
+    assert.equal(entry(id).tag, '칼전 전용', id);
+    assert.ok(MAPS[id].size.x <= 26 && MAPS[id].size.z <= 26, `${id} size ${JSON.stringify(MAPS[id].size)}`);
+  }
   assert.equal(MAP_LIST[MAP_LIST.length - 1].id, TEST_MAP.id);
   assert.equal(entry(TEST_MAP.id).test, true);
   const ids = (r) => mapsForRuleset(r).map((m) => m.id);
   assert.ok(ids('knife').includes('dojo') && !ids('knife').includes('jetty'));
   assert.ok(ids('sniper').includes('longshot') && !ids('sniper').includes('alley'));
-  assert.ok(ids('classic').includes('alley') && !ids('classic').includes('dojo'));
+  assert.ok(ids('classic').includes('alley') && ids('classic').includes('dojo') && !ids('classic').includes('rooftop'));
+  // 규칙마다 목록의 첫 맵이 방 만들기·대기실의 기본 맵이다. 칼전은 좁은 칼전 맵이 먼저 온다
+  assert.deepEqual([ids('classic')[0], ids('knife')[0], ids('sniper')[0]], ['alley', 'rooftop', 'longshot']);
+  assert.deepEqual(ids('knife').slice(0, 2), ['rooftop', 'glasshouse']);
   assert.ok(!ids('classic').includes(TEST_MAP.id), 'the test map is never offered');
   assert.deepEqual(ids('bogus'), ids('classic'));
   assert.equal(getMap(TEST_MAP.id), TEST_MAP);

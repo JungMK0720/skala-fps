@@ -12,6 +12,19 @@ const accent = (d) => svg('path', { d, class: 'sk-ic-accent' });
 const ring = (cx, cy, r, cls = 'sk-ic-line') => svg('circle', { cx, cy, r, class: cls });
 
 const MAP_DRAW = {
+  // 난간 안 옥상: 위아래 계단실, 가운데 옥탑방, 처진 빨랫줄 둘
+  rooftop: () => [
+    line('M12 3 H36 V29 H12 Z'),
+    fill('M21 3 h6 v3 h-6 Z M21 26 h6 v3 h-6 Z M20 13 h8 v6 h-8 Z'),
+    accent('M14 9 Q19 12 24 9 M24 23 Q29 26 34 23'),
+  ],
+  // 유리 온실: 양끝 분갈이실, 가운데 단상과 선인장
+  glasshouse: () => [
+    line('M4 5 H44 V27 H4 Z'),
+    fill('M4 11 h5 v10 h-5 Z M39 11 h5 v10 h-5 Z'),
+    ring(24, 16, 5),
+    accent('M24 12 V20 M24 16 H21 V13 M24 17 H27 V14'),
+  ],
   // 양쪽에서 평행한 골목 셋이 가운데 광장으로 모인다
   alley: () => [
     line('M3 6 H17 M3 16 H17 M3 26 H17 M45 6 H31 M45 16 H31 M45 26 H31'),
@@ -145,6 +158,8 @@ export function weaponInfo(registry, ref, extra = {}) {
 // ---------- 맵 ----------
 // 엔진이 ui.setMaps()/props.maps로 넘기지 않았을 때만 쓰는 최소 대체값(이름만).
 const FALLBACK_MAPS = [
+  { id: 'rooftop', name: '빨랫줄 옥상', nameEn: 'Clothesline Roof', desc: '' },
+  { id: 'glasshouse', name: '선인장 온실', nameEn: 'Cactus Glasshouse', desc: '' },
   { id: 'alley', name: '항구 골목', nameEn: 'Harbor Alley', desc: '' },
   { id: 'dojo', name: '벚꽃 도장', nameEn: 'Blossom Dojo', desc: '' },
   { id: 'longshot', name: '협곡 저격장', nameEn: 'Long Shot', desc: '' },

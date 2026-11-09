@@ -9,6 +9,7 @@
 - `ramp`는 `dir`(`+x`, `-x`, `+z`, `-z`) 쪽으로 올라간다. `w`는 x 길이, `d`는 z 길이다.
 - 바닥보다 낮은 상자(윗면 ≤ 0.05, y < 0)는 그 자리의 지면을 도려낸다. 물웅덩이와 구덩이를 이렇게 만든다.
 - `mat: 'clip'`은 보이지 않는 막이다. 사람만 막고 총알과 시야는 통과한다. 물가와 맵 가장자리의 낮은 벽 위에 올린다.
+- `theme.ground: 'none'`이면 바닥을 그리지 않고 y = 0 무한 평면만 남는다. 옥상처럼 보이는 바닥과 건물 몸통을 solid로 세울 때 쓴다(`rooftop`).
 
 | 값 | 치수 |
 |---|---|
@@ -64,7 +65,7 @@ export default {
 };
 ```
 
-`MAP_IDS`와 메뉴 이름은 `js/maps/index.js`에 이미 있다. `tag`는 메뉴 배지이고, `rulesets`를 안 적으면 `['classic','sniper']`다.
+`MAP_IDS`와 메뉴 이름은 `js/maps/index.js`에 이미 있다. `MAP_IDS` 순서가 메뉴 순서이고, 규칙마다 처음 나오는 맵이 방 만들기와 연습장의 기본 맵이다. `tag`는 메뉴 배지이고, `rulesets`를 안 적으면 `['classic','sniper']`다.
 
 ## 3. kit (`js/maps/kit.js`)
 

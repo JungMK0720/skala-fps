@@ -116,7 +116,10 @@ export function createLobby(ctx) {
     setMax(formMax);
   }
   function setRule(id) {
-    formRule = normalizeRuleset(id);
+    const next = normalizeRuleset(id);
+    // 규칙을 바꾸면 그 규칙의 첫 맵(기본 맵, 칼전은 좁은 칼전 맵)으로 옮긴다. 같은 규칙이면 고른 맵을 둔다
+    if (next !== formRule) formMap = null;
+    formRule = next;
     ruleRow.set(RULE_CHOICES, formRule);
     setText(ruleHint, RULESETS[formRule].desc);
     renderMapCards();
