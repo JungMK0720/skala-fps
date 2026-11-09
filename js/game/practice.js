@@ -1114,13 +1114,15 @@ export function createPracticeSetup({ ui, maps, onStart }) {
       bomb: '공격은 A·B 구역에 폭탄 설치(E 3초) → 35초 뒤 폭발, 수비는 해체(E 5초) · 5판 3선승 · 라운드 1:40 · 2라운드 뒤 공수 교대. 나와 아군 봇은 블루 팀이에요.'
     };
     let shownMode = sel.mode;
+    let ruleBeforeBomb = sel.ruleset;   // 폭파 미션에서 다른 모드로 돌아가면 전에 고른 규칙을 다시 쓴다
     const drawMode = () => {
       count.lab.textContent = sel.mode === 'ffa' ? '봇 수 (나 + 봇, 최대 8명)' : '인원 (나 + 봇)';
       hint.textContent = HINTS[sel.mode] || HINTS.team;
       drawCount();
       if (sel.mode !== shownMode) {
         // 폭파 미션 ↔ 다른 모드: 규칙과 맵 목록이 달라진다
-        if (sel.mode === 'bomb') sel.ruleset = 'classic';
+        if (sel.mode === 'bomb') { ruleBeforeBomb = sel.ruleset; sel.ruleset = 'classic'; }
+        else if (shownMode === 'bomb') sel.ruleset = normalizeRuleset(ruleBeforeBomb);
         if (sel.mode === 'bomb' || shownMode === 'bomb') {
           ruleBox.redraw();
           drawRuleHint();

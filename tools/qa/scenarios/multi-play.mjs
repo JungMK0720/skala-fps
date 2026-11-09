@@ -413,9 +413,13 @@ export default {
       await host.waitFor(`!!document.querySelector('.sk-create-sheet')`, 3000, { label: '방 만들기 시트' });
       await host.fn(() => { const el = document.querySelector('.sk-create-sheet input'); el.focus(); el.select(); });
       await host.type('폭파 방');
+      // 시트는 앞 방의 비밀번호(1234)를 그대로 들고 있다. 셋째 방은 비밀번호 없이 연다
+      await host.fn(() => { const pw = document.querySelectorAll('.sk-create-sheet input')[1]; pw.value = ''; pw.dispatchEvent(new Event('input', { bubbles: true })); });
+      t.check(await host.eval(`document.querySelectorAll('.sk-create-sheet input')[1].value === ''`), '셋째 방은 비밀번호를 비운다');
       await host.clickText('.sk-create-sheet .sk-form-actions .sk-btn', '방 만들기');
       await host.waitFor('__qa.ctx.screen === "room" && __qa.ui.isVisible("room")', 10000, { label: '폭파 방 대기실' });
       await guest.waitFor(`document.querySelectorAll('.sk-room-row').length === 1 && /폭파 방/.test(document.querySelector('.sk-room-row').textContent)`, 10000, { label: '목록에 폭파 방' });
+      t.check(!/🔒/.test(await guest.eval(`document.querySelector('.sk-room-row').textContent`)), '폭파 방은 자물쇠 없이 보인다');
       await guest.click('.sk-room-join');
       await guest.waitFor('__qa.ctx.screen === "room" && __qa.ui.isVisible("room")', 15000, { label: '손님이 폭파 방에' });
       await host.click('.sk-modepick--bar .sk-mode-btn[data-mode="bomb"]');
