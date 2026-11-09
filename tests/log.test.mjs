@@ -373,6 +373,7 @@ describe('머리말 검사기', () => {
       add('package.json', '{}\n');
       add('audio/song.js', 'skip();\n');
       add('node_modules/dep/index.js', 'skip();\n');
+      add('server/relay/.wrangler/tmp/worker.js', 'skip();\n');
       add(`data/${BANNED_WORDS[5]}.txt`, '내용은 멀쩡함\n');
       const { ok, files } = runCheck({ root });
       assert.equal(ok, false);
@@ -384,6 +385,7 @@ describe('머리말 검사기', () => {
       assert.deepEqual(problemsOf('package.json'), []);
       assert.match(problemsOf(`data/${BANNED_WORDS[5]}.txt`).join(), /경로/);
       assert.equal(files.some((f) => f.path.startsWith('node_modules/')), false);
+      assert.equal(files.some((f) => f.path.includes('/.wrangler/')), false, 'wrangler dev의 임시 번들은 보지 않는다');
       // audio 안의 코드는 머리말을 보지 않지만 금지 단어는 본다
       assert.deepEqual(problemsOf('audio/song.js'), []);
     });

@@ -4,7 +4,9 @@
  * Purpose: 시나리오 11. 가짜 Supabase(tools/qa/fake-supabase.mjs)에 실제 클라이언트 둘을 붙여 멀티플레이를 끝까지 돌린다. 닉네임 서버 검사, 프로필 저장, 로비, 방, 채팅, 경기, 경기 채팅, 판정, 결과, 퇴장을 본다.
  *          개인전 중간 참가를 볼 때만 셋째 클라이언트를 잠깐 띄운다(둘 중 하나가 나가면 기권승으로 끝나기 때문이다).
  *          실서버의 인증·전송 한도·지연은 검증하지 못한다. 페이지가 둘이어야 하는 유일한 시나리오라 작은 화면과 저사양으로 돌린다.
+ *          --relay <주소|node>면 실시간 메시지만 중계 서버(server/relay)로 보내고, 닉네임·프로필 RPC는 그대로 가짜 Supabase가 받는다.
  */
+import { startRelay } from '../../../server/relay/src/node.js';
 import { startFakeSupabase } from '../fake-supabase.mjs';
 import { LOW_QUALITY, clickFire, lockPointer, qaInit, readyGame, sleep, startPractice, waitIdle, waitTicks } from '../kit.mjs';
 
@@ -55,7 +57,14 @@ export default {
   timeoutMs: 8 * 60 * 1000,
   async run(t) {
     const fake = await startFakeSupabase({ takenNames: ['중복이름'], delayMs: Number(process.env.QA_NET_DELAY_MS) || 0 });   // QA_NET_DELAY_MS: 서버 → 클라이언트 지연을 흉내 낸다
-    t.server.setConfig(fake.config);
+    // --relay node: Node 어댑터를 여기서 띄운다. 주소: 밖에 띄운 중계 서버(wrangler dev 등)를 쓴다
+    const relay = t.relay === 'node' ? await startRelay({ port: 0 }) : null;
+    const relayUrl = relay ? relay.url : (t.relay ? t.relay.replace(/\/+$/, '') : null);
+    const relayLabel = relay ? 'Node 어댑터' : relayUrl;
+    t.server.setConfig(relayUrl
+      ? `window.SKALA_CONFIG = { supabase: { url: ${JSON.stringify(fake.url)}, anonKey: 'sb_qa_fake' }, transport: 'relay', relay: { url: ${JSON.stringify(relayUrl)} } };`
+      : fake.config);
+    if (relayUrl) t.log(`   실시간 메시지는 중계 서버(${relayLabel})로 보낸다`);
     let guest = null;
     try {
       t.setSection('온라인 닉네임 검사');
@@ -103,6 +112,8 @@ export default {
       t.setSection('로비와 방');
       await goLobby(host);
       t.check(await host.eval(`/열려 있는 방이 없어요/.test(document.querySelector('.sk-lobby').textContent)`), '빈 로비 안내');
+      const transport = await host.eval('window.__skalafpsSession && window.__skalafpsSession.net ? window.__skalafpsSession.net.transport : null');
+      t.check(transport === (relayUrl ? 'relay' : 'supabase'), '설정한 전송으로 연결된다', transport);
       await t.shot('lobby-empty');
       await host.clickText('.sk-lobby .sk-bar-actions .sk-btn', '방 만들기');
       await host.waitFor(`!!document.querySelector('.sk-create-sheet')`, 3000, { label: '방 만들기 시트' });
@@ -235,11 +246,22 @@ export default {
         await lockPointer(guest);
         if (round === 3) {
           // 라운드 도중 연결이 끊겼다 돌아와도 경기가 이어진다
-          const conns = fake.stats.connections;
-          fake.dropAll();
-          const reconnectEnd = Date.now() + 15000;
-          while (fake.stats.connections < conns + 2 && Date.now() < reconnectEnd) await sleep(100);
-          t.check(fake.stats.connections >= conns + 2, '두 클라이언트가 다시 접속한다', { conns, now: fake.stats.connections });
+          if (!relayUrl || relay) {
+            const src = relay || fake;   // 서버 쪽에서 모든 WebSocket을 끊는다
+            const conns = src.stats.connections;
+            src.dropAll();
+            const reconnectEnd = Date.now() + 15000;
+            while (src.stats.connections < conns + 2 && Date.now() < reconnectEnd) await sleep(100);
+            t.check(src.stats.connections >= conns + 2, '두 클라이언트가 다시 접속한다', { conns, now: src.stats.connections });
+          } else {
+            // 밖에 띄운 서버는 여기서 끊을 수 없으므로 클라이언트가 소켓을 닫는다(서버에는 끊긴 연결로 보인다)
+            const rejoined = (before) => `(() => { const s = window.__skalafpsSession; return s.net.socket.reconnects > ${before} && !!s.room && s.room.ch.state === 'joined'; })()`;
+            const before = [];
+            for (const page of [host, guest]) before.push(await page.eval('window.__skalafpsSession.net.socket.reconnects'));
+            for (const page of [host, guest]) await page.eval('window.__skalafpsSession.net.socket.simulateDrop()');
+            const ok = await Promise.all([host, guest].map((page, i) => page.waitFor(rejoined(before[i]), 15000, { label: '다시 접속' }).then(() => true, () => false)));
+            t.check(ok[0] && ok[1], '두 클라이언트가 다시 접속한다', { before, ok });
+          }
           await sleep(1500);
           t.check(await host.eval('__qa.ctx.screen === "match" && __qa.world.localAlive') && await guest.eval('__qa.ctx.screen === "match" && __qa.world.localAlive'), '다시 접속한 뒤에도 경기 화면이다');
         }
@@ -488,11 +510,14 @@ export default {
       await host.waitFor('__qa.ctx.screen === "sandbox" && !!__qa.run', 30000, { label: '멀티 뒤 연습장' });
       await host.waitFor('__qa.run.phase === "live"', 15000, { label: '멀티 뒤 연습장 live' });
       t.errorsOk('멀티 뒤 연습장');
+      if (relayUrl) t.check(fake.stats.connections === 0, '실시간 메시지는 가짜 Supabase를 거치지 않는다', fake.stats.connections);
     } finally {
       t.server.setConfig(null);
       if (guest) { await guest.close(); }
       await fake.close();
+      if (relay) await relay.close();
     }
+    if (relayUrl) t.note(`실시간 메시지는 중계 서버(${relayLabel})로 보냈다. 닉네임·프로필은 가짜 Supabase`);
     t.note('가짜 서버라서 실서버의 인증, 전송 한도, 실제 지연은 검증하지 못했다');
   }
 };

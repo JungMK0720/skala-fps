@@ -71,6 +71,8 @@ npm run serve
 
 **Supabase**: 멀티플레이와 전역 닉네임 중복 검사에 씁니다. 운영 프로젝트는 서울 리전의 `skala-fps`이고, 절차는 [docs/SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md)에 있습니다. `js/config.js`를 비우면 연습장만 오프라인으로 동작합니다.
 
+**중계 서버(시제품)**: [server/relay](server/relay/README.md)의 Cloudflare Worker + Durable Objects(로비 하나, 방마다 하나)가 멀티 메시지를 Supabase Realtime 대신 중계할 수 있습니다. 서버가 프레임을 받는 사람에게 직접 나눠 주므로 Supabase 무료 한도에 묶이지 않습니다. 지금 배포 설정은 Supabase Realtime을 씁니다(`js/config.js`의 `transport`).
+
 ## 개발
 
 ```bash

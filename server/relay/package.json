@@ -1,0 +1,18 @@
+{
+  "name": "skala-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SKALA 작전 멀티플레이 메시지 중계 서버 시제품: Cloudflare Worker + Durable Objects(로비 하나, 방마다 하나). Supabase Realtime과 같은 채널 규약이라 브라우저의 room.js·lobby.js를 그대로 쓴다",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "wrangler": "4.158.0"
+  }
+}

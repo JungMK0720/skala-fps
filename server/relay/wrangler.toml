@@ -1,0 +1,27 @@
+# Date: 06NOV2026
+# Author: Minkyu Jung
+# Purpose: 중계 서버 Worker 설정. 허브(로비 하나, 방마다 하나)가 Durable Object 하나이고 SQLite 저장소를 쓴다(무료 플랜은 SQLite 객체만 된다).
+#          로컬: npm run dev (http://127.0.0.1:8788). 배포(wrangler deploy)는 소유자가 정한다(README.md).
+name = "skala-relay"
+main = "src/worker.js"
+# 2026-04-07 이후 날짜면 런타임이 Close 프레임에 스스로 답한다(web_socket_auto_reply_to_close)
+compatibility_date = "2026-11-01"
+
+[dev]
+ip = "127.0.0.1"
+port = 8788   # 권위 서버 시제품(server/node.js)의 기본 포트 8787과 겹치지 않게
+
+[observability]
+enabled = true
+
+[vars]
+# 브라우저 Origin 허용 목록. ':*'는 모든 포트. 사이트 주소가 바뀌면 여기를 고친다
+ALLOWED_ORIGINS = "https://jungmk0720.github.io,http://localhost:*,http://127.0.0.1:*"
+
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "RelayHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RelayHub"]
