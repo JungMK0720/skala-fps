@@ -23,6 +23,7 @@
  *   (팀전에서 bots = 팀당 인원, 개인전에서 bots = 봇 수)
  */
 import { PLAYER } from '../core/consts.js';
+import { AVATAR_IDS } from '../core/avatar-defs.js';
 import { moveCharacter, traceShot, lineOfSight, findFloor, overlapsCapsule, getGroundY } from '../engine/physics.js';
 import { stepTriggers } from '../engine/triggers.js';
 import { createArsenal, shotDirection, dirFromYawPitch } from '../weapons/logic.js';
@@ -233,6 +234,7 @@ export function createPractice({ ctx, world, ui }) {
       const seed = (rng() * 4294967296) >>> 0;
       return {
         id, name, team: ffa ? null : team, pick,
+        avatar: AVATAR_IDS[(i + 1) % AVATAR_IDS.length],   // 봇은 캐릭터를 차례로 섞어 쓴다(난수를 쓰지 않아 무기 고르기가 그대로다)
         brain: createBot({ id, mode: opts.mode, team: ffa ? null : team, ruleset: rs.id, difficulty: opts.difficulty, primary: pick, secondary: gear.secondary, melee: gear.melee, seed }),
         // stageCycle:false: 봇은 zoom을 '줌을 원하는 동안 true'로 보내므로 다단 줌도 1단만 쓴다
         arsenal: createArsenal({ ...gear, allowedSlots: rs.slots, stageCycle: false, zoomMode: 'hold', rng }),
@@ -264,7 +266,7 @@ export function createPractice({ ctx, world, ui }) {
         return o;
       }
     });
-    for (const b of bots) world.addActor({ id: b.id, name: b.name, team: b.team, kind: 'bot' });
+    for (const b of bots) world.addActor({ id: b.id, name: b.name, team: b.team, kind: 'bot', avatar: b.avatar });
 
     /* ---------- 위치·대상 ---------- */
     const eyeOf = (b) => [b.body.pos[0], b.body.pos[1] + (b.crouch ? CROUCH_EYE : PLAYER.EYE), b.body.pos[2]];

@@ -17,6 +17,7 @@
  *           sandbox:stats {shots,hits,head,body,legs,kills,damage,accuracy,longest} · sandbox:targets {list}
  */
 import { PLAYER, NET, EMOTES } from '../core/consts.js';
+import { AVATAR_IDS } from '../core/avatar-defs.js';
 import { overlapsCapsule, lineOfSight, findFloor } from './physics.js';
 
 const MAX_DUMMIES = 8;
@@ -103,7 +104,7 @@ export function createSandbox(ctx) {
     }
     dummies.push(d);
     byId.set(d.id, d);
-    avatars.add(d.id, { name: d.name, team: 'charterer' });
+    avatars.add(d.id, { name: d.name, team: 'charterer', avatar: AVATAR_IDS[i % AVATAR_IDS.length] });   // 더미도 캐릭터를 섞는다
     avatars.teleport(d.id, snap(d));
   });
 

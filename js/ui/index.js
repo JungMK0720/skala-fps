@@ -100,6 +100,7 @@ export function createUI(rootEl, options = {}) {
     weapons: new Map(),
     maps: new Map(),
     mapData: null, // 맵 id → 원본 맵 데이터(비밀 스팟 수를 셀 때 쓴다)
+    avatarArt: null, // (캐릭터 id, 팀) → 초상 그림 주소 | null (ui.setAvatarArt)
     later(fn, ms) {
       const id = setTimeout(() => { timers.delete(id); fn(); }, ms);
       timers.set(id, 'timeout');
@@ -311,6 +312,12 @@ export function createUI(rootEl, options = {}) {
       return api;
     },
     setMaps,
+    /** 캐릭터 초상 공급자: fn(id, team) → 그림 주소(data URL 등) | null. 없으면 상점·마이페이지가 아이콘을 보여 준다 */
+    setAvatarArt(fn) {
+      ctx.avatarArt = typeof fn === 'function' ? fn : null;
+      for (const name of ['shop', 'mypage']) if (screens[name].visible) screens[name].update();
+      return api;
+    },
 
     dispose() {
       if (disposed) return;

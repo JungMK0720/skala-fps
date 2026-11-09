@@ -87,7 +87,8 @@ export default {
 
       t.setSection('닉네임 충돌');
       guest = await t.browser.newPage({ isolated: true });
-      await guest.open(`${t.base}?debug=1`, { ...SIZE, clean: true, initScript: `localStorage.getItem('skalafps.qa.seed') || (localStorage.setItem('skalafps.qa.seed', '1'), localStorage.setItem('skalafps.settings.v1', '{"quality":"low"}'), localStorage.setItem('skalafps.profile.v1', JSON.stringify({ v: 1, profile: { nickname: '중복이름', points: 500, createdAt: 1 }, sync: { dirty: true, pendingClaim: '중복이름' } })));\n${qaInit()}` });
+      // 손님은 공병 캐릭터를 입고 온다(경기에서 방장 화면에 그 모습으로 보여야 한다)
+      await guest.open(`${t.base}?debug=1`, { ...SIZE, clean: true, initScript: `localStorage.getItem('skalafps.qa.seed') || (localStorage.setItem('skalafps.qa.seed', '1'), localStorage.setItem('skalafps.settings.v1', '{"quality":"low"}'), localStorage.setItem('skalafps.profile.v1', JSON.stringify({ v: 1, profile: { nickname: '중복이름', points: 500, owned: ['av_sapper'], loadout: { avatar: 'av_sapper' }, createdAt: 1 }, sync: { dirty: true, pendingClaim: '중복이름' } })));\n${qaInit()}` });
       await guest.waitFor(`!!document.querySelector('.sk-nick') && !document.querySelector('.sk-nick').hidden`, 30000, { label: '충돌 게이트' });
       t.check(/중복이름/.test(await guest.eval(`document.querySelector('.sk-nick .sk-alert').textContent`)), '거절된 이름을 설명한다', await guest.eval(`document.querySelector('.sk-nick .sk-alert').textContent`));
       await guest.fn(() => { const el = document.querySelector('#sk-gate-nick'); el.focus(); el.select(); });
@@ -144,6 +145,11 @@ export default {
       t.check(await host.eval('__qa.world.localAlive') && await guest.eval('__qa.world.localAlive'), '둘 다 살아서 시작한다');
       const teams = [await host.eval('__qa.world.localTeam'), await guest.eval('__qa.world.localTeam')];
       t.check(teams[0] !== teams[1], '서로 다른 팀이다', teams);
+      t.check((await guest.eval('__qa.ctx.account.avatar')) === 'av_sapper', '손님 계정 캐릭터는 공병');
+      await eventually(t, host, `__qa.ctx.avatars.list().some((a) => a.name.includes('손님') && a.avatarId === 'av_sapper')`, '방장 화면에서 손님은 손님이 고른 캐릭터(공병)로 그려진다');
+      await eventually(t, guest, `__qa.ctx.avatars.list().some((a) => a.name.includes('방장') && a.avatarId === 'av_trooper')`, '손님 화면에서 방장은 기본 캐릭터로 그려진다');
+      const hostView = await host.eval(`__qa.ctx.avatars.list().map((a) => [a.name, a.avatarId, a.team])`);
+      t.log(`   방장 화면의 액터: ${JSON.stringify(hostView)}`);
       await lockPointer(host);
       await host.bringToFront();
       await lockPointer(guest);
@@ -318,6 +324,7 @@ export default {
         const mine = await third.eval('({ ruleset: __qa.world.ruleset, mode: __qa.world.mode, slots: __qa.arsenal.getAllowedSlots() })');
         t.check(mine.ruleset === 'knife' && mine.mode === 'ffa' && mine.slots.join() === '3', '들어온 사람에게도 방 규칙이 적용된다', mine);
         await eventually(t, host, `__qa.ctx.avatars.getTargets().length >= 2`, '방장 화면에 셋째가 보인다', 10000);
+        await eventually(t, third, `__qa.ctx.avatars.list().some((a) => a.name.includes('손님') && a.avatarId === 'av_sapper')`, '중간에 들어온 사람에게도 손님 캐릭터가 보인다', 10000);
         t.page = third;
         await t.shot('ffa-late-join');
         t.errorsOk('셋째: 중간 참가');
