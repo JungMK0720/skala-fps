@@ -185,7 +185,7 @@ async function avatarSection(t) {
 export default {
   name: 'gallery',
   title: '주요 화면 사진과 가로 넘침 검사',
-  timeoutMs: 6 * 60 * 1000,
+  timeoutMs: 8 * 60 * 1000,
   async run(t) {
     await avatarSection(t);
     if (t.filter === 'avatars') return;

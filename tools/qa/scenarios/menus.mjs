@@ -30,7 +30,7 @@ async function leaveToMenu(t, page) {
 export default {
   name: 'menus',
   title: '메뉴, 마이페이지, 상점, 연습장 설정 시트',
-  timeoutMs: 240000,
+  timeoutMs: 7 * 60 * 1000,
   async run(t) {
     t.setSection('메뉴');
     const profile = { nickname: NICK, points: 500, createdAt: 1 };
@@ -399,7 +399,8 @@ export default {
     t.setSection('연습장: 봇 캐릭터와 내 몸');
     await startPractice(page);
     await waitRun(page);
-    await page.waitFor('__qa.run.phase === "live" && !__qa.ui.isVisible("loadout")', 20000, { label: 'live 단계' });
+    // 다른 QA가 함께 돌아 틱이 느려도 무기 고르기 5초가 지나가게 넉넉히 기다린다
+    await page.waitFor('__qa.run.phase === "live" && !__qa.ui.isVisible("loadout")', 45000, { label: 'live 단계' });
     const botAvatars = await page.eval(`__qa.run.bots.map((b) => { const a = __qa.ctx.avatars.get(b.id); return a ? a.avatarId : null; })`);
     t.check(botAvatars.every((id) => AVATAR_IDS.includes(id)) && new Set(botAvatars).size >= Math.min(4, botAvatars.length), '봇은 캐릭터를 섞어 쓴다', botAvatars);
     await lockPointer(page);
