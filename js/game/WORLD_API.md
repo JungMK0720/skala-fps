@@ -43,6 +43,7 @@ const world = await createWorld({ root, ui, settings, ctx });
 | `actorGrenade({ id, pos, vel, fuse?, t?, grenadeId? })` | 결정론 수류탄(1/120 고정 스텝)을 같은 초기값으로 시뮬레이션하고 바운스 소리·폭발 연출. `t`(ms, `performance.now()` 기준)가 과거면 그만큼 앞당겨 진행 |
 | `actorDeath(id, info?)` | 아바타 쓰러짐. `info.dir = [x,z]`(총알 방향) |
 | `feedbackDamage({ attackerPos?, amount, head?, kill?, half?, incoming? })` | `attackerPos`가 있거나 `incoming:true`면 **내가 맞음** → 피격 방향 호. 아니면 **내가 맞힘** → `hud.hitmarker(head, kill, { half })`. `half`(match의 `halfShot`, 그 이름으로 줘도 된다)면 `hud.callout('반샷! −50', 'half')`와 소리 `half_shot`(`hit_marker` 대신, 2D). `head`면 `hud.callout('헤드샷!', 'head')`. 킬이면 `kill` 소리 |
+| `noteKill({ killer, victim, killerTeam?, victimTeam? })` → 이어진 킬 수 | 경기의 `kill` 이벤트마다 부른다(연습장·멀티 모두). **내가 살아서 적을 처치했을 때만** 연속 킬을 센다(자폭·같은 편·죽은 뒤의 킬은 0). 앞 킬과 5초 안이면 이어지고(`game/multikill.js`, 시계는 World 시뮬레이션 시각), 2킬부터 `hud.multiKill({ id, title, sub })`(그림·글자), 효과음 `multi_kill`(단계마다 `rate` +0.06, 7킬부터 `legend_kill`), 안내 음성 `audio.voice(id)`를 낸다. 내가 죽거나(`killLocal`) 판이 바뀌면(`reset`·`loadMap`·`unloadMap`) 1부터 다시 센다. `multiKillCount`는 마지막 킬까지 이어진 수 |
 | `setRound({ phase, round, score, timeLeftMs, alive, teamSize, roundsToWin?, maxRounds? })` | HUD 타이머·스코어·생존자. 타이머는 다음 호출까지 로컬로 줄인다(`setPaused(true)` 동안만 멈춤 — 멀티는 일시정지 화면이 떠도 흐른다). `phase`가 `loadout`·`matchEnd`면 이동·사격을 막는다 |
 | `setControlsEnabled(bool)` | 이동·사격·무기 교체 허용(시점은 잠금 상태를 따름) |
 | `setPaused(bool)` | 수류탄·예약 소리 시뮬레이션 정지(연습장 일시정지용. 멀티는 쓰지 않는다) |
@@ -67,6 +68,7 @@ const world = await createWorld({ root, ui, settings, ctx });
 | `grenade` | `{ id, grenadeId, pos:[x,y,z], vel:[x,y,z], fuse, t, kind }` | 로컬 투척 직후 — 원격은 `actorGrenade(payload)`로 같은 궤적 재생 |
 | `explosion` | `{ ownerId, local, grenadeId, center:{x,y,z}, victims:[{ id, dmg, dist }] }` | **모든** 수류탄 폭발(엄폐·거리 감쇠 끝난 값, 로컬 플레이어 포함). 멀티는 `local:true`만 `match.claimExplosion({ attackerId: ownerId, center, victims })`, 연습장은 전부 |
 | `localDeath` | `{ id, info }` | `killLocal` 직후 |
+| `multiKill` | `{ count, id }` | `noteKill`이 연속 킬(2킬 이상)을 띄웠을 때. `id`는 `double`~`hexa`, 7킬부터 `legend` |
 | `loadoutPick` | `{ id, auto }` | UI 로드아웃에서 골랐을 때(World가 arsenal에 먼저 반영하고, `auto:false`면 같은 클릭 안에서 포인터 잠금) |
 | `pause` | `{ paused }` | Esc로 일시정지 화면이 열리고 닫힐 때 |
 | `leave` | `{}` | 일시정지 화면의 [나가기] |
@@ -108,7 +110,7 @@ await world.loadMap(mapId, { mode, ruleset });
 // 원격 이벤트: world.actorFire(msg) · world.actorGrenade(msg) · world.actorDeath(id, { dir })
 // match damage: victim === myId → world.setLocalHp(ev.hp); world.feedbackDamage({ attackerPos, amount: ev.amount })
 //               attacker === myId → world.feedbackDamage({ amount: ev.amount, head: ev.head, half: ev.halfShot, kill: ev.hp === 0 })
-// match kill: victim === myId → world.killLocal({ killerId: ev.killer }); 그 밖 → world.actorDeath(ev.victim)
+// match kill: world.noteKill(ev)(연속 킬, 내 킬만 센다); victim === myId → world.killLocal({ killerId: ev.killer }); 그 밖 → world.actorDeath(ev.victim)
 // 화면 exit: world.unloadMap();
 ```
 

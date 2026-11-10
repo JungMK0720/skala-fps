@@ -1,11 +1,13 @@
 # fx — 효과음·이펙트 (SKALA 작전)
 
 외부 사운드·이미지 파일 없이 **WebAudio 합성**과 **three.js 도형·캔버스 텍스처**로 만든다. 모든 소리와 그림은 오리지널이다.
+예외는 둘이다. 이모트 음원 묶음(`audio/emotes`, 아래 "음원 교체 방법")과 연속 킬 안내 음성(`audio/voice`, 아래 "안내 음성")이다.
+안내 음성은 녹음이 아니라 Windows 한국어 음성(TTS)으로 합성해 다듬은 파일이다.
 잔혹한 표현은 쓰지 않는다. 플레이어 피격은 피 대신 갑옷 불꽃·히트마커로 표현한다.
 
 | 파일 | 내용 |
 |---|---|
-| `audio.js` | `createAudio()`, `SOUND_NAMES`, `EMOTE_SOUNDS`, `EMOTE_BPM` |
+| `audio.js` | `createAudio()`, `SOUND_NAMES`, `EMOTE_SOUNDS`, `EMOTE_BPM`, `VOICE_IDS` |
 | `effects.js` | `createEffects(scene, camera, opts)` |
 | `../../dev/fx-demo.html` | 버튼 데모. `?smoke=1`을 붙이면 자가 테스트를 돌린다 |
 
@@ -65,6 +67,7 @@ audio.play('ui_click');   audio.play('purchase');
 | `setVolume(v)` | 0~1. 리미터 뒤에 있으므로 올려도 클리핑이 나지 않는다 |
 | `setListener(pos, yaw, pitch)` | `pos`는 `{x,y,z}`, `Vector3`, `[x,y,z]` 중 하나. three.js 카메라 관례(−Z가 정면)를 따른다 |
 | `play(name, { pos, gain = 1, rate = 1 })` → `{ id, stop(fade) }` 또는 `null` | `pos`가 있으면 3D, 없으면 2D다. 언락 전, 알 수 없는 이름, 들리지 않는 거리, 우선순위에 밀린 경우에는 `null`을 돌려준다. 알 수 없는 이름(`constructor`처럼 내장 속성과 같은 이름 포함)과 `null` 옵션으로는 예외가 나지 않는다 |
+| `voice(id, { delay = 0, gain = 1 })` → `boolean` | 연속 킬 안내 음성 한 문장(2D, `VOICE_IDS` 중 하나). 전용 보이스 하나로 내므로 앞 문장은 40 ms 페이드로 끊고 바로 잇는다. 언락 전·모르는 id·아직 디코드하지 않은 파일이면 `false`(그때 받기·디코드를 시작한다). `voicesReady()`는 디코드가 끝난 id 목록으로 resolve |
 | `stopAll(fade)` · `setQuality('low'\|'high')` · `getStats()` · `dispose()` | low는 equalpower 패닝, 3D 보이스 12개, 잔향 절반이다 |
 
 ### 소리 목록
@@ -95,6 +98,8 @@ audio.play('ui_click');   audio.play('purchase');
 | `ui_click` | 작고 부드러운 틱 (항상 2D) | 4 | — |
 | `round_start` | 낮은 혼(맥놀이) | 10 | — |
 | `round_win` / `round_lose` / `low_hp_heartbeat` | 상승 아르페지오 / 하강 모티프 / 심장 박동 1회 | 10 / 10 / 7 | — |
+| `multi_kill` | 연속 킬: 낮은 쿵, 쓸리는 바람, 한 옥타브 위로 쓸어 올리는 음, 반짝임. 단계마다 World가 `rate`를 0.06씩 올린다 (항상 2D) | 10 | — |
+| `legend_kill` | 7킬부터: 깊은 쿵 위에 C장조 화음을 차례로 쌓고 긴 반짝임 (항상 2D) | 10 | — |
 
 - `low_hp_heartbeat`는 한 번만 뛴다. 체력이 낮을 때 호출하는 쪽이 0.9초쯤마다 다시 재생한다. 발소리 간격과 재질 선택도 호출하는 쪽이 정한다.
 - 같은 소리는 변형 2~4개 중 무작위로 고르고, 재생 속도에 ±2~8% 지터를 준다. 연사해도 기계적으로 들리지 않게 하기 위해서다.
@@ -195,6 +200,17 @@ actor.emoteSnd?.setPos(actorPos);
 - **확인:** `audio.emoteFilesReady()`는 파일로 바뀐 id 목록을 Promise로 돌려준다. `getStats().emoteFiles`와 핸들의 `source`로도 확인할 수 있다. `dev/fx-demo.html`의 통계 칸에 `emote files`가 표시된다.
 - **다른 manifest 쓰기:** `createAudio({ emoteManifest: url })`로 바꿀 수 있고, `false`를 주면 파일을 쓰지 않는다. 데모는 테스트용으로 같은 출처의 `?emoteManifest=` 경로를 받는다.
 
+### 안내 음성 (연속 킬)
+
+`audio/voice/<id>.mp3` 여섯 개(`double` `triple` `quadra` `penta` `hexa` `legend`, 합계 약 45 KB)다. 녹음이 아니라 **합성 음성**이다.
+`tools/make-voice.mjs`가 Windows에 들어 있는 한국어 음성(Microsoft Heami)으로 문장을 읽게 하고, ffmpeg로 다듬는다.
+
+- **문장:** 더블 킬! · 트리플 킬! · 쿼드라 킬! · 펜타 킬! · 헥사 킬! · 당신은 전설입니다. 화면 글자(`game/multikill.js`)와 같은 말이다(`tests/multikill.test.mjs`).
+- **다듬기:** 단계가 오를수록 조금 빠르고(SSML rate) 높게(rubberband, 포먼트 유지, +0~2반음), 전설은 느리고 낮게(−2반음) 말한다. 저역을 덜고 또렷한 대역을 올린 뒤 압축하고, 체감 크기를 −16 LUFS에 맞춘다(단계마다 조금씩 크게). 피크는 리미터로 −1 dBFS 아래다. 64 kbps 모노 mp3.
+- **다시 만들기(Windows):** `node tools/make-voice.mjs`(ffmpeg가 PATH에 없으면 `FFMPEG=<경로>`). 같은 음성·같은 ffmpeg면 같은 파일이 나온다. 이 음성은 SSML pitch를 무시해서 음 높이는 ffmpeg에서 바꾼다.
+- **재생:** 페이지를 연 뒤 잠시 뒤나 언락 때 받아 두고 컨텍스트가 생기면 디코드한다. `voice(id)`는 전용 2D 보이스 하나로 내고 공용 잔향을 조금 섞는다. 못 받은 문장은 소리 없이 건너뛰고 효과음(`multi_kill`·`legend_kill`)은 그대로 난다. `getStats()`의 `voiceFiles`·`voiceLast`·`voicePlays`로 확인한다.
+- **권리:** Windows 내장 음성으로 만든 소리를 게임에 넣어 배포하는 것은 비상업 프로젝트를 전제로 한다. 상업적으로 쓰게 되면 사용 조건을 확인하고, 필요하면 다른 음성으로 같은 도구를 돌려 바꾼다.
+
 ## effects.js
 
 `createEffects(scene, camera, { renderer, applyShake = true })`
@@ -252,7 +268,8 @@ actor.emoteSnd?.setPos(actorPos);
 ## 검증
 
 - `node --check js/fx/audio.js`와 `node --check js/fx/effects.js`가 통과한다.
-- `dev/fx-demo.html?smoke=1`은 Chromium에서 64개 항목을 검사하고 모두 통과한다. 결과는 탭 제목(`SMOKE PASS`)과 `window.__fxSmoke`에 나온다.
+- `dev/fx-demo.html?smoke=1`은 Chromium에서 66개 항목을 검사하고 모두 통과한다. 결과는 탭 제목(`SMOKE PASS`)과 `window.__fxSmoke`에 나온다.
+  - 안내 음성: 6개 파일을 모두 디코드하는지, 아는 id만 내는지 본다. 데모의 "연속 킬 안내 음성" 버튼으로 효과음과 함께 들어 볼 수 있다.
   - 재질: `core/consts.js`의 `MATS` 전부가 오류 없이 처리되는지, `metal_dark`만 불꽃이 튀고 나머지 새 재질은 입자와 탄흔만 남는지 본다.
   - 새 이펙트: 라이트를 쓰지 않는지, 풀로 돌아오는지, low에서 입자·줄기·링이 줄어드는지, 잘못된 입력을 견디는지 본다.
   - `fxKind`: 세 종류와 모르는 값(`'plasma'`, `null`, 숫자, 객체)으로 섬광·예광탄·탄피가 모두 나오는지 본다.
@@ -261,7 +278,7 @@ actor.emoteSnd?.setPos(actorPos);
 - 음원 교체는 스크래치패드에서 만든 테스트 음원과 임시 manifest로 4가지 시나리오를 확인했다: 섞인 목록, 목록의 파일 없음, 깨진 JSON, 기본 `{}`.
   - 확인 항목: 2D·3D 파일 재생, 구간 반복, 한 번형 길이, 디코드 전 시작은 합성음, 실패 시 합성음 대체, 목록에 없는 파일은 요청하지 않음, 콘솔 오류 0(목록의 파일이 없을 때 브라우저 404 하나만).
   - 이펙트: 3회 스폰한 뒤 활성 이펙트가 0으로 돌아오는지(과부하 포함), GPU 리소스가 늘지 않는지, 씬 자식 수가 유지되는지, 상한을 지키는지, low 품질과 감소된 동작에서도 같은지, 흔들림 후 카메라 회전이 원래대로 돌아오는지, `gl.getError()`가 0인지 본다.
-  - 오디오: 보이스 상한, 범위 밖 소리 생략, 모르는 이름에서 예외 없음, 모든 소리에 버튼이 있는지, 4.2초 뒤 보이스 전부 반환, 소리 36종·변형 65개 미리 합성 완료, 그 뒤 첫 재생에 합성 지연이 없는지를 본다.
+  - 오디오: 보이스 상한, 범위 밖 소리 생략, 모르는 이름에서 예외 없음, 모든 소리에 버튼이 있는지, 4.2초 뒤 보이스 전부 반환, 소리 38종·변형 67개 미리 합성 완료, 그 뒤 첫 재생에 합성 지연이 없는지를 본다.
   - 해제: `dispose()`를 확인한다.
 
 ## 알려진 한계

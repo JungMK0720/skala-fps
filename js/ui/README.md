@@ -1,7 +1,7 @@
 # SKALA 작전 UI (`js/ui/`)
 
 캔버스 위에 얹는 **순수 DOM 오버레이**입니다. 메뉴 · 닉네임 게이트 · 마이페이지 · 상점 · 로비 · 방 · 로드아웃 · HUD · 스코프 · 점수판 · 결과 · 일시정지를 담당합니다.
-외부 폰트, 이미지, 라이브러리는 쓰지 않습니다. 동적 문자열은 모두 `textContent`로 넣고, 스타일은 `css/fps.css`(`sk-` 접두사)에 있습니다.
+외부 폰트, 이미지, 라이브러리는 쓰지 않습니다(그림은 SVG 도형으로 그립니다). 동적 문자열은 모두 `textContent`로 넣고, 스타일은 `css/fps.css`(`sk-` 접두사)에 있습니다.
 
 | 파일 | 내용 |
 |---|---|
@@ -9,6 +9,7 @@
 | `menu.js` `nickname.js` `mypage.js` `shop.js` `lobby.js` `room.js` `loadout.js` `hud.js` `chat.js` `scope.js` `emotes.js` `scoreboard.js` `results.js` `pause.js` | 화면별 모듈 |
 | `settings.js` `controls.js` | 설정 저장과 설정 시트, 조작법 시트(메뉴와 일시정지가 같이 씀) |
 | `dom.js` `parts.js` `icons.js` | DOM 헬퍼, 공통 부품(무기 카드 조각, 포인트 표시, 선택 버튼 묶음 포함), 도형 아이콘(맵 평면도, 메뉴 아이콘, 헤드샷, 메뉴 배경) |
+| `multikill.js` | 연속 킬 그림(SVG 도형). 더블~헥사 킬은 육각 방패 + 킬 수만큼 탄환 + 단계마다 색·빛살·날개, 전설은 월계관 메달·별·왕관 |
 | `demo.js` + `dev/ui-demo.html` | QA용 데모(목 데이터). 게임 본편에서는 로드하지 않습니다 |
 
 ## 시작하기
@@ -46,9 +47,10 @@ ui.hud.set({ hp, ammo, reserve, slot, slots, spread, roundTime, score, alive, ..
 ui.hud.hitmarker(head, kill?, opts?)
 ui.hud.callout(text, tone)        // 크로스헤어 아래 짧은 글자. tone: 'head'|'half'|'kill'
 ui.hud.banner({ icon, title, sub }) // 상단 배너. 비밀 스팟 발견 등
+ui.hud.multiKill({ id, title, sub }) // 연속 킬 그림+글자. id: 'double'~'hexa'|'legend'. 줄 세우지 않고 바로 바꾼다(2.2초, 전설 2.9초)
 ui.hud.damageFrom(angle)          // rad. 0 = 정면, +π/2 = 오른쪽, ±π = 뒤
 ui.hud.center(text, ms?, opts?)   // opts: { sub, tone: 'owner'|'charterer'|'warn' }
-ui.hud.reset()                    // 킬피드·피격표시·중앙메시지·배너 비우기(라운드/매치 전환 시)
+ui.hud.reset()                    // 킬피드·피격표시·중앙메시지·배너·연속 킬 비우기(라운드/매치 전환 시)
 ui.killfeed.push({ killer, victim, weaponId, head, killerTeam, victimTeam })
 ui.killfeed.clear()
 ui.scope.set(amount, opts?)       // amount 0~1, opts: 4 → "×4" 표시 또는 { mag, level, levels }(2단 줌)

@@ -269,6 +269,8 @@ export function createUI(rootEl, options = {}) {
       center: (text, ms, opts) => hud.center(text, ms, opts),
       callout: (text, tone) => hud.callout(text, tone),
       banner: (opts) => hud.banner(opts),
+      /** 연속 킬 그림과 글자 { id: 'double'~'hexa'|'legend', title, sub } */
+      multiKill: (opts) => hud.multiKill(opts),
       reset: () => hud.reset(),
     },
     killfeed: {

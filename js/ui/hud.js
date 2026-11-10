@@ -1,13 +1,14 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: HUD 화면. 체력·탄약·슬롯·크로스헤어·히트마커·피격 방향·타이머·스코어·킬피드·중앙 메시지·속도계·콜아웃·상단 배너와
+ * Purpose: HUD 화면. 체력·탄약·슬롯·크로스헤어·히트마커·피격 방향·타이머·스코어·킬피드·중앙 메시지·속도계·콜아웃·상단 배너·연속 킬과
  *          개인전 표시(순위, 부활 패널, 보호), 폭파 미션 표시(진영 패널, 구역 표식, 설치·해체 막대, 폭탄 소지)를 그린다.
  *          hud.set()은 매 프레임 불러도 되고 값이 바뀐 곳만 DOM에 쓴다.
  */
 import { h, setText, clamp, fmtTime, num, TEAMS, TEAM_KEYS, teamKey, FFA_TARGET, SIDE_NAME, bombSide } from './dom.js';
 import { makeScreen } from './parts.js';
 import { headshotIcon, weaponInfo } from './icons.js';
+import { multiKillArt, multiKillPalette, MULTI_KILL_ART } from './multikill.js';
 import { PLAYER, MOVE } from '../core/consts.js';
 
 const KILLFEED_MAX = 5;
@@ -39,6 +40,8 @@ const BANNER_QUEUE_MAX = 6;
 const BOMB_TONES = Object.freeze(['attack', 'defense', 'warn']);
 const BOMB_URGENT_SEC = 10;
 const NO_BOMB = Object.freeze({ side: null, goal: '', status: '', tone: '', timer: null, carrying: false, progress: null, prompt: '', markers: Object.freeze([]) });
+// 연속 킬 표시 시간. css .sk-mk의 sk-mk-life 길이(2.2s, 전설 2.9s)와 맞춘다
+export const MULTI_KILL_MS = Object.freeze({ tier: 2200, legend: 2900 });
 
 function autoTone(text) {
   if (/매치 ?포인트|무승부|재경기|연장/.test(text)) return 'warn';
@@ -70,6 +73,15 @@ export function bannerSpec(o) {
   if (!title && !sub) return null;
   const ms = num(o.ms, BANNER_MS);
   return { icon: text(o.icon), title, sub, ms: ms > 0 ? ms : BANNER_MS };
+}
+
+/** hud.multiKill 입력({ id, title, sub }) → { id, title, sub, ms }. 글자가 없으면 null, 모르는 그림 id는 'double' */
+export function multiKillSpec(o) {
+  if (!o || typeof o !== 'object') return null;
+  const title = o.title == null ? '' : String(o.title);
+  if (!title) return null;
+  const id = typeof o.id === 'string' && Object.prototype.hasOwnProperty.call(MULTI_KILL_ART, o.id) ? o.id : 'double';
+  return { id, title, sub: o.sub == null ? '' : String(o.sub), ms: id === 'legend' ? MULTI_KILL_MS.legend : MULTI_KILL_MS.tier };
 }
 
 function normSlot(registry, s) {
@@ -147,6 +159,7 @@ export function createHud(ctx) {
     // 폭파 미션: 마지막으로 그린 값(바뀔 때만 DOM에 쓴다)
     bomb: { on: false, side: null, tone: '', timerText: '', urgent: false, carrying: false, prog: false, progKind: '', progRatio: -1 },
     markSeq: 0,
+    mkTimer: null, mkId: '',
   };
   let viewH = 0;
 
@@ -162,6 +175,12 @@ export function createHud(ctx) {
     el: h('div', { class: 'sk-callout', dataset: { tone: 'info' } }), anim: null, text: '', tone: 'info', seq: 0, rank: 0,
   }));
   const calloutBox = h('div', { class: 'sk-callouts', 'aria-hidden': 'true' }, calloutRows.map((c) => c.el));
+
+  // 연속 킬: 그림 + "더블 킬!" 같은 글자. PC는 크로스헤어 아래, 휴대폰은 위(css)
+  const mkArt = h('div', { class: 'sk-mk-art-box', 'aria-hidden': 'true' });
+  const mkTitle = h('b', { class: 'sk-mk-title' });
+  const mkSub = h('span', { class: 'sk-mk-sub', hidden: true });
+  const mkEl = h('div', { class: 'sk-mk', role: 'status' }, mkArt, mkTitle, mkSub);
 
   function side(team) {
     const score = h('b', { class: 'sk-ts-score', text: '0' });
@@ -275,7 +294,7 @@ export function createHud(ctx) {
 
   // 순서: 설치/해체 막대 → 폭탄 안내 → 이모트 안내. css가 형제 선택자로 겹침을 푼다(안내가 뜨면 이모트 안내를 올리고, 터치 화면은 막대가 뜨면 안내를 가린다)
   const el = h('section', { class: 'sk-screen sk-hud', hidden: true, 'aria-label': 'HUD' },
-    vignette, flash, dmgs, bombMarks, xhair, hit, calloutBox, protectEl, bombProg, top, bombPanel, bannerEl, feed, centerEl, respawnEl, specEl,
+    vignette, flash, dmgs, bombMarks, xhair, hit, calloutBox, mkEl, protectEl, bombProg, top, bombPanel, bannerEl, feed, centerEl, respawnEl, specEl,
     bombPrompt, emoteEl, hintEl, speedEl, hpEl,
     h('div', { class: 'sk-br' }, slotsEl, ammoEl));
 
@@ -734,6 +753,36 @@ export function createHud(ctx) {
     bannerEl.classList.remove('is-show');
   }
 
+  /**
+   * multiKill({ id, title, sub }) — 연속 킬 그림과 글자. id는 그림(double~hexa, legend).
+   * 줄을 세우지 않는다: 떠 있는 중에 다음 단계가 오면 바로 바꿔 처음부터 다시 튀어나온다. 빈 값이면 지운다.
+   */
+  function multiKill(o) {
+    const m = multiKillSpec(o);
+    if (!m) { clearMultiKill(); return; }
+    if (st.mkTimer != null) ctx.cancel(st.mkTimer);
+    if (st.mkId !== m.id) {
+      st.mkId = m.id;
+      const p = multiKillPalette(m.id);
+      mkArt.replaceChildren(multiKillArt(m.id));
+      mkEl.dataset.mk = m.id;
+      mkEl.style.setProperty('--mk', p.base);
+      mkEl.style.setProperty('--mk-hi', p.hi);
+    }
+    setText(mkTitle, m.title);
+    setText(mkSub, m.sub);
+    mkSub.hidden = !m.sub;
+    mkEl.classList.remove('is-show');
+    void mkEl.offsetWidth; // 애니메이션 재시작
+    mkEl.classList.add('is-show');
+    st.mkTimer = ctx.later(() => { st.mkTimer = null; mkEl.classList.remove('is-show'); }, m.ms);
+  }
+  function clearMultiKill() {
+    if (st.mkTimer != null) ctx.cancel(st.mkTimer);
+    st.mkTimer = null;
+    mkEl.classList.remove('is-show');
+  }
+
   function damageFrom(angle) {
     const d = h('div', { class: 'sk-dmg', style: { transform: `rotate(${num(angle, 0)}rad)` } }, h('i'));
     dmgs.append(d);
@@ -803,6 +852,7 @@ export function createHud(ctx) {
     applyBomb(null);
     clearCallouts();
     clearBanners();
+    clearMultiKill();
     applySpeed(0);
     // 다음 판은 규칙이 다를 수 있다. 슬롯과 탄약을 비우고 다음 hud.set을 기다린다
     st.slotSeen.fill(false);
@@ -818,7 +868,7 @@ export function createHud(ctx) {
 
   const screen = makeScreen(el, { render: (_props, { patch }) => set(patch) });
   return Object.assign(screen, {
-    set, hitmarker, damageFrom, center, callout, banner, reset,
+    set, hitmarker, damageFrom, center, callout, banner, multiKill, reset,
     killfeed: { push: pushKill, clear: () => feed.replaceChildren() },
   });
 }

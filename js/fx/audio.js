@@ -3,6 +3,7 @@
  * Author: Minkyu Jung
  * Purpose: WebAudio 합성 효과음·이모트 비트 엔진. 효과음은 코드로 합성해 캐시하고 보이스 풀로 재생한다.
  *          이모트는 audio/emotes의 음원 묶음(manifest)이 있으면 풀어서 쓰고, 없거나 못 읽으면 합성음으로 돌아간다.
+ *          연속 킬 안내 음성(audio/voice, TTS로 합성한 mp3)은 받아서 디코드해 두었다가 전용 보이스 하나로 낸다.
  */
 import { EMOTES } from '../core/consts.js';
 import { decryptEmote } from './emote-key.js';
@@ -493,6 +494,22 @@ const DEFS = {
         .noise({ t: 0.03, dur: 5.2, a: 0.08, d: 1.6, lp: 240, brown: 1, g: 1 });
       for (let i = 0; i < 40; i++) S.click(0.15 + S.rnd() ** 1.5 * 2.2, S.r(0.02, 0.14), 2200); // 파편이 길게 떨어진다
       S.sat(2.4).echo([{ t: 0.45, g: 0.3, lp: 600 }, { t: 1.1, g: 0.2, lp: 450 }, { t: 1.9, g: 0.12, lp: 350 }]);
+    } },
+  // 연속 킬: 낮은 쿵, 쓸리는 바람, 한 옥타브 위로 쓸어 올리는 음, 반짝임. 단계가 오를수록 world가 rate를 올려 높고 짧게 낸다
+  multi_kill: { ui: 1, dur: 0.9, prio: 10, level: 0.5, max: 2, send: 0.2,
+    r: (S) => S.tone({ f: 150, f1: 48, glide: 0.06, a: 0.002, d: 0.14, dur: 0.5, g: 0.9 })
+      .noise({ dur: 0.35, a: 0.004, d: 0.08, bp: 1800, q: 0.7, g: 0.25 })
+      .tone({ t: 0.02, f: 659.25, f1: 1318.5, glide: 0.08, harm: 6, tilt: 1.3, a: 0.004, d: 0.12, dur: 0.45, g: 0.32 })
+      .ring({ t: 0.09, f: [2637.02, 3951.07, 5274.04], amp: [1, 0.6, 0.3], dec: [0.22, 0.16, 0.1], g: 0.22 }) },
+  // 전설(7킬부터): 깊은 쿵과 낮은 울림 위에 C장조 화음을 차례로 쌓고 긴 반짝임
+  legend_kill: { ui: 1, dur: 2.2, prio: 10, level: 0.55, max: 1, send: 0.4,
+    r: (S) => {
+      S.tone({ f: 110, f1: 41, glide: 0.09, a: 0.002, d: 0.3, dur: 1, g: 1 })
+        .noise({ dur: 0.6, a: 0.004, d: 0.18, lp: 900, g: 0.35, brown: 1 });
+      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+        S.tone({ t: 0.05 + i * 0.06, f, harm: 8, tilt: 1.2, env: 'hold', a: 0.01, h: 0.5, d: 0.45, dur: 1.9, g: 0.22 });
+      });
+      S.ring({ t: 0.3, f: [2093, 3136, 4186.01, 5274.04], amp: [1, 0.7, 0.45, 0.25], dec: [0.6, 0.45, 0.3, 0.2], g: 0.2 });
     } }
 };
 
@@ -765,6 +782,16 @@ const DEFAULT_EMOTE_MANIFEST = (() => {
 const SAFE_FILE = /^[A-Za-z0-9_][A-Za-z0-9_.\-/]*$/;       // manifest 기준 상대 파일 이름만(절대 URL·'..' 금지)
 const EMOTE_FILE_MAX_BYTES = 8 * 1024 * 1024, EMOTE_FILE_MAX_SEC = 60;
 
+/**
+ * 안내 음성(연속 킬) id 목록 = audio/voice/<id>.mp3. tools/make-voice.mjs가 Windows 한국어 음성(TTS)으로 합성해 다듬은
+ * 짧은 문장이다. id는 js/game/multikill.js의 단계표와 같다(tests/multikill.test.mjs).
+ */
+export const VOICE_IDS = Object.freeze(['double', 'triple', 'quadra', 'penta', 'hexa', 'legend']);
+const DEFAULT_VOICE_DIR = (() => {
+  try { return new URL('../../audio/voice/', import.meta.url).href; } catch { return null; }
+})();
+const VOICE_FILE_MAX_BYTES = 512 * 1024, VOICE_LEVEL = 0.95;
+
 export function createAudio(opts = {}) {
   const MAX3 = opts.maxVoices3d ?? 20;     // 3D 보이스(HRTF) 상한
   const MAX2 = opts.maxVoices2d ?? 8;      // 2D 보이스(UI·자기 무기) 상한
@@ -791,6 +818,13 @@ export function createAudio(opts = {}) {
   const emoHandles = new Set();
   const emoCand = [], emoLocal = [];
   let emoSeq = 0, emoLast = -1e9;
+  // 안내 음성: 받은 바이트 → 디코드한 버퍼. 전용 2D 보이스 하나로 한 번에 한 문장만 낸다
+  const voiceDir = opts.voiceDir === false ? null : (opts.voiceDir || DEFAULT_VOICE_DIR);
+  const voiceRaw = new Map();              // id → ArrayBuffer(언락 전에도 받아 둔다)
+  const voiceBuf = new Map();              // id → AudioBuffer
+  const voiceDecoding = new Map();         // id → 디코드 Promise(한 번만)
+  const voiceBad = [];
+  let voiceFetch = null, voiceAbort = null, voiceV = null, voiceLast = '', voicePlays = 0;
 
   function build() {
     const AC = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
@@ -812,6 +846,7 @@ export function createAudio(opts = {}) {
     for (let i = 0; i < MAX2; i++) pool2.push(makeVoice(false));
     for (let i = 0; i < EMO_MAX3; i++) emo3.push(makeEmoteVoice(true));
     for (let i = 0; i < EMO_MAX2; i++) emo2.push(makeEmoteVoice(false));
+    voiceV = makeVoice(false);
     applyListener();
     return true;
   }
@@ -1300,6 +1335,84 @@ export function createAudio(opts = {}) {
     const now = ctx.currentTime;
     for (const h of emoHandles) endEmote(h, fade);
     for (const v of pool3.concat(pool2)) if (v.src) fadeOutVoice(v, now, fade);
+    if (voiceV && voiceV.src) fadeOutVoice(voiceV, now, fade);
+  }
+
+  /* ── 안내 음성(연속 킬) ──
+   * 받기는 페이지를 연 뒤 잠시 뒤나 언락 때 중 먼저(6개 합계 약 45 KB), 디코드는 오디오 컨텍스트가 생긴 뒤.
+   * 아직 준비되지 않았거나 못 읽은 문장은 소리 없이 건너뛴다(같이 내는 효과음은 그대로 난다). */
+  function fetchVoices() {
+    if (voiceFetch) return voiceFetch;
+    if (!voiceDir || typeof fetch !== 'function' || disposed) { voiceFetch = Promise.resolve(); return voiceFetch; }
+    voiceAbort = typeof AbortController === 'function' ? new AbortController() : null;
+    const signal = voiceAbort ? voiceAbort.signal : undefined;
+    voiceFetch = Promise.all(VOICE_IDS.map(async (id) => {
+      try {
+        const res = await fetch(new URL(`${id}.mp3`, voiceDir).href, { signal });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const ab = await res.arrayBuffer();
+        if (ab.byteLength > VOICE_FILE_MAX_BYTES) throw new Error('파일이 너무 큼');
+        if (disposed) return;
+        voiceRaw.set(id, ab);
+        if (ctx) await decodeVoice(id);
+      } catch (e) {
+        if (e?.name !== 'AbortError') voiceBad.push(`${id}: ${e?.message || e}`);
+      }
+    })).then(() => {
+      if (voiceBad.length && !disposed) console.info(`[fx] 안내 음성 일부를 읽지 못해 효과음만 냅니다 — ${voiceBad.join(' / ')}`);
+    });
+    return voiceFetch;
+  }
+
+  function decodeVoice(id) {
+    if (!ctx || disposed || voiceBuf.has(id)) return Promise.resolve();
+    if (voiceDecoding.has(id)) return voiceDecoding.get(id);
+    const raw = voiceRaw.get(id);
+    if (!raw) return Promise.resolve();
+    const job = ctx.decodeAudioData(raw.slice(0))
+      .then((b) => { if (!disposed && ctx && b) voiceBuf.set(id, b); })
+      .catch(() => { voiceBad.push(`${id}: 디코드 실패`); });
+    voiceDecoding.set(id, job);
+    return job;
+  }
+
+  /** 언락 때: 받기를 시작(또는 이어서)하고 받은 것을 모두 디코드한다. 끝나면 쓸 수 있는 id 목록 */
+  function loadVoices() {
+    if (!ctx) return Promise.resolve([]);
+    return fetchVoices()
+      .then(() => Promise.all([...voiceRaw.keys()].map(decodeVoice)))
+      .then(() => [...voiceBuf.keys()]);
+  }
+
+  /** 안내 음성 한 문장(2D). 앞 문장이 아직 나오면 40 ms 페이드로 끊고 바로 잇는다. 냈으면 true */
+  function voice(id, o) {
+    if (!ctx || disposed || ctx.state === 'closed' || !voiceV) return false;
+    if (typeof id !== 'string' || !VOICE_IDS.includes(id)) return false;
+    const buf = voiceBuf.get(id);
+    if (!buf) { loadVoices(); return false; }
+    const opt = o || NO_OPTS, v = voiceV, now = ctx.currentTime;
+    let at = now + Math.min(2, Math.max(0, Number(opt.delay) || 0));
+    if (v.src) {
+      const old = v.src;
+      fadeOutVoice(v, now, 0.04);
+      old.onended = () => { try { old.disconnect(); } catch { /* 이미 해제 */ } };
+      v.src = null;
+      at = Math.max(at, now + 0.045);
+    } else v.g.gain.cancelScheduledValues(now);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    v.g.gain.setValueAtTime(VOICE_LEVEL * Math.max(0, opt.gain ?? 1), at);
+    setAt(v.f.frequency, 20000, now, now);
+    setAt(v.send.gain, quality === 'low' ? 0.06 : 0.12, now, now);   // 공용 잔향을 조금 섞어 방 안에서 울리게
+    src.connect(v.g);
+    src.start(at);
+    v.src = src; v.name = 'voice:' + id; v.t0 = at; v.t1 = at + buf.duration;
+    src.onended = () => {
+      if (v.src === src) { v.src = null; v.name = ''; }
+      try { src.disconnect(); } catch { /* 이미 해제 */ }
+    };
+    voiceLast = id; voicePlays++;
+    return true;
   }
 
   function applyListener() {
@@ -1318,11 +1431,11 @@ export function createAudio(opts = {}) {
     }
   }
 
-  // 음원 묶음은 페이지를 연 뒤 잠시(게임 로딩과 겹치지 않게) 기다렸다가 미리 받아 둔다. 언락이 먼저면 그때 바로 받는다.
+  // 음원 묶음과 안내 음성은 페이지를 연 뒤 잠시(게임 로딩과 겹치지 않게) 기다렸다가 미리 받아 둔다. 언락이 먼저면 그때 바로 받는다.
   // 그래서 상점 미리 듣기나 첫 이모트도 대개 처음부터 파일로 나온다. createAudio({ emotePrefetch: false })로 끌 수 있다
   const prefetchMs = opts.emotePrefetch === false ? -1 : Math.max(0, Number(opts.emotePrefetchDelayMs ?? 1500) || 0);
-  if (prefetchMs >= 0 && manifestUrl && typeof setTimeout === 'function') {
-    emoPrefetchTimer = setTimeout(() => { emoPrefetchTimer = 0; if (!disposed) fetchEmoteFiles(); }, prefetchMs);
+  if (prefetchMs >= 0 && (manifestUrl || voiceDir) && typeof setTimeout === 'function') {
+    emoPrefetchTimer = setTimeout(() => { emoPrefetchTimer = 0; if (!disposed) { fetchEmoteFiles(); fetchVoices(); } }, prefetchMs);
   }
 
   return {
@@ -1337,6 +1450,7 @@ export function createAudio(opts = {}) {
       } catch { /* 무시 */ }
       schedulePrewarm();
       loadEmoteFiles();                                  // manifest 음원(있으면) — 한 번만, 비동기
+      loadVoices();                                      // 안내 음성 — 받은 것을 디코드(비동기)
       if (ctx.state === 'suspended') return ctx.resume().then(() => ctx?.state === 'running', () => false);
       return Promise.resolve(ctx.state === 'running');
     },
@@ -1367,6 +1481,15 @@ export function createAudio(opts = {}) {
     emoteFilesReady() { return emoReady || Promise.resolve([]); },
     /** 음원 받기·풀기를 지금 시작한다(언락 전에도 됨, 한 번만). 끝나면 resolve */
     prefetchEmoteFiles: () => fetchEmoteFiles(),
+    /**
+     * 안내 음성 한 문장(2D, VOICE_IDS 중 하나). { delay: 초, gain }. 앞 문장은 끊고 바로 잇는다.
+     * 냈으면 true, 언락 전·모르는 id·아직 못 받은 파일이면 false(그때는 받기·디코드를 시작해 둔다)
+     */
+    voice,
+    /** 안내 음성 id 목록 */
+    voices: VOICE_IDS,
+    /** 언락 뒤 안내 음성을 모두 디코드하면 쓸 수 있는 id 목록으로 resolve(언락 전이면 []) */
+    voicesReady: () => loadVoices(),
     stopAll,
     /** 'low': HRTF→equalpower, 3D 보이스 12개, 잔향 절반, 동시 3D 이모트 3개 */
     setQuality(q) {
@@ -1388,7 +1511,12 @@ export function createAudio(opts = {}) {
         emoteFiles: [...emoFiles.keys()],
         emoteFetched: [...emoRaw.keys()],
         /** 재생 중인 이모트 핸들: 'id:file' 또는 'id:synth' */
-        emotePlaying: [...emoHandles].map((h) => `${h.name}:${h.snd.source}`)
+        emotePlaying: [...emoHandles].map((h) => `${h.name}:${h.snd.source}`),
+        /** 안내 음성: 디코드해 쓸 수 있는 것, 받은 것, 마지막으로 낸 것, 낸 횟수, 지금 나오는 중인가 */
+        voiceFiles: [...voiceBuf.keys()],
+        voiceFetched: [...voiceRaw.keys()],
+        voiceLast, voicePlays,
+        voicePlaying: !!(voiceV && voiceV.src && isLive(voiceV, now))
       };
     },
     dispose() {
@@ -1406,6 +1534,13 @@ export function createAudio(opts = {}) {
       clearTimeout(emoPrefetchTimer); emoPrefetchTimer = 0;
       if (emoAbort) { try { emoAbort.abort(); } catch { /* 무시 */ } emoAbort = null; }
       emoRaw.clear(); emoBuilding.clear();
+      if (voiceAbort) { try { voiceAbort.abort(); } catch { /* 무시 */ } voiceAbort = null; }
+      if (voiceV) {
+        if (voiceV.src) { const s = voiceV.src; voiceV.src = null; s.onended = null; try { s.stop(); } catch { /* 무시 */ } try { s.disconnect(); } catch { /* 무시 */ } }
+        for (const n of [voiceV.g, voiceV.f, voiceV.send]) { try { n.disconnect(); } catch { /* 무시 */ } }
+        voiceV = null;
+      }
+      voiceRaw.clear(); voiceBuf.clear(); voiceDecoding.clear();
       for (const v of pool3.concat(pool2)) {
         if (v.src) { try { v.src.stop(); } catch { /* 무시 */ } release(v); }
         for (const n of [v.g, v.f, v.p, v.send]) if (n) { try { n.disconnect(); } catch { /* 무시 */ } }

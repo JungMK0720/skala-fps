@@ -79,7 +79,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { createAudio, SOUND_NAMES, EMOTE_SOUNDS, EMOTE_BPM } from '../js/fx/audio.js';
+import { createAudio, SOUND_NAMES, EMOTE_SOUNDS, EMOTE_BPM, VOICE_IDS } from '../js/fx/audio.js';
 import { createEffects } from '../js/fx/effects.js';
 
 const PARAMS = new URLSearchParams(location.search);
@@ -157,7 +157,7 @@ const GROUPS = [
     'reload_mag_out', 'reload_mag_in', 'bolt', 'dry_fire', 'switch']],
   ['근접', ['knife_slash', 'knife_hit', 'katana_swing', 'katana_heavy', 'katana_hit']],
   ['이동·발판·포털', ['footstep_concrete', 'footstep_steel', 'bhop_land', 'pad_boost', 'portal']],
-  ['피드백', ['hit_marker', 'headshot', 'kill', 'half_shot']],
+  ['피드백', ['hit_marker', 'headshot', 'kill', 'half_shot', 'multi_kill', 'legend_kill']],
   ['보상·메뉴', ['secret_found', 'purchase', 'ui_click']],
   ['라운드·상태', ['round_start', 'round_win', 'round_lose', 'low_hp_heartbeat']]
 ];
@@ -172,6 +172,22 @@ for (const [title, names] of GROUPS) {
     b.addEventListener('click', async () => { await unlock(); audio.play(n, { pos: soundPos() }); });
     g.appendChild(b);
   }
+}
+/* ── 연속 킬 안내 음성(audio/voice, TTS로 합성): 게임처럼 효과음 다음에 문장을 낸다 ── */
+{
+  const LABEL = { double: '더블 킬!', triple: '트리플 킬!', quadra: '쿼드라 킬!', penta: '펜타 킬!', hexa: '헥사 킬!', legend: '당신은 전설입니다' };
+  const h = document.createElement('h2'); h.textContent = '연속 킬 안내 음성'; sbox.appendChild(h);
+  const g = document.createElement('div'); g.className = 'grid'; sbox.appendChild(g);
+  VOICE_IDS.forEach((id, i) => {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = LABEL[id] || id; b.dataset.voice = id;
+    b.addEventListener('click', async () => {
+      await unlock();
+      await audio.voicesReady();
+      audio.play(id === 'legend' ? 'legend_kill' : 'multi_kill', id === 'legend' ? undefined : { rate: 1 + 0.06 * i });
+      audio.voice(id, { delay: 0.08 });
+    });
+    g.appendChild(b);
+  });
 }
 
 /* ── 이모트 소리 ── */
@@ -504,6 +520,9 @@ async function smoke() {
     // 오디오
     const unlocked = await audio.unlock();
     check('audio unlock', unlocked, audio.getStats());
+    const voiceIds = await audio.voicesReady();
+    check('voice files decoded', VOICE_IDS.every((id) => voiceIds.includes(id)), voiceIds);
+    check('voice plays known ids only', audio.voice('double') === true && audio.voice('constructor') === false && audio.getStats().voiceLast === 'double', audio.getStats().voiceLast);
     let p2 = 0, p3 = 0;
     for (const n of SOUND_NAMES) if (audio.play(n)) p2++;
     const s2 = audio.getStats();
