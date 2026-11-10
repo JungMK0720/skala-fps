@@ -533,7 +533,44 @@ export default {
         }
         await eventually(t, host, `__qa.ctx.screen === "room" && __qa.ui.isVisible("room") && /넷째 방/.test(document.querySelector('.sk-room-title').textContent)`, '나오는 중에 누른 방 만들기로 새 방이 열린다', 10000);
         await t.shot('created-while-leaving');
-        if (await host.eval('__qa.ui.isVisible("room")')) await host.click('.sk-room .sk-bar .sk-btn--ghost');
+
+        // 자리 비움(대기실이 1분 동안 조용하면 방장이 닫는다): 시험에서는 6초·안내 3초로 줄인다
+        t.setSection('자리 비움으로 방 닫기');
+        if (await guest.eval('__qa.ctx.screen === "lobby" && __qa.ui.isVisible("lobby")')) {
+          await guest.waitFor(`[...document.querySelectorAll('.sk-room-row')].some((r) => /넷째 방/.test(r.textContent))`, 10000, { label: '손님 로비에 넷째 방' });
+          await guest.fn(() => { const row = [...document.querySelectorAll('.sk-room-row')].find((r) => /넷째 방/.test(r.textContent)); row.querySelector('.sk-room-join').click(); return true; });
+          await guest.waitFor('__qa.ctx.screen === "room" && __qa.ui.isVisible("room")', 10000, { label: '손님이 넷째 방에' });
+          await host.waitFor(`/손님/.test(document.querySelector('.sk-room').textContent)`, 8000, { label: '방장 화면에 손님(넷째 방)' });
+          const tune = '(() => window.__skalafpsSession.tuneIdle({ idleMs: 6000, warnMs: 3000 }))()';
+          await guest.eval(tune);
+          await host.eval(tune);
+          const idleBar = `(() => { const b = document.querySelector('.sk-room-idle'); return !!b && !b.hidden && /초 뒤 방이 닫혀요/.test(b.textContent); })()`;
+          await eventually(t, host, idleBar, '조용하면 방장 대기실에 곧 닫힌다는 안내', 8000);
+          await eventually(t, guest, idleBar, '손님 대기실에도 안내와 [계속 기다리기]', 4000);
+          // 명단·채팅을 보려고 맨 아래로 내려가 있어도 띠가 화면 위에 붙어 보인다(sticky)
+          await guest.fn(() => { const s = document.querySelector('.sk-room'); s.scrollTop = s.scrollHeight; return true; });
+          await sleep(150);
+          const barBox = await guest.eval(`(() => { const r = document.querySelector('.sk-room-idle').getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), h: innerHeight, scrolled: document.querySelector('.sk-room').scrollTop }; })()`);
+          t.check(barBox.top >= 0 && barBox.bottom <= barBox.h, '아래로 내려가 있어도 안내 띠가 화면 안에 보인다', barBox);
+          t.page = guest;
+          await t.shot('room-idle-warning');
+          t.page = host;
+          await guest.click('.sk-room-idle-stay');
+          await eventually(t, host, `document.querySelector('.sk-room-idle').hidden`, '손님이 [계속 기다리기]를 누르면 방장 안내도 사라진다', 4000);
+          t.check(await guest.eval(`document.querySelector('.sk-room-idle').hidden`), '누른 손님의 안내가 사라진다');
+          t.check(await host.eval('__qa.ctx.screen === "room"'), '방은 그대로 남는다');
+          await eventually(t, host, '__qa.ctx.screen === "lobby" && __qa.ui.isVisible("lobby")', '다시 6초 동안 조용하면 방장이 방을 닫고 로비로', 15000);
+          await eventually(t, guest, '__qa.ctx.screen === "lobby" && __qa.ui.isVisible("lobby")', '손님도 로비로', 8000);
+          const note = await guest.eval(`(() => { const a = document.querySelector('.sk-lobby .sk-alert--info'); return { text: a ? a.textContent : '', bad: !!document.querySelector('.sk-lobby .sk-alert--bad') }; })()`);
+          t.check(/6초 동안 아무 활동이 없어 방을 닫았어요/.test(note.text) && !note.bad, '로비에 닫힌 까닭이 오류가 아닌 알림으로 보인다(다시 시도 버튼 없음)', note);
+          await host.waitFor(`![...document.querySelectorAll('.sk-room-row')].some((r) => /넷째 방/.test(r.textContent))`, 10000, { label: '닫힌 방은 로비 목록에서 사라진다' })
+            .then(() => t.check(true, '닫힌 방은 로비 목록에서 사라진다'), (e) => t.check(false, '닫힌 방은 로비 목록에서 사라진다', e.message));
+          await t.shot('room-idle-closed');
+          t.errorsOk('자리 비움');
+        } else {
+          t.note('손님이 로비에 없어 자리 비움 방 닫기는 보지 못했다');
+          if (await host.eval('__qa.ui.isVisible("room")')) await host.click('.sk-room .sk-bar .sk-btn--ghost');
+        }
       } else {
         t.note('방장 결과 화면이 뜨지 않아(위에서 실패로 남김) 나오는 중 방 만들기는 보지 못했다');
       }

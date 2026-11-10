@@ -3,6 +3,7 @@
  * Author: Minkyu Jung
  * Purpose: 대기실 화면. 팀 또는 개인전 명단, 준비와 시작, 모드·규칙·개인전 목표 킬·맵 변경, 채팅을 다룬다.
  *          폭파 미션은 팀 칼럼에 전반 진영(먼저 공격/수비)을 붙이고, 규칙은 클래식, 맵은 미션 맵만 고른다.
+ *          자리 비움으로 방이 곧 닫히면(idleLeft) 위에 남은 초와 [계속 기다리기] 띠를 띄운다. 화면을 누르거나 키를 치면 'room:active'(1초에 한 번까지).
  */
 // SKALA 작전 UI — 방(대기실): 팀 칼럼(팀전·폭파 미션) / 한 줄 명단(개인전), 준비/시작, 모드·규칙·목표 킬·맵 변경, 채팅
 import { h, btn, setText, num, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, modeLabel, MODE_ICON, MODE_NAME, SIDE_NAME, bombSide } from './dom.js';
@@ -184,6 +185,12 @@ export function createRoom(ctx) {
     ctx.emit('room:ready', { ready });
   }
 
+  // ---------- 자리 비움 안내: 방장이 곧 방을 닫는다 ----------
+  const idleText = h('span', { class: 'sk-room-idle-text' });
+  const idleBar = h('div', { class: 'sk-room-idle', role: 'alert', hidden: true },
+    idleText,
+    btn('계속 기다리기', () => ctx.emit('room:stay', {}), 'sk-btn--sm sk-btn--primary sk-room-idle-stay'));
+
   const el = h('section', { class: 'sk-screen sk-page sk-room', hidden: true, 'aria-label': '대기실' },
     h('div', { class: 'sk-page-inner' },
       h('header', { class: 'sk-bar' },
@@ -191,6 +198,7 @@ export function createRoom(ctx) {
         h('div', { class: 'sk-bar-title' }, title, h('p', { class: 'sk-bar-sub sk-chips' }, ruleChip, modeChip, mapChip, countChip, idChip)),
         modePick),
       h('div', { class: 'sk-hazard sk-hazard--thin', 'aria-hidden': 'true' }),
+      idleBar,
       h('div', { class: 'sk-room-grid' },
         h('div', { class: 'sk-room-left' },
           teamsWrap,
@@ -201,8 +209,22 @@ export function createRoom(ctx) {
           h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title', text: '🗺️ 맵' }), mapCur, mapPick, mapNote))),
       h('footer', { class: 'sk-room-foot sk-steel' }, status, h('div', { class: 'sk-room-foot-actions' }, readyBtn, startBtn))));
 
+  // 대기실을 누르거나 키를 치면 자리 비움을 처음부터 센다(방장 것만 쓰인다). 1초에 한 번까지만 알린다
+  let activeAt = -Infinity;
+  const onActive = () => {
+    const t = Date.now();
+    if (t - activeAt < 1000) return;
+    activeAt = t;
+    ctx.emit('room:active', {});
+  };
+  el.addEventListener('pointerdown', onActive, true);
+  el.addEventListener('keydown', onActive, true);
+
   function render(props) {
     p = props;
+    const idleLeft = Math.max(0, Math.ceil(num(p.idleLeft, 0)));
+    idleBar.hidden = !(idleLeft > 0);
+    if (idleLeft > 0) setText(idleText, `⏳ ${p.idleSpan || '1분'} 동안 아무 활동이 없어 ${idleLeft}초 뒤 방이 닫혀요`);
     const players = normPlayers(p);
     const me = players.find((x) => x.me);
     const isHost = !!(me && me.host);

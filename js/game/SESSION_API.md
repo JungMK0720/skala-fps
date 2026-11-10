@@ -55,6 +55,7 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 | `leaveGraceMs` | 2000 | 경기 중 presence에서 사라진 사람을 퇴장 처리하기까지(순단 대비) |
 | `loadoutLeadMs` | 700 | 로드아웃 화면 자동 선택을 방장 마감보다 먼저(선택이 제때 도착하게) |
 | `stallMs` | 15000 | 경기 중 방장 소식이 이만큼 없으면 대기실로(자가 복구) |
+| `roomIdleMs` / `roomIdleWarnMs` | 60000 / 10000 | 경기 밖(대기실·결과)에서 이만큼 아무 활동이 없으면 방장이 방을 닫는다. 그 전에 모두에게 안내. `roomIdleMs: 0`이면 끈다(3절 "자리 비움") |
 | `setScreens` | true | core 화면 등록·전환 |
 | `onFrame` | | `ctx.onFrame` 대신 쓸 프레임 훅 `(fn) → off` |
 | `log` | | `(…args)` 디버그 추적(시작·이어받기·취소·워치독) |
@@ -97,6 +98,12 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 - 경기 채팅: 경기 맵을 불러오면 `ui.show('chat')`과 bus `chat:available { on:true }`(휴대폰 채팅 버튼), 경기를 정리하면 `ui.hide('chat')`과 `{ on:false }`.
   경기 중에는 대기실과 같은 줄을 `ui.chat.push(line)`으로도 넘긴다(내 줄은 `me:true`). Enter·채팅 버튼(bus `input:chat`)이면 `ui.chat.open()`, UI `chat:send`는 대기실 `room:chat`과 같은 `sendChat`이다.
   PC에서 입력칸이 열리면(`chat:open`) 엔진이 떼는 키를 못 보므로 `ctx.input.releaseAll()`로 눌려 있던 이동 키를 푼다.
+- **자리 비움**: 경기 밖(대기실·결과 화면, 방장이 경기를 준비하고 있지 않을 때) `roomIdleMs`(1분) 동안 아무 활동이 없으면 방장이 방을 닫는다. 쓸데없이 열린 방의 연결·메시지(방장 핑 10초, 중계 서버 알람 1분)를 줄인다.
+  - 활동: 들어오고 나감·팀·준비·이름·캐릭터가 바뀐 presence(핑만 바뀐 갱신은 아니다), 방 설정(메타) 변경, 사람이 쓴 채팅, 방장의 대기실 조작(UI `room:active`), 경기가 끝나 결과·대기실로 온 때, [계속 기다리기].
+  - 닫기 `roomIdleWarnMs`(10초) 전: 방장이 `room.send('mx', { k:'idle', left, ms })` → 모두 대기실 위에 남은 초와 [계속 기다리기](`roomProps().idleLeft`·`idleSpan`), 채팅에 안내 줄. 활동이 생기면 방장이 `{ k:'idle', left:0 }`으로 거둔다.
+  - [계속 기다리기](UI `room:stay`): 손님은 `room.sendTo(방장, 'mx', { k:'stay' })`, 방장은 바로 처음부터 센다.
+  - 닫기: 방장이 `{ k:'close', why:'idle', ms }`를 보내고 나간다(알림은 나가는 프레임에 같이 실린다). 받은 사람도 나가고, 모두 로비에 "1분 동안 아무 활동이 없어 방을 닫았어요."가 뜬다. 퇴장(방장 이전)이 알림보다 먼저 처리돼도 5초 안에 온 앞 방장의 닫기는 받는다.
+  - 방장이 바뀌면 새 방장이 처음부터 센다. 디버그(`?debug=1`)에서는 `__skalafpsSession.tuneIdle({ idleMs, warnMs })`로 시간을 줄여 QA한다.
 - 채팅 도배(`CHAT_LIMIT`): 보내기는 5초에 4줄까지이고 넘으면 내 화면에만 안내 줄을 띄운다. 받기는 보낸 사람마다 5초에 6줄까지이고 넘는 줄은 조용히 버린다(고친 클라이언트 대비).
 - [게임 시작](방장): UI와 같은 조건을 세션도 다시 확인한다. 팀전 = 양 팀 1명 이상·미배정 없음·방장 외 전원 준비, **FFA = 2명 이상·방장 외 전원 준비**(팀 무관, `room:team`은 무시).
 
@@ -196,7 +203,7 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 - `ffaRanking(view)` → `[{ rank, id, name, kills, deaths, headshots, halfShots, bot, connected }]`: `standings(view).ranking`이 있으면 그것, 없으면 킬↓·데스↑·헤드샷↓(같으면 같은 순위).
 
 ## 6. 네트워크
-- 게임 데이터는 모두 sync(g2s 상태·g2f 사격·g2h 히트·g2x 수류탄·g2m 경기·g2l 로드아웃·g2c 채팅·g2p 핑)로 간다. 세션이 더하는 것은 `'mx'` 제어 이벤트(시작 알림 `prep`, 맵 로드 완료 `loaded`)뿐이고, 둘 다 경기 시작 때 1회다.
+- 게임 데이터는 모두 sync(g2s 상태·g2f 사격·g2h 히트·g2x 수류탄·g2m 경기·g2l 로드아웃·g2c 채팅·g2p 핑)로 간다. 세션이 더하는 것은 `'mx'` 제어 이벤트(시작 알림 `prep`, 맵 로드 완료 `loaded`, 자리 비움 `idle`·`close`·`stay`)뿐이다. `prep`·`loaded`는 경기 시작 때 1회, 자리 비움은 방이 조용할 때만 간다.
 - 경기 스냅샷에는 match.js 스냅샷(규칙 `rs` 포함)에 `mid`(경기 id)·`map`·`gm`(모드), 준비 중 `prep:1`, 취소 `abort`를 더한다(protocol 부가 영역 안).
 - **경기 이벤트마다 `mid`를 붙이고 받는 쪽이 다른 경기의 이벤트를 버린다.** sync는 최근 3초 이벤트를 다음 스냅샷에도 다시 싣기 때문에, 경기가 끝나고 3초 안에 새 경기를 시작하면 지난 경기의 `matchEnd`가 새 경기 준비 스냅샷과 함께 가서 막 들어온 사람이 곧바로 결과 화면으로 튕겼다(재현 테스트 `rapid.mjs`로 확인 후 수정).
 - 로드아웃은 `sync.sendLoadout({ pick, primary, secondary, melee, round, m: 경기 id })` — 라운드와 경기 id를 실어 다음 라운드·경기에서 같은 무기를 다시 골라도 전달된다(sync는 같은 내용을 거른다). 같은 라운드를 새 방장이 다시 시작하면 이 메시지가 걸러지므로 새 방장이 이미 받은 선택을 경기에 다시 넣는다.

@@ -312,7 +312,7 @@ export function createLobby(ctx) {
     refreshBtn.disabled = !!p.loading;
 
     // 같은 데이터면 다시 그리지 않는다(누르는 중인 참가 버튼이 바뀌지 않게)
-    const sig = JSON.stringify([rooms, p.loading, p.error, p.joining, p.maps, ctx.maps.size]);
+    const sig = JSON.stringify([rooms, p.loading, p.error, p.notice, p.joining, p.maps, ctx.maps.size]);
     if (sig === listSig) return;
     listSig = sig;
     statusEl.replaceChildren();
@@ -320,6 +320,9 @@ export function createLobby(ctx) {
       statusEl.append(h('div', { class: 'sk-alert sk-alert--bad' },
         h('span', { text: `⚠️ ${p.error}` }),
         btn('다시 시도', () => ctx.emit('lobby:refresh', {}), 'sk-btn--sm')));
+    } else if (p.notice) {
+      // 알림(자리 비움으로 방이 닫힘 등): 실패가 아니라서 다시 시도 버튼이 없다
+      statusEl.append(h('div', { class: 'sk-alert sk-alert--info', role: 'status' }, h('span', { text: `ℹ️ ${p.notice}` })));
     }
     if (p.loading && !rooms.length) {
       list.replaceChildren(h('div', { class: 'sk-loading' }, h('span', { class: 'sk-spinner', 'aria-hidden': 'true' }), h('span', { text: '방 목록을 불러오는 중…' })));

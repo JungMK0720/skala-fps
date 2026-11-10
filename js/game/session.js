@@ -22,6 +22,8 @@
  *   이탈   방장이 나가면 새 방장이 sync.lastMatch() 스냅샷으로 restoreMatch() → 점수·기록을 이어 그 라운드를 다시 시작.
  *          준비 중이었거나 복원이 안 되면 "방장이 나가 경기가 종료됐어요"로 모두 방으로.
  *   결과   standings → account.recordMatch(경기당 한 번) → ui 'results'(획득 포인트). [방으로 돌아가기] → 대기실(warmup)
+ *   자리 비움  경기 밖(대기실·결과)에서 roomIdleMs(1분) 동안 아무 활동이 없으면 방장이 방을 닫는다. 10초 전에 모두에게 안내와 [계속 기다리기]
+ *          활동 = 들어오고 나감·팀·준비·이름·캐릭터, 방 설정, 채팅, 대기실 조작, 경기 시작·끝, [계속 기다리기]. 핑 갱신 같은 presence 변화는 활동이 아니다
  *   폭파 미션  미션 맵·클래식 고정. world 'bombAction'(E 키) → sync.sendBomb → 방장 match.bombIntent. 스냅샷마다 world.setBomb (MODES.md 5절)
  *
  * 계약서: js/game/SESSION_API.md
@@ -51,7 +53,9 @@ export const SESSION_DEFAULTS = Object.freeze({
   chatKeep: 60,
   frameOrder: -60,        // ctx.onFrame 순서(core avatars.update(-50)보다 먼저)
   setScreens: true,       // ctx가 있으면 core 화면(lobby·room·match·results)을 등록하고 전환한다(입력·포인터 잠금은 'match'에서만 켜짐)
-  stallMs: 15000          // 경기 중 방장 소식이 이만큼 없으면 대기실로(자가 복구)
+  stallMs: 15000,         // 경기 중 방장 소식이 이만큼 없으면 대기실로(자가 복구)
+  roomIdleMs: 60000,      // 경기 밖에서 이만큼 아무 활동이 없으면 방장이 방을 닫는다(쓸데없는 연결·메시지 줄이기). 0이면 끈다
+  roomIdleWarnMs: 10000   // 닫기 이만큼 전에 모두에게 안내와 [계속 기다리기]
 });
 
 export const ROOM_NOTE = '무료 서버 한도 때문에 최대 6명(인원이 적을수록 더 부드러워요)';
@@ -93,6 +97,13 @@ const CLOSE_TEXT = Object.freeze({
   'kicked:cheat': '비정상 플레이가 반복돼 방장이 방에서 내보냈어요.',
   'net-closed': '서버 연결이 끊겼어요.'
 });
+/** 자리 비움 시간 글자: 60000 → '1분', 90000 → '1분 30초', 5000 → '5초' */
+export function idleSpan(ms) {
+  const s = Math.max(1, Math.round((Number(ms) || 0) / 1000));
+  const m = Math.floor(s / 60), r = s % 60;
+  return m ? (r ? `${m}분 ${r}초` : `${m}분`) : `${r}초`;
+}
+const idleClosedText = (ms) => `${idleSpan(ms)} 동안 아무 활동이 없어 방을 닫았어요.`;
 const ABORT_TEXT = Object.freeze({
   'host-left': '방장이 나가 경기가 종료됐어요.',
   'map-failed': '방장이 맵을 불러오지 못해 경기가 취소됐어요.',
@@ -588,7 +599,7 @@ export function createSession(options = {}) {
   let disposed = false;
   let phase = 'idle';       // idle | connecting | lobby | joining | room | match | results | leaving | closed
   let net = null, ownNet = false, netOff = null;
-  let lobbyOff = null, lobbyRooms = [], lobbyError = null, busy = false;
+  let lobbyOff = null, lobbyRooms = [], lobbyError = null, lobbyNotice = null, busy = false;
   let pendingAction = null; // 연결 중이거나 방에서 나오는 중에 누른 방 만들기·참가(연결되면, 다 나오면 실행)
   let room = null, sync = null, me = null, leaving = false;
   let autoTeam = null;      // { at }: 먼저 있던 사람의 팀을 다 모른 채 자동으로 고른 팀(그 팀들이 보이면 한 번 다시 고른다, recheckTeam)
@@ -734,7 +745,7 @@ export function createSession(options = {}) {
     if (phase === 'lobby') { showLobby(); return api; }
     if (phase !== 'idle' && phase !== 'closed') return api;
     phase = 'connecting';
-    lobbyError = null;
+    lobbyError = null; lobbyNotice = null;
     U('show', 'lobby', { rooms: lobbyRooms, loading: true, error: null, joining: null, name: playerName });
     screen('lobby');
     try {
@@ -759,15 +770,17 @@ export function createSession(options = {}) {
     return api;
   }
 
-  function enterLobby(error) {
+  /** 로비로. error = 실패 안내(⚠️ + 다시 시도), notice = 알림(자리 비움으로 방이 닫힘 등. 다시 시도 없이) */
+  function enterLobby(error, notice = null) {
     phase = 'lobby';
     lobbyError = error || null;
+    lobbyNotice = lobbyError ? null : (notice || null);
     showLobby();
     screen('lobby');
     subscribeLobby();
   }
   function showLobby() {
-    U('show', 'lobby', { rooms: lobbyRooms, loading: !lobbyError && !(net && net.lobby && net.lobby.synced), error: lobbyError, joining: null, name: playerName });
+    U('show', 'lobby', { rooms: lobbyRooms, loading: !lobbyError && !(net && net.lobby && net.lobby.synced), error: lobbyError, notice: lobbyNotice, joining: null, name: playerName });
   }
   function subscribeLobby() {
     if (lobbyOff || !net) return;
@@ -783,7 +796,7 @@ export function createSession(options = {}) {
   function refreshLobby() {
     if (phase !== 'lobby' && phase !== 'connecting') return;
     if (!net) { phase = 'idle'; open(); return; }
-    lobbyError = null;
+    lobbyError = null; lobbyNotice = null;
     unsubscribeLobby();
     U('update', 'lobby', { error: null, loading: true });
     subscribeLobby();
@@ -932,6 +945,11 @@ export function createSession(options = {}) {
             : '방을 열었어요. 동료가 들어오면 팀을 나누고 준비하세요.')
         : `${r.meta.name || '방'}에 들어왔어요 · ${RULESETS[lastRuleset].name} · ${lastMode === 'ffa' ? `개인전 · 먼저 ${lastKills}킬` : MODE_LABEL[lastMode]}`
     }, false);
+    idleReset();
+    prevHost = null;
+    rosterSig = rosterSigOf(list);
+    metaSig = metaSigOf();
+    if (o.roomIdleMs > 0 && !idleTimer) idleTimer = setInterval(idleTick, 1000);
     renderRoom(true);
     screen('room');
     // 이미 경기 중인 방이면 방장의 다음 스냅샷(1초 안)으로 관전 합류한다(onMatchData)
@@ -940,7 +958,77 @@ export function createSession(options = {}) {
   function detachRoom() {
     for (const f of roomOffs.splice(0)) safeOff(f);
     if (sync) { try { sync.dispose(); } catch (e) { report(e, 'sync.dispose'); } sync = null; }
+    if (idleTimer) { clearInterval(idleTimer); idleTimer = null; }
+    idleReset();
     room = null;
+  }
+
+  /* ---------------------------------------------------------------- 자리 비움: 조용한 방 닫기 */
+  /** 마지막 활동 시각(now). 방장만 이 값으로 방을 닫지만, 방장이 바뀌면 이어받도록 모두 센다 */
+  let roomActiveAt = 0;
+  /** (방장) 닫기 안내를 보냈는가 */
+  let idleWarned = false;
+  /** 안내에 따른 닫힘 예정 시각(내 시계). 0이면 안내 없음 */
+  let idleCloseAt = 0;
+  let idleTimer = null;
+  /** 방금 바뀐 앞 방장 { id, at }: 닫는 방장의 알림이 퇴장보다 늦게 와도 받는다 */
+  let prevHost = null;
+  /** 활동으로 치는 명단 값(들어오고 나감·팀·준비·이름·캐릭터)과 방 설정. 핑처럼 저절로 바뀌는 값은 넣지 않는다 */
+  let rosterSig = '';
+  let metaSig = '';
+  function rosterSigOf(list) {
+    return JSON.stringify((Array.isArray(list) ? list : []).map((x) => [x.id, x.name || '', x.team || '', !!x.ready, x.av || '']).sort((a, b) => (a[0] < b[0] ? -1 : 1)));
+  }
+  function metaSigOf() {
+    const m = (room && room.meta) || {};
+    return JSON.stringify([m.name, m.max, m.mapId, m.mode, m.ruleset, m.killTarget, m.status]);
+  }
+  function idleReset() { roomActiveAt = now(); idleWarned = false; idleCloseAt = 0; }
+  /** 활동이 있었다: 처음부터 다시 센다. 방장이 안내를 보낸 뒤라면 모두의 안내를 거둔다 */
+  function noteRoomActivity() {
+    roomActiveAt = now();
+    if (!idleWarned && !idleCloseAt) return;
+    const wasHostWarn = idleWarned;
+    idleWarned = false;
+    idleCloseAt = 0;
+    if (wasHostWarn && room && room.isHost()) {
+      try { room.send(CONTROL_EVENT, { k: 'idle', left: 0 }); } catch (e) { report(e, 'idle clear'); }
+    }
+    renderRoom();
+  }
+  /** 경기 밖(대기실·결과)이고 경기를 준비하고 있지도 않은가 */
+  const roomQuietPhase = () => !!room && (phase === 'room' || phase === 'results') && !hm && room.meta.status !== 'playing';
+  function idleTick() {
+    if (!room || leaving || !(o.roomIdleMs > 0)) return;
+    const t = now();
+    if (idleCloseAt && phase === 'room') renderRoom();   // 남은 초를 1초마다 고친다
+    if (!room.isHost() || !roomQuietPhase()) return;
+    const quiet = t - roomActiveAt;
+    if (quiet >= o.roomIdleMs) { closeIdleRoom(); return; }
+    const warnMs = Math.min(Math.max(0, o.roomIdleWarnMs || 0), o.roomIdleMs);
+    if (!idleWarned && warnMs > 0 && quiet >= o.roomIdleMs - warnMs) {
+      idleWarned = true;
+      const left = o.roomIdleMs - quiet;
+      idleCloseAt = t + left;
+      try { room.send(CONTROL_EVENT, { k: 'idle', left: Math.round(left), ms: o.roomIdleMs }); } catch (e) { report(e, 'idle warn'); }
+      pushChat({ system: true, text: `${idleSpan(o.roomIdleMs)} 동안 아무 활동이 없어 곧 방을 닫아요. 계속하려면 [계속 기다리기]를 누르세요.` });
+    }
+  }
+  /** (방장) 모두에게 닫는다고 알리고 나간다. 알림은 나가는 프레임에 같이 실린다(room.leave가 남은 큐를 보낸다) */
+  function closeIdleRoom() {
+    if (!room || leaving) return;
+    trace('room idle close', room.id);
+    try { room.send(CONTROL_EVENT, { k: 'close', why: 'idle', ms: o.roomIdleMs }); } catch (e) { report(e, 'idle close'); }
+    leaveRoom(idleClosedText(o.roomIdleMs));
+  }
+  /** [계속 기다리기]: 내 쪽은 바로 거두고, 손님이면 방장에게 알린다 */
+  function stayInRoom() {
+    if (!room) return;
+    const host = room.hostId();
+    noteRoomActivity();
+    if (host && host !== me) {
+      try { room.sendTo(host, CONTROL_EVENT, { k: 'stay' }); } catch (e) { report(e, 'idle stay'); }
+    }
   }
 
   function teamCap() { return Math.max(1, Math.ceil(((room && room.meta.max) || maxPlayers) / 2)); }
@@ -996,7 +1084,10 @@ export function createSession(options = {}) {
         host: x.id === hostId, me: x.id === me
       })),
       chat: chat.slice(-30),
-      starting: !!(hm && hm.preparing)
+      starting: !!(hm && hm.preparing),
+      // 자리 비움으로 닫히기까지 남은 초(안내가 없으면 0) — 대기실 위 띠와 [계속 기다리기]
+      idleLeft: idleCloseAt ? Math.max(0, Math.ceil((idleCloseAt - now()) / 1000)) : 0,
+      idleSpan: idleSpan(o.roomIdleMs || SESSION_DEFAULTS.roomIdleMs)
     };
   }
   function renderRoom(full) {
@@ -1006,6 +1097,7 @@ export function createSession(options = {}) {
   }
 
   function pushChat(line, render = true) {
+    if (line && !line.system) noteRoomActivity();   // 사람이 쓴 채팅(내 것·받은 것)은 활동이다
     chat.push(line);
     if (chat.length > o.chatKeep) chat = [chat[0], ...chat.slice(-(o.chatKeep - 1))];   // 첫 줄(안내)은 남긴다
     if (phase === 'match' && current) call(ui.chat, 'push', line);   // 경기 중이면 HUD 채팅에도 띄운다
@@ -1027,6 +1119,9 @@ export function createSession(options = {}) {
     for (const [id, name] of cur) if (!known.has(id) && id !== me) pushChat({ system: true, text: `${name || '플레이어'}님이 들어왔어요.` }, false);
     for (const [id, name] of known) if (!cur.has(id) && id !== me) pushChat({ system: true, text: `${name || '플레이어'}님이 나갔어요.` }, false);
     known = cur;
+    // 들어오고 나감·팀·준비·이름·캐릭터가 바뀌면 활동이다. 핑만 바뀐 presence 갱신은 세지 않는다
+    const sig = rosterSigOf(list);
+    if (sig !== rosterSig) { rosterSig = sig; noteRoomActivity(); }
     if (hm) hostRoster();
     renderRoom();
     recheckTeam(Array.isArray(list) ? list : []);
@@ -1035,6 +1130,9 @@ export function createSession(options = {}) {
   function onHost(info) {
     if (!room || !info) return;
     const isMe = !!info.isMe;
+    // 방장이 바뀌면 자리 비움은 처음부터 센다(앞 방장의 안내는 거둔다. 새 방장이 다시 센다)
+    idleReset();
+    prevHost = info.prevHostId ? { id: String(info.prevHostId), at: now() } : null;
     pushChat({ system: true, text: isMe ? '내가 새 방장이 됐어요 👑' : `${nameOf(info.hostId)}님이 방장이 됐어요 👑` }, false);
     if (isMe) {
       if (phase === 'match' && current) {
@@ -1085,6 +1183,8 @@ export function createSession(options = {}) {
   let killNote = null;
   function onMeta() {
     if (!room) return;
+    const sig = metaSigOf();
+    if (sig !== metaSig) { metaSig = sig; noteRoomActivity(); }   // 설정이 바뀌었다(같은 메타를 다시 알린 것은 활동이 아니다)
     const m = roomMode();
     const k = roomKillTarget();
     if (m !== lastMode) {
@@ -1208,8 +1308,10 @@ export function createSession(options = {}) {
     if (b && typeof b.emit === 'function') { try { b.emit(evt, data); } catch (e) { report(e, evt); } }
   }
 
-  async function leaveRoom() {
-    if (!room) { if (phase !== 'lobby' && net) enterLobby(null); return; }
+  /** 방에서 나가 로비로. note가 있으면 로비에 그 안내를 띄운다(자리 비움으로 닫힌 방 등) */
+  async function leaveRoom(note = null) {
+    const notice = typeof note === 'string' && note ? note : null;
+    if (!room) { if (phase !== 'lobby' && net) enterLobby(null, notice); return; }
     const r = room;
     leaving = true;
     teardownMatch();
@@ -1221,7 +1323,7 @@ export function createSession(options = {}) {
     try { await r.leave(); } catch (e) { report(e, 'room.leave'); }
     leaving = false;
     if (disposed || phase !== 'leaving') return;   // 그 사이 ← 메뉴(idle)·연결 끊김(lobby)·dispose
-    enterLobby(null);
+    enterLobby(null, notice);
     // 나오는 동안(로비 화면이 먼저 뜬다) 누른 방 만들기·참가는 앞 방에서 다 나온 지금 한다
     const act = pendingAction;
     pendingAction = null;
@@ -1231,6 +1333,7 @@ export function createSession(options = {}) {
   function backToRoom() {
     if (phase !== 'results' || !room) return;
     phase = 'room';
+    noteRoomActivity();
     renderRoom(true);
     screen('room');
   }
@@ -1635,7 +1738,23 @@ export function createSession(options = {}) {
     if (p.k === 'loaded') { if (hm && p.mid === hm.mid) hm.acks.add(String(msg.from)); return; }
     if (p.k === 'prep' && msg.from === room.hostId() && typeof p.mid === 'string' && p.mid.length <= 16) {
       if (phase === 'room' && p.mid !== finishedMid) enterMatch(p.mid, cleanText(p.map, 32) || room.meta.mapId || o.mapId, p.mode, p.rs);
+      return;
     }
+    // 자리 비움: { k:'idle', left } 방장 → 모두(left ms 뒤 닫힘, 0이면 안내 거둠) / { k:'close', why:'idle' } 방장 → 모두 / { k:'stay' } 손님 → 방장
+    if (p.k === 'stay') { if (room.isHost()) noteRoomActivity(); return; }
+    // 닫는 방장은 알림을 보내고 곧바로 나간다. 퇴장(방장 이전)이 알림보다 먼저 처리돼도 방금 나간 방장의 닫기는 받는다
+    const fromHost = msg.from === room.hostId() && !room.isHost();
+    const fromLeftHost = !!prevHost && msg.from === prevHost.id && now() - prevHost.at < 5000;
+    if (!fromHost && !(p.k === 'close' && fromLeftHost)) return;
+    const span = Number(p.ms) > 0 ? Math.min(Number(p.ms), 3600000) : (o.roomIdleMs || SESSION_DEFAULTS.roomIdleMs);   // 방장이 쓰는 시간(안내 글자용)
+    if (p.k === 'idle') {
+      const left = Math.min(Math.max(0, Number(p.left) || 0), 120000);
+      idleCloseAt = left > 0 ? now() + left : 0;
+      if (left > 0) pushChat({ system: true, text: `${idleSpan(span)} 동안 아무 활동이 없어 방장이 곧 방을 닫아요. 계속하려면 [계속 기다리기]를 누르세요.` });
+      else renderRoom();
+      return;
+    }
+    if (p.k === 'close' && p.why === 'idle' && !leaving) leaveRoom(idleClosedText(span));
   }
 
   /* ---------------------------------------------------------------- 경기: 들어가기 · 나오기 */
@@ -1736,6 +1855,7 @@ export function createSession(options = {}) {
     teardownMatch();
     if (!room) return;
     phase = 'room';
+    noteRoomActivity();   // 경기가 취소돼 대기실로 왔다 → 그때부터 센다
     if (text) pushChat({ system: true, text }, false);
     renderRoom(true);
     screen('room');
@@ -2398,6 +2518,7 @@ export function createSession(options = {}) {
     const wasHost = !!hm;
     teardownMatch();
     phase = 'results';
+    noteRoomActivity();   // 경기가 끝난 때부터 자리 비움을 센다(결과 화면에 오래 머물러도 방이 닫힌다)
     if (wasHost || (room && room.isHost())) safeMeta({ status: 'waiting' });
     if (props.mode === 'ffa') {
       const w = props.ranking.find((r) => r.id === props.winnerId);
@@ -2707,6 +2828,9 @@ export function createSession(options = {}) {
     ui.on('chat:send', (p) => sendChat(p && p.text)),
     ui.on('chat:open', () => onChatOpen()),
     ui.on('room:leave', () => { leaveRoom(); }),
+    ui.on('room:stay', () => stayInRoom()),
+    // 대기실 화면을 누르거나 키를 쳤다(화면이 1초에 한 번까지 보낸다). 방장의 조작만 방을 살려 둔다: 손님은 실제로 바꾼 것(팀·준비·채팅)이 방장에게 간다
+    ui.on('room:active', () => { if (room && room.isHost()) noteRoomActivity(); }),
     ui.on('loadout:pick', (p) => pickLoadout(p && p.id)),
     ui.on('results:back', () => backToRoom()),
     ui.on('results:lobby', () => { leaveRoom(); })
@@ -2776,6 +2900,14 @@ export function createSession(options = {}) {
   };
   // ?debug=1 이면 core의 window.__skalafps처럼 세션도 노출(콘솔 디버그용)
   if (ctx && ctx.flags && ctx.flags.debug && typeof globalThis === 'object') {
+    /** (디버그·QA) 자리 비움 시간을 줄인다: tuneIdle({ idleMs, warnMs }). 바뀐 값은 다음 1초 점검부터 쓴다 */
+    api.tuneIdle = ({ idleMs, warnMs } = {}) => {
+      if (Number(idleMs) >= 0) o.roomIdleMs = Number(idleMs);
+      if (Number(warnMs) >= 0) o.roomIdleWarnMs = Number(warnMs);
+      if (room && o.roomIdleMs > 0 && !idleTimer) idleTimer = setInterval(idleTick, 1000);
+      idleReset();
+      return { idleMs: o.roomIdleMs, warnMs: o.roomIdleWarnMs };
+    };
     try { globalThis.__skalafpsSession = api; } catch (_) { /* noop */ }
   }
   return api;

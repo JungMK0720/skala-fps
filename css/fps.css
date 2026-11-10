@@ -332,6 +332,7 @@
 .sk-lobby-status:empty { display: none; }
 .sk-alert { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-radius: 8px; font-weight: 700; }
 .sk-alert--bad { background: rgba(255, 90, 79, .12); color: #ffb4ad; box-shadow: inset 0 0 0 1px rgba(255, 90, 79, .35); }
+.sk-alert--info { background: rgba(53, 224, 255, .08); color: #c8f2ff; box-shadow: inset 0 0 0 1px rgba(53, 224, 255, .3); }
 .sk-rooms { display: flex; flex-direction: column; gap: 8px; }
 .sk-room-row {
   display: grid; align-items: center; gap: 8px 14px; padding: 10px 14px;
@@ -385,6 +386,16 @@
 
 /* ===================== 8. 방(대기실) ===================== */
 .sk-room-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 자리 비움 안내(js/ui/room.js idleBar): 방이 곧 닫힌다 + [계속 기다리기].
+ * 명단·채팅을 보려고 아래로 내려가 있어도 보이게 화면 위에 붙인다(아래 준비 줄 .sk-room-foot처럼 sticky) */
+.sk-room-idle {
+  position: sticky; top: 8px; z-index: 3;
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px;
+  margin: 0 0 12px; padding: 8px 12px; border-radius: 8px;
+  background: #3a3112; box-shadow: inset 0 0 0 1px rgba(255, 200, 69, .55), 0 6px 18px rgba(0, 0, 0, .45);
+}
+.sk-room-idle[hidden] { display: none; }
+.sk-room-idle-text { flex: 1 1 220px; min-width: 0; font-size: 14px; font-weight: 800; color: var(--sk-warn); }
 .sk-room-grid { flex: 1; display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
 .sk-room-left { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .sk-room-teams { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px; align-items: start; }
