@@ -285,10 +285,14 @@ export default {
     t.check(back.pos[1] > -5 && back.hp === 100 && back.alive, '마지막 스폰으로 돌아온다', back);
     t.errorsOk('낙하');
 
-    t.setSection('무기 선택 숫자키');
-    page = await openGame(t, 'sandbox=alley&ruleset=classic&mode=team&bots=2', { profile: richProfile(), settings: LOW_QUALITY, width: 800, height: 450, screen: 'sandbox' });
+    t.setSection('무기 교체 숫자키');
+    // 팀전은 라운드 시작 전 대기에 무기 선택 화면이 저절로 뜨지 않는다. N으로 무기 목록을 연다(대기 시간을 15초로 늘려 차근차근 본다)
+    page = await openGame(t, 'sandbox=alley&ruleset=classic&mode=team&bots=2&loadout=15', { profile: richProfile(), settings: LOW_QUALITY, width: 800, height: 450, screen: 'sandbox' });
     await waitRun(page);
-    await page.waitFor('__qa.ui.isVisible("loadout")', 8000, { label: '무기 선택 화면' });
+    await page.waitFor('__qa.run.phase === "loadout" && __qa.world.localAlive', 15000, { label: '대기 단계' });
+    await lockPointer(page);
+    await page.press('KeyN');
+    await page.waitFor('__qa.ui.isVisible("loadout")', 8000, { label: '무기 목록' });
     const cards = await page.eval(`[...document.querySelectorAll('.sk-lo-card')].map((c) => c.title)`);
     t.check(cards.length === 11, '보유한 주무기가 모두 보인다', cards);
     await page.press('Digit2');
