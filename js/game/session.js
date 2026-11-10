@@ -170,6 +170,11 @@ const MODE_LABEL = Object.freeze({ team: '팀전 · 5판 3선승', ffa: '개인�
 const isTeamMode = (m) => m !== 'ffa';
 /** 목표 킬 안내를 이 시간 안에 다시 바꾸면 채팅에 새 줄을 더하지 않고 마지막 안내 줄을 고친다(방장이 ＋를 연달아 누를 때) */
 const KILL_NOTE_MERGE_MS = 5000;
+/**
+ * 먼저 있던 사람의 팀을 다 모른 채(presence가 아직 오는 중) 자동으로 고른 팀은, 들어온 뒤 이 시간 안에 그 팀들이 보이면 한 번 다시 고른다.
+ * 그보다 늦게 온 presence로는 대기실에 앉아 있던 사람의 팀을 바꾸지 않는다
+ */
+const AUTO_TEAM_RECHECK_MS = 10000;
 const killNoteText = (k) => `목표 킬이 ${k}킬로 바뀌었어요 · 먼저 ${k}킬을 채우면 우승`;
 
 /* ======================================================================
@@ -584,8 +589,9 @@ export function createSession(options = {}) {
   let phase = 'idle';       // idle | connecting | lobby | joining | room | match | results | leaving | closed
   let net = null, ownNet = false, netOff = null;
   let lobbyOff = null, lobbyRooms = [], lobbyError = null, busy = false;
-  let pendingAction = null; // 연결 중에 누른 방 만들기·참가(연결되면 실행)
+  let pendingAction = null; // 연결 중이거나 방에서 나오는 중에 누른 방 만들기·참가(연결되면, 다 나오면 실행)
   let room = null, sync = null, me = null, leaving = false;
+  let autoTeam = null;      // { at }: 먼저 있던 사람의 팀을 다 모른 채 자동으로 고른 팀(그 팀들이 보이면 한 번 다시 고른다, recheckTeam)
   let roomOffs = [];
   let chat = [];
   const chatSent = [];          // 내가 보낸 채팅 시각(CHAT_LIMIT.send)
@@ -710,6 +716,7 @@ export function createSession(options = {}) {
         netOff = null;
         net = null;
         if (phase === 'idle' || phase === 'closed') return;   // 메뉴에 있으면 화면은 그대로
+        pendingAction = null;   // 방에서 나오는 중에 누른 방 만들기·참가는 끊긴 연결로 하지 않는다
         phase = 'lobby';
         lobbyError = ERROR_TEXT.CLOSED;
         U('show', 'lobby', { rooms: [], loading: false, error: lobbyError, joining: null, name: playerName });
@@ -826,8 +833,11 @@ export function createSession(options = {}) {
     return !list || list.some((m) => m.id === mapId);
   }
 
+  /** 연결 중이거나 방에서 나오는 중(로비 화면이 먼저 뜬다)이면 누른 방 만들기·참가를 버리지 않고 그 뒤에 한다 */
+  function waitsForLobby() { return phase === 'connecting' || phase === 'leaving'; }
+
   async function createRoom(p) {
-    if (phase === 'connecting') { pendingAction = () => createRoom(p); U('update', 'lobby', { loading: true }); return; }
+    if (waitsForLobby()) { pendingAction = () => createRoom(p); U('update', 'lobby', { loading: true }); return; }
     if (phase !== 'lobby' || busy) return;
     if (!net) { noNet(); return; }
     busy = true;
@@ -852,7 +862,7 @@ export function createSession(options = {}) {
   }
 
   async function joinRoom(roomId, password) {
-    if (phase === 'connecting' && roomId) { pendingAction = () => joinRoom(roomId, password); U('update', 'lobby', { joining: String(roomId) }); return; }
+    if (waitsForLobby() && roomId) { pendingAction = () => joinRoom(roomId, password); U('update', 'lobby', { joining: String(roomId) }); return; }
     if (phase !== 'lobby' || busy || !roomId) return;
     if (!net) { noNet(); return; }
     busy = true;
@@ -902,10 +912,15 @@ export function createSession(options = {}) {
     beforeBomb = null;
     lastKills = roomKillTarget();
     killNote = null;
+    autoTeam = null;
     const list = r.players();
     const mine = list.find((x) => x.id === me);
     const fix = {};
-    if (!mine || !TEAM_IDS.includes(mine.team)) fix.team = pickTeam(list);
+    if (!mine || !TEAM_IDS.includes(mine.team)) {
+      fix.team = pickTeam(list);
+      // 방이 막 열렸으면 방장의 팀이 아직 presence로 안 왔을 수 있다 → 일단 고르고, 그 팀이 보이면 다시 고른다(recheckTeam)
+      if (!teamsKnown(list)) autoTeam = { at: now() };
+    }
     if (playerName && r.me && r.me.name !== playerName) fix.name = playerName;   // 연결 뒤 바뀐 닉네임
     if (!r.me || r.me.av !== myAvatar()) fix.av = myAvatar();                     // 내 캐릭터(팀 배정과 같은 presence 갱신에 싣는다)
     if (Object.keys(fix).length) r.updateMe(fix);
@@ -935,6 +950,31 @@ export function createSession(options = {}) {
     const order = n.charterer < n.owner ? ['charterer', 'owner'] : ['owner', 'charterer'];
     for (const t of order) if (n[t] < teamCap()) return t;
     return order[0];
+  }
+  /** 나보다 먼저 들어온 사람(명단은 들어온 순서)과 방장의 팀이 모두 보이는가. 아니면 그 사람들의 presence가 아직 오는 중이다 */
+  function teamsKnown(list) {
+    const i = list.findIndex((x) => x.id === me);
+    const earlier = list.slice(0, i < 0 ? list.length : i);
+    const hostId = room && room.hostId();
+    if (hostId && hostId !== me) {
+      const host = list.find((x) => x.id === hostId);
+      if (!host) return false;   // 방장이 아직 명단에 없다
+      if (!earlier.includes(host)) earlier.push(host);
+    }
+    return earlier.every((x) => TEAM_IDS.includes(x.team));
+  }
+  /**
+   * 방이 막 열렸을 때 들어온 손님은 방장의 팀이 presence로 오기 전에 팀을 골라 방장과 같은 팀이 될 수 있다.
+   * 그렇게 고른 팀은 먼저 있던 사람들의 팀이 다 보이면 한 번 다시 고른다. 직접 팀을 골랐거나, 대기실을 벗어났거나, 오래 지났으면 그대로 둔다
+   */
+  function recheckTeam(list) {
+    if (!autoTeam || !room) return;
+    if (phase !== 'room' || now() - autoTeam.at > AUTO_TEAM_RECHECK_MS) { autoTeam = null; return; }
+    if (!teamsKnown(list)) return;
+    autoTeam = null;
+    const want = pickTeam(list);
+    const mine = list.find((x) => x.id === me);
+    if (!mine || mine.team !== want) room.updateMe({ team: want });
   }
 
   function roomProps() {
@@ -989,6 +1029,7 @@ export function createSession(options = {}) {
     known = cur;
     if (hm) hostRoster();
     renderRoom();
+    recheckTeam(Array.isArray(list) ? list : []);
   }
 
   function onHost(info) {
@@ -1125,6 +1166,7 @@ export function createSession(options = {}) {
     if (!room || phase !== 'room' || !TEAM_IDS.includes(team) || roomMode() === 'ffa') return;
     const n = room.players().filter((x) => x.team === team && x.id !== me).length;
     if (n >= teamCap()) { pushChat({ system: true, text: `${TEAM_NAME[team]} 팀이 가득 찼어요.` }); return; }
+    autoTeam = null;   // 직접 고른 팀은 늦게 온 presence로 바꾸지 않는다
     room.updateMe({ team });
     renderRoom();
   }
@@ -1172,12 +1214,18 @@ export function createSession(options = {}) {
     leaving = true;
     teardownMatch();
     detachRoom();     // sync.dispose(flush) → 남은 이벤트가 퇴장 프레임에 같이 나간다
+    pendingAction = null;
     phase = 'leaving';
     U('show', 'lobby', { rooms: lobbyRooms, loading: true, error: null, joining: null, name: playerName });
     screen('lobby');
     try { await r.leave(); } catch (e) { report(e, 'room.leave'); }
     leaving = false;
-    if (!disposed && phase === 'leaving') enterLobby(null);
+    if (disposed || phase !== 'leaving') return;   // 그 사이 ← 메뉴(idle)·연결 끊김(lobby)·dispose
+    enterLobby(null);
+    // 나오는 동안(로비 화면이 먼저 뜬다) 누른 방 만들기·참가는 앞 방에서 다 나온 지금 한다
+    const act = pendingAction;
+    pendingAction = null;
+    if (act) act();
   }
 
   function backToRoom() {

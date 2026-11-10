@@ -202,6 +202,11 @@ export default {
     t.check(view && view.mode === 'bomb', '결과 화면이 폭파 미션 모양이다', view);
     t.check(view && view.rounds === log.rounds.length, '라운드 칩 수 = 끝난 라운드 수', { view, rounds: log.rounds.length });
     t.check(view && /폭탄 폭파|폭탄 해체/.test(view.text), '라운드 사유가 결과에 보인다', view && view.text);
+    // 쉬움 난이도(difficulty=easy)는 보상을 ×0.7로 줄이므로 난이도 줄이 음수다. "+-4"처럼 부호를 겹쳐 찍지 않는다
+    const lines = await page.eval(`[...document.querySelectorAll('.sk-res-line')].map((l) => [...l.children].map((c) => c.textContent))`);
+    const easy = lines.find(([label]) => /난이도 쉬움/.test(label));
+    t.check(!!easy && /^-\d/.test(easy[1]), '쉬움 난이도 줄은 깎인 값(-)으로 보인다', lines);
+    t.check(lines.length > 0 && lines.every(([, v]) => /^[+-]\d/.test(v) && !/^\+-/.test(v)), '포인트 줄에 +-처럼 부호가 겹치지 않는다', lines);
     await t.shot('results');
     t.errorsOk('폭파 미션 경기');
 

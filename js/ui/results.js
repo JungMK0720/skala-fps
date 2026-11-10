@@ -4,7 +4,7 @@
  * Purpose: 결과 화면. 팀전은 승리 팀·라운드 기록·MVP, 개인전은 시상대와 순위표를 보여 주고, reward 값이 있으면 획득 포인트를 올라가는 숫자로 보여 준다.
  *          폭파 미션은 팀전 화면에 라운드마다 끝난 방식(💥 폭파 · ✂️ 해체 · ☠️ 전멸 · ⏱ 시간)과 이긴 진영(공격/수비)을 더한다.
  */
-import { h, btn, setText, num, fmtPoints, TEAMS, teamKey, modeKey, FFA_TARGET, SIDE_NAME, bombSide } from './dom.js';
+import { h, btn, setText, num, fmtPoints, fmtDelta, TEAMS, teamKey, modeKey, FFA_TARGET, SIDE_NAME, bombSide } from './dom.js';
 import { makeScreen } from './parts.js';
 import { mapInfo } from './icons.js';
 import { normStatPlayers, byPerformance, rankPlayers } from './scoreboard.js';
@@ -79,7 +79,7 @@ export function createResults(ctx) {
   /** 0에서 gained까지 빠르게 올라간다. 움직임을 줄이는 설정이면 바로 최종값을 보여 준다. */
   function countUp(gained) {
     stopCount();
-    const paint = (v) => setText(rewardNum, `+${Math.round(v).toLocaleString('ko-KR')}`);
+    const paint = (v) => setText(rewardNum, fmtDelta(v));
     const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (calm || gained <= 0) { paint(gained); return; }
     const t0 = performance.now();
@@ -101,7 +101,7 @@ export function createResults(ctx) {
     const lines = Array.isArray(reward.breakdown) ? reward.breakdown : [];
     rewardLines.replaceChildren(...lines.map((x) => h('li', { class: 'sk-res-line' },
       h('span', { text: x.label }),
-      h('b', { text: `+${Math.round(num(x.points, 0)).toLocaleString('ko-KR')}` }))));
+      h('b', { text: fmtDelta(x.points) }))));   // 쉬움 난이도 줄처럼 깎이는 값은 "-4"(앞에 +를 겹치지 않는다)
     setText(rewardTotal, reward.points != null ? `보유 ${fmtPoints(reward.points)}` : '');
     rewardTotal.hidden = reward.points == null;
     countUp(Math.max(0, Math.round(num(reward.gained, 0))));

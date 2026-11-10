@@ -2,6 +2,7 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 시나리오 11. 가짜 Supabase(tools/qa/fake-supabase.mjs)에 실제 클라이언트 둘을 붙여 멀티플레이를 끝까지 돌린다. 닉네임 서버 검사, 프로필 저장, 로비, 방, 채팅, 경기, 경기 채팅, 판정, 결과, 퇴장을 본다.
+ *          막 열린 방에 들어온 손님의 팀 자동 배정과, 방에서 나오는 중에 누른 방 만들기도 본다.
  *          개인전 중간 참가를 볼 때만 셋째 클라이언트를 잠깐 띄운다(둘 중 하나가 나가면 기권승으로 끝나기 때문이다).
  *          실서버의 인증·전송 한도·지연은 검증하지 못한다. 페이지가 둘이어야 하는 유일한 시나리오라 작은 화면과 저사양으로 돌린다.
  *          --relay <주소|node>면 실시간 메시지만 중계 서버(server/relay)로 보내고, 닉네임·프로필 RPC는 그대로 가짜 Supabase가 받는다.
@@ -443,8 +444,7 @@ export default {
 
       t.setSection('폭파 미션 짧게');
       // 셋째 방: 방장이 대기실에서 폭파 미션으로 바꾸면 규칙은 클래식, 맵은 미션 맵이 된다. 방장(블루)이 A에 설치하고 손님(레드)이 해체한다
-      // 방에서 나오는 동안(leaving)은 로비 화면이 먼저 뜨지만 방 만들기가 먹지 않는다. 로비가 다 뜰 때까지 기다린다
-      await host.waitFor(`__qa.ctx.screen === "lobby" && !document.querySelector('.sk-lobby .sk-loading')`, 15000, { label: '방장 로비(폭파 방 전)' });
+      // 방장은 둘째 방에서 막 나왔다. 아직 나오는 중(leaving)이어도 방 만들기는 다 나온 뒤에 실행된다(아래 '나오는 중에 방 만들기' 절)
       await host.clickText('.sk-lobby .sk-bar-actions .sk-btn', '방 만들기');
       await host.waitFor(`!!document.querySelector('.sk-create-sheet')`, 3000, { label: '방 만들기 시트' });
       await host.fn(() => { const el = document.querySelector('.sk-create-sheet input'); el.focus(); el.select(); });
@@ -458,10 +458,12 @@ export default {
       t.check(!/🔒/.test(await guest.eval(`document.querySelector('.sk-room-row').textContent`)), '폭파 방은 자물쇠 없이 보인다');
       await guest.click('.sk-room-join');
       await guest.waitFor('__qa.ctx.screen === "room" && __qa.ui.isVisible("room")', 15000, { label: '손님이 폭파 방에' });
-      // 방을 막 연 방장의 팀이 presence로 퍼지기 전에 손님이 들어오면 손님도 블루를 고를 수 있다. 팀을 직접 맞춘다(방장 블루 · 손님 레드)
+      // 방을 막 연 방장의 팀이 presence로 퍼지기 전에 들어와도, 손님은 방장의 팀이 보이면 다른 팀(레드)으로 옮긴다(팀 자동 배정)
       const teamIs = (page, team) => page.eval(`(window.__skalafpsSession && window.__skalafpsSession.state.team) === '${team}'`);
+      t.check(await teamIs(host, 'owner'), '폭파 방을 연 방장은 블루', await host.eval('window.__skalafpsSession.state.team'));
+      await eventually(t, guest, `window.__skalafpsSession.state.team === 'charterer'`, '막 열린 방에 들어온 손님은 방장과 다른 팀(레드)으로 자동 배정된다', 8000);
+      // 자동 배정이 틀렸으면 위에서 실패로 남기고, 폭파 미션을 끝까지 보려고 팀을 직접 맞춘다
       if (!(await teamIs(host, 'owner'))) await host.click('.sk-team--owner .sk-team-head .sk-btn');
-      await host.waitFor(`window.__skalafpsSession.state.team === 'owner'`, 5000, { label: '방장 블루' });
       if (!(await teamIs(guest, 'charterer'))) await guest.click('.sk-team--charterer .sk-team-head .sk-btn');
       await guest.waitFor(`window.__skalafpsSession.state.team === 'charterer'`, 5000, { label: '손님 레드' });
       await host.waitFor(`inRoster('손님') && [...document.querySelectorAll('.sk-room .sk-team--charterer .sk-team-list')].some((l) => l.textContent.includes('손님'))`, 8000, { label: '방장 화면에서 손님이 레드' });
@@ -510,9 +512,33 @@ export default {
       await guest.click('.sk-pause .sk-confirm .sk-btn--danger');
       await guest.waitFor('__qa.ctx.screen === "lobby" || __qa.ctx.screen === "menu"', 10000, { label: '손님이 폭파 방에서 나감' });
       await host.waitFor('__qa.ui.isVisible("results")', 15000, { label: '방장 결과 화면(기권승)' }).catch((e) => t.check(false, '상대가 나가면 결과 화면', e.message));
-      if (await host.eval('__qa.ui.isVisible("results")')) await host.click('.sk-res-actions .sk-btn--ghost');
-      await host.waitFor('__qa.ctx.screen === "lobby" || __qa.ctx.screen === "menu"', 10000, { label: '방장이 로비로' });
       t.errorsOk('폭파 미션 끝');
+
+      t.setSection('나오는 중에 방 만들기');
+      // 방에서 나오는 동안(leaving)에도 로비 화면이 먼저 뜬다. 그때 누른 방 만들기는 버리지 않고, 앞 방에서 다 나온 뒤에 실행한다.
+      // 이 방의 나가기를 문 뒤에 세워(window.__qaLeaveGate()를 부를 때까지 room.leave가 끝나지 않는다) 나오는 동안 방을 만든다
+      if (await host.eval('__qa.ui.isVisible("results") && !!window.__skalafpsSession.room')) {
+        await host.eval(`(() => { const r = window.__skalafpsSession.room; const leave = r.leave.bind(r); r.leave = (...a) => new Promise((ok) => { window.__qaLeaveGate = ok; }).then(() => leave(...a)); return true; })()`);
+        await host.click('.sk-res-actions .sk-btn--ghost');
+        try {
+          await host.waitFor(`window.__skalafpsSession.phase === 'leaving' && __qa.ui.isVisible('lobby')`, 5000, { label: '나오는 중에도 로비 화면' });
+          await host.clickText('.sk-lobby .sk-bar-actions .sk-btn', '방 만들기');
+          await host.waitFor(`!!document.querySelector('.sk-create-sheet')`, 3000, { label: '방 만들기 시트' });
+          await host.fn(() => { const el = document.querySelector('.sk-create-sheet input'); el.focus(); el.select(); });
+          await host.type('넷째 방');
+          await host.clickText('.sk-create-sheet .sk-form-actions .sk-btn', '방 만들기');
+          t.check((await host.eval('window.__skalafpsSession.phase')) === 'leaving', '앞 방에서 다 나오기 전에 방 만들기를 눌렀다');
+        } finally {
+          await host.eval('window.__qaLeaveGate && window.__qaLeaveGate()');
+        }
+        await eventually(t, host, `__qa.ctx.screen === "room" && __qa.ui.isVisible("room") && /넷째 방/.test(document.querySelector('.sk-room-title').textContent)`, '나오는 중에 누른 방 만들기로 새 방이 열린다', 10000);
+        await t.shot('created-while-leaving');
+        if (await host.eval('__qa.ui.isVisible("room")')) await host.click('.sk-room .sk-bar .sk-btn--ghost');
+      } else {
+        t.note('방장 결과 화면이 뜨지 않아(위에서 실패로 남김) 나오는 중 방 만들기는 보지 못했다');
+      }
+      await host.waitFor('__qa.ctx.screen === "lobby" || __qa.ctx.screen === "menu"', 10000, { label: '방장이 로비로' });
+      t.errorsOk('나오는 중에 방 만들기');
 
       t.setSection('나가기');
       if (await host.eval('__qa.ui.isVisible("lobby")')) await host.click('.sk-lobby .sk-bar .sk-btn--ghost');

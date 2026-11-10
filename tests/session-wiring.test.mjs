@@ -2,7 +2,8 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 멀티 세션 연결 시험. 작은 가짜 net·world·ui·account로 방장과 멤버를 방 → 로드아웃 → 라이브 → 히트 주장 → 킬 → 결과까지 돌리고,
- *          규칙·산탄 count·방장 이전·계정 기록·로비 메타·대기실 화면을 확인한다. Realtime 전송 자체는 시험하지 않는다.
+ *          규칙·산탄 count·방장 이전·계정 기록·로비 메타·대기실 화면, 나오는 중에 누른 방 만들기·참가, 막 열린 방의 팀 자동 배정(presence 지연),
+ *          결과 화면의 포인트 줄 부호를 확인한다. Realtime 전송 자체는 시험하지 않는다.
  */
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,6 +25,7 @@ import { avatarIdOf } from '../js/core/avatar-defs.js';
 import { createLobby, mapsForRule, ruleBadge } from '../js/ui/lobby.js';
 import { createRoom } from '../js/ui/room.js';
 import { createResults } from '../js/ui/results.js';
+import { matchReward } from '../js/account/economy.js';
 
 const MAP_LIST = Object.freeze([
   { id: 'rooftop', name: '빨랫줄 옥상', rulesets: ['knife'], tag: '칼전 전용' },
@@ -51,7 +53,14 @@ class FakeRoom {
   isHost() { return this.hub.hostId === this.myId; }
   hostId() { return this.hub.hostId; }
   now() { return this.hub.clock.now(); }
-  players() { return [...this.hub.members.values()].map((p) => ({ ...p, isHost: p.id === this.hub.hostId, ping: 30 })); }
+  players() {
+    const out = [];
+    for (const p of this.hub.members.values()) {
+      const seen = p.id === this.myId ? p : this.hub.seenBy(this.myId, p);
+      if (seen) out.push({ ...seen, isHost: p.id === this.hub.hostId, ping: 30 });
+    }
+    return out;
+  }
   on(evt, fn) {
     if (!this.subs.has(evt)) this.subs.set(evt, new Set());
     this.subs.get(evt).add(fn);
@@ -98,6 +107,24 @@ function createHub(clock) {
     },
     announce(evt) {
       for (const room of [...hub.rooms.values()]) room.emit(evt, evt === 'players' ? room.players() : room.meta);
+    },
+    /**
+     * presence가 늦게 퍼지는 것을 흉내 낸다. lag.get(보는 사람).get(그 사람 id) =
+     * null(아직 명단에 없다) | { team: null } 같은 옛 칸(그 칸이 실린 presence가 아직 안 왔다)
+     */
+    lag: new Map(),
+    seenBy(viewer, p) {
+      const m = hub.lag.get(viewer);
+      if (!m || !m.has(p.id)) return p;
+      const old = m.get(p.id);
+      return old === null ? null : { ...p, ...old };
+    },
+    /** 늦던 presence가 그 사람에게 도착한다 */
+    deliver(viewer, id) {
+      const m = hub.lag.get(viewer);
+      if (m) m.delete(id);
+      const room = hub.rooms.get(viewer);
+      if (room) room.emit('players', room.players());
     },
     create(me, opts) {
       const { name, mapId, max, ...extra } = copy(opts);
@@ -993,6 +1020,140 @@ describe('방에서 나가기', () => {
     assert.equal(a.session.phase, 'lobby');
     env.dispose();
   });
+
+  test('나가는 중에 누른 방 만들기는 버리지 않고, 나가기가 끝나면 그 방을 만든다', async (t) => {
+    const { env, a, gate } = await hostInSlowRoom(t);
+    a.ui.fire('room:leave', {});
+    assert.equal(a.session.phase, 'leaving');
+    a.ui.fire('lobby:create', { name: '둘째 방', max: 2, mapId: 'alley', mode: 'team' });
+    assert.equal(a.session.phase, 'leaving', '앞 방에서 다 나갈 때까지 기다린다');
+    assert.equal(a.ui.props('lobby').loading, true, '기다리는 동안 로비는 불러오는 중으로 보인다');
+    gate.answer();
+    await env.settle();
+    assert.equal(a.session.phase, 'room', '나가기가 끝나면 새 방으로 들어간다');
+    assert.equal(env.hub.lastCreate.name, '둘째 방');
+    assert.equal(env.hub.lastCreate.mapId, 'alley');
+    assert.equal(a.session.room.meta.max, 2);
+    env.dispose();
+  });
+
+  test('나가는 중에 누른 참가도 나가기가 끝나면 그 방으로 들어간다', async (t) => {
+    const env = stage(t);
+    const a = env.client('a', '하늘');
+    const b = env.client('b', '구름');
+    await a.session.open();
+    a.ui.fire('lobby:create', { name: '', max: 4, mapId: 'jetty', mode: 'team' });
+    await env.settle();
+    await b.session.open();
+    b.ui.fire('lobby:join', { roomId: env.hub.roomId });
+    await env.settle();
+    assert.equal(b.session.phase, 'room');
+    const room = b.session.room;
+    const realLeave = room.leave.bind(room);
+    const gate = {};
+    room.leave = async () => { await new Promise((r) => { gate.answer = r; }); await realLeave(); };
+    b.ui.fire('room:leave', {});
+    assert.equal(b.session.phase, 'leaving');
+    b.ui.fire('lobby:join', { roomId: env.hub.roomId });
+    assert.equal(b.ui.props('lobby').joining, env.hub.roomId, '누른 방에 참가 중으로 보인다');
+    gate.answer();
+    await env.settle();
+    assert.equal(b.session.phase, 'room', '나가기가 끝나면 누른 방으로 들어간다');
+    assert.ok(env.hub.members.has('b'));
+    env.dispose();
+  });
+
+  test('나가는 중에 방 만들기를 누른 뒤 ← 메뉴를 누르면 방을 만들지 않는다', async (t) => {
+    const { env, a, gate } = await hostInSlowRoom(t);
+    const first = env.hub.lastCreate;
+    a.ui.fire('room:leave', {});
+    a.ui.fire('lobby:create', { name: '둘째 방', max: 4, mapId: 'jetty', mode: 'team' });
+    a.ui.fire('lobby:back', {});
+    gate.answer();
+    await env.settle();
+    assert.equal(a.session.phase, 'idle');
+    assert.deepEqual(env.hub.lastCreate, first, '마지막으로 누른 ← 메뉴를 따른다');
+    // 다시 멀티로 들어와도 버린 방 만들기가 뒤늦게 실행되지 않는다
+    await a.session.open();
+    await env.settle();
+    assert.equal(a.session.phase, 'lobby');
+    assert.deepEqual(env.hub.lastCreate, first);
+    env.dispose();
+  });
+});
+
+describe('팀 자동 배정', () => {
+  /** a가 방을 연 직후 b가 들어온다. seen: b가 들어올 때 본 a의 presence(null = 아직 명단에 없음) */
+  async function joinEarly(t, seen) {
+    const env = stage(t);
+    const a = env.client('a', '하늘');
+    const b = env.client('b', '구름');
+    await a.session.open();
+    a.ui.fire('lobby:create', { name: '', max: 4, mapId: 'jetty', mode: 'team' });
+    await env.settle();
+    assert.equal(env.hub.members.get('a').team, 'owner');
+    env.hub.lag.set('b', new Map([['a', seen]]));
+    await b.session.open();
+    b.ui.fire('lobby:join', { roomId: env.hub.roomId });
+    await env.settle();
+    assert.equal(b.session.phase, 'room');
+    return { env, a, b };
+  }
+  const teams = (env) => [env.hub.members.get('a').team, env.hub.members.get('b').team];
+
+  test('방장의 팀이 실린 presence보다 먼저 들어온 손님은, 방장의 팀을 알게 되면 다른 팀으로 옮긴다', async (t) => {
+    const { env } = await joinEarly(t, { team: null });
+    env.hub.deliver('b', 'a');
+    assert.deepEqual(teams(env), ['owner', 'charterer'], '방장과 같은 팀에 남지 않는다');
+    env.dispose();
+  });
+
+  test('명단에 방장이 아직 없을 때 들어와도, 방장이 보이면 다른 팀으로 옮긴다', async (t) => {
+    const { env } = await joinEarly(t, null);
+    env.hub.deliver('b', 'a');
+    assert.deepEqual(teams(env), ['owner', 'charterer']);
+    env.dispose();
+  });
+
+  test('방장의 팀을 이미 알고 들어오면 처음부터 다른 팀이고, 그 뒤에는 혼자 팀을 바꾸지 않는다', async (t) => {
+    const env = stage(t);
+    const a = env.client('a', '하늘');
+    const b = env.client('b', '구름');
+    await a.session.open();
+    a.ui.fire('lobby:create', { name: '', max: 4, mapId: 'jetty', mode: 'team' });
+    await env.settle();
+    await b.session.open();
+    b.ui.fire('lobby:join', { roomId: env.hub.roomId });
+    await env.settle();
+    assert.deepEqual(teams(env), ['owner', 'charterer']);
+    const room = b.session.room;
+    const updates = [];
+    const real = room.updateMe.bind(room);
+    room.updateMe = (fields) => { if ('team' in fields) updates.push(fields.team); return real(fields); };
+    // 방장이 레드로 옮겨도 손님은 따라 움직이지 않는다(팀을 직접 고르는 것은 각자)
+    a.ui.fire('room:team', { team: 'charterer' });
+    env.hub.announce('players');
+    assert.deepEqual(teams(env), ['charterer', 'charterer']);
+    assert.deepEqual(updates, [], '들어올 때 정한 팀을 혼자 다시 고르지 않는다');
+    env.dispose();
+  });
+
+  test('presence를 기다리는 동안 직접 고른 팀은 그대로 둔다', async (t) => {
+    const { env, b } = await joinEarly(t, { team: null });
+    b.ui.fire('room:team', { team: 'charterer' });
+    b.ui.fire('room:team', { team: 'owner' });
+    env.hub.deliver('b', 'a');
+    assert.deepEqual(teams(env), ['owner', 'owner'], '레드로 갔다가 직접 블루로 돌아왔으면 블루에 둔다');
+    env.dispose();
+  });
+
+  test('들어온 지 오래 지나서 온 presence로는 팀을 바꾸지 않는다', async (t) => {
+    const { env } = await joinEarly(t, { team: null });
+    env.clock.t += 60000;
+    env.hub.deliver('b', 'a');
+    assert.deepEqual(teams(env), ['owner', 'owner'], '대기실에 한참 있던 사람의 팀이 갑자기 바뀌지 않는다');
+    env.dispose();
+  });
 });
 
 describe('서버 설정이 없을 때', () => {
@@ -1780,6 +1941,23 @@ describe('로비·대기실 화면', () => {
     const box = results.el.all((k) => k.classList.contains('sk-mvp'))[0];
     assert.ok(box.textContent.includes('레드'), box.textContent);
     assert.ok(box.textContent.includes('9'));
+    results.dispose();
+  });
+
+  test('결과: 쉬움 난이도처럼 깎이는 포인트 줄은 -로 보이고, +-처럼 부호가 겹치지 않는다', () => {
+    const ctx = { ...uiCtx(), every: () => 0, cancel() {} };
+    const results = createResults(ctx);
+    // 봇전 쉬움: 킬 5 + 완주 10 = 15 → ×0.7 = 11, 난이도 줄은 -4
+    const reward = matchReward({ online: false, difficulty: 'easy', kills: 1 });
+    assert.deepEqual(reward.breakdown.map((x) => x.points), [5, 10, -4]);
+    results.show({
+      winner: 'charterer', score: { owner: 0, charterer: 3 }, rounds: [], myTeam: 'owner', mapId: 'alley', meId: 'a',
+      players: [{ id: 'a', name: '하늘', team: 'owner', kills: 1, deaths: 3, head: 0 }],
+      reward: { ...reward, points: 511 }
+    });
+    const lines = results.el.all((k) => k.classList.contains('sk-res-line')).map((li) => li.children.map((c) => c.textContent));
+    assert.deepEqual(lines, [['킬 ×1', '+5'], ['완주', '+10'], ['난이도 쉬움 ×0.7', '-4']]);
+    assert.ok(!results.el.textContent.includes('+-'), results.el.textContent);
     results.dispose();
   });
 });
