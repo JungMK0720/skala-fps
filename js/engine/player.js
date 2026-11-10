@@ -41,6 +41,7 @@ import { PLAYER, EMOTE_BLEND, emoteById } from '../core/consts.js';
 import { raycastWorld, canStand } from './physics.js';
 import { moveQuake, resetMoveMemory } from './movement.js';
 import { stepTriggers } from './triggers.js';
+import { carryBody } from './movers.js';
 import { lerpAngle } from './interp.js';
 
 /** 3인칭(이모트) 카메라: 시작 궤도각(+ = 캐릭터 왼쪽 앞), 높이각, 거리, 바라보는 높이 */
@@ -245,6 +246,8 @@ export function createLocalPlayer({ bus, input, camera, getWorld, state: initSta
     if (jumpBuffer > 0) jumpBuffer -= dt;
     const world = getWorld && getWorld();
     if (!world) return;
+    // 움직이는 지형 위에 서 있으면 같이 간다(prev를 잡은 뒤라 화면 보간에도 들어간다)
+    if (world.movers && !world.movers.empty && state.alive) carryBody(world, state);
     const inp = (input && input.state) || {};
     // 이모트: 움직이면(이동키·공중) 취소, 한 번형은 길이가 끝나면 종료
     if (state.emote) {

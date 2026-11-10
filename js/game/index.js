@@ -193,6 +193,7 @@ export async function install(ctx) {
     bus.on('account:change', onAccountChange),
     bus.on('account:nickname-conflict', (e) => gate.onConflict(e)),
     bus.on('app:error', (e) => toast.notify((e && e.message) || '오류가 났어요')),
+    bus.on('fullscreen:denied', (e) => { if (e && e.notify) toast.notify('이 브라우저 화면에서는 전체 화면을 켤 수 없어요. 앉은 채 앞으로 갈 때는 C 키를 쓰세요.'); }),
     bus.on('map:error', (e) => toast.notify(`맵을 불러오지 못했어요: ${(e && (e.message || e.id)) || ''}`)),
     bus.on('screen:unavailable', (e) => toast.notify(`${SCREEN_LABEL[e && e.name] || (e && e.name) || ''} 화면은 아직 준비 중이에요.`)),
     ui.on('menu:sandbox', openPracticeSetup),

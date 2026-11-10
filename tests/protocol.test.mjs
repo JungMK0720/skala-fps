@@ -234,9 +234,19 @@ describe('다른 메시지 왕복', () => {
   });
 
   test('채팅', () => {
-    assert.deepEqual(decodeChat(wire(encodeChat(1, '  안녕\n하세요  '))), { id: 1, text: '안녕 하세요' });
+    assert.deepEqual(decodeChat(wire(encodeChat(1, '  안녕\n하세요  '))), { id: 1, text: '안녕 하세요', scope: 'all' });
     assert.equal(decodeChat([1, '   ']), null);
     assert.equal(cleanText('x'.repeat(500)).length, 120);
+  });
+
+  test('채팅 범위: 팀 채팅은 끝에 1이 붙고, 전체는 예전과 같은 두 칸이다', () => {
+    assert.deepEqual(encodeChat(2, '모두에게'), [2, '모두에게']);
+    assert.deepEqual(encodeChat(2, '모두에게', 'all'), [2, '모두에게'], '전체는 예전 클라이언트가 읽는 모양 그대로');
+    assert.deepEqual(encodeChat(3, '우리끼리', 'team'), [3, '우리끼리', 1]);
+    assert.deepEqual(decodeChat(wire(encodeChat(3, '우리끼리', 'team'))), { id: 3, text: '우리끼리', scope: 'team' });
+    // 모르는 범위 값은 전체로 친다(던지지 않는다)
+    for (const junk of [0, 2, '1', true, null, { a: 1 }]) assert.equal(decodeChat([4, '글', junk]).scope, 'all');
+    assert.deepEqual(decodeMessage(EV.chat, [5, '팀', 1]), { type: 'chat', data: { id: 5, text: '팀', scope: 'team' } });
   });
 
   test('핑·퐁', () => {

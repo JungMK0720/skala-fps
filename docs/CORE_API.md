@@ -98,7 +98,7 @@ export function install(ctx) {
 | `raycastWorld(origin, dir, maxDist, opts)` | 현재 맵 월드 레이캐스트 |
 | `onTick(fn, order)` / `onFrame(fn, order)` | 루프 훅. `→ off` |
 | `setPlayerName(name)` | 닉네임 변경(설정 저장, `player:name` 발행) |
-| `enterFullscreen()` / `exitFullscreen()` | 전체 화면(클릭 핸들러 안에서). 전체 화면이면 input이 Keyboard Lock으로 Ctrl 조합 키도 받는다(크로뮴) |
+| `enterFullscreen()` / `exitFullscreen()` / `toggleFullscreen()` / `isFullscreen()` | 전체 화면(클릭·키 핸들러 안에서). 전체 화면이면 input이 Keyboard Lock으로 Ctrl+W·Tab·Esc 같은 키도 받는다(크로뮴). F11과 설정 `fullscreen`이 이것을 부른다(MODES.md 9절) |
 | `setRendering(bool)` | 커스텀 화면(관전 등)에서 3D 렌더를 켜고 끈다 |
 
 ### 화면 상태 머신
@@ -151,6 +151,11 @@ ctx.registerScreen('match', {
 | `input:menu` | `{ reason: 'esc'\|'unlock' }` |
 | `input:key` | `{ code, down }` — 모든 키(`e.code`, 반복 제외) |
 | `input:chat` | `{}` — 잠금 중 Enter(휴대폰은 채팅 버튼). 이모트 휠이 열려 있거나 키 반복이면 내지 않는다. 멀티플레이 경기면 session이 채팅 입력칸을 연다 |
+| `input:loadout` | `{}` — N(키 반복 제외, 입력이 켜져 있을 때). 휴대폰은 HUD의 무기 교체 안내를 누른다. World가 라운드 시작 전 대기 시간이면 무기 교체 창을 여닫는다(MODES.md 7절) |
+| `input:lockRequest` | `{}` — `requestLock()`을 부른 순간(사용자 입력 안). 설정 `fullscreen`이 켜져 있으면 main.js가 전체 화면도 같이 켠다 |
+| `input:fullscreenToggle` | `{}` — F11. main.js가 앱의 전체 화면을 켜고 끈다 |
+| `input:keyboardLock` | `{ locked }` — 전체 화면 키 잠금(Keyboard Lock)이 걸리고 풀릴 때 |
+| `fullscreen:change` | `{ active }` — 전체 화면에 들어가고 나올 때(main.js) |
 | `player:spawn` | `{ state, point }` |
 | `player:jump` / `player:land` | `{ pos }` / `{ pos, speed, mat }` |
 | `player:step` | `{ pos, speed, quiet, crouch, mat }` — 발소리(걷기 1.95 m, Shift·앉아서 1.5 m마다, Shift·앉음이면 `quiet:true`) |
@@ -233,7 +238,10 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 - `resetAim()`: toggle 모드의 줌을 강제로 해제한다(예: 저격 후 자동 줌 해제). `input:aim {active:false, source:'reset'}`를 발행한다.
 - 키는 `e.code` 기준이라 한/영 상태와 무관하다. 입력창에 타이핑하는 중에는 무시한다. 우클릭 메뉴를 막고, 휠은 110 ms로 스로틀한다.
 - Pointer Lock 중에는 Ctrl 조합(Ctrl+S·D·R·A·Space, Ctrl+휠 확대 등)의 브라우저 기본 동작을 막는다. Ctrl+W·T·N·Tab은 브라우저가 먼저 가져가 막을 수 없다(15절).
-- 전체 화면(Fullscreen API)이 되면 `navigator.keyboard.lock()`으로 게임 키(WASD·C·R·Space·Tab·1~4·Ctrl·Shift·화살표)를 잠가 Ctrl+W도 게임이 받는다(크로뮴 계열, Esc는 잠그지 않음).
+- 전체 화면(Fullscreen API)이 되면 `navigator.keyboard.lock()`으로 `LOCK_KEYS`(게임 키, Tab·Enter·Esc·F11, 숫자 1~9, T·N·Q)를 잠가 Ctrl+W·Ctrl+T·Ctrl+Tab도 게임이 받는다(크로뮴 계열).
+  Esc도 잠그므로 잠금 중의 Esc는 전체 화면을 풀지 않고, input이 포인터 잠금만 직접 풀어 `input:menu`가 나간다. `keyboardLocked`, `canKeyboardLock`으로 상태를 읽는다.
+- F11은 가로채서 `input:fullscreenToggle`을 낸다(브라우저의 F11 전체 화면은 키를 잠그지 못한다). 입력칸에 포커스가 있어도 받는다.
+- N은 `input:loadout`을 낸다(라운드 시작 전 무기 교체 창).
 
 ## 8. player (`createLocalPlayer`)
 
@@ -274,6 +282,7 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 - 60 Hz 고정 틱과 가변 렌더(rAF)로 돈다. 한 프레임에 따라잡는 틱은 최대 6번이다.
 - `onTick(fn(dt, tick, time), order)`, `onFrame(fn(dt, alpha, now), order)` → off.
 - order가 작을수록 먼저 실행된다. core가 쓰는 order는 다음과 같다.
+  - 움직이는 지형: 틱 -150(몸보다 먼저 옮긴다)
   - 플레이어: 틱 -100, 프레임 -100
   - 아바타·맵 애니메이션: -50
   - **렌더: 1000**(항상 마지막)
@@ -285,10 +294,12 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 `buildMap(data, scene, { onWarn })`가 돌려주는 값은 다음과 같다.
 ```
 { id, data, name, theme(정규화), group, world, colliders, spawns:{owner:[{x,y,z,rotY}],charterer:[…]}, bounds:{minX,maxX,minZ,maxZ},
-  seaLevel, warnings, stats:{solids, colliders, drawCalls, triangles, decor, lights},
+  seaLevel, warnings, stats:{solids, colliders, drawCalls, triangles, decor, lights, movers},
   getGroundY(x,z,fromY?), findFloor(x,z), raycastWorld(o,d,max), traceShot(o,d,max,targets), sphereSweep(body,dt,opt), lineOfSight(a,b),
-  update(dt,t), dispose() }
+  movers, tickMovers(dt), setMoverClock(fn), update(dt,t,alpha), dispose() }
 ```
+- **움직이는 지형**(`data.movers`, MAP_GUIDE.md 11절): 하나마다 메시 하나로 그리고 위아래에 노란 띠를 두른다. `tickMovers(dt)`는 틱마다 몸보다 먼저 불러 충돌체를 옮기고
+  (core 루프가 부른다), `update(dt, t, alpha)`가 메시를 직전 틱과 이번 틱 자리 사이에 놓는다. `setMoverClock(fn)`은 초를 돌려주는 시계(멀티: 방장 시계)이고, 없으면 맵을 불러온 뒤 흐른 틱 시간이다.
 - **렌더**: solids는 재질별로 한 메시로 합친다(UV는 월드 좌표 ÷ `MAT_INFO[mat].scale`). 맵 하나의 정적 드로우콜은 재질 수와 같아서 약 12–15개다. 파이프와 부표는 InstancedMesh로 그린다.
 - **바닥**: 플레이 영역 전체에 윗면 y = 0인 바닥 슬래브를 깔고 충돌체도 만든다.
   - 윗면이 y ≤ 0.05이고 아랫면이 0보다 낮은 box(물 웅덩이·바닥 높이 패치·구덩이)는 그 자리를 슬래브에서 도려낸다. z-fighting이 없어진다.
@@ -321,6 +332,7 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 | `quality` | `'auto'` | `'auto'`·`'high'`·`'low'` |
 | `showFps` | false | FPS 표시 |
 | `volume` | 0.8 | 0–1, FX용 |
+| `fullscreen` | `'off'` | `'on'`·`'off'`. 전체 화면 유지(브라우저 단축키 잠금). 실제 전체 화면 상태를 따라 바뀐다(main.js `wireFullscreen`) |
 | `name` | `''` | 닉네임 |
 
 엔진은 이 저장소만 읽는다. UI 담당이 따로 둔 설정 패널은 `ctx.settings.set(key, value)`로 값을 써 넣어야 엔진에 반영된다.
@@ -353,7 +365,7 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 ## 14. 알려진 한계
 
 - 캐릭터는 원기둥 근사다. 앉으면 키만 1.25 m로 줄고 발 위치는 그대로다(공중에서 다리를 접는 '앉아 점프' 높이 보너스는 없음). ramp는 경사와 관계없이 걸어 오를 수 있다(45° 이상 ramp는 만들지 말 것).
-- Ctrl+W·Ctrl+T·Ctrl+N·Ctrl+Tab은 전체 화면 Keyboard Lock이 아니면 막을 수 없다. 경기 중 탭 닫기는 `beforeunload` 확인으로만 막는다.
+- Ctrl+W·Ctrl+T·Ctrl+N·Ctrl+Tab은 전체 화면 Keyboard Lock이 아니면 막을 수 없다. 창 화면의 경기 중 탭 닫기는 `beforeunload` 확인으로만 막는다. Keyboard Lock은 크로뮴 계열에만 있다.
 - 그림자는 플레이어 주변 ±36 m만 생긴다. 실조명은 최대 4개다.
 - 원격 아바타는 아바타당 드로우콜 4–5개(+그림자)를 쓴다. 8인 기준 프레임당 총 100–150콜이다.
 - 연습장의 임시 총은 시연용이다(무기 모듈이 붙으면 빠진다). 사운드·이펙트는 FX 모듈 몫이다.

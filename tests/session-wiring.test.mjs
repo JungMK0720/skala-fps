@@ -24,6 +24,7 @@ import { getDef } from '../js/weapons/defs.js';
 import { avatarIdOf } from '../js/core/avatar-defs.js';
 import { createLobby, mapsForRule, ruleBadge } from '../js/ui/lobby.js';
 import { createRoom } from '../js/ui/room.js';
+import { createChat, chatPlaceholder } from '../js/ui/chat.js';
 import { createResults } from '../js/ui/results.js';
 import { matchReward } from '../js/account/economy.js';
 
@@ -187,7 +188,8 @@ function fakeNet(hub, id, name) {
 const WORLD_CALLS = [
   'unloadMap', 'setRuleset', 'reset', 'spawnLocal', 'setLocalLoadout', 'setLocalHp', 'killLocal', 'addActor', 'removeActor', 'setActorState',
   'actorFire', 'actorGrenade', 'actorDeath', 'feedbackDamage', 'setRound', 'setControlsEnabled', 'setScoreboard', 'setHint', 'setPauseOptions',
-  'setMode', 'setRespawn', 'setProtect', 'setActorProtect', 'sound', 'addDrop', 'removeDrop', 'setBomb', 'bombEvent'];
+  'setMode', 'setRespawn', 'setProtect', 'setActorProtect', 'sound', 'addDrop', 'removeDrop', 'setBomb', 'bombEvent',
+  'openSwap', 'closeSwap', 'setMoverClock'];
 /** 폭파 미션 시험용 미션 칸과 맵 목록(미션 맵 하나) */
 const BOMB_MISSION = {
   sites: [{ id: 'A', x: 10, y: 0, z: 10, w: 6, d: 6 }, { id: 'B', x: 10, y: 0, z: -10, w: 6, d: 6 }],
@@ -412,6 +414,73 @@ describe('세션 연결', () => {
     env.dispose();
   });
 
+  test('팀 채팅: 같은 팀에게만 보내고, 다른 팀이 흉내 낸 팀 채팅은 받지 않는다', async (t) => {
+    const env = stage(t);
+    const a = env.client('a', '하늘');
+    const b = env.client('b', '구름');
+    const c = env.client('c', '바다');
+    await startMatch(env, [a, b, c], { mapId: 'jetty' });
+    await env.run(1600);
+    assert.deepEqual([a.session.state.team, b.session.state.team, c.session.state.team], ['owner', 'charterer', 'owner']);
+    assert.deepEqual(a.ui.lastShown('chat'), { teamChat: true }, '팀 경기는 전체·팀 탭을 켠다');
+
+    a.ui.fire('chat:send', { text: 'A로 같이 가요', scope: 'team' });
+    await env.run(200);
+    const mine = a.ui.chat.lines.at(-1);
+    assert.deepEqual([mine.text, mine.scope, mine.me, mine.team], ['A로 같이 가요', 'team', true, 'owner']);
+    const got = (cl, text) => cl.ui.chat.lines.filter((l) => !l.system && l.text === text);
+    assert.equal(got(c, 'A로 같이 가요').length, 1, '같은 팀은 한 줄 받는다(다시 보내도 한 줄)');
+    assert.deepEqual([got(c, 'A로 같이 가요')[0].scope, got(c, 'A로 같이 가요')[0].name], ['team', '하늘']);
+    assert.equal(got(b, 'A로 같이 가요').length, 0, '상대 팀 화면에는 없다');
+    const wire = env.hub.sent.filter((m) => m.event === EV.chat && m.from === 'a');
+    assert.ok(wire.length >= 1 && wire.every((m) => m.to === 'c'), '받는 사람을 팀원으로 정해 보낸다(상대에게는 전달되지 않는다)');
+    assert.ok(wire.every((m) => m.payload[2] === 1), '팀 범위 표시가 붙는다');
+    assert.ok(a.session.state.chat.some((l) => l.text === 'A로 같이 가요' && l.scope === 'team'), '채팅 기록에도 팀 표시가 남는다');
+    assert.ok(!b.session.state.chat.some((l) => l.text === 'A로 같이 가요'));
+
+    // 전체 채팅은 모두에게, 범위 표시 없이
+    a.ui.fire('chat:send', { text: '잘 부탁해요', scope: 'all' });
+    await env.run(200);
+    assert.equal(got(b, '잘 부탁해요').length, 1);
+    assert.equal(got(c, '잘 부탁해요').length, 1);
+    assert.equal(got(b, '잘 부탁해요')[0].scope, undefined);
+
+    // 상대 팀(고친 클라이언트)이 팀 범위를 붙여 나에게 직접 보내도 보여 주지 않는다. 같은 팀이 보낸 것은 보인다
+    env.hub.post('b', EV.chat, encodeChat(700, '엿보기 시험', 'team'), 'a');
+    env.hub.post('c', EV.chat, encodeChat(701, '우리 팀', 'team'), 'a');
+    await env.run(100);
+    assert.equal(got(a, '엿보기 시험').length, 0);
+    assert.equal(got(a, '우리 팀').length, 1);
+    assert.equal(got(a, '우리 팀')[0].scope, 'team');
+
+    // 혼자 남은 팀: 받을 사람이 없어도 내 화면에는 남는다
+    b.ui.fire('chat:send', { text: '혼잣말', scope: 'team' });
+    await env.run(200);
+    assert.equal(got(b, '혼잣말').length, 1);
+    assert.equal(env.hub.sent.filter((m) => m.event === EV.chat && m.from === 'b' && m.payload[1] === '혼잣말').length, 0, '아무에게도 보내지 않는다');
+    assert.equal(got(a, '혼잣말').length + got(c, '혼잣말').length, 0);
+    env.dispose();
+  });
+
+  test('팀 채팅: 개인전에는 탭이 없고, 팀 범위로 보내도 전체로 간다', async (t) => {
+    const env = stage(t);
+    const a = env.client('a', '하늘');
+    const b = env.client('b', '구름');
+    await startMatch(env, [a, b], { mapId: 'jetty', mode: 'ffa' });
+    await env.run(400);
+    assert.deepEqual(a.ui.lastShown('chat'), { teamChat: false });
+    a.ui.fire('chat:send', { text: '모두에게', scope: 'team' });
+    await env.run(200);
+    assert.equal(b.ui.chat.lines.filter((l) => l.text === '모두에게').length, 1);
+    assert.equal(a.ui.chat.lines.at(-1).scope, undefined);
+    assert.ok(env.hub.sent.filter((m) => m.event === EV.chat && m.from === 'a').every((m) => !m.to && m.payload.length === 2));
+    // 개인전에서 온 팀 범위 줄은 버린다
+    env.hub.post('b', EV.chat, encodeChat(800, '가짜 팀 채팅', 'team'), 'a');
+    await env.run(100);
+    assert.equal(a.ui.chat.lines.filter((l) => l.text === '가짜 팀 채팅').length, 0);
+    env.dispose();
+  });
+
   test('팀전: 장비 → 로드아웃 → 산탄 count → 킬 → 결과, 계정 기록은 한 번', async (t) => {
     const env = stage(t);
     const a = env.client('a', '하늘');
@@ -425,8 +494,12 @@ describe('세션 연결', () => {
     assert.equal(a.session.match.rules.ruleset, 'classic');
     assert.equal(b.account.retries, 1, '멀티 입장 때 닉네임을 다시 등록한다');
 
-    // 로드아웃: 가진 무기만, 계정 장비가 기본 선택
-    const screen = b.ui.lastShown('loadout');
+    // 대기 시간: 무기 선택 화면을 띄우지 않고 "N 을 눌러 무기 교체!" 안내(world.openSwap)만 켠다. 목록은 가진 무기만, 계정 장비가 기본 선택
+    assert.equal(b.ui.shown('loadout').length, 0, '라운드가 시작될 때 무기 선택 화면이 저절로 뜨지 않는다');
+    assert.equal(b.world.calls('openSwap').length, 1);
+    const screen = b.world.last('openSwap')[0];
+    assert.equal(screen.round, 1);
+    assert.ok(screen.seconds > 0.8 && screen.seconds <= 1.5, `남은 대기 시간: ${screen.seconds}`);
     assert.deepEqual(screen.weapons, pickableWeapons('classic', OWNED));
     assert.ok(!screen.weapons.includes('sr_heavy'));
     assert.equal(screen.ruleset, 'classic');
@@ -447,10 +520,28 @@ describe('세션 연결', () => {
     assert.equal(env.hub.decoded(EV.loadout, 'b').at(-1).loadout.pick, 'sg_bx12');
     assert.equal(a.session.match.state.players.find((p) => p.id === 'b').loadout, 'sg_bx12');
 
+    // 라운드가 시작되기 전까지 몇 번이든 바꾼다: 저격총으로 갔다가 다시 샷건
+    b.ui.fire('loadout:pick', { id: 'sr_twin' });
+    await env.run(150);
+    assert.equal(a.session.match.state.players.find((p) => p.id === 'b').loadout, 'sr_twin');
+    b.ui.fire('loadout:pick', { id: 'sg_bx12' });
+    await env.run(150);
+    assert.equal(a.session.match.state.players.find((p) => p.id === 'b').loadout, 'sg_bx12', '같은 라운드에 되돌린 선택도 방장에게 간다');
+    assert.equal(b.world.calls('closeSwap').length, 0, '대기 시간 동안은 교체를 끄지 않는다');
+
     // 방장 화면의 아바타: 슬롯은 상태 메시지, 무기는 그 사람의 장비
     await env.run(1300);
     assert.equal(a.session.state.matchPhase, 'live');
+    assert.ok(b.world.calls('closeSwap').length >= 1, '라운드가 시작되면 교체를 끈다');
     assert.equal(b.world.last('setLocalLoadout')[0], 'sg_bx12');
+    // 시작한 뒤의 선택은 이번 라운드에 반영되지 않는다(다음 라운드 기본값으로만 남는다)
+    b.ui.fire('loadout:pick', { id: 'sr_twin' });
+    await env.run(150);
+    assert.equal(a.session.match.state.players.find((p) => p.id === 'b').loadout, 'sg_bx12');
+    // 움직이는 지형은 방장 시계로 돈다
+    const moverClock = b.world.last('setMoverClock')[0];
+    assert.equal(typeof moverClock, 'function');
+    assert.ok(Number.isFinite(moverClock()) && Math.abs(moverClock() - env.clock.t / 1000) < 1, '초 단위 방장 시계');
     env.frames();
     assert.equal(a.world.last('setActorState')[1].weaponId, 'sg_bx12');
     b.world.slot = 3;
@@ -1902,6 +1993,80 @@ describe('로비·대기실 화면', () => {
     assert.equal(ffa.mode, 'ffa');
     assert.equal(ffa.killTarget, 10);
     lobby.dispose();
+  });
+
+  test('경기 채팅 화면: 팀 경기에서 Tab과 탭 버튼으로 전체·팀을 바꾸고, 고른 범위로 보낸다', () => {
+    globalThis.document.documentElement = new FakeEl('html');
+    const ctx = { ...uiCtx(), later: () => 0, cancel() {} };
+    const chat = createChat(ctx);
+    chat.show({ teamChat: true });
+    chat.open();
+    const field = chat.el.all((k) => k.tagName === 'INPUT')[0];
+    const tabBar = chat.el.all((k) => k.classList.contains('sk-cb-tabs'))[0];
+    const tab = (id) => chat.el.all((k) => k.getAttribute('data-scope') === id)[0];
+    const form = chat.el.all((k) => k.tagName === 'FORM')[0];
+    assert.equal(tabBar.hidden, false, '팀 경기에서는 탭이 보인다');
+    assert.equal(chat.scope(), 'all', '처음은 전체');
+    assert.ok(tab('all').classList.contains('is-on'));
+    assert.match(field.placeholder, /^전체 채팅 .*Tab 전체\/팀/);
+
+    let prevented = 0;
+    const press = (key, extra) => field.fire('keydown', { key, preventDefault() { prevented += 1; }, ...extra });
+    press('Tab');
+    assert.equal(chat.scope(), 'team');
+    assert.equal(prevented, 1, 'Tab의 기본 동작(포커스 이동)은 막는다');
+    assert.ok(tab('team').classList.contains('is-on') && !tab('all').classList.contains('is-on'));
+    assert.equal(tab('team').getAttribute('aria-selected'), 'true');
+    assert.ok(chat.el.classList.contains('is-team'));
+    assert.match(field.placeholder, /^팀 채팅/);
+    assert.deepEqual(lastEmit(ctx, 'chat:scope').payload, { scope: 'team' });
+    press('Tab', { repeat: true });
+    assert.equal(chat.scope(), 'team', '키를 누르고 있어도 다시 바뀌지 않는다');
+    assert.equal(prevented, 2);
+
+    field.value = '  B로   돌아요 ';
+    form.fire('submit');
+    assert.deepEqual(lastEmit(ctx, 'chat:send').payload, { text: 'B로 돌아요', scope: 'team' });
+    assert.equal(chat.isOpen(), false, '보내면 닫는다');
+    chat.open();
+    assert.equal(chat.scope(), 'team', '고른 범위는 그 경기 동안 남는다');
+    tab('all').fire('click');
+    assert.equal(chat.scope(), 'all', '탭 버튼으로도 바꾼다(휴대폰)');
+    press('Tab');
+    press('Tab');
+    assert.equal(chat.scope(), 'all', '두 번 누르면 제자리');
+
+    // 줄: 팀 채팅만 [팀] 표시가 붙는다
+    chat.push({ name: '하늘', text: '여기요', team: 'owner', scope: 'team' });
+    chat.push({ name: '구름', text: '전체 줄', team: 'charterer' });
+    const lines = chat.el.all((k) => k.tagName === 'LI');
+    assert.equal(lines.length, 2);
+    assert.ok(lines[0].classList.contains('is-team') && lines[0].textContent.startsWith('팀하늘'));
+    assert.ok(!lines[1].classList.contains('is-team') && lines[1].textContent.startsWith('구름'));
+
+    // 개인전: 탭이 없고 Tab은 아무것도 바꾸지 않는다. 범위는 전체로 돌아간다
+    press('Tab');
+    assert.equal(chat.scope(), 'team');
+    chat.update({ teamChat: false });
+    assert.equal(tabBar.hidden, true);
+    assert.equal(chat.scope(), 'all');
+    press('Tab');
+    assert.equal(chat.scope(), 'all');
+    chat.setScope('team');
+    assert.equal(chat.scope(), 'all', '팀 채팅을 고를 수 없는 경기에서는 늘 전체');
+    assert.equal(field.placeholder, 'Enter 보내기 · Esc 닫기');
+
+    // 새 경기는 전체부터
+    chat.update({ teamChat: true });
+    chat.setScope('team');
+    chat.hide();
+    chat.show({ teamChat: true });
+    assert.equal(chat.scope(), 'all');
+    chat.dispose();
+    delete globalThis.document.documentElement;
+
+    assert.equal(chatPlaceholder('team', true, true), '팀 채팅 메시지');
+    assert.equal(chatPlaceholder('all', false, true), '메시지 입력');
   });
 
   test('대기실: 개인전이면 방장만 목표 킬을 5~20킬로 바꾼다', () => {

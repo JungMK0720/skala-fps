@@ -1,7 +1,8 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 입력(Pointer Lock·키보드·마우스·휠·터치)을 폴링 상태와 bus 이벤트로 바꾼다. 이동·점프·앉기·무기 키, 폭탄 설치·해체(E)와 이모트 휠을 다룬다.
+ * Purpose: 입력(Pointer Lock·키보드·마우스·휠·터치)을 폴링 상태와 bus 이벤트로 바꾼다. 이동·점프·앉기·무기 키, 폭탄 설치·해체(E)와 이모트 휠을 다루고,
+ *          전체 화면에서는 Keyboard Lock으로 브라우저 단축키(Ctrl+W·Ctrl+T·Tab·Esc)를 게임이 받게 한다.
  */
 /**
  * SKALA 작전 — 입력 (Pointer Lock · 키보드 · 마우스 · 휠)
@@ -20,7 +21,11 @@
  *   input.setEmoteLock(b)  // 이모트 중: 좌·우클릭을 사격·줌 대신 input:emoteCancel로 (player가 켜고 끔)
  *   input.setEmoteWheelTap(b) // 열린 휠을 '탭 모드'로: 손을 떼도 열려 있고 칸을 눌러 고른다(휴대폰 이모트 버튼을 짧게 눌렀을 때 engine/touch.js가 켠다)
  *
+ *   input.keyboardLocked   // 전체 화면 + Keyboard Lock이 걸려 브라우저 단축키를 게임이 받고 있는가
+ *   input.canKeyboardLock  // 이 브라우저가 Keyboard Lock을 지원하는가(크로뮴 계열)
+ *
  * 키는 e.code 기준(한/영 상태와 무관): WASD(+화살표) · Space · Shift · Ctrl/C(앉기) · R · E(폭탄 설치·해체) · F(무기 살펴보기) · G(들고 있는 총 버리기) · 1~4 · Tab · Esc · Enter(채팅)
+ *   · N(라운드 시작 전 무기 교체, input:loadout) · F11(전체 화면 켜고 끄기, input:fullscreenToggle)
  * Space: input.state.jump = 누르는 동안 true(player가 착지 즉시 다시 뛰는 데 쓴다), input:jump는 누른 순간 1번.
  *        잠금을 잃거나 창 포커스를 잃으면 풀리고, 키 반복으로는 다시 켜지지 않는다.
  * E(폭파 미션): 누르는 동안 input.state.use = true. 누른 순간 input:use{down:true}, 뗀 순간(눌려 있었을 때만) input:use{down:false}.
@@ -30,6 +35,8 @@
  *            input:cycle{dir} · input:jump · input:walk{down} · input:crouch{down} · input:use{down} · input:scoreboard{open} · input:menu{reason}
  *            input:key{code,down} (모든 키, 반복 제외) · input:chat (잠금 중 Enter, 휴대폰은 채팅 버튼. 멀티플레이 경기면 session이 채팅 입력칸을 연다)
  *            input:emoteWheel{open,cursor,selected,id,code,tap,cancelled?} · input:emotePick{id,code,selected} · input:emoteCancel{reason}
+ *            input:loadout (N, 키 반복 제외. 무기 교체 창을 여닫는 것은 연습장·세션이 한다) · input:lockRequest (requestLock을 부른 순간, 사용자 입력 안)
+ *            input:fullscreenToggle (F11) · input:keyboardLock{locked} (전체 화면 키 잠금이 걸리고 풀릴 때)
  *
  * 이모트 휠(MODES.md 4.2): B를 누르고 있는 동안 열림. 그동안 시점은 멈추고 마우스 이동은 가상 커서(px, 화면 중앙 기준,
  * y 아래로 +)로 간다(잠금이 없으면 실제 커서 위치). 커서는 EMOTE_WHEEL.RADIUS 테두리에서 멈추고, DEADZONE(40px)을
@@ -39,8 +46,13 @@
  *
  * 앉기: 왼·오른 Ctrl 또는 C를 누르고 있는 동안. Pointer Lock 중에는 Ctrl 조합 키의 브라우저 기본 동작
  * (Ctrl+S·D·R·A·Space·휠 확대 등)을 막는다. Ctrl+W·T·N·Tab은 브라우저가 먼저 가져가서 막을 수 없다
- * → C 키를 권장하고, main.js가 경기 중 beforeunload 확인을 건다. 전체 화면(Fullscreen API)에서는
- * navigator.keyboard.lock()으로 게임 키를 잠가 Ctrl 조합도 게임이 받는다(크로뮴 계열).
+ * → C 키를 권장하고, main.js가 경기 중 beforeunload 확인을 건다.
+ *
+ * 전체 화면 키 잠금: 전체 화면(Fullscreen API — F11, 설정, 일시정지 메뉴의 버튼)에서는 navigator.keyboard.lock()으로
+ * LOCK_KEYS를 잠가 Ctrl+W·Ctrl+T·Ctrl+N·Ctrl+Tab·Esc·F11까지 게임이 받는다(크로뮴 계열). 브라우저의 F11 전체 화면은
+ * Fullscreen API가 아니라서 잠기지 않으므로 F11을 가로채 앱의 전체 화면으로 바꾼다(main.js가 input:fullscreenToggle을 듣는다).
+ * Esc도 잠그므로 Esc를 눌러도 전체 화면이 풀리지 않는다: 포인터 잠금만 직접 풀어 일시정지 메뉴를 연다.
+ * 전체 화면에서 나가려면 Esc를 길게 누르거나(브라우저 기본) F11, 설정을 쓴다.
  *
  * 터치 모드: 휴대폰에는 Pointer Lock이 없으니 requestLock·exitLock이 잠금 상태만 바꾼다. input:lock·input:menu는 PC와 똑같이 나가서 게임 코드는 그대로다.
  * 탭 뒤에 브라우저가 흉내 내는 마우스 이벤트가 사격이 되지 않게 마우스 입력은 무시한다. 줌은 누를 때마다 켜고 끄는 방식으로 고정한다.
@@ -56,9 +68,20 @@ const MOVE_KEYS = {
 };
 const SLOT_KEYS = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4 };
 const CROUCH_KEYS = new Set(['ControlLeft', 'ControlRight', 'KeyC']);
-/** 전체 화면에서 Keyboard Lock으로 잡을 키(Esc는 빼서 전체 화면·잠금 해제가 그대로 되게) */
-const LOCK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyC', 'KeyR', 'KeyE', 'KeyF', 'KeyG', 'Space', 'Tab', 'Digit1', 'Digit2', 'Digit3', 'Digit4',
-  'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+/**
+ * 전체 화면에서 Keyboard Lock으로 잡을 키. 게임 키와, 앉은 채(Ctrl) 누르면 브라우저가 가져가던 조합의 키
+ * (W 탭 닫기 · T 새 탭 · N 새 창 · Tab 탭 전환 · 숫자 탭 이동)를 모두 넣는다. Esc와 F11도 잡아서 게임이 직접 다룬다
+ */
+export const LOCK_KEYS = Object.freeze(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyC', 'KeyR', 'KeyE', 'KeyF', 'KeyG', 'KeyB', 'KeyN', 'KeyT', 'KeyQ',
+  'Space', 'Tab', 'Enter', 'Escape', 'F11',
+  'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9',
+  'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+
+/** 이 브라우저가 Keyboard Lock을 지원하는가(크로뮴 계열) */
+function keyboardLockApi() {
+  const kb = typeof navigator !== 'undefined' ? navigator.keyboard : null;
+  return kb && typeof kb.lock === 'function' ? kb : null;
+}
 
 function isTyping(e) {
   const t = e.target;
@@ -79,6 +102,7 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
   let enabled = true;
   let lookScale = 1;
   let lastWheel = 0;
+  let kbLock = false;          // 전체 화면 + Keyboard Lock이 걸려 있다(Esc·Ctrl+W를 게임이 받는다)
   const emit = (evt, data) => { if (bus) bus.emit(evt, data); };
   let touchZoomHold = false;   // 터치 조준 버튼: false = 누를 때마다 켜고 끔, true = 누르는 동안(라이플 조준 사격)
   const zoomMode = () => (touch ? (touchZoomHold ? 'hold' : 'toggle') : (settings && settings.get('zoomMode')) || 'hold');
@@ -148,13 +172,20 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
   }
 
   function onKeyDown(e) {
-    if (isTyping(e)) return;
     const code = e.code;
+    // F11: 브라우저의 전체 화면은 키를 잠그지 못한다 → 가로채서 앱의 전체 화면(Fullscreen API)을 켜고 끈다. 입력칸에 있어도 받는다
+    if (code === 'F11' && !touch && typeof document !== 'undefined' && document.fullscreenEnabled) {
+      e.preventDefault();
+      if (!e.repeat) emit('input:fullscreenToggle', {});
+      return;
+    }
+    if (isTyping(e)) return;
     if (!e.repeat) emit('input:key', { code, down: true });
     if (code === 'Escape') {
       if (wheel.open) { closeWheel(false, { cancelled: true }); return; }
-      // 터치 조작의 잠금은 가상이라 브라우저가 풀어 주지 않는다. 키보드를 붙인 태블릿은 Esc로 직접 푼다(→ 일시정지)
-      if (locked && touch) { exitLock(); return; }
+      // 터치 조작의 잠금은 가상이라 브라우저가 풀어 주지 않는다. 키보드를 붙인 태블릿은 Esc로 직접 푼다(→ 일시정지).
+      // 전체 화면 키 잠금 중에도 Esc가 페이지로 오므로 같은 길로 푼다(전체 화면은 그대로 둔다)
+      if (locked && (touch || kbLock)) { e.preventDefault(); exitLock(); return; }
       if (!locked) emit('input:menu', { reason: 'esc' });
       return;
     }
@@ -182,6 +213,7 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     if (code === 'KeyF') { if (locked) e.preventDefault(); emit('input:inspect', {}); return; }
     if (code === 'KeyG') { if (locked) e.preventDefault(); emit('input:drop', {}); return; }
     if (code === 'KeyB') { openWheel(); return; }
+    if (code === 'KeyN') { if (locked) e.preventDefault(); emit('input:loadout', {}); return; }
     const slot = SLOT_KEYS[code];
     if (slot) { emit('input:slot', { slot }); return; }
   }
@@ -338,14 +370,25 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
 
   function onBlur() { releaseAll(); }
 
-  // 전체 화면(Fullscreen API)일 때만 Keyboard Lock 사용 가능 → Ctrl+W 같은 조합도 게임이 받는다
+  function setKeyboardLock(v) {
+    if (kbLock === v) return;
+    kbLock = v;
+    emit('input:keyboardLock', { locked: v });
+  }
+
+  // 전체 화면(Fullscreen API)일 때만 Keyboard Lock 사용 가능 → Ctrl+W 같은 조합과 Esc도 게임이 받는다
   function onFullscreenChange() {
-    const kb = navigator.keyboard;
-    if (!kb || typeof kb.lock !== 'function') return;
+    const kb = keyboardLockApi();
+    if (!kb) return;
     if (document.fullscreenElement) {
-      try { const p = kb.lock(LOCK_KEYS); if (p && p.catch) p.catch(() => {}); } catch (err) { /* 미지원 */ }
+      try {
+        const p = kb.lock(LOCK_KEYS.slice());
+        if (p && typeof p.then === 'function') p.then(() => setKeyboardLock(!!document.fullscreenElement), () => setKeyboardLock(false));
+        else setKeyboardLock(true);
+      } catch (err) { setKeyboardLock(false); }
     } else {
       try { kb.unlock(); } catch (err) { /* ignore */ }
+      setKeyboardLock(false);
     }
   }
 
@@ -353,6 +396,7 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
   function requestLock() {
     if (locked) return Promise.resolve(true);
     if (touch) { setLocked(true); return Promise.resolve(true); }
+    emit('input:lockRequest', {});   // 사용자 입력 안에서 불린다 → main.js가 '전체 화면 유지' 설정이면 전체 화면도 같이 켠다
     if (!el.requestPointerLock) return Promise.resolve(false);
     let p;
     try { p = el.requestPointerLock({ unadjustedMovement: true }); }
@@ -400,6 +444,10 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     touch: touchApi,
     get locked() { return locked; },
     isLocked: () => locked,
+    /** 전체 화면 키 잠금이 걸려 있는가(Ctrl+W·Tab·Esc를 게임이 받는다) */
+    get keyboardLocked() { return kbLock; },
+    /** 이 브라우저에서 전체 화면 키 잠금을 쓸 수 있는가 */
+    get canKeyboardLock() { return !touch && !!keyboardLockApi(); },
     isDown: (name) => !!state[name],
     /** 누적된 마우스 이동(라디안)을 꺼내고 0으로 */
     consumeLook() {

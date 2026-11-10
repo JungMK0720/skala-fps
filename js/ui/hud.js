@@ -65,6 +65,22 @@ export function calloutTone(tone) {
 }
 
 /** hud.banner 입력 → { icon, title, sub, ms }. 보여 줄 글자가 없으면 null */
+/**
+ * 라운드가 시작되기 전 대기 시간의 무기 교체 안내.
+ * swap = { seconds, weaponName?, open? }: seconds = 시작까지 남은 초, weaponName = 지금 든 무기, open = 무기 목록이 열려 있다.
+ * → { key: 'N' | '', main, sub } | null. 휴대폰(touch)은 키 대신 이 안내를 누른다
+ */
+export function swapPromptSpec(swap, touch = false) {
+  if (!swap || typeof swap !== 'object') return null;
+  const secs = Math.max(0, Math.ceil(num(swap.seconds, 0)));
+  const name = swap.weaponName == null ? '' : String(swap.weaponName).trim();
+  const main = swap.open
+    ? (touch ? '바꿀 무기를 누르세요' : '바꿀 무기를 누르세요 · N으로 닫기')
+    : (touch ? '눌러서 무기 교체!' : '을 눌러 무기 교체!');
+  const sub = [name ? `지금 ${name}` : '', secs > 0 ? `${secs}초 뒤 시작` : ''].filter(Boolean).join(' · ');
+  return { key: touch || swap.open ? '' : 'N', main, sub };
+}
+
 export function bannerSpec(o) {
   if (!o || typeof o !== 'object') return null;
   const text = (v) => (v == null ? '' : String(v));
@@ -279,6 +295,11 @@ export function createHud(ctx) {
   const centerEl = h('div', { class: 'sk-center', 'aria-live': 'polite' }, centerMain, centerSub);
   const specEl = h('div', { class: 'sk-spec', hidden: true });
   const hintEl = h('div', { class: 'sk-hint', hidden: true });
+  // 라운드 시작 전 대기: "N 을 눌러 무기 교체!" 휴대폰은 이 안내를 누른다(engine/touch.js)
+  const swapKey = h('kbd', { class: 'sk-key sk-swap-key', text: 'N' });
+  const swapMain = h('b', { class: 'sk-swap-main' });
+  const swapSub = h('span', { class: 'sk-swap-sub' });
+  const swapEl = h('div', { class: 'sk-swap', hidden: true, role: 'status' }, h('span', { class: 'sk-swap-row' }, swapKey, swapMain), swapSub);
 
   // 개인전 부활 패널 "💀 하늘에게 당했어요 · 3초 뒤 부활" / 부활 직후 보호 "🛡 보호 중"
   const rspMain = h('div', { class: 'sk-rsp-main' });
@@ -295,7 +316,7 @@ export function createHud(ctx) {
   // 순서: 설치/해체 막대 → 폭탄 안내 → 이모트 안내. css가 형제 선택자로 겹침을 푼다(안내가 뜨면 이모트 안내를 올리고, 터치 화면은 막대가 뜨면 안내를 가린다)
   const el = h('section', { class: 'sk-screen sk-hud', hidden: true, 'aria-label': 'HUD' },
     vignette, flash, dmgs, bombMarks, xhair, hit, calloutBox, mkEl, protectEl, bombProg, top, bombPanel, bannerEl, feed, centerEl, respawnEl, specEl,
-    bombPrompt, emoteEl, hintEl, speedEl, hpEl,
+    bombPrompt, emoteEl, swapEl, hintEl, speedEl, hpEl,
     h('div', { class: 'sk-br' }, slotsEl, ammoEl));
 
   ctx.listen(window, 'resize', () => { viewH = 0; if (st.gap >= 0) applySpread(); });
@@ -639,6 +660,20 @@ export function createHud(ctx) {
     applyMarkers(b.markers);
   }
 
+  /** 무기 교체 안내. 값이 바뀔 때만 DOM에 쓴다 */
+  function applySwap(swap) {
+    const s = swapPromptSpec(swap, document.documentElement.classList.contains('pc-touch'));
+    const sig = s ? `${s.key}|${s.main}|${s.sub}` : '';
+    if (sig === st.swapSig) return;
+    st.swapSig = sig;
+    swapEl.hidden = !s;
+    if (!s) return;
+    swapKey.hidden = !s.key;
+    setText(swapMain, s.main);
+    setText(swapSub, s.sub);
+    swapSub.hidden = !s.sub;
+  }
+
   // ---------- 공개 ----------
   function set(p) {
     if (!p || typeof p !== 'object') return;
@@ -667,6 +702,7 @@ export function createHud(ctx) {
       for (const t of TEAM_KEYS) sides[t].el.classList.toggle('is-mine', t === st.team);
     }
     if ('hint' in p) setLine(hintEl, p.hint);
+    if ('swap' in p) applySwap(p.swap);
     if ('spectate' in p) setLine(specEl, p.spectate ? `👁️ 관전 중 · ${p.spectate}` : '');
     if ('crosshair' in p) xhair.hidden = p.crosshair === false;
     if ('respawn' in p) applyRespawn(p.respawn);
@@ -854,6 +890,7 @@ export function createHud(ctx) {
     dmgs.replaceChildren();
     center('');
     setLine(hintEl, '');
+    applySwap(null);
     setLine(specEl, '');
     applyRespawn(null);
     applyProtect(false);

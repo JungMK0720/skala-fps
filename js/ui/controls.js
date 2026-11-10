@@ -21,10 +21,12 @@ const KEYS = [
   [['G'], '들고 있는 주무기·보조무기 버리기. 칼로 바꿔 더 빨리 달릴 수 있고, 그 칸이 비면 바닥의 총을 주워 남은 탄 그대로 써요'],
   [['1', '2', '3', '4'], '주무기 · 보조 · 근접 · 투척'],
   [['휠'], '무기 전환'],
+  [['N'], '무기 교체 (라운드가 시작되기 전 대기 시간에. 목록에서 무기를 누르면 바로 바뀌어요)'],
   [['Tab'], '점수판 (누르는 동안)'],
   [['B'], '이모트 휠 (누른 채 마우스로 고르고 떼기, 움직이면 취소)'],
-  [['Enter'], '채팅 (멀티플레이 경기 중). Enter로 보내고 Esc로 닫아요'],
-  [['Esc'], '일시정지 메뉴'],
+  [['Enter'], '채팅 (멀티플레이 경기 중). Enter로 보내고 Esc로 닫아요. 팀 경기에서는 Tab으로 전체 ↔ 팀 채팅을 바꿔요'],
+  [['F11'], '전체 화면 · 브라우저 단축키 잠금 (Ctrl+W·Ctrl+T·Tab·Esc를 게임이 받아요. 크롬·엣지)'],
+  [['Esc'], '일시정지 메뉴. 전체 화면에서 나가려면 길게 눌러요'],
 ];
 
 /** 휴대폰 조작(engine/touch.js). html.pc-touch가 켜져 있으면 키 표 대신 보여 준다 */
@@ -82,10 +84,10 @@ export function createControlsPanel({ onClose }) {
     (isTouch ? TOUCH_KEYS : KEYS).map(([keys, desc]) => h('li', { class: 'sk-keys-row' },
       h('span', { class: 'sk-keys-caps' }, keys.map((k) => (k === OR ? h('span', { class: 'sk-keys-or', text: '또는' }) : keycap(k)))),
       h('span', { class: 'sk-keys-desc', text: desc }))));
-  // Ctrl+W는 브라우저가 가로채 탭을 닫는다(페이지가 막을 수 없음)
+  // Ctrl+W는 브라우저가 가로채 탭을 닫는다(전체 화면 키 잠금이 아니면 페이지가 막을 수 없음)
   const warn = h('p', { class: 'sk-keys-warn', role: 'note' },
-    h('b', { text: '앉은 채 앞으로 갈 때는 C 추천' }),
-    h('span', { text: ' · Ctrl+W는 브라우저 탭 닫기예요.' }));
+    h('b', { text: 'Ctrl+W는 브라우저 탭 닫기예요' }),
+    h('span', { text: ' · F11(전체 화면)을 켜면 Ctrl+W·Tab도 게임이 받아요. 창 화면에서는 앉은 채 앞으로 갈 때 C 키를 쓰세요.' }));
   const el = sheet({
     title: '조작법',
     onClose,

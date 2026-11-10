@@ -198,9 +198,10 @@ function createScreenMachine() {
   return { register, set, exitCurrent, get current() { return current; } };
 }
 
-/** 전체 화면(Fullscreen API). 들어가면 input이 Keyboard Lock을 걸어 Ctrl+W 같은 조합도 게임이 받는다(크로뮴). 클릭 핸들러 안에서 부를 것 */
+/** 전체 화면(Fullscreen API). 들어가면 input이 Keyboard Lock을 걸어 Ctrl+W·Tab·Esc 같은 키도 게임이 받는다(크로뮴). 클릭·키 핸들러 안에서 부를 것 */
 function fullscreenControls(app) {
-  return {
+  const api = {
+    isFullscreen: () => !!document.fullscreenElement,
     enterFullscreen() {
       const el = app || document.documentElement;
       if (document.fullscreenElement) return Promise.resolve(true);
@@ -211,8 +212,42 @@ function fullscreenControls(app) {
     exitFullscreen() {
       if (!document.fullscreenElement || !document.exitFullscreen) return Promise.resolve();
       return document.exitFullscreen().catch(() => {});
-    }
+    },
+    toggleFullscreen() { return document.fullscreenElement ? api.exitFullscreen() : api.enterFullscreen(); }
   };
+  return api;
+}
+
+/**
+ * 전체 화면과 설정('fullscreen': 'on' | 'off')을 맞춘다.
+ *  - F11(input:fullscreenToggle)과 설정·일시정지 메뉴의 버튼(settings:change)이 전체 화면을 켜고 끈다. 둘 다 사용자 입력 안에서 온다.
+ *  - 실제 전체 화면 상태가 바뀌면 설정을 따라 바꾼다(Esc를 길게 눌러 나갔으면 '끔'으로).
+ *  - 설정이 '켬'인 채 다시 방문했으면 처음 포인터를 잠그는 클릭(input:lockRequest)에서 전체 화면도 같이 켠다.
+ *  - 브라우저가 전체 화면을 거절하면(끼워 넣은 화면, 권한 없음) 설정을 '끔'으로 되돌리고 fullscreen:denied를 낸다.
+ */
+function wireFullscreen(ctx) {
+  const { settings } = ctx;
+  if (FLAGS.touch) return;   // 휴대폰은 engine/touch.js가 가로 고정과 함께 다룬다
+  /** 전체 화면을 켠다. 거절되면 설정을 되돌려 화면의 표시와 실제 상태가 어긋나지 않게 한다 */
+  const enter = (notify) => ctx.enterFullscreen().then((ok) => {
+    if (ok || ctx.isFullscreen()) return;
+    settings.set('fullscreen', 'off');
+    bus.emit('fullscreen:denied', { notify: !!notify });
+  });
+  bus.on('input:fullscreenToggle', () => { if (ctx.isFullscreen()) ctx.exitFullscreen(); else enter(true); });
+  bus.on('settings:change', (e) => {
+    if (!e || (e.key !== 'fullscreen' && e.key !== '*')) return;
+    const want = settings.get('fullscreen') === 'on';
+    if (want && !ctx.isFullscreen()) enter(true);
+    else if (!want && ctx.isFullscreen()) ctx.exitFullscreen();
+  });
+  bus.on('input:lockRequest', () => {
+    if (settings.get('fullscreen') === 'on' && !ctx.isFullscreen() && !FLAGS.autoplay) enter(false);
+  });
+  document.addEventListener('fullscreenchange', () => {
+    settings.set('fullscreen', ctx.isFullscreen() ? 'on' : 'off');
+    bus.emit('fullscreen:change', { active: ctx.isFullscreen() });
+  });
 }
 
 /** core 기본 화면: 메뉴와 연습장(플러그인이 바꿔 등록할 수 있다) */
@@ -263,16 +298,17 @@ function registerCoreScreens(ctx, machine, hooks) {
   return { get sandbox() { return sandbox; }, get devgun() { return devgun; } };
 }
 
-/** 틱·프레임 순서: 플레이어 → 아바타·맵 → (플러그인) → 렌더 */
+/** 틱·프레임 순서: 움직이는 지형 → 플레이어 → 아바타·맵 → (플러그인) → 렌더 */
 function wireLoop(ctx) {
   const { loop, player, avatars, renderer } = ctx;
+  loop.onTick((dt) => { if (ctx.map) ctx.map.tickMovers(dt); }, -150);   // 지형을 먼저 옮기고 몸을 움직인다(위에 선 몸이 같이 간다)
   loop.onTick((dt) => { if (ctx.map) player.tick(dt); }, -100);
   loop.onFrame((dt, alpha) => { if (ctx.rendering && ctx.map) player.frame(dt, alpha); }, -100);
   loop.onFrame((dt, alpha, now) => {
     if (!ctx.rendering || !ctx.map) return;
     avatars.setLocalBody(player.getBodyState()); // 이모트 3인칭 때만 내 몸을 그린다(평소엔 숨김)
     avatars.update(now, dt);
-    ctx.map.update(dt, now / 1000);
+    ctx.map.update(dt, now / 1000, alpha);
   }, -50);
   loop.onFrame((dt) => {
     if (!ctx.rendering || !ctx.map) return;
@@ -435,6 +471,7 @@ async function boot() {
 
   wireLoop(ctx);
   wireWindow(ctx);
+  wireFullscreen(ctx);
   wireAccountName(ctx);
 
   /* ---------------- 플러그인 ---------------- */

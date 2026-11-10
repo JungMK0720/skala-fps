@@ -164,7 +164,7 @@ export function createRoom(ctx) {
       ? h('li', { class: 'sk-chat-sys', text: m.text })
       : h('li', { class: 'sk-chat-line' },
         h('b', { class: 'sk-chat-name t-' + (teamKey(m.team) || 'none'), text: m.name || '?' }),
-        h('span', { class: 'sk-chat-text', text: m.text })))) : [h('li', { class: 'sk-chat-sys', text: '대기실 채팅 — 작전 계획을 나눠 보세요.' })]));
+        h('span', { class: 'sk-chat-text', text: m.scope === 'team' ? `[팀] ${m.text}` : m.text })))) : [h('li', { class: 'sk-chat-sys', text: '대기실 채팅 — 작전 계획을 나눠 보세요.' })]));
     if (stick) chatLog.scrollTop = chatLog.scrollHeight;
   }
 

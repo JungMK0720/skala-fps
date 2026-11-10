@@ -107,8 +107,8 @@ async function plantHere(t, page) {
 
 export default {
   name: 'bomb',
-  title: '연습장 폭파 미션: 설치 → 폭발(공격 승), 봇 해체(수비 승), 공수 교대, 결과 화면',
-  timeoutMs: 12 * 60 * 1000,
+  title: '연습장 폭파 미션: 설치 → 폭발(공격 승), 봇 해체(수비 승), 공수 교대, 결과 화면, 새 폭파 맵 둘',
+  timeoutMs: 22 * 60 * 1000,
   async run(t) {
     t.setSection('경기 시작');
     const q = `sandbox=relay&mode=bomb&bots=2&autoplay=1&timescale=${TIMESCALE}&bombcarrier=me&bombsite=A&difficulty=easy`;
@@ -209,6 +209,26 @@ export default {
     t.check(lines.length > 0 && lines.every(([, v]) => /^[+-]\d/.test(v) && !/^\+-/.test(v)), '포인트 줄에 +-처럼 부호가 겹치지 않는다', lines);
     await t.shot('results');
     t.errorsOk('폭파 미션 경기');
+
+    // 새 폭파 맵: 봇 셋씩 시간 배율 8로 끝까지 돌린다. 폭탄은 봇이 든다(나는 스폰에 서 있는다).
+    // 봇이 구역까지 걸어가 설치하는지, 라운드가 정해진 사유로 끝나는지, 판정 거절과 페이지 오류가 없는지 본다
+    for (const mapId of ['railyard', 'observatory']) {
+      t.setSection(`${mapId}: 봇끼리 끝까지`);
+      const p2 = await openGame(t, `sandbox=${mapId}&mode=bomb&bots=3&autoplay=1&timescale=8&bombcarrier=bot`, { profile: richProfile(), settings: LOW_QUALITY, width: 960, height: 540, screen: 'sandbox' });
+      await waitRun(p2);
+      t.check((await p2.eval('__qa.run.mode')) === 'bomb' && (await p2.eval('__qa.run.opts.mapId')) === mapId, `${mapId}: 폭파 미션으로 열린다`);
+      t.check(!!(await p2.fn(siteOf, 'A')) && !!(await p2.fn(siteOf, 'B')), `${mapId}: A·B 구역이 있다`);
+      await p2.waitFor('__qa.run.phase === "matchEnd"', 420000, { label: `${mapId} 경기 끝` }).catch((e) => t.check(false, `${mapId}: 경기가 끝난다`, e.message));
+      const lg = await p2.fn(bombLog);
+      t.log(`   ${mapId} 라운드: ${lg.rounds.map((r) => `${r.round}R ${r.attack}공격 → ${r.winner}/${r.reason}`).join(' · ')}`);
+      t.check(lg.rounds.length >= 3 && lg.rounds.every((r) => ['bomb', 'defuse', 'elimination', 'time'].includes(r.reason)), `${mapId}: 세 라운드 이상, 사유는 넷 중 하나`, lg.rounds);
+      t.check(lg.bomb.some((e) => e.act === 'plant'), `${mapId}: 봇이 구역까지 가서 폭탄을 설치한다`, lg.bomb.map((e) => `${e.act}@${e.site || ''}`));
+      const badR = lg.rejects.filter((r) => !['victim_dead', 'attacker_dead', 'not_live', 'friendly_fire', 'grenade_limit', 'busy', 'not_in_site', 'too_far'].includes(r));
+      t.check(badR.length === 0, `${mapId}: 예상하지 못한 판정 거절이 없다`, badR);
+      await sleep(300);
+      await t.shot(`${mapId}-end`);
+      t.errorsOk(`${mapId} 폭파 미션`);
+    }
 
     t.setSection('휴대폰: 설치 버튼');
     // 터치 조작: 설치/해체 버튼은 구역 안(폭탄을 들었을 때)에서만 나타나고, 누르고 있으면 설치한다

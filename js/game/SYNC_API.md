@@ -91,7 +91,7 @@ net은 같은 JS 턴의 `send/sendTo`를 **프레임 1개**로 묶고, 프레임
 | `sendHitClaim({ victimId, part, weaponId, dist, kind?:'shot'\|'slash'\|'stab', count?, shotId?, t? \| shotT? })` → id | 방장에게 히트 주장. `t`(로컬)를 주면 방장 시계로 바꿔 `shotT`로 보낸다. `count` = 이 사람에게 맞은 펠릿 수(기본 1), `shotId` = 같은 발을 묶는 양의 정수. 잘못된 값이면 0 |
 | `sendGrenade({ pos, vel, t? })` → `{ id, gid, pos, vel, t, localT }` | 전송 해상도로 맞춘 **정본**. `t`는 방장 시계. 던진 사람도 이 값으로 시뮬레이션 |
 | `sendMatch(snapshot, events?)` → mseq \| false | **방장 전용**. 5절 |
-| `sendLoadout(obj)` / `sendChat(text)` | 장비 알림(≤256B JSON. 세션은 `{ pick, primary, secondary, melee, round, m }`을 보낸다), 채팅(120자, 제어문자 제거 — 화면에는 `textContent`로만) |
+| `sendLoadout(obj)` / `sendChat(text, opt?)` | 장비 알림(≤256B JSON. 세션은 `{ pick, primary, secondary, melee, round, m }`을 보낸다), 채팅(120자, 제어문자 제거 — 화면에는 `textContent`로만). `opt = { scope:'team', to:[플레이어 id] }`면 팀 채팅: 그 사람들에게만 `room.sendTo`로 보낸다(`to`가 비면 아무에게도 보내지 않는다) |
 | `sendDrop({ dropId, weaponId, pos, mag, reserve })` / `sendPick(dropId)` | 버린 총과 주웠다는 알림을 모두에게 보낸다. 방장을 거치지 않고, 동시에 주우면 둘 다 갖는다(판정에 영향이 없다) |
 | `sendBomb(act, reason?)` → id | 폭파 미션 설치·해체 시작이나 취소 의도(`'plant'`·`'defuse'`·`'cancel'`, 취소 사유 `'released'`·`'moved'`·`'fired'`)를 방장에게 보낸다. 두 번 보내고 방장이 id로 거른다. 내가 방장이면 보내지 않고 `onEvent({ type:'bomb', from, act, reason })`로 돌려준다. 방장이 바뀌면 보내지 않은 의도는 버린다(새 방장이 라운드를 다시 시작한다) |
 | `getRemote(id, renderTime?)` → state \| null | 렌더용 보간 상태(6절). 매 프레임 호출 |
@@ -115,7 +115,7 @@ net은 같은 JS 턴의 `send/sendTo`를 **프레임 1개**로 묶고, 프레임
 | `grenade` | `from, id, gid, pos, vel, t(방장 시계), localT, age` | 모두 같은 결정론 시뮬레이션(아래 참고). 폭발 데미지는 방장이 계산해 `sendMatch`로 확정 |
 | `match` | `from, seq, snapshot\|null, events[], fresh, late?` | `snapshot`은 seq가 새로울 때만(아니면 null). `events`는 처음 보는 것만(eid 중복 제거) |
 | `loadout` | `from, loadout` | 바뀌었을 때만 |
-| `chat` | `from, text` | |
+| `chat` | `from, text, scope` | `scope`: `'all'`·`'team'`. 팀 채팅을 보여 줄지는 세션이 보낸 사람의 팀으로 정한다 |
 | `drop` | `from, dropId, weaponId, pos, mag, reserve` | 누가 총을 버렸다 |
 | `pick` | `from, dropId` | 누가 총을 주웠다 |
 | `host` | `hostId, prevHostId, isHost` | 방장 교체. 내가 새 방장이면 `lastMatch()`로 경기를 이어받아 `sendMatch`로 **다시 공지**한다(endsAt 등 방장 시계 값은 새 방장 기준으로 다시 계산) |

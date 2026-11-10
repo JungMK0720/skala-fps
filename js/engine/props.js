@@ -157,7 +157,7 @@ function distToBox(c, x, y, z) {
  */
 function isPropSolid(c, planeY) {
   if (!c || (c.kind !== 'box' && c.kind !== 'cyl' && c.kind !== 'ramp')) return false;
-  if (c.tag === 'clip' || c.mat === 'water') return false;
+  if (c.tag === 'clip' || c.mat === 'water' || c.dynamic) return false;   // 움직이는 지형은 강체로 만들지 않는다(자리가 바뀐다)
   return !(c.tag === 'ground' && planeY !== null);
 }
 

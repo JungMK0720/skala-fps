@@ -127,7 +127,8 @@ export function createWorld(colliders = [], opts = {}) {
     c.id = i;
     const x0 = Math.floor(c.minX / cell), x1 = Math.floor(c.maxX / cell);
     const z0 = Math.floor(c.minZ / cell), z1 = Math.floor(c.maxZ / cell);
-    if ((x1 - x0 + 1) * (z1 - z0 + 1) > 96) { big.push(c); return; }
+    // dynamic = 움직이는 지형(engine/movers.js). 상자가 틱마다 옮겨지므로 격자에 넣지 않고 늘 검사한다
+    if (c.dynamic || (x1 - x0 + 1) * (z1 - z0 + 1) > 96) { big.push(c); return; }
     for (let gx = x0; gx <= x1; gx++) for (let gz = z0; gz <= z1; gz++) {
       const key = (gx + 32768) * 65536 + (gz + 32768);
       let arr = grid.get(key);
@@ -708,12 +709,12 @@ export function traceShot(world, origin, dir, maxDist = 1000, targets = [], opts
   return { kind: 'none', dist: maxDist, point: [origin[0] + d[0] * maxDist, origin[1] + d[1] * maxDist, origin[2] + d[2] * maxDist] };
 }
 
-/** a→b 사이에 막는 월드가 없으면 true (수류탄 엄폐 체크 등) */
-export function lineOfSight(world, a, b) {
+/** a→b 사이에 막는 월드가 없으면 true (수류탄 엄폐 체크 등). opts는 raycastWorld와 같다(예: { filter } 로 일부 충돌체를 뺀다) */
+export function lineOfSight(world, a, b, opts = null) {
   const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
   const len = Math.hypot(dx, dy, dz);
   if (len < 1e-6) return true;
-  const hit = raycastWorld(world, a, [dx, dy, dz], len);
+  const hit = raycastWorld(world, a, [dx, dy, dz], len, opts);
   return !hit || hit.dist >= len - 1e-3;
 }
 
