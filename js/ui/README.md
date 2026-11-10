@@ -154,9 +154,9 @@ props 없음. 계정에서 읽습니다. 닉네임 변경(같은 검사 + 저장
 ```js
 { rooms: [{ roomId, name, mapId, hostName, players /*수 또는 배열*/, max, status: 'waiting'|'playing',
             mode? /*'team'|'ffa'|'bomb'*/, killTarget? /*개인전 목표 킬, 기본 20*/ }],
-  loading?, error?, joining? /*roomId*/, name?, maps?, maxPlayers? /*기본 6*/ }
+  loading?, error?, notice? /*알림(자리 비움으로 방이 닫힘 등)*/, joining? /*roomId*/, name?, maps?, maxPlayers? /*기본 6*/ }
 ```
-대기 중인 방이 먼저 나옵니다. 꽉 찬 방과 게임 중인 방은 참가 버튼이 꺼집니다. 방이 없으면 빈 상태를, `loading`이면 스피너를, `error`면 경고와 [다시 시도]를 보여 줍니다.
+대기 중인 방이 먼저 나옵니다. 꽉 찬 방과 게임 중인 방은 참가 버튼이 꺼집니다. 방이 없으면 빈 상태를, `loading`이면 스피너를, `error`면 경고와 [다시 시도]를, `notice`면 [다시 시도] 없는 알림 줄을 보여 줍니다.
 - 방 항목에 규칙 · 모드 배지가 붙습니다: "클래식 · 팀전" / "칼전 · 개인전 · 10킬" / "클래식 · 폭파 미션"(`sk-mode-badge--bomb`, 폭파 미션은 규칙 값과 상관없이 클래식). 개인전 배지에는 목표 킬이 붙고, `killTarget`이 없으면 20킬로 읽습니다. 게임 중인 팀전 · 폭파 미션 방은 잠기고, 개인전은 중간 참가할 수 있습니다.
 - [방 만들기] 시트: 방 이름(24자), 규칙, **모드(팀전/개인전/폭파 미션, 기본 팀전)**, 개인전일 때만 **목표 킬 5~20 스테퍼(− 값 ＋, 빠른 선택 5·10·15·20킬, 기본 20킬)**, 맵 카드(이름·영문·설명·미니 아이콘), 최대 인원 2~6 스테퍼. → `lobby:create { name, mapId, max, mode, ruleset, killTarget? /*개인전만*/, password? }`
   - 폭파 미션(💣 "공격·수비 · A/B 구역에 폭탄"): 규칙 버튼이 꺼지고 클래식으로 고정됩니다("폭파 미션은 클래식 규칙만 써요"). 맵 카드는 미션 맵만 보입니다. 미션 맵이 하나도 없으면 폭파 미션 버튼이 꺼집니다. 보내는 값은 `mode: 'bomb', ruleset: 'classic'`입니다. 다른 모드로 돌아가면 전에 고른 규칙을 다시 씁니다.
@@ -166,8 +166,10 @@ props 없음. 계정에서 읽습니다. 닉네임 변경(같은 검사 + 저장
 { roomId, name, mapId, max = 8, teamMax? /*기본 ceil(max/2)*/, hostId?, meId?,
   mode? /*'team'|'ffa'|'bomb'*/, killTarget? /*기본 20*/, ruleset?, firstAttack? /*폭파 미션 전반 공격 팀, 기본 'owner'*/,
   players: [{ id, name, team: 'owner'|'charterer'|null, ready, ping, host?, me?, bot? }],
-  chat: [{ name, text, team? } | { system: true, text }], starting?, maps? }
+  chat: [{ name, text, team? } | { system: true, text }], starting?, maps?,
+  idleLeft? /*자리 비움으로 닫히기까지 남은 초, 0이면 안내 없음*/, idleSpan? /*'1분'*/ }
 ```
+- `idleLeft > 0`이면 머리글 아래에 "⏳ 1분 동안 아무 활동이 없어 N초 뒤 방이 닫혀요"와 [계속 기다리기](`room:stay`) 띠가 뜹니다. 대기실을 누르거나 키를 치면 `room:active`(1초에 한 번까지)를 보냅니다.
 - 방장은 `p.host` 또는 `id === hostId`, 나는 `p.me` 또는 `id === meId`로 판단합니다.
 - 머리글에 모드 칩이 붙습니다: "⚔️ 팀전 · 5판 3선승" / "🎯 개인전 · 20킬"(개인전은 `killTarget`) / "💣 폭파 미션 · 5판 3선승". **방장만** 머리글 오른쪽의 [⚔️ 팀전 | 🎯 개인전 | 💣 폭파 미션] 버튼으로 모드를 바꿀 수 있습니다. 바꾸면 화면에 바로 반영하고 `room:mode { mode }`를 보냅니다. 다음 `update`가 오면 그 값이 우선합니다. 다른 사람에게는 모드 칩만 보입니다. 미션 맵이 없으면 폭파 미션 버튼은 꺼집니다.
 - **팀전**: 팀 칼럼 🟦 블루 / 🟥 레드에 👑, '나' 태그, 핑(색 구분), 준비 상태, 빈 자리를 보여 줍니다. 팀이 없는 플레이어는 '배정 대기' 줄에 나옵니다.
@@ -343,6 +345,8 @@ ui.chat.open() / close() / isOpen() / clear()
 | `room:map` | `{ mapId }` | 방장만 |
 | `room:chat` | `{ text }` | 공백을 정리한 1~120자 |
 | `room:leave` | `{ roomId }` | |
+| `room:stay` | `{}` | 자리 비움 안내의 [계속 기다리기] |
+| `room:active` | `{}` | 대기실을 누르거나 키를 쳤다(1초에 한 번까지). 세션은 방장의 것만 활동으로 센다 |
 | `loadout:pick` | `{ id, auto }` | |
 | `loadout:equip` | `{ slot, id }` | `slot`: `'secondary'` / `'melee'`. 빠른 교체 줄 |
 | `results:back` / `results:lobby` | `{}` | |

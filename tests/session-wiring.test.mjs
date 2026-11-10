@@ -978,6 +978,103 @@ describe('세션 연결', () => {
   });
 });
 
+describe('대기실 자리 비움', () => {
+  /** 방장 a가 방을 만들고 손님 b가 들어와 0.5초 지난 뒤 */
+  async function roomOfTwo(t) {
+    const env = stage(t);
+    const a = env.client('a', '하늘');
+    const b = env.client('b', '바다');
+    await a.session.open();
+    a.ui.fire('lobby:create', { name: '', max: 4, mapId: 'jetty', mode: 'team' });
+    await env.settle();
+    await b.session.open();
+    b.ui.fire('lobby:join', { roomId: env.hub.roomId });
+    await env.settle();
+    await env.run(500, 500);
+    assert.equal(a.session.phase, 'room');
+    assert.equal(b.session.phase, 'room');
+    return { env, a, b };
+  }
+  const idleLeft = (c) => c.ui.props('room').idleLeft;
+
+  test('1분 동안 아무 일이 없으면 10초 전에 모두에게 안내가 뜨고, 1분이 되면 방장이 방을 닫아 모두 로비로 간다', async (t) => {
+    const { env, a, b } = await roomOfTwo(t);
+    await env.run(48500, 500);   // 49초
+    assert.equal(idleLeft(a), 0, '아직 안내 없음');
+    await env.run(2000, 500);    // 51초
+    assert.ok(idleLeft(a) > 0 && idleLeft(a) <= 10, `방장 화면 안내 ${idleLeft(a)}초`);
+    assert.ok(idleLeft(b) > 0 && idleLeft(b) <= 10, `손님 화면 안내 ${idleLeft(b)}초`);
+    assert.ok(b.session.state.chat.some((l) => l.system && /곧 방을 닫아요/.test(l.text)), '손님 채팅에도 안내 줄');
+    await env.run(10000, 500);   // 61초
+    await env.settle();
+    assert.equal(a.session.phase, 'lobby', '방장은 방을 닫고 로비로');
+    assert.equal(b.session.phase, 'lobby', '손님도 로비로');
+    assert.match(a.ui.lastShown('lobby').notice, /1분 동안 아무 활동이 없어 방을 닫았어요/);
+    assert.match(b.ui.lastShown('lobby').notice, /1분 동안 아무 활동이 없어 방을 닫았어요/);
+    assert.equal(env.hub.members.size, 0, '방에 아무도 남지 않는다');
+    env.dispose();
+  });
+
+  test('안내가 뜬 뒤 손님이 [계속 기다리기]를 누르면 안내가 모두에게서 거둬지고 다시 1분을 센다', async (t) => {
+    const { env, a, b } = await roomOfTwo(t);
+    await env.run(51000, 500);
+    assert.ok(idleLeft(b) > 0, '안내가 떴다');
+    b.ui.fire('room:stay', {});
+    await env.run(1000, 500);
+    assert.equal(idleLeft(b), 0, '누른 손님의 안내가 사라진다');
+    assert.equal(idleLeft(a), 0, '방장 안내도 사라진다');
+    await env.run(30000, 500);
+    assert.equal(a.session.phase, 'room', '30초 뒤에도 방이 남아 있다');
+    assert.equal(b.session.phase, 'room');
+    await env.run(31000, 500);
+    await env.settle();
+    assert.equal(a.session.phase, 'lobby', '그 뒤 다시 1분이 지나면 닫힌다');
+    env.dispose();
+  });
+
+  test('채팅·준비·설정·방장의 대기실 조작은 처음부터 다시 세게 하고, 핑만 바뀐 presence는 활동이 아니다', async (t) => {
+    const { env, a, b } = await roomOfTwo(t);
+    await env.run(40000, 500);
+    b.ui.fire('room:chat', { text: '잠깐만요' });
+    await env.run(40000, 500);
+    assert.equal(a.session.phase, 'room', '채팅 뒤 40초: 아직 1분이 안 됐다');
+    b.ui.fire('room:ready', { ready: true });
+    await env.run(40000, 500);
+    assert.equal(a.session.phase, 'room', '준비 뒤 40초');
+    a.ui.fire('room:map', { mapId: 'alley' });
+    await env.run(40000, 500);
+    assert.equal(a.session.phase, 'room', '맵을 바꾼 뒤 40초');
+    a.ui.fire('room:active', {});
+    await env.run(40000, 500);
+    assert.equal(a.session.phase, 'room', '방장이 대기실을 누른 뒤 40초');
+    // 같은 사람·같은 칸에서 핑만 바뀐 presence(players)는 세지 않는다
+    for (let i = 0; i < 6; i++) { env.hub.announce('players'); await env.run(10000, 500); }
+    await env.settle();
+    assert.equal(a.session.phase, 'lobby', '핑 갱신만 있으면 1분 뒤 닫힌다');
+    assert.equal(b.session.phase, 'lobby');
+    env.dispose();
+  });
+
+  test('경기 중에는 세지 않고, 경기가 끝나 결과 화면에 온 때부터 센다', async (t) => {
+    const env = stage(t, { ffaRules: { timeLimitMs: 75000 } });
+    const a = env.client('a', '하늘');
+    const b = env.client('b', '바다');
+    await startMatch(env, [a, b], { mode: 'ffa' });
+    assert.equal(a.session.phase, 'match');
+    await env.run(70000, 500);
+    assert.equal(a.session.phase, 'match', '경기 중 70초가 지나도 방은 닫히지 않는다');
+    for (let i = 0; i < 120 && a.session.phase === 'match'; i++) await env.run(500, 500);   // 시간 종료로 경기가 끝난다
+    assert.equal(a.session.phase, 'results', '결과 화면');
+    await env.run(48000, 500);
+    assert.equal(a.session.phase, 'results', '결과 화면 48초: 아직 닫지 않는다');
+    await env.run(13000, 500);
+    await env.settle();
+    assert.equal(a.session.phase, 'lobby', '결과 화면에서 1분 동안 아무 일이 없으면 닫힌다');
+    assert.equal(b.session.phase, 'lobby');
+    env.dispose();
+  });
+});
+
 describe('방에서 나가기', () => {
   /** 방을 만들고, 서버가 나가기에 답할 때까지 room.leave가 끝나지 않게 한다 */
   async function hostInSlowRoom(t) {
