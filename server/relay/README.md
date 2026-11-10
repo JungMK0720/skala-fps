@@ -95,7 +95,9 @@ npm run qa:hidden -- --only multi-play --relay http://127.0.0.1:8788
 - wrangler 없이 서버만 띄우려면 `node server/relay/src/node.js --port 8788`.
 - 브라우저로 직접 보려면 `js/config.js`의 `transport`를 `'relay'`, `relay.url`을 `'http://127.0.0.1:8788'`로 바꾸고 `index.html` CSP의 `connect-src`에 `http://127.0.0.1:8788 ws://127.0.0.1:8788`을 잠깐 더한다(커밋하지 않는다). 이때 닉네임·포인트는 운영 Supabase로 간다.
 
-## 배포 (소유자가 정한다. 이 작업에서는 배포하지 않았다)
+## 배포 (소유자가 정한다. 아직 배포하지 않았다)
+
+단계별 절차, 성공 기준, 감시, 되돌리기, 문제 해결은 운영 절차서 [docs/CLOUDFLARE_SOP.md](../../docs/CLOUDFLARE_SOP.md)에 있다. 아래는 요약이다.
 
 1. `cd server/relay && npx wrangler login` (브라우저로 Cloudflare 로그인)
 2. `npx wrangler deploy` → `https://skala-relay.<계정 하위 도메인>.workers.dev`. 첫 배포 때 마이그레이션 `v1`이 SQLite 클래스 `RelayHub`를 만든다(무료 플랜은 SQLite 클래스만 된다).
