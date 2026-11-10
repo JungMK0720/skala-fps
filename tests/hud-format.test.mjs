@@ -11,7 +11,7 @@ import { PLAYER, MOVE, TEAMS as CORE_TEAMS } from '../js/core/consts.js';
 import { WEAPONS } from '../js/weapons/defs.js';
 import { speedGauge, calloutTone, bannerSpec, normSlots, bombSpec, bombTimerText, markerDist } from '../js/ui/hud.js';
 import { magLabel, zoomReadout } from '../js/ui/scope.js';
-import { TEAMS, modeKey, modeLabel, MODE_NAME, MODE_ICON, bombSide } from '../js/ui/dom.js';
+import { TEAMS, modeKey, modeLabel, MODE_NAME, MODE_ICON, bombSide, fmtDelta } from '../js/ui/dom.js';
 import { weaponInfo, normMap } from '../js/ui/icons.js';
 import { ruleBadge, ruleForMode, missionMaps, mapsForMode, MODE_IDS } from '../js/ui/lobby.js';
 import { normRounds, bombRoundInfo } from '../js/ui/results.js';
@@ -322,5 +322,18 @@ describe('결과: 폭파 미션 라운드 칸', () => {
     const draw = info({ winner: 'draw', reason: '무승부', reasonCode: 'draw', attack: 'owner' });
     assert.deepEqual([draw.icon, draw.won, draw.side], ['', '', '']);
     assert.equal(info({ winner: 'owner', reasonCode: 'bomb' }).side, '', '공격 팀을 모르면 진영을 쓰지 않는다');
+  });
+});
+
+describe('결과: 포인트 증감 글자', () => {
+  test('음수 앞에 +를 겹쳐 붙이지 않는다', () => {
+    assert.equal(fmtDelta(1250), '+1,250');
+    assert.equal(fmtDelta(-4), '-4');
+    assert.equal(fmtDelta(-1250), '-1,250');
+    assert.equal(fmtDelta(0), '+0');
+    assert.equal(fmtDelta(-0.4), '+0', '반올림해 0이 되면 -0이 아니라 +0');
+    assert.equal(fmtDelta(2.6), '+3');
+    assert.equal(fmtDelta('abc'), '+0');
+    assert.equal(fmtDelta(null), '+0');
   });
 });

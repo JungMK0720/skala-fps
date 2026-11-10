@@ -98,6 +98,12 @@ export const num = (v, d = 0) => (Number.isFinite(Number(v)) && v !== null && v 
 /** 1250 → "1,250 P" */
 export const fmtPoints = (n) => `${Math.max(0, Math.floor(num(n, 0))).toLocaleString('ko-KR')} P`;
 
+/** 포인트 증감: 1250 → "+1,250", -4 → "-4", 0 → "+0". 음수 앞에 +를 겹쳐 붙이지 않는다(봇전 쉬움 난이도 줄은 음수다) */
+export function fmtDelta(n) {
+  const v = Math.round(num(n, 0)) || 0;   // -0.4 → -0 → 0
+  return `${v < 0 ? '-' : '+'}${Math.abs(v).toLocaleString('ko-KR')}`;
+}
+
 /** 초 → "2시간 05분" / "12분 30초" / "45초" */
 export function fmtPlayTime(sec) {
   const t = Math.max(0, Math.floor(num(sec, 0)));
