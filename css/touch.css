@@ -109,6 +109,9 @@ html.pc-touch .sk-protect { font-size: 12px; }
 /* 연속 킬: 아래는 무기 칸·안내 줄·엄지가 차지하므로 크로스헤어 위에 작게 */
 html.pc-touch .sk-mk { --mk-size: 56px; top: auto; bottom: calc(50% + 40px); gap: 0; }
 html.pc-touch .sk-mk[data-mk="legend"] { --mk-size: 66px; }
+/* 가운데 메시지(라운드 결과·합류 안내 등)가 같은 자리에 뜨면 크로스헤어 아래로 내리고 무기 칸에 닿지 않게 그림을 줄인다(hud.js mkAvoidCenter) */
+html.pc-touch .sk-mk.is-below { --mk-size: 44px; top: calc(50% + 16px); bottom: auto; }
+html.pc-touch .sk-mk.is-below[data-mk="legend"] { --mk-size: 50px; }
 html.pc-touch .sk-mk-title, html.pc-touch .sk-mk[data-mk="legend"] .sk-mk-title { font-size: 20px; }
 html.pc-touch .sk-mk-sub { font-size: 11.5px; }
 

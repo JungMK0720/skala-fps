@@ -775,12 +775,21 @@ export function createHud(ctx) {
     mkEl.classList.remove('is-show');
     void mkEl.offsetWidth; // 애니메이션 재시작
     mkEl.classList.add('is-show');
-    st.mkTimer = ctx.later(() => { st.mkTimer = null; mkEl.classList.remove('is-show'); }, m.ms);
+    mkAvoidCenter();
+    st.mkTimer = ctx.later(() => { st.mkTimer = null; mkEl.classList.remove('is-show', 'is-below'); }, m.ms);
   }
   function clearMultiKill() {
     if (st.mkTimer != null) ctx.cancel(st.mkTimer);
     st.mkTimer = null;
-    mkEl.classList.remove('is-show');
+    mkEl.classList.remove('is-show', 'is-below');
+  }
+  /**
+   * 휴대폰은 연속 킬을 크로스헤어 위에 두는데, 가운데 메시지(라운드 결과·합류 안내·작전 개시 등)도 그 자리를 쓴다.
+   * 둘이 같이 뜨면(어느 쪽이 먼저든) 연속 킬을 크로스헤어 아래로 내리고(css/touch.css .sk-mk.is-below) 사라질 때까지 그 자리에 둔다.
+   * 팀전은 마지막 적을 잡는 킬이 연속 킬이면 라운드 결과와 같이 뜬다. PC는 처음부터 크로스헤어 아래라 바뀌지 않는다
+   */
+  function mkAvoidCenter() {
+    if (mkEl.classList.contains('is-show') && centerEl.classList.contains('is-show')) mkEl.classList.add('is-below');
   }
 
   function damageFrom(angle) {
@@ -806,6 +815,7 @@ export function createHud(ctx) {
     centerEl.classList.remove('is-show');
     void centerEl.offsetWidth; // 애니메이션 재시작
     centerEl.classList.add('is-show');
+    mkAvoidCenter();
     const dur = ms == null ? 2000 : Number(ms);
     if (Number.isFinite(dur) && dur > 0) {
       st.centerTimer = ctx.later(() => { st.centerTimer = null; centerEl.classList.remove('is-show'); }, dur);

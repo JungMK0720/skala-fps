@@ -47,7 +47,7 @@ ui.hud.set({ hp, ammo, reserve, slot, slots, spread, roundTime, score, alive, ..
 ui.hud.hitmarker(head, kill?, opts?)
 ui.hud.callout(text, tone)        // 크로스헤어 아래 짧은 글자. tone: 'head'|'half'|'kill'
 ui.hud.banner({ icon, title, sub }) // 상단 배너. 비밀 스팟 발견 등
-ui.hud.multiKill({ id, title, sub }) // 연속 킬 그림+글자. id: 'double'~'hexa'|'legend'. 줄 세우지 않고 바로 바꾼다(2.2초, 전설 2.9초)
+ui.hud.multiKill({ id, title, sub }) // 연속 킬 그림+글자. id: 'double'~'hexa'|'legend'. 줄 세우지 않고 바로 바꾼다(2.2초, 전설 2.9초). 휴대폰은 hud.center와 같이 뜨면 크로스헤어 아래로(.is-below)
 ui.hud.damageFrom(angle)          // rad. 0 = 정면, +π/2 = 오른쪽, ±π = 뒤
 ui.hud.center(text, ms?, opts?)   // opts: { sub, tone: 'owner'|'charterer'|'warn' }
 ui.hud.reset()                    // 킬피드·피격표시·중앙메시지·배너·연속 킬 비우기(라운드/매치 전환 시)

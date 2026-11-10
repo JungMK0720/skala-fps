@@ -212,12 +212,45 @@ export default {
     await waitLive(page);
     await page.waitFor('!__qa.ui.isVisible("loadout")', 8000, { label: '무기 선택 닫힘' });
     await page.fn(installMk);
+    // '작전 개시!'가 떠 있으면 연속 킬이 크로스헤어 아래로 내려가므로(hud.js mkAvoidCenter) 사라진 뒤에 평소 자리를 본다
+    const centerShown = '(() => document.querySelector(".sk-center").classList.contains("is-show"))()';
+    await page.waitFor(`!${centerShown}`, 8000, { label: '작전 개시 안내가 사라짐' });
     const top = await page.eval(`(() => { const r = document.querySelector('.sk-top').getBoundingClientRect(); return { bottom: Math.round(r.bottom) }; })()`);
     for (const tier of [MULTI_KILL_TIERS[1], MULTI_KILL_TIERS[5]]) {
       const mk = await shotMultiKill(t, page, `multikill-touch-${tier.id}`, { id: tier.id, title: tier.title, sub: tier.id === 'legend' ? '7연속 처치' : '' });
       t.check(mk.show && mk.top >= 0 && mk.bottom <= H / 2 && mk.left >= 0 && mk.right <= W, `휴대폰 ${tier.title}: 크로스헤어 위, 화면 안`, mk);
       t.check(mk.top >= top.bottom - 2, `휴대폰 ${tier.title}: 위쪽 점수판과 겹치지 않는다`, { mk, top });
     }
+
+    // 가운데 메시지(라운드 결과·합류 안내 등)와 같이 뜨면 크로스헤어 아래로 내려 겹치지 않는다. 마지막 적을 잡는 킬은 연속 킬 다음에 라운드 결과가 뜬다
+    t.setSection('휴대폰: 가운데 메시지와 같이');
+    const boxes = `(() => {
+      const box = (s) => { const r = document.querySelector(s).getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), right: Math.round(r.right) }; };
+      return { center: box('.sk-center'), slots: box('.sk-br'), below: document.querySelector('.sk-mk').classList.contains('is-below') };
+    })()`;
+    const apart = (a, b) => a.bottom <= b.top + 1 || b.bottom <= a.top + 1 || a.right <= b.left + 1 || b.right <= a.left + 1;
+    const banner = { text: '블루 팀 승리', sub: '전멸 · 블루 3 : 1 레드' };
+    for (const order of ['center-first', 'mk-first']) {
+      for (const tier of [MULTI_KILL_TIERS[1], MULTI_KILL_TIERS[5]]) {
+        const o = { id: tier.id, title: tier.title, sub: tier.id === 'legend' ? '7연속 처치' : '' };
+        await page.fn(({ order, o, banner }) => {
+          const hud = window.__qa.ui.hud;
+          if (order === 'center-first') { hud.center(banner.text, 6000, { sub: banner.sub }); hud.multiKill(o); }
+          else { hud.multiKill(o); hud.center(banner.text, 6000, { sub: banner.sub }); }
+          window.__mkFreeze(true);
+          return true;
+        }, { order, o, banner });
+        await sleep(200);
+        const mk = await page.eval(hudMk), b = await page.eval(boxes);
+        if (order === 'mk-first' && tier.id === 'triple') await t.shot('multikill-touch-center');
+        t.check(mk.show && b.below && mk.top >= H / 2, `${order} ${tier.title}: 크로스헤어 아래로 내려간다`, { mk, b });
+        t.check(apart(mk, b.center), `${order} ${tier.title}: 가운데 메시지와 겹치지 않는다`, { mk, center: b.center });
+        t.check(mk.bottom <= b.slots.top + 1, `${order} ${tier.title}: 무기 칸에 닿지 않는다`, { mk, slots: b.slots });
+        await page.fn(() => { window.__mkFreeze(false); window.__qa.ui.hud.multiKill(null); window.__qa.ui.hud.center(''); return true; });
+      }
+    }
+    const reset = await page.eval(boxes);
+    t.check(!reset.below, '연속 킬이 사라지면 다음에는 다시 크로스헤어 위에서 시작한다', reset);
     t.errorsOk('휴대폰 배치');
   }
 };
