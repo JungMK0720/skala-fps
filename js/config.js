@@ -13,6 +13,6 @@ window.SKALA_CONFIG = {
     url: 'https://tvsoacvbjvggqdgnzijc.supabase.co',
     anonKey: 'sb_publishable_rJg-uWBapq4V37XcAzLpZQ_Gp4p2Zb4'
   },
-  transport: 'supabase',
-  relay: { url: '', hz: 20 }
+  transport: 'relay',
+  relay: { url: 'https://skala-relay.skala-fps.workers.dev', hz: 20 }
 };

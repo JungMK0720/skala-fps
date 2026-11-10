@@ -95,7 +95,9 @@ npm run qa:hidden -- --only multi-play --relay http://127.0.0.1:8788
 - wrangler 없이 서버만 띄우려면 `node server/relay/src/node.js --port 8788`.
 - 브라우저로 직접 보려면 `js/config.js`의 `transport`를 `'relay'`, `relay.url`을 `'http://127.0.0.1:8788'`로 바꾸고 `index.html` CSP의 `connect-src`에 `http://127.0.0.1:8788 ws://127.0.0.1:8788`을 잠깐 더한다(커밋하지 않는다). 이때 닉네임·포인트는 운영 Supabase로 간다.
 
-## 배포 (소유자가 정한다. 아직 배포하지 않았다)
+## 배포 (2026-11-10 배포: `https://skala-relay.skala-fps.workers.dev`, 무료 플랜)
+
+배포한 주소에서 `/health`와 smoke 22가지가 통과했고, 허용 목록에 없는 Origin의 WebSocket 연결은 403으로 막히는 것을 확인했다. 게임은 `js/config.js`의 `transport: 'relay'`로 이 서버를 쓴다.
 
 단계별 절차, 성공 기준, 감시, 되돌리기, 문제 해결은 운영 절차서 [docs/CLOUDFLARE_SOP.md](../../docs/CLOUDFLARE_SOP.md)에 있다. 아래는 요약이다.
 
@@ -130,7 +132,7 @@ npm run qa:hidden -- --only multi-play --relay http://127.0.0.1:8788
 - 유료라면 8명 방 1시간 ≈ 요청 21,600(약 $0.0032) + 450 GB-s(약 $0.0056) ≈ **$0.009**다. 포함량(요청 100만·40만 GB-s)만으로 8명 방 약 46시간이다.
 - 무료로 오래 버티려면 `SKALA_CONFIG.relay.hz`를 낮춘다(10이면 요청이 약 2/3). 실제 프레임 수는 알람 로그의 `msgsIn`으로 잰다.
 - 로컬 실측(2026-11-09, `wrangler dev`, 헤드리스 QA 2인 경기): 방 허브가 60초에 받은 메시지 253~267건, 곧 한 사람 초당 약 2건, 메시지 평균 약 400자. QA 플레이어는 대부분 서 있어서 `sync.js`가 상태를 2Hz로 줄인 값이다. 계속 움직이면 한 사람 초당 10~15건이 되므로 위 표가 실제보다 크게 잡은 쪽이다.
-- 아직 실제 Cloudflare에 배포해 재지 않았다. 위 표는 문서의 단가와 게임의 전송 빈도로 계산한 값이다.
+- 2026-11-10에 배포했지만 실제 사용량은 아직 재지 않았다. 위 표는 문서의 단가와 게임의 전송 빈도로 계산한 값이다. 대시보드 지표는 20:1을 적용하기 전의 실제 메시지 수라서, 청구 기준 요청은 `들어온 메시지 ÷ 20 + 연결 수 + 알람 수`로 환산해 비교한다(docs/CLOUDFLARE_SOP.md 7.2절).
 
 ## 남은 한계와 다음 단계(권위 서버로)
 

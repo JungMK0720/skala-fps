@@ -9,7 +9,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 지금 상태 | 중계 서버 코드는 `main`에 있다. Worker는 아직 배포하지 않았고, 게임은 `js/config.js`의 `transport: 'supabase'`로 Supabase Realtime을 쓴다 |
+| 지금 상태 | 2026-11-10에 Worker를 `https://skala-relay.skala-fps.workers.dev`로 배포했다(무료 플랜, 하위 도메인 `skala-fps`). 게임은 `js/config.js`의 `transport: 'relay'`로 이 서버를 쓴다. 아래 절차는 다시 배포하거나 다른 계정으로 옮길 때도 그대로 쓴다 |
 | 목표 | Worker 배포 → 배포 주소 확인 → 게임을 `transport: 'relay'`로 전환 → 실제 사용량 측정 |
 | 소유자만 할 수 있는 일 | Cloudflare 가입·로그인, 플랜(무료·유료) 결정, 대시보드 확인 |
 | 걸리는 시간 | 처음 한 번 30~60분 |
@@ -177,8 +177,10 @@ git switch -c feature/relay-on main
 
 | 무엇 | 어디서 | 기준 |
 |---|---|---|
-| Durable Objects 요청 수 | 대시보드 **Durable Objects** → `RelayHub` 네임스페이스 → **Metrics** | 무료는 하루 100,000. 절반을 넘는 날이 이어지면 10절 |
+| Durable Objects 요청 수 | 대시보드 **Durable Objects** → `RelayHub` 네임스페이스 → **Metrics** | 무료는 하루 100,000(청구 기준). 아래 첫 줄처럼 환산해서 절반을 넘는 날이 이어지면 10절 |
 | 실행 시간 | 같은 곳 | 무료는 하루 13,000 GB-s |
+
+- **대시보드 지표는 20:1을 적용하기 전의 실제 메시지 수다**(Cloudflare 문서: 20:1은 청구에만 쓰고 지표에는 쓰지 않는다). 청구되는 요청은 대략 `들어온 WebSocket 메시지 ÷ 20 + 연결 수 + 알람 수`다. 대시보드 숫자를 그대로 100,000과 비교하면 20배 크게 잡힌다.
 | Worker 요청·오류 | 대시보드 **Workers & Pages** → `skala-relay` → Metrics, Observability → Logs | 오류가 0이 아니면 9절 |
 | 허브 요약 로그 | Observability → Logs, 또는 `npx wrangler tail` | 허브마다 1분에 한 줄 |
 
