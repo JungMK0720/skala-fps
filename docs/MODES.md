@@ -263,5 +263,6 @@
 - **연결:** 연습장(`practice.js`)과 멀티(`session.js`) 모두 경기의 `kill` 이벤트마다 `world.noteKill({ killer, victim, killerTeam, victimTeam })`를 부른다.
   프로토콜은 바꾸지 않았다(각자 자기 킬만 센다). 다른 사람의 연속 킬은 보이지 않는다.
 - **표시:** `hud.multiKill({ id, title, sub })`. PC는 크로스헤어 아래(콜아웃 밑), 휴대폰은 크로스헤어 위에 작게. 다음 단계가 오면 줄을 세우지 않고 바로 바꾼다.
+  휴대폰에서 가운데 메시지(라운드 결과·합류 안내·작전 개시)와 같이 뜨면 그 자리를 비켜 크로스헤어 아래로 더 작게 내리고, 사라질 때까지 그 자리에 둔다. 마지막 적을 잡는 킬이 연속 킬이면 라운드 결과와 같이 뜬다.
   그림은 SVG 도형(`ui/multikill.js`): 더블~헥사는 육각 방패 + 킬 수만큼 탄환 + 단계마다 색·빛살·날개, 전설은 월계관 메달·별·왕관.
 - **소리:** 합성 효과음 `multi_kill`(단계마다 조금 높게)·`legend_kill`과 안내 음성 `audio.voice(id)`(`audio/voice/*.mp3`, TTS로 합성, js/fx/README.md "안내 음성").
