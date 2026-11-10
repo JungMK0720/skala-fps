@@ -1,7 +1,8 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 로드아웃. 라운드 전 무기 고르기(작은 카드 격자, 숫자키 1~9, 카운트다운)와 부활 대기 중의 compact 패널, 보조·근접 빠른 교체 줄을 보여 준다.
+ * Purpose: 로드아웃. 무기 고르기(작은 카드 격자, 숫자키 1~9, 카운트다운)와 부활 대기 중의 compact 패널, 보조·근접 빠른 교체 줄을 보여 준다.
+ *          swap이면 라운드 시작 전 대기 시간에 N으로 여닫는 무기 교체 창이다: 무기를 누르면 바로 바뀌고 닫히며, 시간이 끝나면 고르지 않고 닫힌다.
  *          무기 이름·수치는 무기 정의(defs)에서 읽고 여기서는 표시만 한다. 칼전이면 칼 목록이 그대로 들어온다.
  */
 import { h, setText, isTextField } from './dom.js';
@@ -168,7 +169,8 @@ export function createLoadout(ctx) {
     setText(cCount, `${n}초`);
     el.classList.toggle('is-urgent', left <= 2000);
     if (left > 0) return;
-    if (compact && userPicked) { stop(); ctx.hideSelf('loadout'); } // 이미 골랐으면 다시 보내지 않고 닫기만
+    if (p.swap) closeSwap('time', false);                           // 교체 창: 고르지 않았으면 들고 있던 무기 그대로
+    else if (compact && userPicked) { stop(); ctx.hideSelf('loadout'); } // 이미 골랐으면 다시 보내지 않고 닫기만
     else pick(picked || defaultId(), true);
   }
   function startCountdown(sec) {
@@ -200,18 +202,32 @@ export function createLoadout(ctx) {
 
   function headline() {
     if (p.title) return p.title;
-    return p.round ? `라운드 ${p.round} · 무기 선택` : '무기 선택';
+    const what = p.swap ? '무기 교체' : '무기 선택';
+    return p.round ? `라운드 ${p.round} · ${what}` : what;
+  }
+
+  /** 교체 창을 고르지 않고 닫는다. relock = 키로 닫았다(그 키 입력으로 포인터를 다시 잠글 수 있다) */
+  function closeSwap(reason, relock) {
+    stop();
+    ctx.hideSelf('loadout');
+    ctx.emit('loadout:close', { reason, relock: !!relock });
   }
 
   function renderFull(secs) {
     const def = defaultId();
     setText(title, headline());
-    setText(sub, `카드를 누르거나 ${numberKeyHint(weapons.length)}로 고르세요`);
+    setText(sub, p.swap
+      ? `무기를 누르면 바로 바뀌어요 · ${numberKeyHint(weapons.length)}도 돼요 · N 또는 Esc로 닫기`
+      : `카드를 누르거나 ${numberKeyHint(weapons.length)}로 고르세요`);
     cards.replaceChildren(...(weapons.length
       ? weapons.map((w, i) => card(w, i, w.id === def))
       : [h('p', { class: 'sk-lo-empty', text: '무기 정보를 불러오지 못했어요.' })]));
     const dw = weapons.find((w) => w.id === def);
-    setText(foot, dw && Number(secs) > 0 && Number.isFinite(Number(secs)) ? `시간 안에 고르지 않으면 ${dw.name}(으)로 출격해요.` : '');
+    const timed = Number(secs) > 0 && Number.isFinite(Number(secs));
+    const touch = document.documentElement.classList.contains('pc-touch');
+    setText(foot, p.swap
+      ? `라운드가 시작되기 전까지 ${touch ? '안내를 다시 눌러' : 'N으로 다시 열어'} 몇 번이든 바꿀 수 있어요.`
+      : dw && timed ? `시간 안에 고르지 않으면 ${dw.name}(으)로 출격해요.` : '');
   }
 
   function render(props, { fresh, patch }) {
@@ -241,6 +257,13 @@ export function createLoadout(ctx) {
   // 같은 키를 무기 슬롯 전환으로 한 번 더 처리하지 않는다. 예: 2로 RX-4를 골랐는데 P-9를 드는 문제.
   ctx.listen(window, 'keydown', (e) => {
     if (!screen.visible || isTextField(e.target)) return;
+    // 교체 창: N이나 Esc로 고르지 않고 닫는다. 엔진까지 가면 N은 창을 다시 열고 Esc는 일시정지 메뉴를 연다
+    if (p.swap && (e.code === 'KeyN' || e.code === 'Escape')) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!e.repeat) closeSwap('key', e.code === 'KeyN');
+      return;
+    }
     const m = /^(?:Digit|Numpad)([1-9])$/.exec(e.code || '');
     if (!m) return;
     e.preventDefault();

@@ -595,9 +595,13 @@ export function createEffects(scene, camera, opts = {}) {
     if (K.trail) spawn(true);
   }
 
-  /** 피격 이펙트. mat: 재질 팔레트 이름(강판=불꽃, 콘크리트=먼지, 물=물보라 …) 또는 'player'(갑옷 불꽃, 피 없음) */
-  function impact(point, normal, mat = 'concrete') {
+  /**
+   * 피격 이펙트. mat: 재질 팔레트 이름(강판=불꽃, 콘크리트=먼지, 물=물보라 …) 또는 'player'(갑옷 불꽃, 피 없음).
+   * opt.decal === false면 탄흔을 남기지 않는다(움직이는 지형에 남기면 지형이 떠난 자리에 탄흔만 떠 있다)
+   */
+  function impact(point, normal, mat = 'concrete', opt = null) {
     if (disposed) return;
+    const mark = !(opt && opt.decal === false);
     v3(point, _a);
     v3(normal || UP, _n);
     if (_n.lengthSq() < 1e-8) _n.copy(UP); else _n.normalize();
@@ -621,7 +625,7 @@ export function createEffects(scene, camera, opts = {}) {
         coneDir(_n, 1.1, _d).multiplyScalar(rand(1.5, 4));
         ptsAlpha.add(_a.x, _a.y, _a.z, _d.x, _d.y, _d.z, P.shard);
       }
-      addDecal(_a, _n, m === 'glass' ? 0xcfd8dc : 0x1c1d20);
+      if (mark) addDecal(_a, _n, m === 'glass' ? 0xcfd8dc : 0x1c1d20);
     } else if (METAL.has(m)) {
       ptsAdd.add(_a.x, _a.y, _a.z, 0, 0, 0, P.sparkFlash);
       for (let i = 0, n = cnt(12); i < n; i++) {
@@ -633,7 +637,7 @@ export function createEffects(scene, camera, opts = {}) {
         ptsAdd.add(_a.x, _a.y, _a.z, _d.x, _d.y, _d.z, P.sparkDot);
       }
       for (let i = 0, n = cnt(2); i < n; i++) ptsAlpha.add(_a.x, _a.y, _a.z, _n.x * 0.5, _n.y * 0.5 + 0.2, _n.z * 0.5, P.wisp);
-      addDecal(_a, _n, 0x1c1d20);
+      if (mark) addDecal(_a, _n, 0x1c1d20);
     } else {
       const D = Object.prototype.hasOwnProperty.call(DUST, m) ? DUST[m] : DUST.concrete;   // 모르는 재질은 콘크리트
       for (let i = 0, n = cnt(8); i < n; i++) {
@@ -646,7 +650,7 @@ export function createEffects(scene, camera, opts = {}) {
         P.chip.c0 = D.chip;
         ptsAlpha.add(_a.x, _a.y, _a.z, _d.x, _d.y, _d.z, P.chip);
       }
-      addDecal(_a, _n, D.decal);
+      if (mark) addDecal(_a, _n, D.decal);
     }
   }
 

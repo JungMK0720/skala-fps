@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 시나리오 15. 맵 둘러보기. 새 맵 일곱을 코어만 띄워(?plugins=0) 카메라를 스폰, 발판, 포털, 비밀 스팟, 골목, 폭파 구역마다 옮겨 사진을 남긴다.
+ * Purpose: 시나리오 15. 맵 둘러보기. 새 맵 열하나를 코어만 띄워(?plugins=0) 카메라를 스폰, 발판, 포털, 비밀 스팟, 골목, 폭파 구역, 움직이는 지형마다 옮겨 사진을 남긴다.
  *          기하와 분위기를 눈으로 볼 때 쓴다. 사용법: npm run qa -- --only maps [--filter dojo 또는 dojo/pad 또는 rooftop,glasshouse]
  */
 import { MAPS } from '../../../js/maps/index.js';
@@ -11,7 +11,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { qaInit, richProfile, sleep } from '../kit.mjs';
 
-const MAP_IDS = ['rooftop', 'glasshouse', 'dojo', 'longshot', 'nexus', 'alley', 'relay'];
+const MAP_IDS = ['rooftop', 'glasshouse', 'dojo', 'longshot', 'nexus', 'alley', 'relay', 'railyard', 'observatory', 'cqb', 'sorthub'];
 const SHEET = { cols: 2, rows: 3, w: 480, h: 270 };
 const DOWN = -Math.PI / 2 + 0.002;
 
@@ -192,6 +192,20 @@ function autoViews(id, data) {
     out.push(facing(`portal${i}-out`, p.to.x, p.to.y, p.to.z, p.to.rotY || 0));
   });
   for (const s of data.secrets || []) out.push(facing(`secret-${s.id}`, s.x, s.y, s.z + Math.min(1.5, s.d / 3), Math.PI), facing(`secret-${s.id}-back`, s.x, s.y, s.z - Math.min(1.5, s.d / 3), 0));
+  // 폭파 구역: 비스듬히 위에서 한 장, 구역 한가운데에 서서 네 쪽을 한 장씩
+  for (const s of (data.mission && data.mission.sites) || []) {
+    out.push(air(`site-${s.id}-over`, s.x - 9, (s.y || 0) + 11, s.z + 9, s.x, s.y || 0, s.z));
+    for (const [n, rot] of [['n', 0], ['e', -Math.PI / 2], ['s', Math.PI], ['w', Math.PI / 2]]) out.push(facing(`site-${s.id}-${n}`, s.x, s.y || 0, s.z, rot));
+  }
+  // 움직이는 지형: 길 한가운데를 맵 중심 쪽에서 비스듬히 내려다본다(절반만, 나머지는 대칭). 벽 쪽에서 찍으면 벽만 보인다
+  const movers = data.movers || [];
+  movers.slice(0, Math.ceil(movers.length / 2)).forEach((m) => {
+    const top = Math.max(0, (m.y || 0) + m.h);
+    const cx = m.x + (m.axis === 'x' ? m.dist / 2 : 0), cz = m.z + (m.axis === 'z' ? m.dist / 2 : 0);
+    const len = Math.hypot(cx, cz);
+    const ux = len > 1 ? -cx / len : 0.6, uz = len > 1 ? -cz / len : 0.8;
+    out.push(air(`mover-${m.id}`, cx + ux * 6 + uz * 3, top + 6, cz + uz * 6 - ux * 3, cx, Math.max(0.6, top - 1.2), cz));
+  });
   return out;
 }
 
@@ -271,7 +285,7 @@ function grabCell({ name, col, row, reset, W, H, cols, rows }) {
 
 export default {
   name: 'maps',
-  title: '새 맵 일곱의 스폰, 발판, 포털, 비밀 스팟, 골목, 폭파 구역 사진',
+  title: '새 맵 열하나의 스폰, 발판, 포털, 비밀 스팟, 골목, 폭파 구역, 움직이는 지형 사진',
   timeoutMs: 15 * 60 * 1000,
   async run(t) {
     for (const id of MAP_IDS) {

@@ -19,8 +19,11 @@
 import { DEFAULT_RULESETS, RULESET_NAMES } from './collision.js';
 
 // 순서가 메뉴 순서이고, 규칙마다 처음 나오는 맵이 그 규칙의 기본 맵이다(칼전 rooftop, 클래식 alley, 스나전 longshot)
-// 폭파 미션 맵 relay는 맨 끝에 두어 규칙별 기본 맵을 바꾸지 않는다
-export const MAP_IDS = Object.freeze(['rooftop', 'glasshouse', 'alley', 'longshot', 'dojo', 'nexus', 'jetty', 'tankfarm', 'vlcc', 'relay']);
+// 좁은 맵 cqb·sorthub는 alley 뒤에 둔다. 폭파 미션 맵은 맨 끝에 두어 규칙별 기본 맵을 바꾸지 않고, 그중 처음인 relay가 폭파 미션의 기본 맵이다
+export const MAP_IDS = Object.freeze([
+  'rooftop', 'glasshouse', 'alley', 'cqb', 'sorthub', 'longshot', 'dojo', 'nexus', 'jetty', 'tankfarm', 'vlcc',
+  'relay', 'railyard', 'observatory'
+]);
 
 const R90 = Math.PI / 2;
 
@@ -149,6 +152,8 @@ const KNOWN = {
   rooftop: { name: '빨랫줄 옥상', nameEn: 'Clothesline Roof', rulesets: ['knife'], tag: '칼전 전용' },
   glasshouse: { name: '선인장 온실', nameEn: 'Cactus Glasshouse', rulesets: ['knife'], tag: '칼전 전용' },
   alley: { name: '항구 골목', nameEn: 'Harbor Alley', rulesets: ['classic', 'knife'] },
+  cqb: { name: '근접전 훈련장', nameEn: 'CQB Yard', rulesets: ['classic', 'knife'], tag: '좁은 맵' },
+  sorthub: { name: '택배 분류 센터', nameEn: 'Parcel Hub', rulesets: ['classic', 'knife'], tag: '좁은 맵' },
   dojo: { name: '벚꽃 도장', nameEn: 'Blossom Dojo', rulesets: ['classic', 'knife', 'sniper'], tag: '통합' },
   longshot: { name: '협곡 저격장', nameEn: 'Canyon Range', rulesets: ['sniper'], tag: '스나 전용' },
   nexus: { name: '넥서스', nameEn: 'Nexus', rulesets: ['classic', 'knife', 'sniper'], tag: '통합' },
@@ -156,7 +161,9 @@ const KNOWN = {
   // 탱크 사이가 막혀 저격 시야가 짧다. 스나전 봇끼리 만나지 못해 무승부만 나와서 클래식 전용으로 둔다
   tankfarm: { name: '탱크 팜', nameEn: 'Tank Farm', rulesets: ['classic'] },
   vlcc: { name: 'VLCC 갑판', nameEn: 'Tanker Deck' },
-  relay: { name: '중계 기지', nameEn: 'Relay Station', rulesets: ['classic'], tag: '폭파 미션' }
+  relay: { name: '중계 기지', nameEn: 'Relay Station', rulesets: ['classic'], tag: '폭파 미션' },
+  railyard: { name: '화물 조차장', nameEn: 'Freight Yard', rulesets: ['classic'], tag: '폭파 미션' },
+  observatory: { name: '사막 관측소', nameEn: 'Desert Observatory', rulesets: ['classic'], tag: '폭파 미션' }
 };
 
 function fallbackFor(id, reason) {

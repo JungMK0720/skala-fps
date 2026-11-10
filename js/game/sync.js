@@ -333,7 +333,7 @@ export function createSync(opts = {}) {
         if (r.to === 'host') {
           to = hostTarget();
           if (!to) { keep.push(r); continue; } // 방장 미정 → 대기
-        }
+        } else if (r.to) to = r.to;            // 받는 사람이 정해진 항목(팀 채팅)
         sendMsg(r.ev, r.payload, to, r.merge);
         if (r.ev === EV.loadout) loadoutAt = t;
         r.left--;
@@ -504,11 +504,22 @@ export function createSync(opts = {}) {
     return true;
   }
 
-  /** 채팅 (선택). 받는 쪽 화면에는 textContent로만 */
-  function sendChat(text) {
+  /**
+   * 채팅 (선택). 받는 쪽 화면에는 textContent로만.
+   * opt = { scope: 'team', to: [플레이어 id] }면 팀 채팅: 그 사람들에게만 보낸다(중계 서버는 받는 사람에게만 전달한다).
+   * to에 아무도 없으면 보내지 않고 true를 돌려준다(혼자 남은 팀).
+   */
+  function sendChat(text, opt) {
     if (disposed) return false;
-    const payload = encodeChat(++itemId, text);
+    const team = !!(opt && opt.scope === 'team');
+    const payload = encodeChat(++itemId, text, team ? 'team' : 'all');
     if (!payload[1]) return false;
+    if (team) {
+      const ids = Array.isArray(opt.to) ? [...new Set(opt.to.map(idOf).filter((id) => id && id !== me))] : [];
+      for (const to of ids) reliable.push({ ev: EV.chat, payload, to, merge: false, left: o.reliableRepeat, nextAt: -Infinity, kind: 'chat' });
+      if (ids.length) kick();
+      return true;
+    }
     reliable.push({ ev: EV.chat, payload, to: null, merge: false, left: o.reliableRepeat, nextAt: -Infinity, kind: 'chat' });
     kick();
     return true;
@@ -630,7 +641,7 @@ export function createSync(opts = {}) {
       }
       case 'chat':
         if (r.seenChat(x.id)) { S.dup++; break; }
-        emit({ type: 'chat', from, text: x.text });
+        emit({ type: 'chat', from, text: x.text, scope: x.scope });
         break;
       case 'drop':
         if (r.seenDrop(x.id)) { S.dup++; break; }

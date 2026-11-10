@@ -158,15 +158,19 @@ export default {
   ],
   portals: [ { x, y, z, w, h, d, to: { x, y, z, rotY }, color } ],   // 특수 장소 이동(순간이동, 속도 0)
   secrets: [ { id, name, x, y, z, w, h, d, points: 100 } ],          // 비밀 스팟 판정 상자. 들어가면 1회 보상
-  props: [ { type: 'crate'|'barrel', x, y, z, size?, mass? } ]       // 물리 소품(cannon-es, 표시 전용). y = 밑면 높이, size = 상자 모서리 또는 드럼통 높이
+  props: [ { type: 'crate'|'barrel', x, y, z, size?, mass? } ],      // 물리 소품(cannon-es, 표시 전용). y = 밑면 높이, size = 상자 모서리 또는 드럼통 높이
+  movers: [ { id, x, y, z, w, h, d, mat, axis: 'x'|'y'|'z', dist, period, hold?, phase? } ]   // 움직이는 지형: 길을 왕복하는 상자(충돌 있음, MAP_GUIDE 11절)
 };
 ```
 - `js/engine/triggers.js`(순수): `buildTriggers(data)` → `world.triggers`, `stepTriggers(world, body, height, state, dt = TICK_DT)` → `{ pad, portal, secrets: [] }`. 발판은 발이 사각형 안이고 높이 차 0.35 이내일 때, 재발동 대기 0.35초. `padVelocity(from, target, apex, g)`도 여기.
 - `player.tick`이 호출하고 bus로 알린다: `player:pad {pad, pos}`, `player:portal {portal, pos}`, `player:secret {secret, pos}`. 연습장 봇도 `stepTriggers`로 발판을 탄다.
+- `js/engine/movers.js`(순수): `createMovers(list)` → `world.movers`, `stepMovers(world, t)`(틱마다, 몸보다 먼저), `carryBody(world, body)`(위에 선 몸을 싣는다), `moverOffset(spec, t)`.
+  충돌체는 `dynamic: true`가 붙어 `world.colliders`에 들어가고, `physics.createWorld`가 격자에 넣지 않고 늘 검사한다(상자를 옮겨도 판정이 맞는다).
+  시계는 `map.setMoverClock(fn)`으로 넣는다: 멀티는 `sync.hostNow()`, 그 밖에는 World 시각. 길 찾기(`navgrid`)와 스폰 배치는 움직이는 지형을 보지 않는다.
 - `js/maps/builder.js`: 발판·포털을 자동으로 그린다(빛나는 원판, 위로 흐르는 화살표, 포인트 라이트 없이 emissive). `map.update`에서 움직인다.
 - `validateMap`이 새 필드를 검사하고, `tools/check-maps.mjs`가 **스폰이 벽에 박히지 않는지, 발판 궤적이 target 근처에 실제로 착지하는지, 비밀 스팟이 발판·점프로 갈 수 있는지(시뮬레이션)**를 확인한다.
 - 새 재질 12종(`consts.MATS`)과 장식 타입: `tree`(분홍 벚나무, 충돌 없음), `bamboo`, `lantern`, `banner`, `rope`, `vent`, `crateStack`.
-- `js/maps/index.js`: `MAP_IDS = ['rooftop','glasshouse','alley','longshot','dojo','nexus','jetty','tankfarm','vlcc']`. 파일이 없거나 깨지면 기존처럼 테스트 맵으로 대체한다. `MAP_LIST` 항목에 `rulesets`, `tag`. `mapsForRuleset(id)` 추가. 순서가 메뉴 순서이고, 규칙마다 처음 나오는 맵이 그 규칙의 기본 맵이다(클래식 `alley`, 칼전 `rooftop`, 스나전 `longshot`).
+- `js/maps/index.js`: `MAP_IDS = ['rooftop','glasshouse','alley','cqb','sorthub','longshot','dojo','nexus','jetty','tankfarm','vlcc','relay','railyard','observatory']`. 파일이 없거나 깨지면 기존처럼 테스트 맵으로 대체한다. `MAP_LIST` 항목에 `rulesets`, `tag`. `mapsForRuleset(id)` 추가. 순서가 메뉴 순서이고, 규칙마다 처음 나오는 맵이 그 규칙의 기본 맵이다(클래식 `alley`, 칼전 `rooftop`, 스나전 `longshot`).
 
 ### 새 맵 여섯 개
 | id | 이름 | 규칙 | 크기 기준 | 컨셉 |
@@ -179,6 +183,18 @@ export default {
 | `nexus` | 넥서스 | classic, knife, sniper | 약 90×70 m | 통합 맵. 칼전 구덩이, 라이플 골목, 저격 탑을 한 맵에 합친 다층 구조. 발판 다수, 비밀 2곳, 물리 소품 |
 
 공통: 팀당 스폰 4곳 이상(+ 개인전 후보 `spawns.ffa` 6곳 이상), 물이나 맵 밖으로 떨어지지 않게 `clip` 막이. 시작 시야에 적이 바로 보이지 않게 스폰을 가린다. solids 400개, decor 280개 이하.
+
+### 새 맵 넷 (폭파 미션 맵 둘, 좁은 맵 둘)
+사용자 요청: "폭파 맵을 늘리고, 만날 경로가 제한적인 맵과 팀플이 중요한 맵, 좁은 맵을 만들고 역동성을 더한다." 장르 관습(길목, 두 구역, 좁은 교전장)만 쓰고 구조와 이름은 직접 설계했다(1절).
+
+| id | 이름 | 규칙 | 크기 | 컨셉 |
+|---|---|---|---|---|
+| `railyard` | 화물 조차장 | classic(폭파 미션) | 80×52 m | **길목 맵.** 본선에 선 화물 열차가 맵을 동서로 가르고, 건널 곳은 북쪽 건널목(5 m, 긴 시야선)·가운데 연결기 틈(2.4 m)·남쪽 정비고(실내) 셋뿐이다. 서쪽 야적장은 마지막 12 m에서 세 길이 서로 막혀 있어 한 길을 골라 들어가야 한다. A 신호 취급소, B 화물 계량소. 공격 65 m / 수비 25 m |
+| `observatory` | 사막 관측소 | classic(폭파 미션) | 78×50 m | **팀플 맵.** 가운데 안뜰(서쪽 아치 둘)과 그 위 회랑이 두 구역의 안쪽 문을 내려다본다. 구역마다 수비 자리가 바깥문에는 강하고 안쪽 문에는 등을 보인다(A 제어 콘솔, B 하역 턱). 그래서 바깥길과 안뜰을 나눠 두 문을 함께 쳐야 뚫린다. A 돔 제어실, B 축전실. 공격 61 m / 수비 28 m |
+| `cqb` | 근접전 훈련장 | classic, knife | 30×20 m | **좁은 맵.** 180° 대칭. 가운데 표적동이 1번·2번 사로를 가르고 가운데 통로와 창으로 이어진다. 지붕길은 팀마다 하나 있는 발판으로만 오른다. 사로마다 강철 표적판이 8 m를 오간다(움직이는 지형). 첫 교전 2.5~3.5초 |
+| `sorthub` | 택배 분류 센터 | classic, knife | 44×32 m | **좁은 맵.** 180° 대칭 2층 창고. 선반 두 줄이 통로 셋을 만들고 2층 통로 둘이 가운데 다리로 이어진다. 움직이는 지형 여섯: 2층으로 오르내리는 리프트, 14초에 4초 열리는 도크 셔터, 가운데 통로의 무인 수레(팀마다 하나씩). 계단이 따로 있어 봇도 2층에 간다 |
+
+네 맵 모두 `tests/new-maps.test.mjs`가 이름·배지·미션 길 길이·대칭·움직이는 지형·검사기 통과를 확인한다.
 
 ## 6. 규칙(룰셋) · 모드
 

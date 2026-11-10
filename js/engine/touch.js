@@ -244,6 +244,12 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
       }
       return;
     }
+    // 라운드 시작 전 대기의 "눌러서 무기 교체!" 안내(PC의 N 키)
+    if (target.closest('.sk-swap')) {
+      e.preventDefault();
+      if (input.locked) bus.emit('input:loadout', {});
+      return;
+    }
     if (target.closest('.sk-hint')) {
       e.preventDefault();
       if (input.locked) t.drop();

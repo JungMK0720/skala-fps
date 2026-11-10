@@ -45,6 +45,8 @@ SKALA 작전에는 게임 서버가 없다. 정적 사이트(GitHub Pages)와 Su
 - **CSP**: 스크립트는 이 사이트와 jsDelivr, importmap(해시로 허용)만 실행한다. 접속은 이 사이트와 설정된 Supabase 프로젝트만 허용한다. `object-src 'none'`, `base-uri 'self'`.
 - **CDN 무결성(SRI)**: three.js·cannon-es는 importmap의 `integrity`(sha384)로 내용까지 확인한다. CDN이 변조돼도 실행되지 않는다.
 - **XSS**: 화면은 모두 `textContent`로 그린다(`innerHTML`·`eval` 0곳). 닉네임·방 이름·채팅은 길이를 자르고 정리한다.
+- **팀 채팅**: 보내는 쪽이 팀원을 받는 사람으로 정해 보낸다. 중계 서버는 받는 사람에게만 전달하고, 받는 쪽은 같은 팀이 보낸 팀 채팅만 보여 준다(MODES.md 8절). Supabase 전송에서는 프레임이 모두에게 가므로 고친 클라이언트는 볼 수 있다.
+- **움직이는 지형**: 방장의 벽 가림 검사는 움직이는 지형을 빼고 본다. 쏜 순간과 확인하는 순간 사이에 자리가 바뀌어 정상 사격이 위반으로 잡히지 않게 한 것이다. 고정 벽 뒤 사격은 그대로 거절한다.
 - `tests/web-security.test.mjs`가 CSP 해시와 importmap, 무결성 해시, 인라인 스크립트 0개를 확인한다. QA 서버는 가짜 Supabase(127.0.0.1)를 쓸 때만 로컬 주소를 더한다.
 
 ## 5. 남은 한계 (지금 구조로는 막을 수 없는 것)

@@ -103,6 +103,9 @@ html.pc-touch .sk-speed { top: 46px; bottom: auto; width: 96px; margin-left: -48
 html.pc-touch .sk-killfeed { top: calc(48px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); max-width: 34vw; font-size: 11px; }
 /* 안내 줄은 눌러서 조작을 시작하거나 총을 버린다 */
 /* left 50% 절대 위치라 그냥 두면 화면 폭의 절반에서 줄이 바뀐다. max-content로 두어 max-width까지 한 줄로 쓴다 */
+/* 무기 교체 안내는 휴대폰에서 누르는 버튼이다(js/engine/touch.js onHudDown) */
+html.pc-touch .sk-swap { top: 58%; padding: 11px 18px; pointer-events: auto; touch-action: none; cursor: pointer; }
+html.pc-touch .sk-swap-main { font-size: 15.5px; }
 html.pc-touch .sk-hint { bottom: calc(92px + env(safe-area-inset-bottom)); width: max-content; max-width: 44vw; padding: 9px 14px; font-size: 13px; white-space: normal; text-align: center; pointer-events: auto; touch-action: none; cursor: pointer; }
 html.pc-touch .sk-spec { bottom: calc(136px + env(safe-area-inset-bottom)); font-size: 12px; }
 html.pc-touch .sk-protect { font-size: 12px; }

@@ -17,7 +17,7 @@
  *   g2x 수류탄        [id, px,py,pz, vx,vy,vz, t]
  *   g2m 경기(merge)   [mseq, phase, round, scoreOwner, scoreCharterer, endsAt, players, events, rest?]
  *   g2l 로드아웃(merge) [id, {...}]
- *   g2c 채팅          [id, text]
+ *   g2c 채팅          [id, text, scope?]   scope 1 = 팀 채팅(보내는 쪽이 받는 사람을 팀원으로 정해 보낸다), 없으면 전체
  *   g2d 총 버림       [id, dropId, weaponId, x,y,z, mag, reserve]   reserve −1 = 무제한
  *   g2k 총 주움       [id, dropId]
  *   g2b 폭탄 의도     [id, act, reason?]   act 0 취소 · 1 설치 · 2 해체 (폭파 미션: 방장이 위치·생존·시간을 재서 확정) → sendTo(방장)
@@ -430,11 +430,19 @@ export function decodeLoadout(a) {
 export function cleanText(v, max = MAX_CHAT) {
   return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
 }
-export function encodeChat(id, text) { return [id | 0, cleanText(text)]; }
+/** 채팅 범위 코드. 앞 순서는 바꾸지 않고 뒤에만 더한다. 범위 칸이 없으면 전체다(예전 클라이언트가 보낸 줄) */
+export const CHAT_SCOPE_CODES = Object.freeze(['all', 'team']);
+/** @param {'all'|'team'} [scope] 'team'이면 끝에 1을 붙인다. 전체는 예전과 같은 두 칸이다 */
+export function encodeChat(id, text, scope) {
+  const a = [id | 0, cleanText(text)];
+  if (scope === 'team') a.push(1);
+  return a;
+}
+/** → { id, text, scope: 'all' | 'team' } | null. 모르는 범위 코드는 전체로 친다 */
 export function decodeChat(a) {
   if (!Array.isArray(a) || a.length < 2 || !isNum(a[0]) || typeof a[1] !== 'string') return null;
   const text = cleanText(a[1]);
-  return text ? { id: a[0] | 0, text } : null;
+  return text ? { id: a[0] | 0, text, scope: a[2] === 1 ? 'team' : 'all' } : null;
 }
 
 /** 핑 [pid, t0(요청자 로컬), d0?(요청자 room.now)] */

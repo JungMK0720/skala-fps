@@ -20,6 +20,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   quality: 'auto',      // 'auto' | 'high' | 'low'  (low = 그림자 끔·pixelRatio 1)
   showFps: false,
   volume: 0.8,          // 0 ~ 1 (FX 담당이 사용)
+  fullscreen: 'off',    // 'on' | 'off'  전체 화면 유지(브라우저 단축키 잠금). 실제 전체 화면 상태를 따라 바뀐다(main.js)
   name: ''              // 마지막으로 쓴 닉네임
 });
 
@@ -34,6 +35,7 @@ function clampSetting(key, value) {
     case 'volume': { const n = Number(value); return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0.8; }
     case 'zoomMode': return value === 'toggle' ? 'toggle' : 'hold';
     case 'quality': return value === 'high' || value === 'low' ? value : 'auto';
+    case 'fullscreen': return value === 'on' ? 'on' : 'off';
     case 'invertY': case 'showFps': return !!value;
     case 'name': return String(value == null ? '' : value).slice(0, 16);
     default: return value;

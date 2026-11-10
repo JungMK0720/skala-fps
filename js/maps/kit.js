@@ -144,7 +144,7 @@ const FACING_TYPES = new Set(['sign', 'banner', 'vent', 'loadingArm', 'crateStac
 const noNegZero = (v) => (v === 0 ? 0 : v);
 
 /** 스폰처럼 {x,z[,y,rotY]}만 있는 점 */
-const isBarePoint = (o) => o.type === undefined && o.w === undefined && o.target === undefined && o.vel === undefined && o.to === undefined && o.id === undefined;
+const isBarePoint = (o) => o.type === undefined && o.w === undefined && o.target === undefined && o.vel === undefined && o.to === undefined && o.id === undefined && o.axis === undefined;
 
 function flipYaw(rotY, sx, sz) {
   const a = toRad(rotY || 0);
@@ -172,6 +172,8 @@ function flipOne(o, sx, sz, suffix) {
     if (c.to.rotY !== undefined) c.to.rotY = flipYaw(c.to.rotY, sx, sz);
   }
   if (c.rotY !== undefined || FACING_TYPES.has(c.type) || isBarePoint(c)) c.rotY = flipYaw(c.rotY, sx, sz);
+  // 움직이는 지형(movers): 뒤집힌 축으로 움직이면 가는 방향도 뒤집는다
+  if (typeof c.dist === 'number' && ((c.axis === 'x' && sx < 0) || (c.axis === 'z' && sz < 0))) c.dist = noNegZero(-c.dist);
   if (c.id !== undefined && c.id !== null) c.id = `${c.id}${suffix}`;
   return c;
 }

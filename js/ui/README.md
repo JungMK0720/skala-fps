@@ -83,7 +83,7 @@ emoteIndexAt(x, y, count = 8, deadZone = 40) → index | null   // 이모트 휠
 | `menu` `mypage` `shop` `lobby` `room` `results` | 페이지(서로 배타) | 다른 페이지, `hud` `loadout` `pause` `scoreboard`, 스코프 0 | 필요 |
 | `nickname` | 오버레이(모든 화면 위) | 없음. 닉네임이 있고 충돌도 없으면 스스로 닫힘. 떠 있는 동안 나머지 화면은 `inert` | 필요 |
 | `hud` | 게임 | 모든 페이지 | 불필요 |
-| `loadout` | 게임 오버레이 | 없음. 카드를 고르거나 시간이 끝나면 스스로 닫힘 | 필요(`compact`면 불필요) |
+| `loadout` | 게임 오버레이 | 없음. 카드를 고르거나 시간이 끝나면 스스로 닫힘. `swap`이면 N·Esc로도 닫힘 | 필요(`compact`면 불필요) |
 | `pause` | 게임 오버레이 | `scoreboard`. 계속하기/나가기 누르면 스스로 닫힘 | 필요 |
 | `scoreboard` | 게임 오버레이 | 없음. 입력을 받지 않음 | 불필요 |
 | `emotes` | 게임 오버레이(표시 전용) | 없음. 페이지·`pause`·`hide('hud')`가 이 화면을 닫음 | **불필요**(포인터 잠금 유지) |
@@ -195,6 +195,10 @@ props 없음. 계정에서 읽습니다. 닉네임 변경(같은 검사 + 저장
 
 작은 카드 격자에 핵심 수치와 막대를 보여 줍니다. 칼전이면 칼 목록을 그대로 넘기면 됩니다. 계정이 있으면 아래에 보조·근접 빠른 교체 줄이 나옵니다. 지금 고르는 칸과 `ruleset`이 막는 칸은 빠집니다. 누르면 `loadout:equip { slot:'secondary'|'melee', id }`를 보내고, `js/game/index.js`가 `account.equip`을 부릅니다.
 
+**무기 교체 창**(`swap: true`, 라운드 시작 전 대기 시간에 N으로 여닫는 창 — MODES.md 7절): 제목이 "라운드 N · 무기 교체"가 되고, 무기를 누르면 `loadout:pick { id, auto:false }`를 보내고 닫힙니다.
+N이나 Esc를 누르면 고르지 않고 닫히며 `loadout:close { reason:'key', relock }`를 보냅니다(`relock` = N으로 닫았다 → 그 키 입력으로 포인터를 다시 잠글 수 있다).
+시간이 끝나면 자동으로 고르지 않고 닫히며 `loadout:close { reason:'time', relock:false }`를 보냅니다. 여닫는 일은 `world.openSwap`이 맡습니다.
+
 카드를 누르거나 숫자키 1~9를 누르면 `loadout:pick { id, auto:false }`를 보내고 닫힙니다(10번째 무기부터는 클릭). 시간이 끝나면 `{ id: selected ?? 첫 무기, auto:true }`를 보내고 닫힙니다. `update`에 `seconds`가 있으면 카운트다운을 다시 시작합니다. 숫자키는 캡처 단계에서 소비하므로 엔진의 슬롯 전환으로 넘어가지 않습니다.
 
 **`compact: true`** (개인전에서 죽어 있는 동안 다음 무기 고르기)
@@ -222,6 +226,7 @@ props 없음. 계정에서 읽습니다. 닉네임 변경(같은 검사 + 저장
 | `respawn` | `{ seconds, killer?, weaponName?, weaponId? }` → "💀 하늘에게 당했어요 · 3초 뒤 부활"(무기 칩 포함). `killer`가 없거나 나 자신이면 "💀 전사했어요". `null`이면 숨김(이때 compact 로드아웃도 닫힘) |
 | `protect` | `true` → 조준점 아래 "🛡 보호 중" + 체력 칸 청록 테두리 |
 | `hint` / `spectate` | 하단 안내 문구 / "👁️ 관전 중 · 이름". 빈 값이면 숨김 |
+| `swap` | `{ seconds, weaponName?, open? } \| null` — 라운드 시작 전 무기 교체 안내 "N 을 눌러 무기 교체!" + "지금 RX-4 · 4초 뒤 시작". 휴대폰은 "눌러서 무기 교체!"이고 누르면 engine/touch.js가 `input:loadout`을 낸다 |
 | `crosshair: false` | 크로스헤어 숨김 |
 | `emote` | `{ name, icon } \| null` → 하단에 "💃 탱고 · 움직이면 취소"(아이콘이 없으면 🕺). 켜져 있는 동안(3인칭) 크로스헤어·히트마커를 숨김 |
 | `bomb` | 폭파 미션 표시(아래 표). `null`이면 모두 지움 |
@@ -273,14 +278,16 @@ props 없음. 계정에서 읽습니다. 닉네임 변경(같은 검사 + 저장
 
 ### `chat` — 경기 채팅 (멀티플레이)
 ```js
-ui.show('chat')                 // session이 경기 맵을 불러온 뒤 띄운다. 연습장에는 없다
-ui.chat.push({ name, text, team? /*'owner'|'charterer'|null*/, system?, me? })
-ui.chat.open() / close() / isOpen() / clear()
+ui.show('chat', { teamChat })   // session이 경기 맵을 불러온 뒤 띄운다. 연습장에는 없다. teamChat = 팀이 있는 경기(전체·팀 탭을 켠다)
+ui.chat.push({ name, text, team? /*'owner'|'charterer'|null*/, system?, me?, scope? /*'team'이면 [팀] 표시*/ })
+ui.chat.open() / close() / isOpen() / clear() / scope() / setScope('all' | 'team')
 ```
 - 닫혀 있으면 새 줄만 9초 동안 보였다가 사라집니다(PC는 체력 위, 휴대폰은 왼쪽 위). 열면 지난 줄(최대 40)과 입력칸이 보입니다.
 - PC: 경기 중 Enter(`input:chat`) → `open()`이 입력칸에 포커스를 줍니다. 포인터 잠금은 그대로라 마우스 시점·사격은 됩니다. Enter = 보내기(빈 칸이면 닫기), Esc = 닫기.
 - 휴대폰: 채팅 버튼 → 열 때 키보드를 띄우지 않습니다. 빠른 문장(`QUICK_CHAT`)을 누르면 바로 보내고, 입력칸을 눌러 직접 씁니다. 12초 동안 아무것도 안 하면 닫습니다.
-- 이벤트: `chat:send { text }`(보내기, session이 `sync.sendChat`) · `chat:open`(session이 PC에서 눌려 있던 이동 키를 풂) · `chat:close`.
+- 팀 채팅(`teamChat: true`): 입력칸 위에 전체·팀 탭이 생기고, 입력칸에서 Tab을 누르거나 탭을 누르면 보낼 범위가 바뀝니다. 새 경기는 전체부터이고 고른 범위는 그 경기 동안 남습니다.
+  `teamChat`이 false면 탭이 없고 범위는 늘 전체입니다. Tab의 기본 동작(포커스 이동)은 언제나 막습니다.
+- 이벤트: `chat:send { text, scope }`(보내기, session이 `sync.sendChat`. `scope`는 `'all'`·`'team'`) · `chat:scope { scope }`(범위를 바꿈) · `chat:open`(session이 PC에서 눌려 있던 이동 키를 풂) · `chat:close`.
 - 글자는 모두 `textContent`로 넣습니다. 도배 제한은 session의 `CHAT_LIMIT`(보내기 5초에 4줄, 받기 한 사람당 5초에 6줄)입니다.
 
 ### `scoreboard`
@@ -349,6 +356,8 @@ ui.chat.open() / close() / isOpen() / clear()
 | `room:active` | `{}` | 대기실을 누르거나 키를 쳤다(1초에 한 번까지). 세션은 방장의 것만 활동으로 센다 |
 | `loadout:pick` | `{ id, auto }` | |
 | `loadout:equip` | `{ slot, id }` | `slot`: `'secondary'` / `'melee'`. 빠른 교체 줄 |
+| `loadout:close` | `{ reason, relock }` | 무기 교체 창(`swap`)을 고르지 않고 닫음. `reason`: `'key'`(N·Esc) / `'time'` |
+| `chat:send` | `{ text, scope }` | 경기 채팅. `scope`: `'all'` / `'team'` |
 | `results:back` / `results:lobby` | `{}` | |
 | `pause:resume` / `pause:leave` | `{}` | 둘 다 일시정지 화면을 스스로 닫음 |
 

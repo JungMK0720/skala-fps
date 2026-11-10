@@ -127,7 +127,7 @@ export const MATS = Object.freeze([
 ]);
 
 /** 맵 데이터 한도 */
-export const LIMITS = Object.freeze({ SOLIDS: 400, DECOR: 280, REAL_LIGHTS: 4, PADS: 16, SECRETS: 8, PROPS: 40 });
+export const LIMITS = Object.freeze({ SOLIDS: 400, DECOR: 280, REAL_LIGHTS: 4, PADS: 16, SECRETS: 8, PROPS: 40, MOVERS: 8 });
 
 /** 무기 슬롯 */
 export const SLOTS = Object.freeze({ PRIMARY: 1, SECONDARY: 2, MELEE: 3, THROWABLE: 4 });

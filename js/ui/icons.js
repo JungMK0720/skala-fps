@@ -66,6 +66,37 @@ const MAP_DRAW = {
     accent('M10 16 H34'),
     fill('M36 12 h5 v8 h-5 Z'),
   ],
+  // 훈련장 울타리, 문이 뚫린 가운데 건물, 두 길을 오가는 표적판
+  cqb: () => [
+    line('M5 5 H43 V27 H5 Z'),
+    fill('M14 14 h8 v4 h-8 Z M26 14 h8 v4 h-8 Z'),
+    accent('M12 9 H21 M27 23 H36'),
+  ],
+  // 창고 안의 선반 네 줄과 가운데를 가로지르는 2층 다리
+  sorthub: () => [
+    line('M3 4 H45 V28 H3 Z'),
+    fill('M9 10 h10 v3 h-10 Z M29 10 h10 v3 h-10 Z M9 19 h10 v3 h-10 Z M29 19 h10 v3 h-10 Z'),
+    accent('M22 4 V28 M26 4 V28'),
+  ],
+  // 서쪽 하역장에서 세 길이 동쪽의 두 구역으로 간다
+  relay: () => [
+    fill('M3 10 h7 v12 h-7 Z'),
+    line('M11 8 H30 M11 16 H30 M11 24 H30'),
+    accent('M32 4 h11 v9 h-11 Z M32 19 h11 v9 h-11 Z'),
+  ],
+  // 가운데에 선 화물 열차와 건널 수 있는 틈 셋, 그 너머의 두 구역
+  railyard: () => [
+    fill('M21 1 h5 v6 h-5 Z M21 10 h5 v5 h-5 Z M21 18 h5 v5 h-5 Z M21 26 h5 v5 h-5 Z'),
+    line('M4 16 H16 M12 12 L16 16 L12 20'),
+    accent('M32 4 h11 v9 h-11 Z M32 19 h11 v9 h-11 Z'),
+  ],
+  // 가운데 안뜰과 돔(A), 축전실(B), 남북의 바깥 길
+  observatory: () => [
+    line('M17 9 H29 V23 H17 Z M3 5 H30 M3 27 H30'),
+    fill('M3 13 h6 v6 h-6 Z'),
+    ring(38, 9, 5.5, 'sk-ic-accent'),
+    accent('M33 20 h10 v8 h-10 Z'),
+  ],
   // 알 수 없는 맵: 조준선
   _: () => [
     ring(24, 16, 8.5),

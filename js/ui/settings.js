@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   zoomMode: 'hold', // 'hold' 누르고 있기 | 'toggle' 토글
   fov: 75, // 수직 시야각(°) 60 ~ 100 — three.js PerspectiveCamera.fov 그대로
   volume: 0.8, // 전체 볼륨 0 ~ 1
+  fullscreen: 'off', // 'on' | 'off' 전체 화면 유지 · 브라우저 단축키 잠금(Ctrl+W·Tab·Esc를 게임이 받는다)
 });
 export const UI_KEYS = Object.freeze(Object.keys(DEFAULT_SETTINGS));
 const RANGES = { sensitivity: [0.1, 5], fov: [60, 100], volume: [0, 1] };
@@ -28,6 +29,7 @@ export function clampSetting(key, value) {
     return key === 'fov' ? Math.round(v) : Math.round(v * 100) / 100;
   }
   if (key === 'zoomMode') return value === 'toggle' ? 'toggle' : 'hold';
+  if (key === 'fullscreen') return value === 'on' ? 'on' : 'off';
   return value;
 }
 
@@ -87,7 +89,8 @@ function rangeRow(ctx, { key, label, hint, min, max, step, fmt, toUi = (v) => v,
 
 function segRow(ctx, { key, label, hint, options }) {
   const buttons = options.map(([value, text]) => {
-    const b = btn(text, () => { ctx.setSetting(key, value); sync(ctx.getSettings()); }, 'sk-seg-btn', { role: 'radio', 'data-value': value });
+    // 값이 바깥에서 되돌려질 수 있는 항목(전체 화면: 브라우저가 거절하면 '끔')은 잠시 뒤에 한 번 더 읽는다
+    const b = btn(text, () => { ctx.setSetting(key, value); sync(ctx.getSettings()); if (ctx.later) ctx.later(() => sync(ctx.getSettings()), 600); }, 'sk-seg-btn', { role: 'radio', 'data-value': value });
     return b;
   });
   const hintEl = h('p', { class: 'sk-set-hint' });
@@ -106,6 +109,17 @@ function segRow(ctx, { key, label, hint, options }) {
   return { row, sync };
 }
 
+/** 이 브라우저가 전체 화면에서 키를 잠글 수 있는가(Keyboard Lock, 크로뮴 계열) */
+export const canLockKeys = () => typeof navigator !== 'undefined' && !!navigator.keyboard && typeof navigator.keyboard.lock === 'function';
+
+/** 전체 화면 설정 아래 안내 글 */
+export function fullscreenHint(value, lockable = canLockKeys()) {
+  if (!lockable) return '이 브라우저는 단축키 잠금을 지원하지 않아 화면만 넓어져요. 앉은 채 앞으로 갈 때는 C 키를 쓰세요(Ctrl+W는 탭 닫기).';
+  return value === 'on'
+    ? 'Ctrl+W(탭 닫기)·Ctrl+T·Tab·Esc를 브라우저 대신 게임이 받아요. 나가려면 F11을 누르거나 Esc를 길게 누르세요.'
+    : '켜면 앉은 채 앞으로 가도(Ctrl+W) 탭이 닫히지 않고, Tab·Esc도 게임이 받아요. F11로도 켜고 끌 수 있어요.';
+}
+
 /** 메뉴·일시정지가 각자 하나씩 만든다. 열 때 refresh()로 현재 값을 다시 읽는다. */
 export function createSettingsPanel(ctx, { onClose }) {
   const isTouch = document.documentElement.classList.contains('pc-touch');
@@ -116,6 +130,12 @@ export function createSettingsPanel(ctx, { onClose }) {
       key: 'zoomMode', label: '줌 방식',
       options: [['hold', '누르고 있기'], ['toggle', '토글']],
       hint: (v) => (v === 'toggle' ? '우클릭 한 번에 줌, 다시 누르면 해제' : '우클릭을 누르고 있는 동안만 줌'),
+    })]),
+    // 휴대폰은 조작을 시작할 때 저절로 전체 화면이 된다(engine/touch.js)
+    ...(isTouch ? [] : [segRow(ctx, {
+      key: 'fullscreen', label: '전체 화면 · 브라우저 단축키 잠금',
+      options: [['off', '끔'], ['on', '켬']],
+      hint: (v) => fullscreenHint(v),
     })]),
     rangeRow(ctx, { key: 'fov', label: '시야각', hint: '수직 시야각. 넓을수록 많이 보이고 멀리 있는 적은 작아져요.', min: 60, max: 100, step: 1, fmt: (v) => `${Math.round(v)}°` }),
     rangeRow(ctx, {

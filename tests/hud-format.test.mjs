@@ -9,7 +9,8 @@ import assert from 'node:assert/strict';
 
 import { PLAYER, MOVE, TEAMS as CORE_TEAMS } from '../js/core/consts.js';
 import { WEAPONS } from '../js/weapons/defs.js';
-import { speedGauge, calloutTone, bannerSpec, normSlots, bombSpec, bombTimerText, markerDist } from '../js/ui/hud.js';
+import { speedGauge, calloutTone, bannerSpec, normSlots, bombSpec, bombTimerText, markerDist, swapPromptSpec } from '../js/ui/hud.js';
+import { fullscreenHint } from '../js/ui/settings.js';
 import { magLabel, zoomReadout } from '../js/ui/scope.js';
 import { TEAMS, modeKey, modeLabel, MODE_NAME, MODE_ICON, bombSide, fmtDelta } from '../js/ui/dom.js';
 import { weaponInfo, normMap } from '../js/ui/icons.js';
@@ -73,6 +74,38 @@ describe('bannerSpec', () => {
     for (const ms of [0, -1, 'x', null, Infinity]) assert.equal(bannerSpec({ title: 'a', ms }).ms, fallback);
     for (const bad of [null, undefined, 'text', {}, { icon: '🏆' }, { title: '', sub: '' }]) assert.equal(bannerSpec(bad), null);
     assert.equal(bannerSpec({ sub: '+100 P' }).title, '');
+  });
+});
+
+describe('swapPromptSpec: 라운드 시작 전 무기 교체 안내', () => {
+  test('PC는 N 키 안내, 지금 든 무기와 남은 시간을 아래 줄에 보여 준다', () => {
+    assert.deepEqual(swapPromptSpec({ seconds: 3.2, weaponName: 'RX-4' }), { key: 'N', main: '을 눌러 무기 교체!', sub: '지금 RX-4 · 4초 뒤 시작' });
+    assert.deepEqual(swapPromptSpec({ seconds: 0.2 }), { key: 'N', main: '을 눌러 무기 교체!', sub: '1초 뒤 시작' });
+    assert.equal(swapPromptSpec({ seconds: 0, weaponName: ' ' }).sub, '');
+  });
+  test('목록이 열려 있으면 고르라는 안내로 바뀌고 키 표시는 없다', () => {
+    const s = swapPromptSpec({ seconds: 2, weaponName: 'SK-7', open: true });
+    assert.equal(s.key, '');
+    assert.match(s.main, /바꿀 무기를 누르세요/);
+    assert.match(s.main, /N으로 닫기/);
+  });
+  test('휴대폰은 키 대신 눌러서 연다', () => {
+    assert.deepEqual(swapPromptSpec({ seconds: 5 }, true), { key: '', main: '눌러서 무기 교체!', sub: '5초 뒤 시작' });
+    assert.equal(swapPromptSpec({ seconds: 5, open: true }, true).main, '바꿀 무기를 누르세요');
+  });
+  test('값이 없으면 null(안내를 치운다)', () => {
+    for (const bad of [null, undefined, 0, 'x']) assert.equal(swapPromptSpec(bad), null);
+  });
+});
+
+describe('fullscreenHint: 전체 화면 키 잠금 안내', () => {
+  test('잠글 수 있는 브라우저는 켰을 때와 껐을 때 글이 다르다', () => {
+    assert.match(fullscreenHint('on', true), /Ctrl\+W.*게임이 받아요.*F11/);
+    assert.match(fullscreenHint('off', true), /탭이 닫히지 않고/);
+  });
+  test('잠글 수 없는 브라우저는 C 키를 알려 준다', () => {
+    assert.match(fullscreenHint('on', false), /지원하지 않아/);
+    assert.match(fullscreenHint('off', false), /C 키/);
   });
 });
 

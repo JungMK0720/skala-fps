@@ -2,10 +2,11 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 맵 데이터 → 물리 월드(three.js 없음). 브라우저 빌더와 node 도구가 똑같은 충돌체를 쓰도록
- *          충돌체 구성, 테마 정규화, 스폰 배치, 맵 데이터 검사를 이 파일에 모았다.
+ *          충돌체 구성(움직이는 지형 포함), 테마 정규화, 스폰 배치, 맵 데이터 검사를 이 파일에 모았다.
  */
 import { createWorld, solidToCollider, makeBox, rectSubtract, getGroundY, findFloor } from '../engine/physics.js';
 import { buildTriggers, padVelocity, vec3 } from '../engine/triggers.js';
+import { createMovers, normalizeMover, moverPeakSpeed, moverSweep, MOVER_AXES, MOVER_MAX_SPEED, MOVER_MIN_TRAVEL } from '../engine/movers.js';
 import { toRad, LIMITS, TEAM_IDS, MATS, MOVE } from '../core/consts.js';
 
 /** 맵이 rulesets를 안 적었을 때 쓰는 값(DESIGN 5절) */
@@ -165,6 +166,33 @@ function checkProps(props, size, warnings) {
   });
 }
 
+function checkMovers(movers, size, warnings) {
+  const seen = new Set();
+  movers.forEach((m, i) => {
+    const tag = `movers[${i}]`;
+    if (!m || typeof m !== 'object') { warnings.push(`${tag} is not an object`); return; }
+    for (const k of ['x', 'y', 'z']) if (!isNum(m[k])) warnings.push(`${tag} ${k} must be a number`);
+    for (const k of ['w', 'h', 'd']) if (!isPos(m[k])) warnings.push(`${tag} ${k} must be > 0`);
+    if (!MOVER_AXES.includes(m.axis)) warnings.push(`${tag} axis "${m.axis}" must be x, y or z`);
+    if (!isNum(m.dist) || +m.dist === 0) warnings.push(`${tag} dist must be a non-zero number`);
+    if (!isPos(m.period)) warnings.push(`${tag} period must be > 0`);
+    if (m.hold !== undefined && !(isNum(m.hold) && +m.hold >= 0)) warnings.push(`${tag} hold must be >= 0`);
+    if (m.phase !== undefined && !isNum(m.phase)) warnings.push(`${tag} phase must be a number (0..1)`);
+    if (m.mat !== undefined && !MATS.includes(m.mat)) warnings.push(`${tag} unknown mat "${m.mat}" → steel`);
+    if (m.id !== undefined && m.id !== null) {
+      if (seen.has(String(m.id))) warnings.push(`${tag} duplicate id "${m.id}"`);
+      seen.add(String(m.id));
+    }
+    const spec = normalizeMover(m, i);
+    if (!spec) { warnings.push(`${tag} is ignored: it needs x, z, w, h, d, axis, dist, period and period/2 > hold`); return; }
+    if (spec.travel < MOVER_MIN_TRAVEL) warnings.push(`${tag} travels one way in ${round(spec.travel)} s (< ${MOVER_MIN_TRAVEL}); raise period or lower hold`);
+    const speed = moverPeakSpeed(spec);
+    if (speed > MOVER_MAX_SPEED) warnings.push(`${tag} peak speed ${round(speed)} m/s > ${MOVER_MAX_SPEED}; raise period or shorten dist`);
+    const sweep = moverSweep(spec);
+    if (size && (sweep.minX < -size.x / 2 || sweep.maxX > size.x / 2 || sweep.minZ < -size.z / 2 || sweep.maxZ > size.z / 2)) warnings.push(`${tag} leaves size while moving`);
+  });
+}
+
 function checkSpawns(data, size, warnings) {
   for (const team of TEAM_IDS) {
     const sp = data.spawns && data.spawns[team];
@@ -202,6 +230,7 @@ export function validateMap(data) {
   const portals = checkCount('portals', data.portals, MAX_PORTALS, errors);
   const secrets = checkCount('secrets', data.secrets, LIMITS.SECRETS, errors);
   const props = checkCount('props', data.props, LIMITS.PROPS, errors);
+  const movers = checkCount('movers', data.movers, LIMITS.MOVERS, errors);
 
   checkSpawns(data, size, warnings);
   checkSolids(solids, warnings);
@@ -210,6 +239,7 @@ export function validateMap(data) {
   checkPortals(portals, size, warnings);
   checkSecrets(secrets, size, warnings);
   checkProps(props, size, warnings);
+  checkMovers(movers, size, warnings);
 
   if (data.rulesets !== undefined) {
     if (!Array.isArray(data.rulesets) || !data.rulesets.length) warnings.push('rulesets must be a non-empty array');
@@ -236,6 +266,7 @@ function placeSpawn(world, bounds, p) {
 const validSpawns = (list) => (Array.isArray(list) ? list : []).filter((p) => p && Number.isFinite(+p.x) && Number.isFinite(+p.z));
 
 function buildSpawns(data, world, bounds, sx) {
+  if (!world) return null;
   const spawns = {};
   for (const team of TEAM_IDS) {
     let list = validSpawns(data.spawns && data.spawns[team]);
@@ -257,8 +288,10 @@ function buildSpawns(data, world, bounds, sx) {
  * @returns {{
  *   world:object, colliders:object[], solidColliders:object[], holes:object[], waterCols:object[],
  *   bounds:object, size:{x:number,z:number}, theme:object, seaLevel:number, groundDepth:number,
- *   groundRects:object[], spawns:object, triggers:object
- * }} solidColliders = solids에서 온 충돌체(그릴 대상), groundRects = 바닥 슬래브 사각형, 그 외 colliders에는 바닥·외곽 벽도 들어 있다
+ *   groundRects:object[], spawns:object, triggers:object, movers:object
+ * }} solidColliders = solids에서 온 충돌체(그릴 대상), groundRects = 바닥 슬래브 사각형, 그 외 colliders에는 바닥·외곽 벽도 들어 있다.
+ *    movers = 움직이는 지형 상태(engine/movers.js). 그 충돌체는 쉬는 자리로 colliders에 들어 있고 world.movers로도 닿는다.
+ *    스폰은 움직이는 지형이 없는 월드에서 놓는다(쉬는 자리에 놓인 상자 위로 스폰이 올라가지 않게). 길 찾기도 solidColliders만 본다
  */
 export function buildCollision(data) {
   const theme = normalizeTheme(data && data.theme);
@@ -317,9 +350,15 @@ export function buildCollision(data) {
     makeBox(bounds.maxX, Y0, bounds.minZ, bounds.maxX + T, Y1, bounds.maxZ, 'invisible', { noRay: true, tag: 'bounds' })
   );
 
-  const world = createWorld(colliders, { bounds, groundMat: theme.ground === 'none' ? 'concrete' : theme.ground, floorY: theme.ground === 'none' ? 0 : null });
+  const worldOpts = { bounds, groundMat: theme.ground === 'none' ? 'concrete' : theme.ground, floorY: theme.ground === 'none' ? 0 : null };
+  const movers = createMovers(data && data.movers);
+  // 스폰 높이는 움직이는 지형을 뺀 월드에서 찾는다. createWorld가 충돌체에 id를 매기므로 스폰용 월드를 먼저 만들고 버린다
+  const spawns = buildSpawns(data || {}, movers.empty ? null : createWorld(colliders.slice(), worldOpts), bounds, sx);
+  for (const m of movers.list) colliders.push(m.collider);
+  const world = createWorld(colliders, worldOpts);
   const triggers = buildTriggers(data);
   world.triggers = triggers;
+  world.movers = movers;
 
   return {
     world,
@@ -333,7 +372,8 @@ export function buildCollision(data) {
     seaLevel,
     groundDepth,
     groundRects,
-    spawns: buildSpawns(data || {}, world, bounds, sx),
-    triggers
+    spawns: movers.empty ? buildSpawns(data || {}, world, bounds, sx) : spawns,
+    triggers,
+    movers
   };
 }

@@ -43,6 +43,8 @@ const CROUCH_H = PLAYER.CROUCH_HEIGHT || 1.25;   // 앉은 키(core consts)
 const FFA_KEYS = Object.freeze(['kills', 'rank', 'total', 'leaderName', 'leaderKills', 'target', 'killTarget']);
 /** 부위 순위(작을수록 좋다). 산탄 한 발이 같은 사람의 여러 부위를 맞히면 가장 좋은 부위 하나로 주장한다 */
 const PART_RANK = Object.freeze({ head: 0, body: 1, legs: 2, hand: 3, foot: 4 });
+/** 움직이는 지형에 맞은 탄: 탄흔을 남기지 않는다(fx.impact) */
+const NO_DECAL = Object.freeze({ decal: false });
 /** 산탄의 예광탄은 이만큼만 그린다. 판정과 탄착은 펠릿 전부 */
 const PELLET_TRACERS = 3;
 /** 동시에 시뮬레이션하는 다른 사람 수류탄 상한. 한 사람에 1개가 규칙이라 정상 경기는 닿지 않는다 */
@@ -193,6 +195,7 @@ function buildWorld(ctx, opts) {
   let pauseOpts = { leaveLabel: '나가기', note: undefined };
   let scoreboardProvider = null, scoreboardOpen = false, sbRefresh = 0;
   let clock = 0;                                  // World 시뮬레이션 시각(초, 일시정지 중 멈춤)
+  let moverClock = null;                          // 움직이는 지형의 바깥 시계(멀티: 방장 시계). 없으면 clock
   const multiKill = createMultiKill();            // 내 연속 킬(5초 안에 이어진 처치 수). 시계는 clock
   const scheduled = [];                           // { at, name, opts, tag }
   let heartbeatAt = 0, grenadeSeq = 0, shotSeq = 0;
@@ -362,6 +365,47 @@ function buildWorld(ctx, opts) {
   offs.push(bus.on('input:inspect', () => { if (active && localCanAct()) vm.play({ type: 'inspect' }); }));
 
   /* ---------- UI: 커서 · 일시정지 · 로드아웃 · 점수판 ---------- */
+  /* ---------- 무기 교체(라운드가 시작되기 전 대기 시간) ----------
+   * 연습장·세션이 대기 시간이 시작될 때 openSwap으로 알린다. HUD에 "N 을 눌러 무기 교체!"가 뜨고, N(휴대폰은 그 안내를 누름)으로
+   * 무기 목록(ui 'loadout'의 swap 모드)을 여닫는다. 무기를 누르면 바로 바뀌고 목록이 닫힌다('loadout:pick' → setLocalLoadout).
+   * 남은 시간은 World 시각으로 잰다(연습장 일시정지 중에는 멈춘다). 시간이 끝나거나 closeSwap이 오면 안내와 목록을 치운다. */
+  let swap = null;                                // { endAt: clock 기준 초, props: 로드아웃 화면에 넘길 값 }
+  const swapLeft = () => (swap ? swap.endAt - clock : 0);
+  function openSwap(o = {}) {
+    closeSwap();
+    const secs = num(o && o.seconds, 0);
+    if (!active || !ui || !(secs > 0)) return;
+    swap = { endAt: clock + secs, props: { ...o } };
+  }
+  function closeSwap() {
+    if (!swap) return;
+    const listed = !!(ui && ui.isVisible('loadout'));
+    swap = null;
+    if (listed) ui.hide('loadout');
+  }
+  /** N 키·휴대폰 안내: 무기 목록을 열고, 열려 있으면 고르지 않고 닫는다 */
+  function toggleSwapList() {
+    if (!swap || !ui || !local.spawned || !local.alive) return;
+    if (ui.isVisible('loadout')) {
+      ui.hide('loadout');
+      if (!input.locked && !input.touchMode) input.requestLock();
+      return;
+    }
+    const left = swapLeft();
+    if (left < 0.4 || ui.isVisible('pause')) return;
+    ui.show('loadout', { ...swap.props, swap: true, compact: false, seconds: Math.round(left * 10) / 10, selected: local.loadout || swap.props.selected });
+  }
+  offs.push(bus.on('input:loadout', () => { if (active) toggleSwapList(); }));
+
+  // 창 화면에서 Ctrl(앉기)을 처음 누르면 전체 화면 키 잠금을 한 번 알려 준다(Ctrl+W가 탭을 닫으려 하기 전에)
+  let keyLockTip = false;
+  offs.push(bus.on('input:key', (e) => {
+    if (keyLockTip || !e || !e.down || (e.code !== 'ControlLeft' && e.code !== 'ControlRight')) return;
+    if (!active || !ui || !input.locked || !input.canKeyboardLock || input.keyboardLocked) return;
+    keyLockTip = true;
+    ui.hud.banner({ icon: '⌨️', title: 'F11 · 전체 화면 키 잠금', sub: '켜면 Ctrl+W(탭 닫기)·Tab도 게임이 받아요' });
+  }));
+
   function openPause() {
     if (!ui) return;
     ui.show('pause', { leaveLabel: pauseOpts.leaveLabel, note: pauseOpts.note });
@@ -394,6 +438,10 @@ function buildWorld(ctx, opts) {
       setLocalLoadout(id);                       // 이 규칙에 안 맞는 무기는 안에서 거른다
       if (e && !e.auto && !input.locked) input.requestLock();
       emit('loadoutPick', { id, auto: !!(e && e.auto) });
+    }));
+    // 무기 교체 창을 고르지 않고 닫았다. N으로 닫았으면 그 키 입력으로 포인터를 다시 잠근다(Esc로는 잠글 수 없어 '클릭해서 시작' 안내가 뜬다)
+    offs.push(ui.on('loadout:close', (e) => {
+      if (active && e && e.relock && !input.locked && !input.touchMode) input.requestLock();
     }));
   }
   offs.push(bus.on('input:menu', () => {
@@ -445,6 +493,8 @@ function buildWorld(ctx, opts) {
       return null;
     }
     map = built;
+    // 움직이는 지형의 시계: 멀티는 세션이 준 방장 시계, 그 밖에는 World 시뮬레이션 시각(연습장 일시정지 중에는 멈춘다)
+    built.setMoverClock(() => { const t = moverClock ? moverClock() : NaN; return Number.isFinite(t) ? t : clock; });
     bombView.load(built.data);
     props.load(built.data, built.colliders);     // 기다리지 않는다: 표시 전용이고 cannon-es는 CDN에서 온다
     if (nades) nades.dispose();
@@ -475,6 +525,7 @@ function buildWorld(ctx, opts) {
     loadSeq++;
     showLoading(false);
     cancelLocalEmote('unload');                  // 안 끝내면 다음 경기까지 3인칭 카메라와 입력 잠금이 남는다
+    swap = null;                                 // 로드아웃 화면은 아래에서 함께 숨긴다
     active = false;
     simPaused = false; uiPaused = false; scoreboardOpen = false;
     clearActors();
@@ -512,6 +563,7 @@ function buildWorld(ctx, opts) {
 
   /** 라운드 전환: 투사체·이펙트·예약 소리·관전 정리(액터는 유지) */
   function reset() {
+    closeSwap();
     if (nades) nades.clear();
     for (const m of nadeMeshes) m.visible = false;
     clearDrops();
@@ -1004,7 +1056,7 @@ function buildWorld(ctx, opts) {
       const hit = traceShot(map.world, eye, d, range, list);
       if (!muzzle) muzzle = m ? [m.x, m.y, m.z] : [eye[0] + d[0] * 0.6, eye[1] + d[1] * 0.6 - 0.1, eye[2] + d[2] * 0.6];
       if (i < PELLET_TRACERS) fx.tracer(muzzle, hit.point, fxKind);
-      if (hit.kind === 'world') fx.impact(hit.point, hit.normal, hit.mat);
+      if (hit.kind === 'world') fx.impact(hit.point, hit.normal, hit.mat, hit.collider && hit.collider.dynamic ? NO_DECAL : null);
       else if (hit.kind === 'player') fx.impact(hit.point, [-d[0], -d[1], -d[2]], 'player');
       props.bulletHit(eye, d, hit.dist);
       if (!shown || (hit.kind === 'player' && shown.hit.kind !== 'player')) shown = { hit, d };
@@ -1259,12 +1311,12 @@ function buildWorld(ctx, opts) {
         const nearMe = Math.hypot(end[0] - cp.x, end[1] - cp.y, end[2] - cp.z) < 1.5;
         if (String(o.victimId) !== local.id && !nearMe) fx.impact(end, [-d[0], -d[1], -d[2]], 'player');
       } else {
-        let n = o.normal ? arr3(o.normal) : null, mat = o.mat || null;
-        if ((!n || !mat) && map) {
+        let n = o.normal ? arr3(o.normal) : null, mat = o.mat || null, moving = false;
+        if (map) {
           const h = raycastWorld(map.world, [end[0] - d[0] * 0.3, end[1] - d[1] * 0.3, end[2] - d[2] * 0.3], d, 0.6);
-          if (h) { n = n || h.normal; mat = mat || h.mat; }
+          if (h) { n = n || h.normal; mat = mat || h.mat; moving = !!(h.collider && h.collider.dynamic); }
         }
-        if (n) fx.impact(end, n, mat || 'concrete');
+        if (n) fx.impact(end, n, mat || 'concrete', moving ? NO_DECAL : null);
       }
     }
     play((def && def.sound) || 'rifle', { pos: muzzle });
@@ -1529,6 +1581,12 @@ function buildWorld(ctx, opts) {
     }
     p.bomb = mode === 'bomb' ? bombView.hud() : null;
     p.hint = lockHint() || pickHint() || customHint || '';
+    // 무기 교체 안내: 대기 시간이 끝나면 치운다. 죽었거나 관전 중이면 띄우지 않는다
+    if (swap && swapLeft() <= 0) closeSwap();
+    // 목록이 열려 있는 동안에는 목록의 제목과 남은 시간이 대신 알려 주므로 안내를 감춘다
+    const prompt = !!swap && alive && !ui.isVisible('loadout');
+    const held = prompt ? getDef(local.loadout || arsenal.getWeapon().id) : null;
+    p.swap = prompt ? { seconds: swapLeft(), weaponName: held ? held.short || held.name : '' } : null;
     p.spectate = !alive && local.spawned ? spec.name : '';
     ui.hud.set(p);
   }
@@ -1584,6 +1642,15 @@ function buildWorld(ctx, opts) {
 
   const api = {
     loadMap,
+    /** 움직이는 지형이 쓸 시계(초를 돌려주는 함수). 멀티 세션이 방장 시계를 넘긴다. null이면 World 시각으로 돌아간다 */
+    setMoverClock(fn) { moverClock = typeof fn === 'function' ? fn : null; },
+    /**
+     * 라운드 시작 전 대기 시간의 무기 교체를 켠다: HUD 안내("N 을 눌러 무기 교체!")와 N 키.
+     * o = { seconds, weapons, ruleset, selected, round, title? } — seconds 뒤에 저절로 꺼지고, 나머지는 로드아웃 화면에 그대로 넘긴다
+     */
+    openSwap,
+    /** 무기 교체를 끈다(라운드 시작·라운드 끝). 열려 있던 목록도 닫는다 */
+    closeSwap,
     unloadMap,
     reset,
     spawnLocal,

@@ -277,13 +277,16 @@ export function createUI(rootEl, options = {}) {
       push: (k) => hud.killfeed.push(k),
       clear: () => hud.killfeed.clear(),
     },
-    /** 경기 채팅(멀티플레이). 화면은 show('chat') / hide('chat'), 보내기는 'chat:send' 이벤트 */
+    /** 경기 채팅(멀티플레이). 화면은 show('chat', { teamChat }) / hide('chat'), 보내기는 'chat:send' { text, scope } 이벤트 */
     chat: {
       push: (line) => screens.chat.push(line),
       open: () => screens.chat.open(),
       close: () => screens.chat.close(),
       isOpen: () => screens.chat.isOpen(),
       clear: () => screens.chat.clear(),
+      /** 지금 보낼 범위 'all' | 'team' (입력칸에서 Tab이나 탭 버튼으로 바꾼다) */
+      scope: () => screens.chat.scope(),
+      setScope: (s) => screens.chat.setScope(s),
     },
     scope: {
       set: (amount, opts) => scope.set(amount, opts),

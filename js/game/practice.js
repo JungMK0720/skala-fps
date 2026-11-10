@@ -28,6 +28,7 @@ import { PLAYER } from '../core/consts.js';
 import { AVATAR_IDS } from '../core/avatar-defs.js';
 import { moveCharacter, traceShot, lineOfSight, findFloor, overlapsCapsule, getGroundY } from '../engine/physics.js';
 import { stepTriggers } from '../engine/triggers.js';
+import { carryBody } from '../engine/movers.js';
 import { createArsenal, shotDirection, dirFromYawPitch } from '../weapons/logic.js';
 import { getDef } from '../weapons/defs.js';
 import { throwVelocity } from '../weapons/grenade.js';
@@ -153,7 +154,9 @@ export function practiceOptions(params = {}, maps = null) {
   const bombCarrier = bc === 'me' || bc === 'bot' ? bc : null;
   const bs = String(params.bombSite || q.get('bombsite') || '').toUpperCase();
   const bombSite = bs === 'A' || bs === 'B' ? bs : null;
-  return { mapId, mode, ruleset, size, ffaBots, difficulty, timeScale, killTarget, botWeapon, botEmote, bombCarrier, bombSite };
+  // 라운드 시작 전 대기 시간(초) 시험용: &loadout=20. 0이면 규칙 기본값(5초)
+  const loadoutSec = clamp(num(params.loadoutSec, num(q.get('loadout'), 0)), 0, 60);
+  return { mapId, mode, ruleset, size, ffaBots, difficulty, timeScale, killTarget, botWeapon, botEmote, bombCarrier, bombSite, loadoutSec };
 }
 
 export function createPractice({ ctx, world, ui }) {
@@ -283,7 +286,10 @@ export function createPractice({ ctx, world, ui }) {
     const chooseCarrier = opts.bombCarrier === 'me' ? (ids) => (ids.includes(me.id) ? me.id : null)
       : opts.bombCarrier === 'bot' ? (ids) => ids.find((id) => botById.has(id)) || null : undefined;
     const match = createMatch({
-      rules: bomb ? { mode: 'bomb' } : { mode: opts.mode, ruleset: rs.id, killTarget: opts.killTarget },
+      rules: {
+        ...(bomb ? { mode: 'bomb' } : { mode: opts.mode, ruleset: rs.id, killTarget: opts.killTarget }),
+        ...(opts.loadoutSec > 0 ? { loadoutMs: opts.loadoutSec * 1000 } : null)
+      },
       players, spawns: map.spawns, mission: mission || undefined, chooseCarrier,
       getPositions: () => {
         const o = {};
@@ -581,7 +587,7 @@ export function createPractice({ ctx, world, ui }) {
         pushBomb();
         return;
       }
-      if (ui) ui.hud.center(ev.replay ? `라운드 ${round} · 재경기` : `라운드 ${round}`, 2200, { sub: rs.pickSlot === 3 ? '칼을 고르세요' : '주무기를 고르세요' });
+      if (ui) ui.hud.center(ev.replay ? `라운드 ${round} · 재경기` : `라운드 ${round}`, 2200, { sub: '곧 시작해요 · 대기하는 동안 무기를 바꿀 수 있어요' });
     }
     function placeBot(b, s) {
       const x = num(s.x, 0), z = num(s.z, 0);
@@ -625,10 +631,14 @@ export function createPractice({ ctx, world, ui }) {
         if (pickIds.includes(lastPick)) match.setLoadout(me.id, lastPick);   // 고르지 않아도 지난 선택·계정 장비로 나간다
         if (ui) {
           const secs = Math.max(1, Math.floor(num(ev.durationMs, 5000) / 1000 / opts.timeScale) - 1);
-          ui.show('loadout', { weapons: pickList(), ruleset: rs.id, seconds: secs, selected: lastPick, round: ffa ? undefined : round, title: ffa ? `${ruleLabel} · 무기 선택` : undefined });
+          const props = { weapons: pickList(), ruleset: rs.id, seconds: secs, selected: lastPick };
+          // 개인전은 출격 전이라 무기 선택 화면을 바로 띄운다. 팀전·폭파 미션은 스폰 자리에서 "N 을 눌러 무기 교체!" 안내로 연다
+          if (ffa) ui.show('loadout', { ...props, title: `${ruleLabel} · 무기 선택` });
+          else world.openSwap({ ...props, round });
         }
         if (ffa && ui) ui.hud.center(ruleLabel, 2200, { sub: `모두가 적 · 먼저 ${opts.killTarget}킬`, tone: 'warn' });
       } else if (phase === 'live') {
+        world.closeSwap();
         if (ui && ui.isVisible('loadout')) ui.hide('loadout');
         const lo = ev.loadouts || {};
         if (lo[me.id]) { world.setLocalLoadout(lo[me.id]); lastPick = lo[me.id]; }
@@ -642,6 +652,7 @@ export function createPractice({ ctx, world, ui }) {
         const bombSub = bomb ? (attackTeam() === me.team ? '공격 · 폭탄을 A 또는 B 구역에 설치하세요' : '수비 · 구역을 지키고 설치되면 해체하세요') : '';
         if (ui) ui.hud.center('작전 개시!', 1400, { sub: ffa ? `${ruleLabel} · 먼저 ${opts.killTarget}킬` : bomb ? bombSub : `${ruleLabel} · 라운드 ${round} · ${TEAM_NAME[me.team]} 팀` });
       } else if (phase === 'matchEnd') {
+        world.closeSwap();
         if (ui && ui.isVisible('loadout')) ui.hide('loadout');
         world.setRespawn(null);
       }
@@ -895,6 +906,7 @@ export function createPractice({ ctx, world, ui }) {
       b.edge.jump = false;
       // 발판으로 날아가는 동안에는 입력을 넣지 않는다(공중 조작이 궤적을 깎아 착지점을 놓친다)
       if (b.padFlight) { if (b.body.onGround) b.padFlight = false; else { wish.x = 0; wish.z = 0; } }
+      if (map.world.movers && !map.world.movers.empty) carryBody(map.world, b.body);   // 움직이는 지형 위의 봇도 같이 간다
       moveCharacter(map.world, b.body, wish, dt, b.crouch ? { height: CROUCH_H } : undefined);
       // 봇도 발판을 탄다. 비밀 스팟과 포털은 사람 몫이라 결과를 쓰지 않는다
       if (map.world.triggers) {

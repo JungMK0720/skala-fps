@@ -53,7 +53,7 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 | `hostTickMs` / `snapshotMs` | 100 / 1000 | 방장 경기 루프(setInterval — 백그라운드에서도 돈다) / 변화 없을 때 스냅샷 주기 |
 | `prepTimeoutMs` | 8000 | 시작 전에 모두가 맵을 불러오기를 기다리는 최대 시간 |
 | `leaveGraceMs` | 2000 | 경기 중 presence에서 사라진 사람을 퇴장 처리하기까지(순단 대비) |
-| `loadoutLeadMs` | 700 | 로드아웃 화면 자동 선택을 방장 마감보다 먼저(선택이 제때 도착하게) |
+| `loadoutLeadMs` | 700 | 무기 교체 안내(개인전은 무기 선택 화면)를 방장 마감보다 이만큼 먼저 끈다(마지막 선택이 제때 도착하게) |
 | `stallMs` | 15000 | 경기 중 방장 소식이 이만큼 없으면 대기실로(자가 복구) |
 | `roomIdleMs` / `roomIdleWarnMs` | 60000 / 10000 | 경기 밖(대기실·결과)에서 이만큼 아무 활동이 없으면 방장이 방을 닫는다. 그 전에 모두에게 안내. `roomIdleMs: 0`이면 끈다(3절 "자리 비움") |
 | `setScreens` | true | core 화면 등록·전환 |
@@ -98,6 +98,10 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 - 경기 채팅: 경기 맵을 불러오면 `ui.show('chat')`과 bus `chat:available { on:true }`(휴대폰 채팅 버튼), 경기를 정리하면 `ui.hide('chat')`과 `{ on:false }`.
   경기 중에는 대기실과 같은 줄을 `ui.chat.push(line)`으로도 넘긴다(내 줄은 `me:true`). Enter·채팅 버튼(bus `input:chat`)이면 `ui.chat.open()`, UI `chat:send`는 대기실 `room:chat`과 같은 `sendChat`이다.
   PC에서 입력칸이 열리면(`chat:open`) 엔진이 떼는 키를 못 보므로 `ctx.input.releaseAll()`로 눌려 있던 이동 키를 푼다.
+- **팀 채팅**(MODES.md 8절): 팀이 있는 경기(팀전·폭파 미션)면 `ui.show('chat', { teamChat: true })`. UI `chat:send { text, scope:'team' }`이면
+  같은 팀 사람(경기 스냅샷의 팀, 없으면 방 명단의 팀)에게만 `sync.sendChat(text, { scope:'team', to })`로 보내고 내 줄에 `scope:'team'`을 붙인다.
+  받은 팀 채팅은 보낸 사람이 같은 팀일 때만 보여 준다. 개인전·대기실에서는 팀 범위를 전체로 보내고, 아직 팀이 없으면 보내지 않고 안내한다.
+- **움직이는 지형**: 경기에 들어갈 때 `world.setMoverClock(() => sync.hostNow() / 1000)`, 나올 때 `null`. 모든 화면이 방장 시계로 같은 자리를 그린다.
 - **자리 비움**: 경기 밖(대기실·결과 화면, 방장이 경기를 준비하고 있지 않을 때) `roomIdleMs`(1분) 동안 아무 활동이 없으면 방장이 방을 닫는다. 쓸데없이 열린 방의 연결·메시지(방장 핑 10초, 중계 서버 알람 1분)를 줄인다.
   - 활동: 들어오고 나감·팀·준비·이름·캐릭터가 바뀐 presence(핑만 바뀐 갱신은 아니다), 방 설정(메타) 변경, 사람이 쓴 채팅, 방장의 대기실 조작(UI `room:active`), 경기가 끝나 결과·대기실로 온 때, [계속 기다리기].
   - 닫기 `roomIdleWarnMs`(10초) 전: 방장이 `room.send('mx', { k:'idle', left, ms })` → 모두 대기실 위에 남은 초와 [계속 기다리기](`roomProps().idleLeft`·`idleSpan`), 채팅에 안내 줄. 활동이 생기면 방장이 `{ k:'idle', left:0 }`으로 거둔다.
@@ -131,8 +135,8 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 | 이벤트 | 화면·World |
 |---|---|
 | `roundStart` | `world.reset()` → 내가 참가자면 `world.spawnLocal({ id, name, team, spawn, loadout })`, 원격 아바타를 스폰 자리에 세움(새 상태가 닿을 때까지 최대 3초), 중앙 배너 "라운드 N"(무승부 재경기·매치 포인트 안내), `round_start` 소리 |
-| `phase(loadout)` | `ui.show('loadout', { weapons: pickableWeapons(ruleset, 보유 무기), ruleset, seconds: 남은시간−0.7, selected: 지난 선택 또는 계정 장비, round })` |
-| `phase(live)` | 로드아웃 닫기, `phase.loadouts[me]` → `world.setLocalLoadout`(칼전이면 칼), "작전 개시!" |
+| `phase(loadout)` | `world.openSwap({ weapons: pickableWeapons(ruleset, 보유 무기), ruleset, seconds: 남은시간−0.7, selected: 지난 선택 또는 계정 장비, round })` — 무기 선택 화면을 띄우지 않고 "N 을 눌러 무기 교체!" 안내만 켠다(MODES.md 7절). 고를 때마다 `loadoutPick` → `sendGear` |
+| `phase(live)` | `world.closeSwap()`, 로드아웃 닫기, `phase.loadouts[me]` → `world.setLocalLoadout`(칼전이면 칼), "작전 개시!" |
 | `damage` | 내가 피해자 → `world.setLocalHp(hp)` + `world.feedbackDamage({ attackerPos, amount, head, half, kill, incoming:true })`(피격 방향). 내가 공격자 → `feedbackDamage({ amount, head, half: e.halfShot, kill, incoming:false })`(히트마커·반샷 표시) |
 | `kill` | `ui.killfeed.push({ ..., head, half })`(자폭은 killer 없음), `world.noteKill({ killer, victim, killerTeam, victimTeam })`(내 연속 킬: 5초 안에 이어지면 더블 킬~전설), 내가 죽음 → `world.killLocal({ killerId, dir })`(World가 관전 카메라), 그 밖 → `world.actorDeath(id, { dir })`. 내 칼 킬은 `knifeKills`로 센다 |
 | `roundEnd` | 배너 "블루 팀 승리 · 전멸 · 블루 1 : 0 레드", `round_win`/`round_lose` |

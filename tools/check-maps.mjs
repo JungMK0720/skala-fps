@@ -1,8 +1,8 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 맵 데이터 검사기(npm run check:maps). 게임과 같은 물리 코드로 스폰, 발판 궤적, 포털, 비밀 스팟, 길 찾기, 폭파 미션 구역을 시뮬레이션해
- *          맵 제작 실수를 찾는다. 오류가 있으면 종료 코드 1. 사용법: node tools/check-maps.mjs [맵 id] [--json] [--file 경로]
+ * Purpose: 맵 데이터 검사기(npm run check:maps). 게임과 같은 물리 코드로 스폰, 발판 궤적, 포털, 비밀 스팟, 길 찾기, 폭파 미션 구역,
+ *          움직이는 지형을 시뮬레이션해 맵 제작 실수를 찾는다. 오류가 있으면 종료 코드 1. 사용법: node tools/check-maps.mjs [맵 id] [--json] [--file 경로]
  */
 import { existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
@@ -10,12 +10,13 @@ import { pathToFileURL } from 'node:url';
 import { PLAYER, TEAM_IDS, TICK_DT } from '../js/core/consts.js';
 import { findFloor, getGroundY, moveCharacter, overlapsCapsule, raycastWorld } from '../js/engine/physics.js';
 import { PAD_HEIGHT_TOL, stepTriggers } from '../js/engine/triggers.js';
+import { moverBox, moverSweep, moverPeakSpeed } from '../js/engine/movers.js';
 import { SITE_IDS, normalizeMission, placeMission, siteAt, siteContains } from '../js/game/mission.js';
 import { NAV_EDGE, buildNavGrid } from '../js/game/navgrid.js';
 import { buildCollision, validateMap } from '../js/maps/collision.js';
 
 /** 새 맵 전용 요구 사항(팀 스폰 수, 개인전 스폰 수, 경고를 오류로 취급)을 적용할 id. rulesets가 있는 맵도 같다(테스트 맵 제외) */
-const NEW_MAPS = new Set(['alley', 'dojo', 'longshot', 'nexus', 'relay']);
+const NEW_MAPS = new Set(['alley', 'dojo', 'longshot', 'nexus', 'relay', 'railyard', 'observatory', 'cqb', 'sorthub']);
 const EXEMPT_MAPS = new Set(['testyard']);
 const MIN_TEAM_SPAWNS = 4;
 const MIN_FFA_SPAWNS = 6;
@@ -33,6 +34,11 @@ const SPAWN_MIN_GAP = 1;         // 같은 팀 스폰끼리 이보다 가까우�
 const PERCH_PROBE = 0.7;         // 스폰 둘레 바닥을 살피는 거리(m)
 const FINE_CELL = 0.5;           // 비밀 스팟·발판 도달 분석용 내비 칸(m)
 const PORTAL_MAX_DROP = 1;       // 포털 도착 높이가 바닥보다 이만큼까지 위여도 된다(m)
+const MOVER_STOP_GAP = 1.5;      // 수평으로 움직이는 상자가 멈춘 자리와 그 앞 벽 사이에 남겨야 하는 거리(m)
+const MOVER_SIDE_GAP = 1.5;      // 수평으로 움직이는 상자 옆에 남겨야 하는 걷는 폭(m, 몸 지름 포함해 약 1.9)
+const MOVER_HEADROOM = 2.2;      // 타고 올라가는 상자 윗면 위에 비어 있어야 하는 높이(m)
+const MOVER_STAND_MIN = 1;       // 윗면의 짧은 변이 이보다 길면 사람이 타는 상자로 본다(m)
+const FLOOR_MARK_H = 0.06;       // 이보다 얇은 바닥 도형(차선·레일)은 움직이는 지형과 겹쳐도 된다(m)
 
 const JUMP_SIMS = 20000;         // 점프 탐색 한도(시뮬레이션 횟수). 한 번에 수십 µs라 몇 초를 넘지 않는다
 const JUMP_DIRS = 16;
@@ -361,6 +367,104 @@ function checkProps(data, world, out) {
   });
 }
 
+/* ---------------- 움직이는 지형 ---------------- */
+
+const boxHit = (a, b, eps = 0.02) => a.minX < b.maxX - eps && b.minX < a.maxX - eps && a.minZ < b.maxZ - eps && b.minZ < a.maxZ - eps && a.minY < b.maxY - eps && b.minY < a.maxY - eps;
+const footprintInside = (a, b, eps = 0.02) => a.minX >= b.minX - eps && a.maxX <= b.maxX + eps && a.minZ >= b.minZ - eps && a.maxZ <= b.maxZ + eps;
+
+/**
+ * 움직이는 지형 검사(docs/MAP_GUIDE.md 11절). 판정은 게임과 같은 engine/movers.js로 읽는다.
+ * 지나가는 부피에 스폰·발판·포털·폭파 구역·소품·도형이 없는지, 수평으로 움직이는 상자가 사람을 벽에 끼우지 않는지(멈추는 자리 앞 1.5 m),
+ * 옆으로 비켜 갈 폭이 있는지, 타는 상자 위에 머리 공간이 있는지를 본다.
+ * @param data 맵 데이터 @param col buildCollision(data) @param out 오류·경고를 더할 { errors, warnings }
+ * @returns {{ id, axis, dist, period, hold, speed }[]}
+ */
+export function checkMovers(data, col, out = { errors: [], warnings: [] }) {
+  const list = col.movers ? col.movers.list : [];
+  if (!list.length) return [];
+  // 움직이는 지형이 없는 월드: 쉬는 자리의 상자가 자기 검사를 가리지 않게 한다
+  const still = buildCollision({ ...data, movers: undefined });
+  const statics = still.solidColliders.filter((c) => c.maxY - c.minY > FLOOR_MARK_H);
+  const spots = [];
+  for (const team of [...TEAM_IDS, 'ffa']) (still.spawns[team] || []).forEach((p, i) => spots.push([`spawns.${team}[${i}]`, p]));
+  const mission = normalizeMission(data);
+  if (mission) {
+    const placed = placeMission(mission, still.world, findFloor, getGroundY);
+    for (const side of MISSION_SIDES) placed[side].forEach((p, i) => spots.push([`mission.${side}[${i}]`, p]));
+  }
+  const report = [];
+  for (const { spec } of list) {
+    const tag = `movers[${spec.src}] "${spec.id}"`;
+    const sweep = moverSweep(spec);
+    const horizontal = spec.axis !== 'y';
+    report.push({ id: spec.id, axis: spec.axis, dist: spec.dist, period: spec.period, hold: spec.hold, speed: r2(moverPeakSpeed(spec)) });
+
+    const grown = { minX: sweep.minX - R - 0.1, maxX: sweep.maxX + R + 0.1, minZ: sweep.minZ - R - 0.1, maxZ: sweep.maxZ + R + 0.1 };
+    for (const [label, p] of spots) {
+      if (p.x > grown.minX && p.x < grown.maxX && p.z > grown.minZ && p.z < grown.maxZ && p.y < sweep.maxY + 0.1 && p.y + H > sweep.minY) {
+        out.errors.push(`${label} ${fmt(p.x, p.y, p.z)} stands in the path of ${tag}`);
+      }
+    }
+    for (const pad of col.triggers.pads) {
+      const body = { minX: pad.minX, maxX: pad.maxX, minZ: pad.minZ, maxZ: pad.maxZ, minY: pad.y - PAD_HEIGHT_TOL, maxY: pad.y + H };
+      if (boxHit(body, sweep)) out.errors.push(`pads[${pad.src}] lies in the path of ${tag}`);
+      if (pad.target && insideBody(sweep, pad.target[0], pad.target[1], pad.target[2])) out.warnings.push(`pads[${pad.src}] target is in the path of ${tag}`);
+    }
+    for (const portal of col.triggers.portals) {
+      if (boxHit(portal, sweep)) out.errors.push(`portals[${portal.src}] lies in the path of ${tag}`);
+      if (insideBody(sweep, portal.to.x, portal.to.y, portal.to.z)) out.errors.push(`portals[${portal.src}] destination is in the path of ${tag}`);
+    }
+    if (mission) for (const s of mission.sites) if (boxHit(s, sweep)) out.errors.push(`mission site ${s.id} overlaps the path of ${tag}; a bomb planted there would be run over`);
+    (Array.isArray(data.props) ? data.props : []).forEach((p, i) => {
+      if (p && Number.isFinite(+p.x) && Number.isFinite(+p.z) && insideBody(sweep, +p.x, +p.y || 0, +p.z, +p.size > 0 ? +p.size : 1)) out.warnings.push(`props[${i}] starts in the path of ${tag}`);
+    });
+
+    // 도형과 겹침: 위아래로 움직이는 상자는 자기보다 넓은 도형 속(문 위 벽)으로 들어가도 된다
+    for (const c of statics) {
+      if (!boxHit(c, sweep)) continue;
+      if (!horizontal && footprintInside(sweep, c)) continue;
+      out.errors.push(`${tag} passes through solids[${c.index}] (${c.mat}) at x ${r2(c.minX)}..${r2(c.maxX)}, z ${r2(c.minZ)}..${r2(c.maxZ)}, y ${r2(c.minY)}..${r2(c.maxY)}`);
+    }
+
+    if (horizontal) {
+      // 멈추는 자리 앞: 밀려 온 사람이 설 자리가 있어야 한다(없으면 벽과 상자 사이에 끼인다)
+      const alongX = spec.axis === 'x';
+      const lo = alongX ? sweep.minX : sweep.minZ, hi = alongX ? sweep.maxX : sweep.maxZ;
+      const y0 = sweep.minY + STEP, y1 = sweep.minY + Math.max(spec.h, H);
+      for (const [name, a, b] of [['low', lo - MOVER_STOP_GAP, lo], ['high', hi, hi + MOVER_STOP_GAP]]) {
+        const zone = alongX
+          ? { minX: a, maxX: b, minZ: sweep.minZ, maxZ: sweep.maxZ, minY: y0, maxY: y1 }
+          : { minX: sweep.minX, maxX: sweep.maxX, minZ: a, maxZ: b, minY: y0, maxY: y1 };
+        const hit = statics.find((c) => boxHit(c, zone));
+        const edge = alongX ? (name === 'low' ? still.bounds.minX : still.bounds.maxX) : (name === 'low' ? still.bounds.minZ : still.bounds.maxZ);
+        if (hit) out.errors.push(`${tag} stops less than ${MOVER_STOP_GAP} m from solids[${hit.index}] (${hit.mat}) at its ${name}-${spec.axis} end; a player pushed along would be pinned`);
+        else if (name === 'low' ? a < edge : b > edge) out.errors.push(`${tag} stops less than ${MOVER_STOP_GAP} m from the map edge at its ${name}-${spec.axis} end`);
+      }
+      // 옆으로 비켜 갈 폭: 길 전체에서 적어도 한쪽에 몸이 설 자리가 이어져야 한다
+      const floor = sweep.minY;
+      const sideFree = (sign) => {
+        for (let k = 0; k <= 8; k++) {
+          const t = lo + ((hi - lo) * k) / 8;
+          for (const gap of [R + 0.15, MOVER_SIDE_GAP]) {
+            const off = (alongX ? spec.d : spec.w) / 2 + gap;
+            const px = alongX ? t : spec.x + sign * off, pz = alongX ? spec.z + sign * off : t;
+            if (overlapsCapsule(still.world, px, floor + STEP, pz, R - 0.02, H - STEP)) return false;
+          }
+        }
+        return true;
+      };
+      if (!sideFree(1) && !sideFree(-1)) out.warnings.push(`${tag} has no ${r2(MOVER_SIDE_GAP + R)} m wide walkway beside its whole path; players and bots cannot step aside`);
+    } else if (Math.min(spec.w, spec.d) >= MOVER_STAND_MIN) {
+      // 타는 상자: 가장 높이 올라간 윗면 위에 머리 공간
+      const top = sweep.maxY;
+      const head = { minX: sweep.minX + 0.1, maxX: sweep.maxX - 0.1, minZ: sweep.minZ + 0.1, maxZ: sweep.maxZ - 0.1, minY: top + 0.05, maxY: top + MOVER_HEADROOM };
+      const hit = still.solidColliders.find((c) => boxHit(c, head));
+      if (hit) out.errors.push(`${tag} has less than ${MOVER_HEADROOM} m of headroom above its top at y ${r2(top)} (solids[${hit.index}] ${hit.mat}); a rider would be pushed into it`);
+    }
+  }
+  return report;
+}
+
 /* ---------------- 폭파 미션 ---------------- */
 
 /** 출발점부터 경유점을 따라간 길이(m) */
@@ -467,7 +571,7 @@ export function checkMission(data, nav, out = { errors: [], warnings: [] }, col 
  */
 export function checkMap(id, data) {
   const strict = !EXEMPT_MAPS.has(id) && (NEW_MAPS.has(id) || Array.isArray(data && data.rulesets));
-  const out = { id, strict, ok: false, errors: [], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null };
+  const out = { id, strict, ok: false, errors: [], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null, movers: [] };
   const v = validateMap(data);
   out.errors.push(...v.errors);
   (strict ? out.errors : out.warnings).push(...v.warnings);
@@ -478,7 +582,7 @@ export function checkMap(id, data) {
   out.counts = {
     solids: data.solids.length, decor: Array.isArray(data.decor) ? data.decor.length : 0,
     pads: triggers.pads.length, portals: triggers.portals.length, secrets: triggers.secrets.length,
-    props: Array.isArray(data.props) ? data.props.length : 0,
+    props: Array.isArray(data.props) ? data.props.length : 0, movers: col.movers.list.length,
     owner: col.spawns.owner.length, charterer: col.spawns.charterer.length, ffa: col.spawns.ffa.length
   };
 
@@ -486,6 +590,7 @@ export function checkMap(id, data) {
   const nav = checkWalkability(data, col, out);
   out.nav = { nodes: nav.info.nodes, good: nav.info.good, ms: Math.round(nav.info.buildMs) };
   out.mission = checkMission(data, nav, out, col);
+  out.movers = checkMovers(data, col, out);
   checkProps(data, world, out);
 
   const padSims = triggers.pads.map((pad) => ({ pad, sim: checkPad(world, pad, triggers.secrets, out) }));
@@ -551,6 +656,7 @@ function printTable(reports) {
     ['solids', 7, (r) => (r.counts ? r.counts.solids : '-')], ['decor', 6, (r) => (r.counts ? r.counts.decor : '-')],
     ['pads', 5, (r) => (r.counts ? r.counts.pads : '-')], ['portals', 8, (r) => (r.counts ? r.counts.portals : '-')],
     ['secrets', 8, (r) => (r.counts ? r.counts.secrets : '-')], ['props', 6, (r) => (r.counts ? r.counts.props : '-')],
+    ['movers', 7, (r) => (r.counts ? r.counts.movers : '-')],
     ['team', 6, (r) => (r.counts ? `${r.counts.owner}/${r.counts.charterer}` : '-')], ['ffa', 4, (r) => (r.counts ? r.counts.ffa : '-')],
     ['nav', 7, (r) => (r.nav ? r.nav.nodes : '-')], ['los', 4, (r) => r.los], ['err', 4, (r) => r.errors.length], ['warn', 4, (r) => r.warnings.length]
   ];
@@ -569,7 +675,7 @@ function printMission(m) {
 
 function printDetails(reports) {
   for (const r of reports) {
-    if (!r.errors.length && !r.warnings.length && !r.pads.length && !r.secrets.length && !r.mission) continue;
+    if (!r.errors.length && !r.warnings.length && !r.pads.length && !r.secrets.length && !r.mission && !r.movers.length) continue;
     console.log(`\n[${r.id}]${r.strict ? ' (new-map rules)' : ''}`);
     for (const p of r.pads) {
       console.log(p.landing
@@ -578,6 +684,7 @@ function printDetails(reports) {
     }
     for (const s of r.secrets) console.log(`  secret ${s.id}: ${s.via ? `via ${s.via}` : 'unreachable'}`);
     if (r.mission) printMission(r.mission);
+    for (const m of r.movers) console.log(`  mover ${m.id}: ${m.axis} ${m.dist > 0 ? '+' : ''}${m.dist} m, ${m.period} s cycle (hold ${m.hold} s), peak ${m.speed} m/s`);
     for (const e of r.errors) console.log(`  ERROR ${e}`);
     for (const w of r.warnings) console.log(`  warn  ${w}`);
   }
@@ -616,11 +723,11 @@ async function main() {
   const args = process.argv.slice(2);
   const targets = await loadTargets(args);
   const reports = targets.map((t) => {
-    if (t.error) return { id: t.id, strict: true, ok: false, errors: [t.error], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null };
+    if (t.error) return { id: t.id, strict: true, ok: false, errors: [t.error], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null, movers: [] };
     try {
       return checkMap(t.id, t.data);
     } catch (err) {
-      return { id: t.id, strict: true, ok: false, errors: [`checker crashed: ${err && err.stack ? err.stack : err}`], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null };
+      return { id: t.id, strict: true, ok: false, errors: [`checker crashed: ${err && err.stack ? err.stack : err}`], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null, movers: [] };
     }
   });
   const ok = reports.length > 0 && reports.every((r) => !r.errors.length);

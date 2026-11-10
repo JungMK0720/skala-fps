@@ -50,6 +50,9 @@ const world = await createWorld({ root, ui, settings, ctx });
 | `setPauseOptions({ leaveLabel, note })` | 일시정지 화면 문구 |
 | `setScoreboard(provider)` | Tab을 누르면 `provider()`의 결과로 `ui.show('scoreboard', …)`(열려 있는 동안 0.5초마다 갱신) |
 | `setHint(text)` | HUD 하단 안내(잠금 안내가 우선) |
+| `openSwap({ seconds, weapons, ruleset, selected, round, title? })` | 라운드 시작 전 대기 시간의 무기 교체를 켠다(MODES.md 7절). HUD에 "N 을 눌러 무기 교체!"가 뜨고, N(`input:loadout`, 휴대폰은 그 안내)으로 무기 목록(`ui 'loadout'`의 swap 모드)을 여닫는다. 무기를 누르면 `setLocalLoadout` + `loadoutPick` 이벤트. `seconds`(World 시각, 연습장 일시정지 중에는 멈춘다) 뒤에 저절로 꺼진다 |
+| `closeSwap()` | 무기 교체를 끈다(라운드 시작·라운드 끝). 열려 있던 목록도 닫는다. `reset`·`unloadMap`도 끈다 |
+| `setMoverClock(fn \| null)` | 움직이는 지형이 쓸 시계(초를 돌려주는 함수). 멀티 세션이 방장 시계(`sync.hostNow() / 1000`)를 넘긴다. null이거나 숫자가 아니면 World 시각을 쓴다(MAP_GUIDE.md 11절) |
 | `sound(name, opts?)` | `audio.play` 그대로(`round_start` 등) |
 | `getLocalState()` → `{ ...player.snapshot(), vel, name, slot, weaponId, weapon:{w,s,z}, kills, deaths }` | sync 전송용(새 객체) |
 | `getActor(id)` / `getActors()` | `{ id, name, team, kind, alive, state }` |

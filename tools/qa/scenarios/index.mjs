@@ -23,5 +23,8 @@ import drops from './drops.mjs';
 import mobile from './mobile.mjs';
 import mobileMenus from './mobile-menus.mjs';
 import multikill from './multikill.mjs';
+import swap from './swap.mjs';
+import keys from './keys.mjs';
+import movers from './movers.mjs';
 
-export const SCENARIOS = [firstRun, menus, practice, bomb, weapons, damage, multikill, drops, mobile, mobileMenus, movement, props, debug, multi, controls, multiPlay, robust, monkey, gallery, maps];
+export const SCENARIOS = [firstRun, menus, practice, bomb, swap, keys, movers, weapons, damage, multikill, drops, mobile, mobileMenus, movement, props, debug, multi, controls, multiPlay, robust, monkey, gallery, maps];

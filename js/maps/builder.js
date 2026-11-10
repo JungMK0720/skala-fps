@@ -2,7 +2,7 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 맵 데이터 → three.js 메시. 충돌은 maps/collision.js에 맡기고 여기서는 그리기만 한다.
- *          solids를 재질별로 합치고 바닥·바깥 경치·장식·발판·포털을 만든다.
+ *          solids를 재질별로 합치고 바닥·바깥 경치·장식·발판·포털·움직이는 지형을 만든다.
  */
 /**
  * SKALA 작전 — 맵 빌더
@@ -11,7 +11,8 @@
  *   map.colliders / map.world (physics) / map.spawns / map.bounds / map.theme
  *   map.pads / map.portals / map.secrets / map.props (맵 데이터 그대로, 없으면 빈 배열) · map.world.triggers (판정 표)
  *   map.getGroundY(x, z[, fromY]) / map.raycastWorld(o, d, max) / map.traceShot(o, d, max, targets)
- *   map.update(dt, t)  // 장식·발판·포털 애니메이션
+ *   map.update(dt, t, alpha)  // 장식·발판·포털 애니메이션, 움직이는 지형 메시 자리(alpha = 틱 사이 보간 비율)
+ *   map.movers / map.tickMovers(dt) / map.setMoverClock(fn)  // 움직이는 지형(engine/movers.js). tickMovers는 틱마다 몸보다 먼저 부른다
  *   map.dispose()
  *
  * 렌더: solids는 재질별로 한 메시에 합친다(드로우콜 ≈ 재질 수). 바닥(y=0)은 플레이 영역을 덮는 슬래브로 만들고,
@@ -27,6 +28,7 @@ import { GeoBatch } from '../engine/geom.js';
 import { getMaterial, getGroundMaterial, matScale, hasMat, setWaterColor, animateMaterials } from '../engine/materials.js';
 import { buildDecor, buildTriggerVisuals } from '../engine/decor.js';
 import { buildCollision, normalizeTheme, validateMap } from './collision.js';
+import { stepMovers } from '../engine/movers.js';
 
 export { normalizeTheme, validateMap };
 
@@ -149,6 +151,43 @@ export function buildMap(data, scene, opts = {}) {
     drawCalls++;
   }
 
+  // --- 움직이는 지형: 하나마다 메시 하나(원점 기준 상자). 움직이는 것임을 알아보게 위아래에 띠를 두른다 ---
+  const moverMeshes = [];
+  for (const m of world.movers.list) {
+    const s = m.spec;
+    const gb = new GeoBatch();
+    gb.addBox(-s.w / 2, 0, -s.d / 2, s.w / 2, s.h, s.d / 2, matScale(s.mat));
+    const geo = gb.build();
+    const mesh = new THREE.Mesh(geo, getMaterial(s.mat));
+    mesh.name = 'mover:' + s.id;
+    mesh.castShadow = !NO_SHADOW_MATS.has(s.mat);
+    mesh.receiveShadow = true;
+    mesh.position.set(s.x, s.y, s.z);
+    const trimMat = s.mat === 'yellow' ? 'metal_dark' : 'yellow';
+    const tb = new GeoBatch();
+    const edge = 0.02, ts = matScale(trimMat);
+    const band = (y0, y1) => tb.addBox(-s.w / 2 - edge, y0, -s.d / 2 - edge, s.w / 2 + edge, y1, s.d / 2 + edge, ts, { skipTop: true, skipBottom: true });
+    band(Math.max(0, s.h - 0.24), s.h - 0.1);
+    if (s.h >= 0.9) band(0.1, 0.24);
+    const trimGeo = tb.build();
+    const trim = new THREE.Mesh(trimGeo, getMaterial(trimMat));
+    trim.receiveShadow = true;
+    mesh.add(trim);
+    group.add(mesh);
+    disposables.push(geo, trimGeo);
+    moverMeshes.push({ m, mesh });
+    triangles += (geo.index.count + trimGeo.index.count) / 3;
+    drawCalls += 2;
+  }
+  /** 메시를 직전 틱과 이번 틱 자리 사이에 놓는다(플레이어 보간과 같은 비율이라 위에 탄 몸과 어긋나지 않는다) */
+  function placeMovers(alpha) {
+    for (const { m, mesh } of moverMeshes) {
+      const s = m.spec, off = m.prevOff + (m.off - m.prevOff) * alpha;
+      mesh.position.set(s.x + (s.axis === 'x' ? off : 0), s.y + (s.axis === 'y' ? off : 0), s.z + (s.axis === 'z' ? off : 0));
+    }
+  }
+  let moverClock = null, moverTime = 0;
+
   if (scene) scene.add(group);
 
   let disposed = false;
@@ -168,17 +207,28 @@ export function buildMap(data, scene, opts = {}) {
     portals: listOf(data.portals),
     secrets: listOf(data.secrets),
     props: listOf(data.props),
-    stats: { solids: solids.length, colliders: world.colliders.length, drawCalls: drawCalls + decor.lightCount + triggerFx.drawCalls, triangles: Math.round(triangles), decor: decor.counts, lights: decor.lightCount },
+    movers: world.movers,
+    stats: { solids: solids.length, colliders: world.colliders.length, drawCalls: drawCalls + decor.lightCount + triggerFx.drawCalls, triangles: Math.round(triangles), decor: decor.counts, lights: decor.lightCount, movers: moverMeshes.length },
     getGroundY: (x, z, fromY) => physGroundY(world, x, z, fromY),
     findFloor: (x, z, o) => findFloor(world, x, z, o),
     raycastWorld: (o, d, max, op) => raycastWorld(world, o, d, max, op),
     traceShot: (o, d, max, targets, op) => traceShot(world, o, d, max, targets, op),
     sphereSweep: (body, dt, op) => sphereSweep(world, body, dt, op),
     lineOfSight: (a, b) => lineOfSight(world, a, b),
-    update(dt, t) {
+    /** 움직이는 지형의 시계: 초를 돌려주는 함수(멀티는 방장 시계). null이거나 숫자가 아니면 맵을 불러온 뒤 흐른 틱 시간을 쓴다 */
+    setMoverClock(fn) { moverClock = typeof fn === 'function' ? fn : null; },
+    /** 틱마다 한 번, 몸을 움직이기 전에 부른다. 충돌체를 이번 틱의 자리로 옮긴다 */
+    tickMovers(dt) {
+      if (world.movers.empty) return;
+      moverTime += dt;
+      const t = moverClock ? moverClock() : NaN;
+      stepMovers(world, Number.isFinite(t) ? t : moverTime);
+    },
+    update(dt, t, alpha = 1) {
       animateMaterials(dt);
       if (decor.animated) decor.update(dt, t);
       triggerFx.update(dt, t);
+      if (moverMeshes.length) placeMovers(alpha);
     },
     dispose() {
       if (disposed) return;

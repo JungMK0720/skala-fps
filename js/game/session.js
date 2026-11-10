@@ -62,6 +62,9 @@ export const ROOM_NOTE = '무료 서버 한도 때문에 최대 6명(인원이 �
 /** 채팅 도배 막기: 내가 보내는 것은 5초에 4줄까지(넘으면 안내만), 받는 것은 한 사람당 5초에 6줄까지(고친 클라이언트 대비) */
 export const CHAT_LIMIT = Object.freeze({ windowMs: 5000, send: 4, receive: 6 });
 const CHAT_SLOW = '채팅을 너무 빨리 보내고 있어요. 잠시 뒤에 다시 보내 주세요.';
+/** 레이 판정에서 움직이는 지형(engine/movers.js)을 빼는 옵션 */
+const STATIC_ONLY = Object.freeze({ filter: (c) => !c.dynamic });
+const TEAM_CHAT_NO_TEAM = '아직 팀이 없어 팀 채팅을 보낼 수 없어요. Tab으로 전체 채팅으로 바꿔 보내세요.';
 /** 세션 제어 이벤트(room.send): { k:'prep', mid, map, mode, rs } 방장→모두 / { k:'loaded', mid } 멤버→방장 */
 export const CONTROL_EVENT = 'mx';
 
@@ -1282,11 +1285,34 @@ export function createSession(options = {}) {
     safeMeta({ mapId: id });
     renderRoom();
   }
-  function sendChat(text) {
+  /** 팀 채팅을 쓸 수 있는가: 팀이 있는 경기(팀전·폭파 미션) 중일 때만. 대기실과 개인전은 전체 채팅뿐이다 */
+  function teamChatOk() {
+    const c = current;
+    return phase === 'match' && !!c && c.mode !== 'ffa';
+  }
+  /** 경기 중 내 팀: 방장이 확정한 팀, 아직 없으면 방 명단의 팀 */
+  function myMatchTeam() {
+    const c = current;
+    return (c && TEAM_IDS.includes(c.team) ? c.team : null) || myRoomTeam();
+  }
+  /**
+   * 채팅 보내기. scope 'team'(경기 채팅의 팀 탭)이면 같은 팀 사람에게만 보낸다. 그 밖에는 모두에게 간다.
+   * 팀 채팅은 받는 사람을 정해 보내므로 상대 팀 화면에는 전달되지 않는다.
+   */
+  function sendChat(text, scope) {
     if (!room || !sync) return;
     const t = cleanText(text, 120);
     if (!t) return;
+    const teamOnly = scope === 'team' && teamChatOk();
+    const myTeam = teamOnly ? myMatchTeam() : null;
+    if (teamOnly && !myTeam) { pushChat({ system: true, text: TEAM_CHAT_NO_TEAM }); return; }
     if (!chatAllowed(chatSent, CHAT_LIMIT.send)) { pushChat({ system: true, text: CHAT_SLOW }); return; }
+    if (teamOnly) {
+      const mates = room.players().map((p) => String(p.id)).filter((id) => id !== me && matchTeamOf(id) === myTeam);
+      sync.sendChat(t, { scope: 'team', to: mates });
+      pushChat({ name: myName(), text: t, team: myTeam, me: true, scope: 'team' });
+      return;
+    }
     sync.sendChat(t);
     // broadcast는 보낸 사람에게 되돌아오지 않는다 → 내 메시지는 직접 넣는다
     pushChat({ name: myName(), text: t, team: roomMode() === 'ffa' ? null : myRoomTeam(), me: true });
@@ -1357,6 +1383,11 @@ export function createSession(options = {}) {
   function roomTeamOf(id) {
     const p = room ? room.players().find((x) => x.id === id) : null;
     return p && TEAM_IDS.includes(p.team) ? p.team : null;
+  }
+  /** 경기 중 그 사람의 팀: 방장이 확정한 경기 스냅샷의 팀, 없으면 방 명단의 팀 */
+  function matchTeamOf(id) {
+    const vp = viewPlayer(id);
+    return vp && TEAM_IDS.includes(vp.team) ? vp.team : roomTeamOf(id);
   }
   function pingOf(id) {
     const p = room ? room.players().find((x) => x.id === id) : null;
@@ -1578,7 +1609,8 @@ export function createSession(options = {}) {
     const shooter = GUARD.SHOOTER_LAG_MS.map((lag) => remoteAt(e.from, shotT - lag)).filter(Boolean);
     const victim = GUARD.VICTIM_LAG_MS.map((lag) => (vid === me ? selfAt(shotT - lag) : remoteAt(vid, shotT - lag))).filter(Boolean);
     const m = call(world, 'getMap');
-    const los = m && m.world ? (a, b) => lineOfSight(m.world, a, b) : null;
+    // 움직이는 지형은 벽 가림 검사에서 뺀다. 쏜 순간과 방장이 확인하는 순간 사이에 자리가 바뀌어, 넣으면 정상 사격이 벽 뒤 사격으로 보인다
+    const los = m && m.world ? (a, b) => lineOfSight(m.world, a, b, STATIC_ONLY) : null;
     return checkHitClaim({ dist: e.dist, melee: !!(def && def.slot === 3), shooter, victim, los });
   }
   /** 방장 시계 t에 그 사람이 있던 자리(그 사람이 보낸 위치 기록에서) */
@@ -1782,6 +1814,8 @@ export function createSession(options = {}) {
     W('setScoreboard', scoreboardData);
     screen('match', { mapId, mode: c.mode });
     startFrames();
+    // 움직이는 지형은 방장 시계로 돈다 → 모든 화면에서 같은 자리에 있다
+    W('setMoverClock', () => (sync && typeof sync.hostNow === 'function' ? sync.hostNow() / 1000 : NaN));
     Promise.resolve()
       .then(() => world.loadMap(mapId, { mode: c.mode, ruleset: c.ruleset }))
       .then((res) => onMapLoaded(c, res), (err) => onMapFailed(c, err));
@@ -1797,7 +1831,7 @@ export function createSession(options = {}) {
     W('setMode', c.mode);   // FFA면 모든 액터가 적, 폭파 미션이면 폭탄 화면(loadMap이 'team'으로 되돌리므로 로드 뒤에)
     W('setControlsEnabled', true);
     // 경기 채팅: HUD와 함께 보이고(loadMap이 HUD를 띄운 뒤), 휴대폰 채팅 버튼을 켠다. 줄은 enterMatch에서 비웠다
-    U('show', 'chat', {});
+    U('show', 'chat', { teamChat: c.mode !== 'ffa' });   // 팀이 있는 경기면 전체·팀 탭(Tab 키)을 쓴다
     busEmit('chat:available', { on: true });
     if (!c.round) W('setHint', '다른 플레이어를 기다리는 중…');
     if (hm && hm.mid === c.mid && !hm.m) hostCreate();
@@ -1837,6 +1871,7 @@ export function createSession(options = {}) {
       if (c.mode === 'ffa') { W('setRespawn', null); W('setProtect', false); }
       if (c.mode === 'bomb') W('setBomb', null);
       W('setControlsEnabled', false);
+      W('setMoverClock', null);
       if (typeof world.unloadMap === 'function') W('unloadMap'); else W('reset');
       U('hide', 'loadout');
       U('hide', 'pause');
@@ -1986,7 +2021,7 @@ export function createSession(options = {}) {
       return;
     }
     const sub = ev && ev.replay ? '무승부 — 같은 라운드를 다시 해요'
-      : mp.length ? `매치 포인트 · ${mp.map((t) => TEAM_NAME[t]).join(' · ')}` : '무기를 고르세요';
+      : mp.length ? `매치 포인트 · ${mp.map((t) => TEAM_NAME[t]).join(' · ')}` : '곧 시작해요 · 대기하는 동안 무기를 바꿀 수 있어요';
     H('center', `라운드 ${round}`, 2600, { sub, tone: mp.length === 1 ? mp[0] : undefined });
     W('sound', 'round_start');
   }
@@ -2088,7 +2123,7 @@ export function createSession(options = {}) {
     const v = view || c.view;
     if (ph === 'loadout') onLoadoutPhase(round, ev, v);
     else if (ph === 'live') onLivePhase(ev, v);
-    else if (ph === 'roundEnd') U('hide', 'loadout');
+    else if (ph === 'roundEnd') { W('closeSwap'); U('hide', 'loadout'); }
     if (v) W('setRound', roundInfo(v));
   }
 
@@ -2104,14 +2139,16 @@ export function createSession(options = {}) {
     if (secs < 0.8) return;
     c.pickSent = '';
     c.compact = false;
-    U('show', 'loadout', {
-      weapons: pickableWeapons(c.ruleset, ownedIds()), ruleset: c.ruleset, seconds: Math.round(secs * 10) / 10, selected: c.pick, round,
-      ...(c.mode === 'ffa' ? { title: '개인전 · 무기 선택' } : {})
-    });
+    const props = { weapons: pickableWeapons(c.ruleset, ownedIds()), ruleset: c.ruleset, seconds: Math.round(secs * 10) / 10, selected: c.pick, round };
+    // 개인전: 아직 출격 전이라 처음 무기를 고르는 화면을 바로 띄운다.
+    // 팀전·폭파 미션: 스폰 자리에서 기다리는 동안 "N 을 눌러 무기 교체!" 안내만 띄우고, N을 누르면 목록이 열린다(world.openSwap)
+    if (c.mode === 'ffa') U('show', 'loadout', { ...props, title: '개인전 · 무기 선택' });
+    else W('openSwap', props);
   }
 
   function onLivePhase(ev, v) {
     const c = current;
+    W('closeSwap');
     U('hide', 'loadout');
     const lo = ev && ev.loadouts && typeof ev.loadouts === 'object' ? ev.loadouts : null;
     if (lo) {
@@ -2625,7 +2662,13 @@ export function createSession(options = {}) {
         let seen = chatSeen.get(from);
         if (!seen) chatSeen.set(from, (seen = []));
         if (!chatAllowed(seen, CHAT_LIMIT.receive)) break;   // 도배는 조용히 버린다
-        pushChat({ name: nameOf(e.from), text: cleanText(e.text, 120), team: roomMode() === 'ffa' ? null : roomTeamOf(e.from) });
+        const teamOnly = e.scope === 'team';
+        // 팀 채팅은 같은 팀이 보낸 것만 보여 준다. 다른 팀이나 개인전에서 온 것은 고친 클라이언트가 보낸 것이니 버린다
+        if (teamOnly && (!teamChatOk() || !myMatchTeam() || matchTeamOf(from) !== myMatchTeam())) break;
+        pushChat({
+          name: nameOf(e.from), text: cleanText(e.text, 120), team: roomMode() === 'ffa' ? null : roomTeamOf(e.from),
+          ...(teamOnly ? { scope: 'team' } : null)
+        });
         break;
       }
       case 'drop':
@@ -2825,7 +2868,7 @@ export function createSession(options = {}) {
     ui.on('room:ruleset', (p) => setRoomRuleset(p && p.ruleset)),
     ui.on('room:killTarget', (p) => setKillTarget(p && p.killTarget)),
     ui.on('room:chat', (p) => sendChat(p && p.text)),
-    ui.on('chat:send', (p) => sendChat(p && p.text)),
+    ui.on('chat:send', (p) => sendChat(p && p.text, p && p.scope)),
     ui.on('chat:open', () => onChatOpen()),
     ui.on('room:leave', () => { leaveRoom(); }),
     ui.on('room:stay', () => stayInRoom()),
