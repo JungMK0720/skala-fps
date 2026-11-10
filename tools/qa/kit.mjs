@@ -198,7 +198,7 @@ function pageSetup(opts) {
         default: return null;
       }
     },
-    /** 플레이어 시선을 이 점으로 돌리고, 실제 판정 함수가 무엇을 맞힌다고 하는지 돌려준다 */
+    /** 플레이어 시선을 이 점으로 돌리고, 실제 판정 함수가 무엇을 맞힌다고 하는지 돌려준다. eye는 조준할 때의 사격 원점(카메라)이다 */
     aimAt(point) {
       const p = qa.ctx.player;
       const eye = p.getEye();
@@ -208,7 +208,7 @@ function pageSetup(opts) {
       p.state.pitch = Math.asin(dy / len);
       const dir = [dx / len, dy / len, dz / len];
       const hit = qa.ctx.traceShot(eye, dir, 1000, { ignoreId: p.state.id });
-      return { kind: hit.kind, part: hit.part, id: hit.id, dist: hit.dist, len };
+      return { kind: hit.kind, part: hit.part, id: hit.id, dist: hit.dist, len, eye: [eye[0], eye[1], eye[2]] };
     },
     /** 게임 HUD와 무기 상태 요약 */
     snapshot() {

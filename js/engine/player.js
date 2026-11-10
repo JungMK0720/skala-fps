@@ -47,6 +47,11 @@ import { lerpAngle } from './interp.js';
 const ORBIT = Object.freeze({ yaw: 0.6, pitch: 0.18, dist: 3.0, target: 1.15, minPitch: -0.35, maxPitch: 1.1 });
 /** 버니합 착지의 카메라 출렁임 배율. 0.8초마다 착지하므로 그대로 두면 화면이 계속 꿀렁인다 */
 const HOP_LAND_DIP = 0.3;
+/**
+ * 착지 출렁임 스프링을 한 번에 적분하는 가장 긴 시간(초). 이보다 긴 프레임은 같은 길이로 나눠 돈다.
+ * 한 번에 약 0.106초를 넘게 적분하면 진동이 줄지 않고 커진다. 사격 원점이 카메라 위치라 느린 기기에서는 쏘는 높이도 함께 흔들린다
+ */
+const LAND_SPRING_STEP = 0.02;
 /** 머리 흔들림 주기를 정하는 속도의 상한(m/s). 빠른 무기(걷기의 1.1배)까지는 그대로 두고, 버니합 속도에서 발걸음 주기가 치솟지 않게 자른다 */
 const BOB_SPEED_LIMIT = PLAYER.WALK * 1.2;
 
@@ -388,10 +393,14 @@ export function createLocalPlayer({ bus, input, camera, getWorld, state: initSta
     bobPhase += dt * (4 + Math.min(hs, BOB_SPEED_LIMIT) * 1.25);
     const bobY = Math.sin(bobPhase * 2) * 0.03 * bobAmp;
     const bobX = Math.cos(bobPhase) * 0.018 * bobAmp;
-    // 착지 출렁임(스프링)
-    landVel += (-landDip * 90 - landVel * 14) * dt;
-    landDip += landVel * dt;
-    if (landDip < -0.3) { landDip = -0.3; landVel = 0; }
+    // 착지 출렁임(스프링). 느린 프레임은 LAND_SPRING_STEP 이하로 나눠 적분한다(50 fps 이상은 한 번)
+    const springSteps = Math.max(1, Math.ceil(dt / LAND_SPRING_STEP));
+    const springDt = dt / springSteps;
+    for (let i = 0; i < springSteps; i++) {
+      landVel += (-landDip * 90 - landVel * 14) * springDt;
+      landDip += landVel * springDt;
+      if (landDip < -0.3) { landDip = -0.3; landVel = 0; }
+    }
     stepOffset *= Math.exp(-dt * 14);
     // 반동 복귀 · 트라우마 흔들림
     const kd = Math.exp(-dt * 11);
