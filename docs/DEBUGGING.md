@@ -107,8 +107,8 @@ log.debug('벽 밀어내기', { pos, vel });
 | `node tools/serve.mjs 8104` | 로컬 서버. `http://localhost:8104/?sandbox=testyard&debug=1` |
 | `npm test` | `tests/*.test.mjs` 전체 |
 | `npm run qa` | 실제 페이지를 헤드리스 브라우저로 끝까지 플레이한다(아래 절) |
-| `npm run check` | 머리말·금지 단어 + 맵 검증 + 테스트. 커밋 전에 돌린다 |
-| `npm run check:headers` | 머리말과 금지 단어만. 파일별로 결과를 적고 실패하면 종료 코드 1 |
+| `npm run check` | 머리말·금지 단어 + 맵 검증 + 테스트. 커밋 전과 PR 전에 돌린다 |
+| `npm run check:headers` | 머리말과 금지 단어만. 파일별로 결과를 적고, 아직 `origin/main`에 없는 커밋의 메시지·작성자·커밋자도 본다. 실패하면 종료 코드 1 |
 | `npm run check:maps` | 맵 검증만 |
 
 머리말을 한꺼번에 넣으려면 `{ "경로": "설명" }` JSON을 만들어 넘긴다. `--dry-run`을 붙이면 쓰지 않고 결과만 보여 준다.

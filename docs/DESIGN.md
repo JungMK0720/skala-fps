@@ -25,6 +25,9 @@
 ```
 HTML은 `<!DOCTYPE html>` 다음 줄에 `<!-- ... -->`, SQL은 `--`, YAML은 `#`. JSON에는 넣지 않는다.
 
+### 커밋 작성자와 메시지 (필수)
+커밋의 작성자(author)와 커밋자(committer)는 소유자 계정만 쓴다. 커밋 메시지와 PR 제목·본문·댓글에 AI 도구 이름, AI 공동 작업자 줄, 도구 서명, 세션 링크를 넣지 않는다(소유자 지시). `tools/check-headers.mjs`는 파일과 함께, 아직 `origin/main`에 없는 커밋의 메시지·작성자·커밋자에서도 금지 단어를 찾는다. 이미 푸시한 커밋에서 이런 흔적이 나오면 소유자에게 알리고, 소유자가 허락할 때만 메시지를 고쳐 히스토리를 다시 쓴다.
+
 ## 2. 부위 판정과 히트박스
 
 `consts.PARTS = ['head','body','legs','hand','foot']`. `HITBOX` / `HITBOX_CROUCH`에 `FOOT`(발), `HANDS`(손 구 2개)가 추가됐다.
