@@ -32,6 +32,7 @@ import { DEFAULT_RULESET, normalizeRuleset, rulesetOf, pickableWeapons, isWeapon
 import { createDrops, DROP_RADIUS } from './drops.js';
 import { normalizeMission, placeMission } from './mission.js';
 import { createBombView } from './bombview.js';
+import { createMultiKill, multiKillTier } from './multikill.js';
 
 const STEEL_MATS = new Set(['steel', 'rust', 'deck', 'tank', 'pipe', 'container_red', 'yellow', 'white', 'glass', 'metal_dark']);
 const SPECTATE_DELAY_MS = 1600;
@@ -192,6 +193,7 @@ function buildWorld(ctx, opts) {
   let pauseOpts = { leaveLabel: '나가기', note: undefined };
   let scoreboardProvider = null, scoreboardOpen = false, sbRefresh = 0;
   let clock = 0;                                  // World 시뮬레이션 시각(초, 일시정지 중 멈춤)
+  const multiKill = createMultiKill();            // 내 연속 킬(5초 안에 이어진 처치 수). 시계는 clock
   const scheduled = [];                           // { at, name, opts, tag }
   let heartbeatAt = 0, grenadeSeq = 0, shotSeq = 0;
   const secretsNoAccount = new Set();             // 계정 모듈이 없을 때 이번 실행에서 찾은 비밀 스팟
@@ -453,6 +455,7 @@ function buildWorld(ctx, opts) {
     local.spawned = false; local.alive = false; local.loadout = null;
     rnd.phase = null; rnd.timeLeftMs = null; rnd.alive = null; rnd.teamSize = null; rnd.score = { owner: 0, charterer: 0 }; rnd.round = 0; rnd.ffa = null; rnd.attack = null;
     respawn = null; protectUntil = 0;
+    multiKill.reset();
     setMode(opt && opt.mode);
     setRuleset(opt && opt.ruleset);
     fx.clear(false);
@@ -491,6 +494,7 @@ function buildWorld(ctx, opts) {
     customHint = '';
     rnd.phase = null; rnd.timeLeftMs = null; rnd.ffa = null;
     respawn = null; protectUntil = 0;
+    multiKill.reset();
     mode = 'team';
     local.loadout = null;
     setRuleset(DEFAULT_RULESET);
@@ -514,6 +518,7 @@ function buildWorld(ctx, opts) {
     bombView.reset();
     fx.clear(false);
     scheduled.length = 0;
+    multiKill.reset();
     spec.id = null; spec.name = '';
     if (ui) {
       ui.hud.reset(); ui.hide('scoreboard'); scoreboardOpen = false;
@@ -778,6 +783,7 @@ function buildWorld(ctx, opts) {
     bombView.onLocalDeath();
     dropOnDeath();     // 총을 든 채 죽으면 그 총이 떨어진다(남은 탄 그대로)
     local.alive = false;
+    multiKill.reset(); // 연속 킬은 살아 있는 동안만 이어진다
     local.ownDrops.clear();
     local.deadAt = performance.now();
     rmbDown = false;   // 누른 채 죽었으면 부활하자마자 조준 사격을 이어 가지 않는다
@@ -1290,6 +1296,27 @@ function buildWorld(ctx, opts) {
     if (half && kill) play('half_shot');
   }
 
+  /**
+   * 킬 하나를 알린다(경기의 kill 이벤트마다: 연습장 practice.js, 멀티 session.js). { killer, victim, killerTeam?, victimTeam? }
+   * 내가 살아서 적을 처치했을 때만 연속 킬을 센다. 앞 킬과 5초 안이면 이어지고 2킬부터 hud.multiKill(그림·글자)과
+   * 효과음(multi_kill, 전설은 legend_kill), 안내 음성(audio.voice)을 낸다. 반환: 이어진 킬 수(세지 않았으면 0)
+   */
+  function noteKill(o) {
+    if (!o || !active) return 0;
+    const killer = o.killer == null ? '' : String(o.killer), victim = o.victim == null ? '' : String(o.victim);
+    if (!killer || killer !== local.id || victim === killer || !local.spawned || !local.alive) return 0;
+    if (mode !== 'ffa' && o.killerTeam && o.killerTeam === o.victimTeam) return 0;   // 같은 편은 세지 않는다
+    const n = multiKill.kill(clock * 1000);
+    const tier = multiKillTier(n);
+    if (!tier) return n;
+    const legend = tier.id === 'legend';
+    if (ui) ui.hud.multiKill({ id: tier.id, title: tier.title, sub: legend ? `${n}연속 처치` : '' });
+    play(legend ? 'legend_kill' : 'multi_kill', legend ? undefined : { rate: 1 + 0.06 * (tier.count - 2) });
+    try { audio.voice(tier.id, { delay: 0.08 }); } catch (e) { /* 소리 없이 계속 */ }
+    emit('multiKill', { count: n, id: tier.id });
+    return n;
+  }
+
   /** 비밀 스팟에 들어감: 처음이면 보상과 배너, 이미 찾은 곳이면 짧은 글자만 */
   function onSecret(e) {
     if (!active || !local.alive || !map || !e || !e.secret) return;
@@ -1573,6 +1600,7 @@ function buildWorld(ctx, opts) {
     addDrop,
     removeDrop,
     feedbackDamage,
+    noteKill,
     setRound,
     setMode,
     setRuleset,
@@ -1623,6 +1651,8 @@ function buildWorld(ctx, opts) {
     get localId() { return local.id; },
     get localTeam() { return local.team; },
     get localAlive() { return local.spawned && local.alive; },
+    /** 마지막 킬까지 이어진 내 연속 킬 수(죽거나 판이 바뀌면 0). 5초가 지나도 다음 킬 전까지는 그대로다 */
+    get multiKillCount() { return multiKill.count; },
     get paused() { return uiPaused; },
     /** 디버그·테스트용 내부 객체(읽기 전용으로 쓸 것) */
     get internals() { return { arsenal, vm, fx, audio, nades, actors, local, rnd, props, drops, bombView }; }

@@ -665,6 +665,7 @@ export function createPractice({ ctx, world, ui }) {
 
     function onKill(ev) {
       if (ui) ui.killfeed.push({ killer: ev.killerName, victim: ev.victimName, weaponId: ev.weaponId, head: ev.head, killerTeam: ffa ? null : ev.killerTeam, victimTeam: ffa ? null : ev.victimTeam });
+      world.noteKill({ killer: ev.killer, victim: ev.victim, killerTeam: ev.killerTeam, victimTeam: ev.victimTeam });   // 연속 킬(내 킬만 센다)
       alive.set(ev.victim, false);
       deaths.set(ev.victim, (deaths.get(ev.victim) || 0) + 1);
       const weapon = getDef(ev.weaponId);

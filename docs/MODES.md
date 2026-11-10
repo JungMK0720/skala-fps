@@ -252,3 +252,16 @@
 ### 5.8 팀 이름: 오렌지 → 레드
 - 두 팀의 화면 이름은 모든 모드에서 블루(`owner`)·**레드**(`charterer`, 🟥)다. 내부 id는 그대로다.
 - 색은 `core/consts.js` TEAMS(아바타 옷), `ui/dom.js` TEAMS, `css/fps.css`의 `--sk-charterer`가 정한다.
+---
+
+## 6. 연속 킬 (`game/multikill.js` · `world.js` · `ui/hud.js` · `fx/audio.js`)
+
+- **규칙:** 내가 적을 처치하고 **5초 안**(`MULTI_KILL_WINDOW_MS`, 딱 5초 포함)에 또 처치하면 이어서 센다. 창은 바로 앞 킬부터 잰다.
+  2킬 더블 킬! · 3킬 트리플 킬! · 4킬 쿼드라 킬! · 5킬 펜타 킬! · 6킬 헥사 킬! · 7킬부터는 모두 **당신은 전설입니다**(아래 줄에 "N연속 처치").
+- **세는 킬:** 내가 살아 있을 때 낸 적 처치만. 자폭, 같은 편(팀전), 내가 죽은 뒤의 킬은 세지 않는다. 내가 죽거나 라운드·경기·맵이 바뀌면 1부터 다시 센다.
+- **시계:** World 시뮬레이션 시각(60 Hz 틱). 연습장 일시정지 중에는 멈춘다. 멀티는 받은 kill 이벤트를 받은 순서대로 센다.
+- **연결:** 연습장(`practice.js`)과 멀티(`session.js`) 모두 경기의 `kill` 이벤트마다 `world.noteKill({ killer, victim, killerTeam, victimTeam })`를 부른다.
+  프로토콜은 바꾸지 않았다(각자 자기 킬만 센다). 다른 사람의 연속 킬은 보이지 않는다.
+- **표시:** `hud.multiKill({ id, title, sub })`. PC는 크로스헤어 아래(콜아웃 밑), 휴대폰은 크로스헤어 위에 작게. 다음 단계가 오면 줄을 세우지 않고 바로 바꾼다.
+  그림은 SVG 도형(`ui/multikill.js`): 더블~헥사는 육각 방패 + 킬 수만큼 탄환 + 단계마다 색·빛살·날개, 전설은 월계관 메달·별·왕관.
+- **소리:** 합성 효과음 `multi_kill`(단계마다 조금 높게)·`legend_kill`과 안내 음성 `audio.voice(id)`(`audio/voice/*.mp3`, TTS로 합성, js/fx/README.md "안내 음성").

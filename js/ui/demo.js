@@ -13,6 +13,7 @@
 //      &bare=1(QA 패널 숨김) &mock=1(목 데이터만)
 import { createUI, relativeAngle, emoteIndexAt } from './index.js';
 import { h, MODE_NAME } from './dom.js';
+import { multiKillTier } from '../game/multikill.js';
 
 // ---------- 목 데이터 (실제 값은 maps/*, weapons/defs 담당이 제공) ----------
 const MAPS = [
@@ -350,6 +351,13 @@ function demoKillfeed() {
   ];
   k.forEach((x, i) => setTimeout(() => ui.killfeed.push(x), i * 120));
 }
+// 연속 킬: 누를 때마다 다음 단계(더블 킬 → … → 헥사 킬 → 당신은 전설입니다 → 처음부터)
+let demoMulti = 1;
+function demoMultiKill() {
+  demoMulti = demoMulti >= 7 ? 2 : demoMulti + 1;
+  const t = multiKillTier(demoMulti);
+  ui.hud.multiKill({ id: t.id, title: t.title, sub: t.id === 'legend' ? `${demoMulti}연속 처치` : '' });
+}
 
 // ---------- 이모트 휠 흉내(엔진 역할): B 누르고 있기 → 마우스로 고르고 떼기, 안 움직이고 떼면 아무것도 안 함 ----------
 const emo = { open: false, cursor: { x: 0, y: 0 }, active: null };
@@ -491,6 +499,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyR' && game.ammo[game.slot] != null && game.reserve[game.slot] > 0) game.reload = 0;
   if (e.code === 'KeyH') takeHit();
   if (e.code === 'KeyK') demoKillfeed();
+  if (e.code === 'KeyM') demoMultiKill();
 });
 window.addEventListener('keyup', (e) => {
   if (e.code === 'Tab') ui.hide('scoreboard');
@@ -674,6 +683,7 @@ if (!bare) {
         b('헤드샷', () => ui.hud.hitmarker(true)),
         b('피격(H)', () => (mode === 'game' ? takeHit() : null)),
         b('킬피드(K)', demoKillfeed),
+        b('연속 킬(M)', demoMultiKill),
         b('매치 포인트', () => ui.hud.center('매치 포인트', 2000, { sub: '블루 2 : 2 레드' })),
         b('레드 승리', () => ui.hud.center('레드 팀 라운드 승리', 2000)),
         b('체력 회복', () => { game.hp = 100; ui.hud.set({ spectate: null }); }),

@@ -25,7 +25,7 @@ function pageSetup(opts) {
 
   const IDLE = Object.freeze({ forward: 0, strafe: 0, jump: false, walk: false, yawDelta: 0, pitchDelta: 0, fire: false, zoom: false, reload: false, slot: null });
   const BUS_EVENTS = new Set(['player:jump', 'player:land', 'player:pad', 'player:portal', 'player:secret', 'player:fell', 'player:spawn', 'player:death', 'input:inspect', 'screen:change', 'app:error', 'map:error', 'screen:unavailable', 'account:change']);
-  const WORLD_EVENTS = ['fire', 'hitClaim', 'explosion', 'grenade', 'localDeath', 'loadoutPick', 'pause', 'leave'];
+  const WORLD_EVENTS = ['fire', 'hitClaim', 'explosion', 'grenade', 'localDeath', 'loadoutPick', 'pause', 'leave', 'multiKill'];
   const MATCH_EVENTS = new Set(['damage', 'kill', 'reject', 'roundStart', 'roundEnd', 'matchEnd', 'spawn', 'phase', 'bomb']);
   const plain = (o) => {
     const out = {};

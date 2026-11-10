@@ -126,7 +126,7 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 | `phase(loadout)` | `ui.show('loadout', { weapons: pickableWeapons(ruleset, 보유 무기), ruleset, seconds: 남은시간−0.7, selected: 지난 선택 또는 계정 장비, round })` |
 | `phase(live)` | 로드아웃 닫기, `phase.loadouts[me]` → `world.setLocalLoadout`(칼전이면 칼), "작전 개시!" |
 | `damage` | 내가 피해자 → `world.setLocalHp(hp)` + `world.feedbackDamage({ attackerPos, amount, head, half, kill, incoming:true })`(피격 방향). 내가 공격자 → `feedbackDamage({ amount, head, half: e.halfShot, kill, incoming:false })`(히트마커·반샷 표시) |
-| `kill` | `ui.killfeed.push({ ..., head, half })`(자폭은 killer 없음), 내가 죽음 → `world.killLocal({ killerId, dir })`(World가 관전 카메라), 그 밖 → `world.actorDeath(id, { dir })`. 내 칼 킬은 `knifeKills`로 센다 |
+| `kill` | `ui.killfeed.push({ ..., head, half })`(자폭은 killer 없음), `world.noteKill({ killer, victim, killerTeam, victimTeam })`(내 연속 킬: 5초 안에 이어지면 더블 킬~전설), 내가 죽음 → `world.killLocal({ killerId, dir })`(World가 관전 카메라), 그 밖 → `world.actorDeath(id, { dir })`. 내 칼 킬은 `knifeKills`로 센다 |
 | `roundEnd` | 배너 "블루 팀 승리 · 전멸 · 블루 1 : 0 레드", `round_win`/`round_lose` |
 | `phase(matchEnd)` | 결과 화면(아래) |
 | 스냅샷 | `world.setRound({ phase, round, score, timeLeftMs, alive, teamSize, roundsToWin, maxRounds, matchPoint })` — HUD 타이머·점수·생존자는 World가 그린다. 놓친 이벤트 보정: 새 라운드면 대체 스폰, 페이즈 전환, 내 사망·체력, 아바타 사망 |

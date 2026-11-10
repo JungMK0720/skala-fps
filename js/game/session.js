@@ -2022,6 +2022,8 @@ export function createSession(options = {}) {
       weaponId: e.weaponId, head: !!e.head, half: !!e.halfShot,
       killerTeam: ffa ? null : e.killerTeam, victimTeam: ffa ? null : e.victimTeam, ...(ffa ? { mode: 'ffa' } : {})
     });
+    // 연속 킬(더블 킬~): 내가 살아서 낸 킬만 World가 센다. 내가 죽는 킬은 아래 killLocal이 처음부터 세게 한다
+    W('noteKill', { killer, victim, killerTeam: e.killerTeam, victimTeam: e.victimTeam });
     const kp = attackerPos(killer);
     if (victim === me) {
       if (c.localAlive) {
