@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 개발 도구 테스트. 로거의 레벨·이름표 필터·링 버퍼, 머리말 검사기의 해석·삽입,
+ * Purpose: 개발 도구 테스트. 로거의 레벨·이름표 필터·링 버퍼, 머리말 검사기의 해석·삽입·금지 단어(파일·커밋),
  *          디버그 도구의 판정 부위 선(물리 판정과 일치), 충돌체 선, 키 처리와 정리를 확인한다.
  */
 import test, { describe, afterEach, before, beforeEach, after } from 'node:test';
@@ -14,7 +14,8 @@ import { fileURLToPath } from 'node:url';
 
 import { clearLogs, configureLog, createLogger, getLogs, LOG_CAPACITY } from '../js/core/log.js';
 import {
-  applyHeader, BANNED_WORDS, findBannedWords, HEADER_AUTHOR, HEADER_DATE, parseHeader, renderHeader, runCheck, runFix, stampFile
+  applyHeader, BANNED_WORDS, checkCommits, findBannedInCommitLog, findBannedWords, HEADER_AUTHOR, HEADER_DATE, parseHeader,
+  renderHeader, runCheck, runFix, stampFile
 } from '../tools/check-headers.mjs';
 import { buildWireLines, createDebug, hitVolumes, isTextEntry, volumeVertexCount, writeTargetLines } from '../js/engine/debug.js';
 import { raycastPlayers, rampHeight } from '../js/engine/physics.js';
@@ -302,6 +303,58 @@ describe('머리말 검사기', () => {
       assert.equal(findBannedWords(`x${word}y`).length, 1, word);
     }
     assert.deepEqual(findBannedWords('평범한 글자 gpt 와 pilot, open ai'), []);
+  });
+
+  test('커밋 기록에서 메시지·작성자·커밋자의 금지 단어를 찾는다', () => {
+    const rec = (sha, author, committer, body) => `${sha}\x1f${author}\x1f${committer}\x1f${body}\x1e`;
+    const owner = '소유자 <owner@example.com>';
+    const log = rec('a'.repeat(40), owner, owner, '깨끗한 커밋\n\n본문\n')
+      + '\n' + rec('b'.repeat(40), `${BANNED_WORDS[0]} <x@example.com>`, owner, `제목\n\n본문\n${BANNED_WORDS[6]}: 도구 <bot@example.com>\n`)
+      + '\n' + rec('c'.repeat(40), owner, `${BANNED_WORDS[1]} <y@example.com>`, '커밋자만\n');
+    const found = findBannedInCommitLog(log);
+    assert.deepEqual(found.map((c) => c.sha[0]), ['b', 'c']);
+    assert.equal(found[0].subject, '제목');
+    assert.deepEqual(found[0].problems, [`작성자에 금지 단어 "${BANNED_WORDS[0]}"`, `메시지 4번째 줄에 금지 단어 "${BANNED_WORDS[6]}"`]);
+    assert.deepEqual(found[1].problems, [`커밋자에 금지 단어 "${BANNED_WORDS[1]}"`]);
+    assert.deepEqual(findBannedInCommitLog(''), []);
+  });
+
+  describe('커밋 검사(임시 git 저장소)', () => {
+    const hasGit = spawnSync('git', ['--version'], { encoding: 'utf8', windowsHide: true }).status === 0;
+    let dir;
+    const git = (args, input) => {
+      const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', input, windowsHide: true });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
+      return r.stdout.trim();
+    };
+    /** 사용자 설정·훅·서명과 상관없이 커밋 객체를 바로 만든다 */
+    const commit = (tree, parent, message) => git(['hash-object', '-t', 'commit', '-w', '--stdin'],
+      `tree ${tree}\n${parent ? `parent ${parent}\n` : ''}author 소유자 <owner@example.com> 1700000000 +0900\n`
+      + `committer 소유자 <owner@example.com> 1700000000 +0900\n\n${message}`);
+
+    before(() => {
+      if (!hasGit) return;
+      dir = mkdtempSync(join(tmpdir(), 'skala-commits-'));
+      git(['init', '-q']);
+      const tree = git(['hash-object', '-t', 'tree', '-w', '--stdin'], '');
+      const base = commit(tree, null, '기준 커밋\n');
+      const head = commit(tree, base, `새 커밋\n\n${BANNED_WORDS[6]}: 도구 <bot@example.com>\n`);
+      git(['update-ref', 'refs/heads/work', head]);
+      git(['symbolic-ref', 'HEAD', 'refs/heads/work']);
+      git(['update-ref', 'refs/remotes/origin/main', base]);
+      mkdirSync(join(dir, 'sub'));
+    });
+    after(() => { if (dir) rmSync(dir, { recursive: true, force: true }); });
+
+    test('origin/main에 없는 커밋만 보고, 하위 폴더나 기준 가지가 없으면 건너뛴다', { skip: !hasGit && 'git이 없다' }, () => {
+      const found = checkCommits({ root: dir });
+      assert.equal(found.length, 1);
+      assert.equal(found[0].subject, '새 커밋');
+      assert.deepEqual(found[0].problems, [`메시지 3번째 줄에 금지 단어 "${BANNED_WORDS[6]}"`]);
+      assert.deepEqual(checkCommits({ root: dir, base: 'refs/heads/work' }), []);
+      assert.equal(checkCommits({ root: join(dir, 'sub') }), null);
+      assert.equal(checkCommits({ root: dir, base: 'origin/없는가지' }), null);
+    });
   });
 
   describe('파일에 적용', () => {

@@ -2,6 +2,7 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 코드 파일 맨 위의 머리말(Date·Author·Purpose)과 금지 단어를 검사한다. 실패하면 종료 코드 1(npm run check:headers).
+ *          금지 단어는 파일과, 아직 origin/main에 없는 커밋의 메시지·작성자·커밋자에서 찾는다.
  *          --fix-from <json>은 {경로: 설명} 목록의 파일에 머리말을 넣거나 바꾸고 나머지 내용은 건드리지 않는다.
  */
 /**
@@ -17,6 +18,8 @@
  * 머리말 형식은 docs/DESIGN.md 1절. HTML은 <!DOCTYPE html> 다음에 와도 되고, js·mjs는 #! 다음에 와도 된다.
  * 금지 단어 검사는 Markdown·JSON까지 모든 텍스트 파일과 파일 경로를 본다. 대상은 git이 추적하는 파일과,
  * 아직 추가하지 않았지만 무시 규칙에 걸리지 않아 git add에 딸려 갈 파일이다.
+ * 커밋도 본다: origin/main..HEAD 커밋의 메시지·작성자·커밋자. 메시지 끝에 붙는 공동 작업자 줄은 파일 검사로는 못 잡는다.
+ * 검사하는 폴더가 git 저장소의 맨 위가 아니거나 origin/main이 없으면 커밋 검사는 건너뛴다.
  */
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
@@ -206,6 +209,51 @@ export function findBannedWords(text) {
   return hits;
 }
 
+/** 커밋 하나를 필드 구분자(0x1f)로, 커밋 사이를 0x1e로 나눈 git log 형식 */
+export const COMMIT_LOG_FORMAT = '%H%x1f%an <%ae>%x1f%cn <%ce>%x1f%B%x1e';
+
+/**
+ * COMMIT_LOG_FORMAT으로 뽑은 git log에서 금지 단어가 든 커밋을 고른다. 메시지 줄 번호는 제목이 1이다.
+ * @returns {{sha:string, subject:string, problems:string[]}[]}
+ */
+export function findBannedInCommitLog(log) {
+  const commits = [];
+  for (const record of String(log).split('\x1e')) {
+    const text = record.replace(/^\r?\n/, '');
+    if (!text.trim()) continue;
+    const [sha, author = '', committer = '', body = ''] = text.split('\x1f');
+    const problems = [
+      ...findBannedWords(author).map((h) => `작성자에 금지 단어 "${h.word}"`),
+      ...findBannedWords(committer).map((h) => `커밋자에 금지 단어 "${h.word}"`),
+      ...findBannedWords(body).map((h) => `메시지 ${h.line}번째 줄에 금지 단어 "${h.word}"`)
+    ];
+    if (problems.length) commits.push({ sha, subject: body.split(/\r?\n/)[0], problems });
+  }
+  return commits;
+}
+
+function gitText(root, args) {
+  return execFileSync('git', args, {
+    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024, windowsHide: true
+  });
+}
+
+/**
+ * 아직 base(기본 origin/main)에 없는 커밋의 메시지·작성자·커밋자에서 금지 단어를 찾는다.
+ * @returns {{sha:string, subject:string, problems:string[]}[] | null} null = 검사하지 않음(저장소 맨 위가 아니거나 base가 없음)
+ */
+export function checkCommits({ root = REPO_ROOT, base = 'origin/main' } = {}) {
+  try {
+    const top = gitText(root, ['rev-parse', '--show-toplevel']).trim();
+    const same = (a, b) => realpathSync.native(resolve(a)).toLowerCase() === realpathSync.native(resolve(b)).toLowerCase();
+    if (!same(top, root)) return null;   // 저장소 안의 하위 폴더(--root 테스트)
+    gitText(root, ['rev-parse', '--verify', '--quiet', `${base}^{commit}`]);
+    return findBannedInCommitLog(gitText(root, ['log', `--format=${COMMIT_LOG_FORMAT}`, `${base}..HEAD`]));
+  } catch {
+    return null;
+  }
+}
+
 /** 깨진 UTF-8이면 예외. 그대로 다시 쓰면 내용이 망가지기 때문이다 */
 function decodeUtf8(buffer) {
   return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer);
@@ -314,6 +362,20 @@ function printCheck({ ok, files }) {
   console.log(ok ? `통과: 파일 ${files.length}개` : `실패: 파일 ${files.length}개 중 ${failed.length}개`);
 }
 
+function printCommits(commits) {
+  if (commits === null) {
+    console.log('커밋: origin/main이 없거나 저장소 맨 위가 아니어서 건너뜀');
+    return;
+  }
+  for (const commit of commits) {
+    console.log(`  FAIL  커밋 ${commit.sha.slice(0, 7)} ${commit.subject}`);
+    for (const problem of commit.problems) console.log(`        - ${problem}`);
+  }
+  console.log(commits.length
+    ? `실패: origin/main에 없는 커밋 중 ${commits.length}개 (메시지를 고친 뒤 다시 검사)`
+    : '통과: origin/main에 없는 커밋의 메시지·작성자·커밋자');
+}
+
 function printFix({ ok, results }, dryRun) {
   const label = { changed: dryRun ? '바꿀 예정' : '바꿈', unchanged: '그대로', failed: '실패' };
   for (const r of results) console.log(`  ${label[r.status]}  ${r.path}${r.message ? `: ${r.message}` : ''}`);
@@ -353,7 +415,9 @@ export function main(argv = process.argv.slice(2)) {
     }
     const result = runCheck({ root: opts.root });
     printCheck(result);
-    return result.ok ? 0 : 1;
+    const commits = checkCommits({ root: opts.root });
+    printCommits(commits);
+    return result.ok && !(commits && commits.length) ? 0 : 1;
   } catch (err) {
     console.error(`오류: ${err.message}`);
     return 1;
