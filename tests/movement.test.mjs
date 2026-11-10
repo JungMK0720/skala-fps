@@ -733,6 +733,24 @@ describe('player', () => {
     assert.ok(hop < normal * 0.5, `버니합 ${hop}, 일반 ${normal}`);
   });
 
+  test('느린 프레임에서도 착지 출렁임이 커지지 않고, 사격 원점(getEye)이 선 눈높이로 돌아온다', () => {
+    // 2/15초는 소프트웨어 렌더링 QA의 프레임(약 7.5 fps), 0.25초는 loop.js가 넘기는 가장 긴 프레임이다.
+    // 출렁임 스프링을 프레임 한 번에 적분하면 0.106초가 넘는 프레임부터 진동이 커져 쏘는 높이가 수십 cm씩 흔들렸다
+    for (const dt of [2 / 15, 0.25]) {
+      const g = makePlayer(flatWorld(), { x: 0, y: 3, z: 0 });
+      for (let i = 0; i < 300 && g.count('player:land') === 0; i++) g.player.tick(DT);
+      assert.equal(g.count('player:land'), 1, '3 m 아래로 떨어져 착지한다');
+      const offs = [];
+      for (let i = 0; i < 60; i++) {
+        g.player.frame(dt, 1);
+        offs.push(g.player.getEye()[1] - g.state.pos[1] - PLAYER.EYE);
+      }
+      assert.ok(Math.min(...offs) < -0.01, `dt ${dt}: 착지하면 카메라가 내려앉는다 ${Math.min(...offs)}`);
+      assert.ok(offs.every((o) => o >= -0.3 - 1e-9 && o <= 0.02), `dt ${dt}: 출렁임이 −0.3~+0.02 m 안에 머문다 ${offs.map((o) => o.toFixed(3)).join(' ')}`);
+      assert.ok(offs.slice(-10).every((o) => Math.abs(o) < 1e-3), `dt ${dt}: 사격 원점이 선 눈높이로 돌아온다 ${offs.slice(-10).map((o) => o.toFixed(4)).join(' ')}`);
+    }
+  });
+
   test('A/D가 strafeSign으로 이어져 공중에서 보너스가 붙는다', () => {
     const g = makePlayer(flatWorld());
     g.state.vel[2] = -6;

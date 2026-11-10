@@ -3,6 +3,7 @@
  * Author: Minkyu Jung
  * Purpose: 시나리오 5. 표적 봇을 알려진 위치에 세우고 플레이어 시선을 머리·몸·다리·손·발에 돌려 진짜 무기를 쏜다. 부위 판정, 피해량, 반샷 표시, 라이플 헤드 1발, 칼, 수류탄, 피격과 부활을 검사한다.
  *          탄퍼짐은 이 시나리오의 대상이 아니라서 쏘는 순간만 Math.random을 0으로 고정한다(부위 판정을 흔들리지 않게 보려는 것이고 반동은 그대로다).
+ *          사격 원점은 카메라 위치라서 쏘기 전에 눈높이가 가라앉기를 기다리고, 조준한 눈 위치에서 쏘는지도 함께 검사한다.
  */
 import { WEAPONS, computeDamage, falloffMul } from '../../../js/weapons/defs.js';
 import { LOW_QUALITY, clickFire, lockPointer, openGame, richProfile, sleep, waitIdle, waitLive, waitRun, waitTicks } from '../kit.mjs';
@@ -49,6 +50,16 @@ async function readyTarget(page, pair) {
   await waitTicks(page, 6);
 }
 
+/**
+ * 쏘는 눈(카메라)이 선 눈높이에 가라앉을 때까지 기다린다. 사격 원점이 카메라 위치라서 순간이동 뒤 착지 출렁임이 남아 있으면
+ * 조준한 높이와 다른 곳에서 쏜다. 느린 프레임에서 출렁임이 커지던 버그(engine/player.js LAND_SPRING_STEP)가 돌아오면 여기서 드러난다
+ */
+async function settleEye(t, page, label) {
+  const off = '(() => { const p = __qa.ctx.player, P = __qa.ctx.consts.PLAYER; return p.getEye()[1] - p.state.pos[1] - (p.state.crouch ? P.CROUCH_EYE : P.EYE); })()';
+  const ok = await page.waitFor(`Math.abs(${off}) < 1e-3`, 4000, { intervalMs: 50, label: `${label} 눈높이` }).then(() => true, () => false);
+  t.check(ok, `${label}: 쏘기 전에 눈높이가 가라앉는다`, ok ? undefined : { offset: await page.eval(off) });
+}
+
 /** 무기를 쥐고 조준 준비를 한다. 조준경이 있으면 우클릭을 누른 채 끝까지 줌한다 */
 async function ready(page, id, { ads }) {
   const def = WEAPONS[id];
@@ -77,6 +88,7 @@ async function shootPart(t, page, id, part, { ads = true, handIndex = 0 } = {}) 
     });
     await waitTicks(page, 6);
   }
+  await settleEye(t, page, `${id} ${part}`);
   const aim = await page.fn(({ part: p, handIndex: h }) => {
     const qa = window.__qa;
     const point = qa.partPoint(qa.run.bots[0].id, p, h);
@@ -99,6 +111,8 @@ async function shootPart(t, page, id, part, { ads = true, handIndex = 0 } = {}) 
   })()`);
   t.check(aim && aim.kind === 'player' && aim.part === part, `${id} ${part}: 조준선이 그 부위를 가리킨다`, aim);
   t.check(res.fire && res.fire.weaponId === id, `${id} ${part}: 그 무기로 쏜다`, res.fire);
+  const drift = aim && res.fire && res.fire.origin ? Math.hypot(...res.fire.origin.map((v, i) => v - aim.eye[i])) : Infinity;
+  t.check(drift < 0.005, `${id} ${part}: 조준한 눈 위치에서 쏜다`, { eye: aim && aim.eye, origin: res.fire && res.fire.origin });
   t.check(res.fire && res.fire.hitKind === 'player' && res.fire.part === part, `${id} ${part}: 탄이 그 부위를 맞힌다`, res.fire);
   t.check(res.claim && res.claim.part === part, `${id} ${part}: 주장 부위`, res.claim);
   t.check(res.rejects.length === 0, `${id} ${part}: 판정이 거절되지 않는다`, res.rejects);
