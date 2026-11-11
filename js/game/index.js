@@ -11,6 +11,7 @@
  *   - World: createWorld({ ctx, ui }). 연습장과 멀티가 같은 것을 쓴다(./WORLD_API.md).
  *   - 연습장: core 'sandbox' 화면을 practice.js로 바꿔 등록한다(?sandbox=<mapId>도 그대로 동작).
  *   - 멀티: 멀티플레이를 처음 누를 때 ./session.js를 불러 createSession({ ctx, ui, world, settings, bus })를 만든다.
+ *   - 전체 공지: 부팅 때 ../net/notice.js를 불러 운영자 공지를 받고 ui.notice로 화면 맨 위에 띄운다(중계 서버를 쓸 때만).
  */
 import { createUI } from '../ui/index.js';
 import { WEAPONS } from '../weapons/defs.js';
@@ -99,6 +100,34 @@ function createMultiFlow({ ctx, ui, world, bus }) {
   return { open, close };
 }
 
+/**
+ * 전체 공지 받기(net/notice.js). 중계 서버를 쓰고 공지 공개 열쇠(SKALA_CONFIG.notice.key)가 있을 때만 켠다.
+ * 게임의 로비·방 연결과 별개로 로비 허브에 연결 하나를 열어 두므로 메뉴·연습장·경기 어디에 있든 공지를 받는다.
+ * 모듈을 못 받거나 연결이 안 돼도 게임은 그대로 돈다.
+ */
+function createNotices({ ui }) {
+  const cfg = globalThis.SKALA_CONFIG || {};
+  const relay = cfg.relay && typeof cfg.relay.url === 'string' ? cfg.relay.url.trim() : '';
+  const key = cfg.notice && typeof cfg.notice.key === 'string' ? cfg.notice.key.trim() : '';
+  let feed = null, disposed = false;
+  if (cfg.transport === 'relay' && relay && key) {
+    import('../net/notice.js').then((mod) => {
+      if (disposed) return;
+      feed = mod.createNoticeFeed({
+        url: relay,
+        publicKey: key,
+        onShow: (n) => ui.notice.show(n),
+        onHide: (id) => ui.notice.hide(id),
+      });
+      feed.start();
+    }).catch((err) => console.warn('[game] 전체 공지를 받을 수 없어요', err));
+  }
+  return {
+    state: () => (feed ? feed.state() : { started: false, connected: false, shown: 0, current: null }),
+    dispose() { disposed = true; if (feed) feed.dispose(); feed = null; },
+  };
+}
+
 /** 닉네임 게이트를 언제 열지 정한다. 닫는 일은 게이트가 계정 변경을 보고 스스로 한다. */
 function createGateControl({ ctx, ui }) {
   let conflict = null;
@@ -139,6 +168,7 @@ export async function install(ctx) {
   const toast = createToast(ui);
   const gate = createGateControl({ ctx, ui });
   const multi = createMultiFlow({ ctx, ui, world, bus });
+  const notices = createNotices({ ui });
   const offs = [...registerSessionScreens(ctx)];
 
   /* ---------- 연습장 ---------- */
@@ -211,10 +241,11 @@ export async function install(ctx) {
 
   return {
     provides: ['weapons', 'menu', 'hud'],
-    ui, world, practice,
+    ui, world, practice, notices,
     dispose() {
       offs.forEach((o) => { try { o(); } catch (err) { /* ignore */ } });
       offs.length = 0;
+      notices.dispose();
       toast.dispose();
       setup.dispose();
       if (portraits) portraits.dispose();

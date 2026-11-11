@@ -55,6 +55,9 @@ ui.killfeed.push({ killer, victim, weaponId, head, killerTeam, victimTeam })
 ui.killfeed.clear()
 ui.scope.set(amount, opts?)       // amount 0~1, opts: 4 → "×4" 표시 또는 { mag, level, levels }(2단 줌)
 ui.scope.get() → amount
+ui.notice.show({ id?, text, ms? }) → boolean   // 전체 공지 띠(화면 맨 위 가운데). ms 동안 떠 있다(3초~1시간, 기본 30초). 이미 떠 있으면 바꾼다
+ui.notice.hide(id?) → boolean                  // 띠를 내린다. id를 주면 그 공지가 떠 있을 때만
+ui.notice.current() → { id, text, until } | null
 
 ui.on(action, fn) → off           // fn(payload, action). '*'는 모든 이벤트
 ui.off(action, fn)
@@ -87,6 +90,7 @@ emoteIndexAt(x, y, count = 8, deadZone = 40) → index | null   // 이모트 휠
 | `pause` | 게임 오버레이 | `scoreboard`. 계속하기/나가기 누르면 스스로 닫힘 | 필요 |
 | `scoreboard` | 게임 오버레이 | 없음. 입력을 받지 않음 | 불필요 |
 | `emotes` | 게임 오버레이(표시 전용) | 없음. 페이지·`pause`·`hide('hud')`가 이 화면을 닫음 | **불필요**(포인터 잠금 유지) |
+| 공지 띠(`ui.notice`) | 모든 화면 위의 띠(화면 목록에 없음, `show('…')`로 다루지 않음) | 없음. 화면을 바꿔도 남고 정한 시간이 지나면 스스로 내려감. 떠 있는 동안 경기 HUD의 윗줄이 띠 높이만큼 내려감 | **불필요**(클릭을 가로채지 않음) |
 | `chat` | 게임 오버레이(멀티플레이 경기) | 없음. 페이지·`hide('hud')`가 닫고, `pause`는 입력칸만 접음 | **불필요**(입력칸에 포커스만, 포인터 잠금 유지) |
 
 `mypage`와 `shop`은 core 화면이 아니라 메뉴 안의 UI 페이지입니다(core 화면은 `menu` 그대로). `hide('hud')`는 스코프도 0으로 만듭니다. 그래서 게임 시작은 `ui.show('hud', …)` + `ui.show('loadout', …)`, 매치 끝은 `ui.show('results', …)`만 부르면 됩니다.

@@ -52,6 +52,35 @@ test('importmap 말고 인라인 스크립트와 인라인 이벤트 속성이 �
   assert.ok(!/\son[a-z]+="/i.test(html), '인라인 이벤트 속성');
 });
 
+test('운영자 패널(dev/notice.html): 이 사이트의 스크립트만 쓰고 중계 서버로만 접속한다', () => {
+  const panel = readFileSync(new URL('../dev/notice.html', import.meta.url), 'utf8');
+  const pcsp = (panel.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/) || [])[1] || '';
+  const part = (name) => (pcsp.split(';').map((d) => d.trim()).find((d) => d.startsWith(name + ' ')) || '');
+  assert.ok(pcsp, 'CSP meta');
+  assert.equal(part('script-src'), "script-src 'self'", 'CDN도 인라인 스크립트도 허용하지 않는다');
+  assert.equal(part('object-src'), "object-src 'none'");
+  assert.ok(!/'unsafe-eval'/.test(pcsp));
+  const relayUrl = (config.match(/\brelay:\s*\{\s*url:\s*'([^']*)'/) || [])[1];
+  const host = relayUrl.match(/^https:\/\/([a-z0-9.-]+)\/?$/)[1];
+  assert.equal(part('connect-src'), `connect-src 'self' https://${host} wss://${host}`, '중계 서버 주소만');
+  // 스크립트는 모두 파일이고(인라인 없음) 인라인 이벤트 속성이 없다
+  const scripts = [...panel.matchAll(/<script\b([^>]*)>/g)].map((m) => m[1].trim());
+  assert.deepEqual(scripts, ['src="../js/config.js"', 'type="module" src="../js/admin/notice-panel.js"']);
+  assert.ok(!/\son[a-z]+="/i.test(panel), '인라인 이벤트 속성');
+  assert.ok(/<meta name="robots" content="noindex">/.test(panel), '검색에 걸리지 않게 한다');
+  // QA 서버가 로컬 중계 서버를 더할 수 있는 모양이다
+  assert.ok(relaxCsp(panel).includes("connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*"));
+});
+
+test('설정의 공지 공개 열쇠는 P-256 공개 열쇠 모양이고 비밀 열쇠는 저장소에 올리지 않는다', () => {
+  const key = (config.match(/\bnotice:\s*\{\s*key:\s*'([^']*)'/) || [])[1];
+  assert.equal(typeof key, 'string', 'notice.key 칸');
+  assert.match(key, /^B[A-Za-z0-9_-]{86}$/, '65바이트(0x04로 시작)의 base64url');
+  const ignore = readFileSync(new URL('../.gitignore', import.meta.url), 'utf8');
+  assert.match(ignore, /^\.secrets\/$/m, '.gitignore에 열쇠 폴더');
+  assert.ok(!/[A-Za-z0-9_-]{150,}/.test(config), '설정에 비밀 열쇠처럼 긴 글자가 없다');
+});
+
 test('QA 서버는 connect-src에 로컬 주소만 더한다', () => {
   const relaxed = relaxCsp(html);
   assert.ok(relaxed.includes('http://127.0.0.1:*') && relaxed.includes('ws://127.0.0.1:*'));

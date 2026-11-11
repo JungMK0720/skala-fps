@@ -26,5 +26,6 @@ import multikill from './multikill.mjs';
 import swap from './swap.mjs';
 import keys from './keys.mjs';
 import movers from './movers.mjs';
+import notice from './notice.mjs';
 
-export const SCENARIOS = [firstRun, menus, practice, bomb, swap, keys, movers, weapons, damage, multikill, drops, mobile, mobileMenus, movement, props, debug, multi, controls, multiPlay, robust, monkey, gallery, maps];
+export const SCENARIOS = [firstRun, menus, practice, bomb, swap, keys, movers, notice, weapons, damage, multikill, drops, mobile, mobileMenus, movement, props, debug, multi, controls, multiPlay, robust, monkey, gallery, maps];

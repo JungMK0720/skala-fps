@@ -1292,6 +1292,26 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
   background: rgba(199, 50, 106, .95); box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
 }
 
+/* 전체 공지 띠(js/ui/notice.js): 어느 화면 위에나 뜨고 클릭을 가로채지 않는다 */
+.sk-notice {
+  position: absolute; left: 50%; top: max(8px, env(safe-area-inset-top)); z-index: 60;
+  display: flex; align-items: flex-start; gap: 10px; width: max-content; max-width: min(760px, calc(100% - 24px));
+  padding: 8px 14px 8px 10px; border-radius: 10px; pointer-events: none;
+  color: #fff; background: rgba(9, 14, 26, .95);
+  box-shadow: inset 0 0 0 1.5px var(--sk-warn), 0 10px 30px rgba(0, 0, 0, .5), 0 0 22px rgba(255, 200, 69, .22);
+  opacity: 0; transform: translate(-50%, -140%); transition: transform .22s ease-out, opacity .22s ease-out;
+}
+.sk-notice.is-in { opacity: 1; transform: translate(-50%, 0); }
+.sk-notice-tag {
+  flex: none; margin-top: 1px; padding: 1px 8px; border-radius: 5px;
+  font: 900 12px/1.5 var(--sk-stencil); letter-spacing: .04em; color: #1a1300; background: var(--sk-warn);
+}
+.sk-notice-text { min-width: 0; font-size: 14px; font-weight: 800; line-height: 1.45; text-shadow: 0 1px 2px rgba(0, 0, 0, .6); }
+/* 공지가 떠 있는 동안 경기 HUD의 윗줄을 띠 높이만큼 내린다(top 값이 화면 크기마다 달라 margin으로 민다) */
+.sk-ui.sk-has-notice .sk-top, .sk-ui.sk-has-notice .sk-killfeed, .sk-ui.sk-has-notice .sk-bomb,
+.sk-ui.sk-has-notice .sk-hud-banner { margin-top: var(--sk-notice-h, 0px); }
+@media (prefers-reduced-motion: reduce) { .sk-notice { transition: none; } }
+
 /* ===================== 15. 애니메이션 ===================== */
 @keyframes sk-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes sk-spin { to { transform: rotate(360deg); } }

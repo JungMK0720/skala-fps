@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<!--
+  Date: 06NOV2026
+  Author: Minkyu Jung
+  Purpose: 운영자 패널. 전체 공지를 써서 보내면 게임 화면을 연 모든 사람의 화면 맨 위에 뜬다. 운영자 열쇠가 있어야 보낼 수 있고, 게임(3D)은 불러오지 않는다.
+-->
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <!-- 보안: 이 사이트의 스크립트만 쓰고 멀티 중계 서버(server/relay Worker) 말고는 접속하지 않는다. js/config.js의 relay.url을 바꾸면 connect-src도 바꾼다(tests/web-security.test.mjs가 확인) -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://skala-relay.skala-fps.workers.dev wss://skala-relay.skala-fps.workers.dev; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#05080f">
+  <title>SKALA 작전 — 운영자 공지</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root {
+      --np-bg: #05080f; --np-panel: #0e1524; --np-line: rgba(130, 170, 230, .22); --np-text: #eaf1fb; --np-muted: #9dabc2;
+      --np-cyan: #35e0ff; --np-warn: #ffc845; --np-bad: #ff4d6d; --np-ok: #3ddc97;
+      --np-font: "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --np-mono: ui-monospace, "Cascadia Mono", Consolas, "D2Coding", Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { margin: 0; min-height: 100%; background: var(--np-bg); color: var(--np-text); font: 15px/1.5 var(--np-font); color-scheme: dark; }
+    body {
+      background:
+        radial-gradient(900px 480px at 85% -10%, rgba(255, 200, 69, .12), transparent 60%),
+        radial-gradient(900px 500px at 5% 110%, rgba(53, 224, 255, .1), transparent 60%), var(--np-bg);
+    }
+    .np { width: min(760px, 100%); margin: 0 auto; padding: clamp(16px, 4vw, 36px) 16px 48px; display: flex; flex-direction: column; gap: 14px; }
+    .np-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; }
+    .np-title { margin: 0; font-size: clamp(22px, 4vw, 30px); letter-spacing: -.01em; }
+    .np-title small { display: block; font-size: 13px; font-weight: 700; color: var(--np-warn); letter-spacing: .06em; }
+    .np-status { display: flex; flex-wrap: wrap; gap: 6px; font-size: 13px; font-weight: 800; }
+    .np-chip { padding: 3px 10px; border-radius: 999px; background: rgba(255, 255, 255, .06); box-shadow: inset 0 0 0 1px var(--np-line); white-space: nowrap; }
+    .np-chip[data-tone="ok"] { color: var(--np-ok); box-shadow: inset 0 0 0 1px rgba(61, 220, 151, .45); }
+    .np-chip[data-tone="bad"] { color: var(--np-bad); box-shadow: inset 0 0 0 1px rgba(255, 77, 109, .45); }
+    .np-chip[data-tone="wait"] { color: var(--np-warn); box-shadow: inset 0 0 0 1px rgba(255, 200, 69, .45); }
+    .np-card { padding: 16px 18px; border-radius: 14px; background: var(--np-panel); box-shadow: inset 0 0 0 1px var(--np-line), 0 14px 40px rgba(0, 0, 0, .35); }
+    .np-card h2 { margin: 0 0 10px; font-size: 15px; color: var(--np-cyan); letter-spacing: .03em; }
+    .np-note { margin: 8px 0 0; font-size: 13px; color: var(--np-muted); }
+    .np-msg { min-height: 1.4em; margin: 8px 0 0; font-size: 13px; font-weight: 800; }
+    .np-msg[data-tone="ok"] { color: var(--np-ok); }
+    .np-msg[data-tone="bad"] { color: var(--np-bad); }
+    .np-msg[data-tone="wait"] { color: var(--np-warn); }
+    .np-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .np-grow { flex: 1 1 260px; min-width: 0; }
+    input[type="text"], textarea, select {
+      width: 100%; font: inherit; color: var(--np-text); background: rgba(4, 7, 14, .7); border: 1px solid var(--np-line); border-radius: 10px; padding: 10px 12px; outline: none;
+    }
+    textarea { resize: vertical; min-height: 64px; font: 12px/1.4 var(--np-mono); }
+    select { width: auto; }
+    input[type="text"]:focus, textarea:focus, select:focus { border-color: var(--np-cyan); }
+    button {
+      font: inherit; font-weight: 800; cursor: pointer; color: var(--np-text); background: rgba(255, 255, 255, .08); border: 1px solid var(--np-line);
+      border-radius: 10px; padding: 10px 16px; min-height: 44px;
+    }
+    button:hover { background: rgba(255, 255, 255, .14); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    button.np-primary { color: #1a1300; background: linear-gradient(180deg, #ffd978, var(--np-warn)); border-color: transparent; }
+    button.np-primary:hover { filter: brightness(1.06); }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--np-cyan); outline-offset: 2px; }
+    .np-count { font: 700 12px/1 var(--np-mono); color: var(--np-muted); white-space: nowrap; }
+    .np-count.is-over { color: var(--np-bad); }
+    /* 미리 보기: 게임 화면에 뜨는 띠(css/fps.css의 .sk-notice)와 같은 모양 */
+    .np-preview-stage { margin-top: 12px; padding: 18px 12px; border-radius: 10px; background: linear-gradient(180deg, #1a2740, #0b1220); display: grid; place-items: center; min-height: 76px; }
+    .np-banner {
+      display: flex; align-items: flex-start; gap: 10px; max-width: 100%; padding: 8px 14px 8px 10px; border-radius: 10px;
+      color: #fff; background: rgba(9, 14, 26, .95); box-shadow: inset 0 0 0 1.5px var(--np-warn), 0 10px 30px rgba(0, 0, 0, .5), 0 0 22px rgba(255, 200, 69, .22);
+    }
+    .np-banner-tag { flex: none; margin-top: 1px; padding: 1px 8px; border-radius: 5px; font: 900 12px/1.5 var(--np-font); letter-spacing: .04em; color: #1a1300; background: var(--np-warn); }
+    .np-banner-text { min-width: 0; font-size: 14px; font-weight: 800; line-height: 1.45; overflow-wrap: anywhere; }
+    .np-banner.is-empty .np-banner-text { color: var(--np-muted); font-weight: 600; }
+    .np-live { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    .np-live-text { flex: 1 1 240px; min-width: 0; font-weight: 800; overflow-wrap: anywhere; }
+    .np-live-left { font: 800 13px/1 var(--np-mono); color: var(--np-warn); white-space: nowrap; }
+    .np-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
+    .np-log li { display: flex; gap: 10px; padding: 6px 10px; border-radius: 8px; background: rgba(255, 255, 255, .04); font-size: 13px; }
+    .np-log time { flex: none; font: 700 12px/1.6 var(--np-mono); color: var(--np-muted); }
+    .np-log span { min-width: 0; overflow-wrap: anywhere; }
+    .np-log em { flex: none; margin-left: auto; font-style: normal; font-weight: 800; color: var(--np-muted); white-space: nowrap; }
+    .np-help { margin: 0; padding-left: 18px; font-size: 13px; color: var(--np-muted); }
+    .np-help li + li { margin-top: 4px; }
+    .np-file { font-size: 13px; color: var(--np-muted); }
+    label.np-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--np-muted); min-height: 44px; }
+  </style>
+</head>
+<body>
+  <main class="np" id="np-root">
+    <header class="np-head">
+      <h1 class="np-title"><small>SKALA 작전 · 운영자 패널</small>전체 공지 보내기</h1>
+      <div class="np-status" role="status" aria-live="polite">
+        <span class="np-chip" id="np-conn" data-tone="wait">중계 서버에 연결하는 중…</span>
+        <span class="np-chip" id="np-viewers">접속 – 명</span>
+      </div>
+    </header>
+
+    <section class="np-card" id="np-key-card" aria-labelledby="np-key-h">
+      <h2 id="np-key-h">1. 운영자 열쇠</h2>
+      <div id="np-key-need">
+        <div class="np-row">
+          <input type="file" id="np-key-file" class="np-file np-grow" accept=".txt,text/plain" aria-label="운영자 열쇠 파일 고르기">
+        </div>
+        <p class="np-note">열쇠 파일(notice-private-key.txt)을 고르거나, 아래 칸에 비밀 열쇠 한 줄을 붙여 넣으세요.</p>
+        <textarea id="np-key-text" spellcheck="false" autocomplete="off" aria-label="비밀 열쇠 붙여 넣기" placeholder="비밀 열쇠 붙여 넣기"></textarea>
+        <div class="np-row">
+          <label class="np-check"><input type="checkbox" id="np-key-remember" checked> 이 브라우저에 기억하기</label>
+          <button type="button" id="np-key-save">열쇠 확인</button>
+        </div>
+      </div>
+      <div id="np-key-have" class="np-row" hidden>
+        <span class="np-chip" data-tone="ok">운영자 열쇠 확인됨</span>
+        <button type="button" id="np-key-forget">열쇠 지우기</button>
+      </div>
+      <p class="np-msg" id="np-key-msg" role="alert"></p>
+    </section>
+
+    <section class="np-card" aria-labelledby="np-send-h">
+      <h2 id="np-send-h">2. 공지 쓰기</h2>
+      <form id="np-form" autocomplete="off">
+        <div class="np-row">
+          <input type="text" id="np-text" class="np-grow" maxlength="200" aria-label="공지 내용" placeholder="예: 오늘 밤 9시에 팀전 한 판 합니다!">
+          <span class="np-count" id="np-count">0 / 200</span>
+        </div>
+        <div class="np-row" style="margin-top: 10px">
+          <label for="np-ttl">화면에 떠 있는 시간</label>
+          <select id="np-ttl">
+            <option value="10">10초</option>
+            <option value="20">20초</option>
+            <option value="30" selected>30초</option>
+            <option value="60">1분</option>
+            <option value="180">3분</option>
+            <option value="600">10분</option>
+            <option value="1800">30분</option>
+          </select>
+          <button type="submit" id="np-send" class="np-primary" disabled>공지 보내기</button>
+        </div>
+      </form>
+      <div class="np-preview-stage" aria-hidden="true">
+        <div class="np-banner is-empty" id="np-preview"><span class="np-banner-tag">공지</span><span class="np-banner-text" id="np-preview-text">게임 화면 맨 위에 이렇게 뜹니다</span></div>
+      </div>
+      <p class="np-msg" id="np-send-msg" role="alert"></p>
+    </section>
+
+    <section class="np-card" id="np-live-card" aria-labelledby="np-live-h" hidden>
+      <h2 id="np-live-h">지금 떠 있는 공지</h2>
+      <div class="np-live">
+        <span class="np-live-text" id="np-live-text"></span>
+        <span class="np-live-left" id="np-live-left"></span>
+        <button type="button" id="np-retract">공지 내리기</button>
+      </div>
+      <p class="np-note">이 창을 닫아도 이미 받은 사람의 화면에는 남은 시간 동안 떠 있습니다. 창을 닫은 뒤에 접속한 사람에게는 가지 않습니다.</p>
+    </section>
+
+    <section class="np-card" aria-labelledby="np-log-h">
+      <h2 id="np-log-h">보낸 기록 (이 창을 연 뒤)</h2>
+      <ul class="np-log" id="np-log"></ul>
+      <p class="np-note" id="np-log-empty">아직 보낸 공지가 없습니다.</p>
+    </section>
+
+    <section class="np-card" aria-labelledby="np-help-h">
+      <h2 id="np-help-h">알아 둘 것</h2>
+      <ul class="np-help">
+        <li>공지는 게임 화면을 열어 둔 모든 사람에게 갑니다(메뉴, 연습장, 로비, 경기 중 모두). 화면 맨 위 가운데에 뜹니다.</li>
+        <li>새 공지를 보내면 앞의 공지를 바꿉니다. 한 번에 하나만 떠 있습니다.</li>
+        <li>열쇠가 없는 사람은 이 페이지를 열어도 공지를 보낼 수 없습니다. 받는 화면이 서명을 확인합니다.</li>
+        <li>열쇠를 잃어버렸거나 새어 나갔으면 tools/make-notice-key.mjs로 새로 만들고 js/config.js의 공개 열쇠를 바꿔 배포하세요.</li>
+      </ul>
+    </section>
+  </main>
+  <noscript><p style="padding: 24px">이 페이지는 JavaScript가 필요합니다.</p></noscript>
+  <script src="../js/config.js"></script>
+  <script type="module" src="../js/admin/notice-panel.js"></script>
+</body>
+</html>

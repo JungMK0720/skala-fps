@@ -687,6 +687,7 @@ if (!bare) {
         b('매치 포인트', () => ui.hud.center('매치 포인트', 2000, { sub: '블루 2 : 2 레드' })),
         b('레드 승리', () => ui.hud.center('레드 팀 라운드 승리', 2000)),
         b('체력 회복', () => { game.hp = 100; ui.hud.set({ spectate: null }); }),
+        b('전체 공지', () => (ui.notice.current() ? ui.notice.hide() : ui.notice.show({ id: 'demo', text: '오늘 밤 9시에 팀전 한 판 합니다! 로비에서 만나요.', ms: 8000 }))),
         b('힌트 토글', () => ui.hud.set({ hint: document.querySelector('.sk-hint[hidden]') ? '화면을 클릭하면 조작을 시작해요' : '' }))),
       h('p', { class: 'qa-label', text: '자동' }),
       h('div', { class: 'qa-grid' }, b('▶ 전체 투어', () => tour(0)), b('■ 정지', () => clearTimeout(tourTimer))),
