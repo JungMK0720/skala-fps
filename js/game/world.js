@@ -31,11 +31,15 @@ import { avatarIdOf } from '../core/avatar-defs.js';
 import { DEFAULT_RULESET, normalizeRuleset, rulesetOf, pickableWeapons, isWeaponAllowed, shotTargets } from './modes.js';
 import { createDrops, DROP_RADIUS } from './drops.js';
 import { normalizeMission, placeMission } from './mission.js';
+import { missionCrowd } from '../maps/collision.js';
 import { createBombView } from './bombview.js';
 import { createMultiKill, multiKillTier } from './multikill.js';
 
 const STEEL_MATS = new Set(['steel', 'rust', 'deck', 'tank', 'pipe', 'container_red', 'yellow', 'white', 'glass', 'metal_dark']);
 const SPECTATE_DELAY_MS = 1600;
+// 개인전 즉시 부활: 부활까지 이보다 적게 남으면 안내를 숨기고 E를 받지 않는다(방장은 500 ms 미만이면 거절, match.QUICK_RESPAWN_MIN_LEFT_MS)
+const QUICK_HIDE_MS = 700;
+const QUICK_RETRY_MS = 1500;                     // 요청한 뒤 방장 답(내 spawn)을 기다리는 동안 다시 보내지 않는 시간
 const LOCK_HINT = '🖱️ 화면을 클릭하면 조작을 시작해요';
 const TOUCH_LOCK_HINT = '👆 화면을 누르면 조작을 시작해요';
 const BODY_R = 0.3;
@@ -188,6 +192,9 @@ function buildWorld(ctx, opts) {
   let mode = 'team';
   let ruleset = DEFAULT_RULESET;                  // 무기 규칙(modes.js). 모드와 직교한다
   let respawn = null;                             // { at(ms), killer, weaponName } — 내 부활 대기
+  let quick = null;                               // 개인전 즉시 부활(E): { cost, ok }. 세션·연습장이 죽을 때 정하고 spawnLocal이 지운다
+  let quickSentAt = -Infinity;                    // 이번 죽음에서 마지막으로 즉시 부활을 요청한 시각(ms)
+  let quickTouch = false;                         // 휴대폰 '부활' 버튼(touch:use)을 보이고 있는가
   let protectUntil = 0;                           // 내 보호(무적) 표시가 끝나는 시각(ms)
   let pausedAt = 0;                               // 시뮬레이션을 멈춘 시각(ms). 멈춘 동안 부활·보호 표시 시계도 멈춘다
   const displayNow = () => (simPaused ? pausedAt : performance.now());
@@ -321,6 +328,8 @@ function buildWorld(ctx, opts) {
     if (input.locked && input.enabled && !emoteBusy()) { rmbDown = true; latch.rmb = true; }
   }));
   offs.push(bus.on('input:reload', () => { latch.reload = true; }));
+  // 개인전 부활 대기 중 E(휴대폰은 '부활' 버튼, 같은 input:use) → 즉시 부활 요청. 폭파 미션의 설치·해체는 bombView가 따로 듣는다
+  offs.push(bus.on('input:use', (e) => { if (e && e.down) requestQuick(); }));
   offs.push(bus.on('input:drop', () => { dropHeldGun(); }));
   offs.push(bus.on('input:slot', (e) => { latch.slot = e && e.slot; }));
   offs.push(bus.on('input:cycle', (e) => { latch.wheel = (e && e.dir) || 0; }));
@@ -504,7 +513,8 @@ function buildWorld(ctx, opts) {
     controls = true; customHint = '';            // 이전 모드(멀티 teardown 등)가 남긴 설정을 지운다
     local.spawned = false; local.alive = false; local.loadout = null;
     rnd.phase = null; rnd.timeLeftMs = null; rnd.alive = null; rnd.teamSize = null; rnd.score = { owner: 0, charterer: 0 }; rnd.round = 0; rnd.ffa = null; rnd.attack = null;
-    respawn = null; protectUntil = 0;
+    respawn = null; quick = null; protectUntil = 0;
+    syncQuickTouch(false);
     multiKill.reset();
     setMode(opt && opt.mode);
     setRuleset(opt && opt.ruleset);
@@ -516,7 +526,8 @@ function buildWorld(ctx, opts) {
     input.setEnabled(input.locked || !!(ctx.flags && ctx.flags.autoplay));
     if (ui) { ui.show('hud', { crosshair: false, hp: 100 }); ui.hud.reset(); ui.scope.set(0); }
     // 폭파 미션 칸(구역 · 진영 스폰, 스폰 높이는 빌더 스폰처럼 바닥을 찾아 채운다). 미션이 없는 맵이면 null
-    const mission = placeMission(normalizeMission(built.data), built.world, findFloor, getGroundY);
+    // extra = 16인방(진영당 8명)에서 진영 스폰이 모자랄 때만 경기가 쓰는 보조 자리
+    const mission = missionCrowd(placeMission(normalizeMission(built.data), built.world, findFloor, getGroundY), built.world, built.bounds);
     return { spawns: built.spawns, mission, mapName: built.name, mapId: built.id, map: built, data: built.data, fallback: !!(built.data && built.data.fallback), ruleset };
   }
 
@@ -544,7 +555,8 @@ function buildWorld(ctx, opts) {
     local.spawned = false; local.alive = false;
     customHint = '';
     rnd.phase = null; rnd.timeLeftMs = null; rnd.ffa = null;
-    respawn = null; protectUntil = 0;
+    respawn = null; quick = null; protectUntil = 0;
+    syncQuickTouch(false);
     multiKill.reset();
     mode = 'team';
     local.loadout = null;
@@ -607,16 +619,18 @@ function buildWorld(ctx, opts) {
     syncFrozen();
     R.setFov(R.baseFov);
     input.setLookScale(1);
-    respawn = null;
+    respawn = null; quick = null;
+    syncQuickTouch(false);
     protectUntil = num(o.protectMs) > 0 ? performance.now() + num(o.protectMs) : 0;
     return player.state;
   }
 
   /* ---------- 모드 · 부활 · 보호 (개인전) ---------- */
   const avatarTeam = (a) => (mode === 'ffa' ? 'charterer' : a.team || 'charterer');   // 개인전: 다른 사람은 모두 한 가지 '적' 색
-  // 폭파 미션: 폭탄을 든 아군 이름표 앞에 💣(bombView.carrier는 내가 공격 팀일 때만 채워진다)
-  const avatarName = (a) => `${a.protectUntil > performance.now() ? '🛡 ' : ''}${mode === 'bomb' && bombView.carrier === a.id ? '💣 ' : ''}${a.name}`;
-  function refreshAvatar(a) { avatars.add(a.id, { name: avatarName(a), team: avatarTeam(a), avatar: a.avatar }); }
+  // 이름표 앞 상태 표시: 🛡 부활 보호(개인전), 💣 폭탄을 든 아군(폭파 미션, bombView.carrier는 내가 공격 팀일 때만 채워진다).
+  // 적의 이름표는 이름 없이 이 표시만 보인다(engine/nametag.js) → 개인전에서도 다른 사람의 닉네임은 머리 위에 뜨지 않는다
+  const avatarBadge = (a) => [a.protectUntil > performance.now() ? '🛡' : '', mode === 'bomb' && bombView.carrier === a.id ? '💣' : ''].filter(Boolean).join(' ');
+  function refreshAvatar(a) { avatars.add(a.id, { name: a.name, badge: avatarBadge(a), team: avatarTeam(a), avatar: a.avatar }); }
 
   /**
    * 규칙에 맞는 3슬롯 장비. pick = 규칙의 pickSlot 무기. 없거나 이 규칙에서 못 고르는 무기면 직전 선택 → 계정 장비 → 규칙 기본값 순서로 찾는다.
@@ -657,6 +671,36 @@ function buildWorld(ctx, opts) {
   function setRespawn(o) {
     if (!o) { respawn = null; return; }
     respawn = { at: performance.now() + Math.max(0, num(o.inMs, num(o.ms, 0))), killer: o.killer ? String(o.killer) : '', weaponName: o.weaponName ? String(o.weaponName) : '' };
+  }
+
+  /**
+   * 개인전 즉시 부활: { cost, ok } | null. 부활 대기 패널에 'E 즉시 부활 · cost P'를 띄우고 E(휴대폰 '부활' 버튼)를 받는다.
+   * ok:false(포인트 부족)면 안내만 바뀌고 E는 알림만 띄운다. 요청은 World 'quickRespawn' { cost }로 나가고, 확정·결제는 부르는 쪽이 한다.
+   * 같은 죽음에서 다시 불러도(스냅샷마다) 요청 간격은 이어진다. spawnLocal·loadMap·unloadMap이 지운다
+   */
+  function setQuickRespawn(o) {
+    const cost = o ? Math.floor(num(o.cost, 0)) : 0;
+    if (!(cost > 0)) { quick = null; return; }
+    if (!quick) quickSentAt = -Infinity;
+    quick = { cost, ok: o.ok !== false };
+  }
+  /** 지금 즉시 부활을 받을 수 있나: 개인전 · 부활 대기 중 · 부활까지 넉넉히 남음(곧 저절로 나오면 내지 않게) */
+  function quickOpen(now = displayNow()) {
+    return !!quick && mode === 'ffa' && active && !!respawn && !(local.spawned && local.alive) && respawn.at - now > QUICK_HIDE_MS;
+  }
+  function requestQuick() {
+    if (simPaused || uiPaused || !quickOpen()) return;
+    const t = performance.now();
+    if (t - quickSentAt < QUICK_RETRY_MS) return;    // 방장 응답을 기다리는 동안 거듭 누른 것
+    if (!quick.ok) { if (ui) ui.hud.callout(`포인트가 부족해요 · 즉시 부활 ${quick.cost} P`); return; }
+    quickSentAt = t;
+    emit('quickRespawn', { cost: quick.cost });
+  }
+  /** 휴대폰: 즉시 부활을 쓸 수 있는 동안 설치/해체 버튼을 '부활'로 보인다(개인전에는 폭탄이 없어 버튼이 비어 있다) */
+  function syncQuickTouch(on) {
+    if (on === quickTouch) return;
+    quickTouch = on;
+    bus.emit('touch:use', { on, label: '부활' });
   }
   /** 내 보호(무적) 표시: ms(>0) 동안 · true = 끌 때까지 · false/0 = 끔 */
   function setProtect(v) {
@@ -1569,8 +1613,10 @@ function buildWorld(ctx, opts) {
     const now = displayNow();
     if (mode === 'ffa') {
       p.score = rnd.ffa || { mode: 'ffa', kills: 0, target: 20 };
-      p.respawn = respawn && !alive ? { seconds: Math.max(0, Math.ceil((respawn.at - now) / 1000)), killer: respawn.killer || undefined, weaponName: respawn.weaponName || undefined } : null;
+      const q = quickOpen(now) ? { cost: quick.cost, ok: quick.ok, touch: !!input.touchMode } : undefined;   // 즉시 부활 안내(E · 휴대폰 '부활' 버튼)
+      p.respawn = respawn && !alive ? { seconds: Math.max(0, Math.ceil((respawn.at - now) / 1000)), killer: respawn.killer || undefined, weaponName: respawn.weaponName || undefined, quick: q } : null;
       p.protect = alive && protectUntil > now;
+      syncQuickTouch(!!(q && q.ok && input.touchMode));
     } else {
       p.score = { owner: rnd.score.owner, charterer: rnd.score.charterer, target: rnd.target, bestOf: rnd.bestOf, round: rnd.round || undefined };
       if (mode === 'bomb') { p.score.mode = 'bomb'; p.score.attack = rnd.attack || undefined; }
@@ -1672,6 +1718,7 @@ function buildWorld(ctx, opts) {
     setMode,
     setRuleset,
     setRespawn,
+    setQuickRespawn,
     setProtect,
     setActorProtect,
     /** 폭파 미션(8절): 방장 상태 { attack, state, carrier, carrierName?, actorName?, pos, site, explodeInMs, action, phase } | null, 폭탄 이벤트 하나 */

@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 멀티플레이 메시지 스키마와 압축 직렬화. 상태·사격·히트 주장·수류탄·경기·로드아웃·채팅·핑·폭탄 의도를 작은 배열로 바꾸고,
+ * Purpose: 멀티플레이 메시지 스키마와 압축 직렬화. 상태·사격·히트 주장·수류탄·경기·로드아웃·채팅·핑·폭탄 의도·즉시 부활 요청을 작은 배열로 바꾸고,
  *          믿을 수 없는 입력을 받아도 던지지 않고 null을 돌려준다. 엔진·three.js·DOM에 의존하지 않는다.
  */
 /**
@@ -21,6 +21,7 @@
  *   g2d 총 버림       [id, dropId, weaponId, x,y,z, mag, reserve]   reserve −1 = 무제한
  *   g2k 총 주움       [id, dropId]
  *   g2b 폭탄 의도     [id, act, reason?]   act 0 취소 · 1 설치 · 2 해체 (폭파 미션: 방장이 위치·생존·시간을 재서 확정) → sendTo(방장)
+ *   g2r 즉시 부활     [id]   개인전에서 죽어 부활을 기다릴 때 E. 방장이 match.respawnNow로 확정하고 spawn 이벤트에 instant:true → sendTo(방장)
  *   g2p 핑/퐁(merge)  [pid, t0, d0?] → sendTo(방장) / [pid, t0, t1, t2, d2?, e0?] → sendTo(요청자)
  *                     d = 보낸 쪽 room.now()(있으면). 받는 쪽이 net 프레임 시각(msg.t)과 비교해
  *                     net 큐에서 기다린 시간(e)을 알아내 t0·t2를 보정한다.
@@ -38,7 +39,7 @@ const PFX = 'g' + PROTOCOL_VERSION;
 export const EV = Object.freeze({
   state: PFX + 's', fire: PFX + 'f', hit: PFX + 'h', grenade: PFX + 'x',
   match: PFX + 'm', loadout: PFX + 'l', chat: PFX + 'c', ping: PFX + 'p',
-  drop: PFX + 'd', pick: PFX + 'k', bomb: PFX + 'b'
+  drop: PFX + 'd', pick: PFX + 'k', bomb: PFX + 'b', respawn: PFX + 'r'
 });
 
 const TAU = Math.PI * 2;
@@ -515,13 +516,24 @@ export function decodeBomb(a) {
   return { id: a[0] | 0, act, reason: act === 'cancel' ? BOMB_REASON_CODES[isNum(a[2]) ? a[2] | 0 : 0] || 'released' : null };
 }
 
+/* ------------------------------------------------------------------ 즉시 부활 요청(개인전) */
+
+/** 요청 번호만 싣는다(방장이 같은 번호를 한 번만 받는다). 누가 보냈는지는 net이 안다 */
+export function encodeRespawn(id) { return [id | 0]; }
+
+/** → { id } | null */
+export function decodeRespawn(a) {
+  if (!Array.isArray(a) || a.length < 1 || !isNum(a[0])) return null;
+  return { id: a[0] | 0 };
+}
+
 /* ------------------------------------------------------------------ 이벤트 이름 → 디코더 */
 
 const DECODERS = {
   [EV.state]: ['state', decodeState], [EV.fire]: ['fire', decodeFire], [EV.hit]: ['hit', decodeHit],
   [EV.grenade]: ['grenade', decodeGrenade], [EV.match]: ['match', decodeMatch], [EV.loadout]: ['loadout', decodeLoadout],
   [EV.chat]: ['chat', decodeChat], [EV.ping]: ['ping', decodePing], [EV.drop]: ['drop', decodeDrop], [EV.pick]: ['pick', decodePick],
-  [EV.bomb]: ['bomb', decodeBomb]
+  [EV.bomb]: ['bomb', decodeBomb], [EV.respawn]: ['respawn', decodeRespawn]
 };
 
 const decoderOf = (event) => (typeof event === 'string' && Object.prototype.hasOwnProperty.call(DECODERS, event) ? DECODERS[event] : null);

@@ -31,6 +31,7 @@ const NICK_LONG = '가나다라마바사아자차카타';   // 닉네임 최대 
 const ROOM_LONG = '오늘 밤 3대3 스나전 초보 환영 모여라 방';   // 방 이름 최대 길이에 가깝게
 
 const ROOMS = Object.freeze([
+  { roomId: 'r0', name: '16인 대난투', mapId: 'nexus', mode: 'team', ruleset: 'classic', players: 11, max: 16, hostName: '번개J', status: 'waiting' },
   { roomId: 'r1', name: ROOM_LONG, mapId: 'alley', mode: 'team', ruleset: 'classic', players: 3, max: 6, hostName: NICK_LONG, status: 'waiting' },
   { roomId: 'r2', name: '스나전 모여라', mapId: 'nexus', mode: 'ffa', ruleset: 'sniper', killTarget: 20, players: 6, max: 6, hostName: '하늘', status: 'waiting' },
   { roomId: 'r3', name: '칼전 한 판', mapId: 'dojo', mode: 'team', ruleset: 'knife', players: 4, max: 6, hostName: '호랑이', status: 'playing' },
@@ -59,6 +60,19 @@ function roomProps({ host = true, mode = 'team' } = {}) {
     hostId: 'h', meId: host ? 'h' : 'me', players, chat: CHAT.slice(),
   };
 }
+
+/** 16인방(8:8) — 닉네임 최대 길이가 섞인 긴 명단 */
+const NAMES16 = Object.freeze([NICK_LONG, '달빛', '그림자', '바람개비', '번개J', '늑대', '독수리', '여우', '호랑이', '하늘', '구름', '바다', '별빛', '노을', '새벽', '이슬']);
+function room16Props() {
+  const players = NAMES16.map((name, i) => ({ id: `q${i}`, name, team: i < 8 ? 'owner' : 'charterer', ready: i % 3 !== 0, ping: 20 + i * 9, host: i === 0 }));
+  return { roomId: 'k7q2', name: ROOM_LONG, mapId: 'alley', mode: 'team', ruleset: 'classic', max: 16, hostId: 'q0', meId: 'q0', players, chat: CHAT.slice() };
+}
+const TEAM16_STATS = Object.freeze(NAMES16.map((name, i) => ({
+  id: `q${i}`, name, team: i < 8 ? 'owner' : 'charterer', kills: 16 - i, deaths: 2 + (i % 7), head: i % 5, ping: 20 + i * 9, alive: i % 4 !== 1, me: i === 0, bot: i > 11,
+})));
+const FFA16_STATS = Object.freeze(NAMES16.map((name, i) => ({
+  id: `f${i}`, name, kills: 20 - i, deaths: 3 + (i % 6), head: 9 - (i % 9), ping: 20 + i * 11, alive: i % 5 !== 2, respawnIn: i % 5 === 2 ? 1800 : null, me: i === 1, rank: i + 1,
+})));
 
 const TEAM_STATS = Object.freeze([
   { id: 'me', name: NICK_LONG, team: 'owner', kills: 12, deaths: 4, head: 6, ping: 31, alive: true, me: true },
@@ -183,7 +197,7 @@ function deathLayout() {
   };
   const cards = document.querySelector('.sk-lc-cards');
   return {
-    vw: innerWidth, vh: innerHeight, lc: rect('.sk-lc'), rsp: rect('.sk-rsp'), hint: rect('.sk-hint'),
+    vw: innerWidth, vh: innerHeight, lc: rect('.sk-lc'), rsp: rect('.sk-rsp'), hint: rect('.sk-hint'), slots: rect('.sk-slots'),
     scrollable: !!cards && cards.scrollWidth > cards.clientWidth + 1,
     selVisible: (() => {
       const sel = document.querySelector('.sk-lc-card.is-sel');
@@ -387,10 +401,12 @@ export default {
       await see('lobby', '.sk-lobby');
       await uiShow(page, 'lobby', { rooms: [], error: '로비 서버에 연결할 수 없어요. 네트워크를 확인하고 다시 시도해 주세요.', name: NICK_LONG });
       await see('lobby-error', '.sk-lobby');
-      await uiShow(page, 'lobby', { rooms: [], name: NICK_LONG });
+      await uiShow(page, 'lobby', { rooms: [], name: NICK_LONG, maxPlayers: 16 });   // Cloudflare 중계: 16인방까지
       await see('lobby-empty', '.sk-lobby');
       await tap(page, '.sk-lobby .sk-bar-actions .sk-btn--primary');
       await page.waitFor('!!document.querySelector(".sk-create-sheet")', 3000, { label: '터치로 방 만들기' });
+      const quickMax = await page.eval(`[...document.querySelectorAll('.sk-create [aria-label="최대 인원"] .sk-choice')].map((b) => b.textContent.trim())`);
+      t.check(quickMax.join() === '4명,8명,12명,16명', `${phone.id}: 최대 인원 빠른 선택에 16명이 있다`, quickMax);
       const nameFocused = await page.eval(`document.activeElement === document.querySelector('.sk-create input')`);
       t.check(nameFocused === !touch, `${phone.id}: 터치 기기에서는 방 이름 칸에 바로 포커스를 주지 않는다(가상 키보드가 시트를 덮는다)`);
       await see('create-room', '.sk-create-sheet');
@@ -411,6 +427,11 @@ export default {
       await uiShow(page, 'room', roomProps({ host: true, mode: 'ffa' }));
       await rewind(page, '.sk-room');
       await see('room-ffa', '.sk-room');
+      await uiShow(page, 'room', room16Props());
+      await rewind(page, '.sk-room');
+      await see('room-16', '.sk-room');
+      await swipe(page, '.sk-room', 0, 900);
+      await see('room-16-end');
       t.errorsOk(`${phone.id} 로비·대기실`);
 
       t.setSection(`${phone.id}: 일시정지`);
@@ -444,7 +465,8 @@ export default {
       t.setSection(`${phone.id}: 부활 대기 패널`);
       await page.fn(() => {
         const ui = window.__qa.ui;
-        ui.hud.set({ hp: 0, maxHp: 100, ammo: 22, mag: 30, reserve: 60, slot: 1, weaponName: 'RX-4 돌격소총', roundTime: 247, hint: '관전 중 — 다음 라운드부터 참가해요', respawn: { seconds: 3, killer: '호랑이', weaponName: 'H-50 타이탄' } });
+        // 즉시 부활 줄까지(휴대폰은 '부활' 버튼 안내) 붙여 가장 긴 패널로 본다
+        ui.hud.set({ hp: 0, maxHp: 100, ammo: 22, mag: 30, reserve: 60, slot: 1, weaponName: 'RX-4 돌격소총', roundTime: 247, hint: '관전 중 — 다음 라운드부터 참가해요', respawn: { seconds: 3, killer: '호랑이', weaponName: 'H-50 타이탄', quick: { cost: 10, ok: true, touch: !!window.__qa.ctx.input.touchMode } } });
       });
       for (const [name, props] of [
         ['many', { ruleset: 'classic', selected: 'sr_heavy' }],
@@ -489,6 +511,13 @@ export default {
       await page.fn(() => { window.__qa.ui.hide('scoreboard'); });
       await uiShow(page, 'scoreboard', { mode: 'ffa', target: 20, players: FFA_STATS, mapId: 'nexus', meId: 'p1' });
       await see('scoreboard-ffa', '.sk-scoreboard', { fits: '.sk-sb-panel' });
+      await page.fn(() => { window.__qa.ui.hide('scoreboard'); });
+      // 16인방: 8:8과 개인전 16명도 스크롤 없이 다 들어가야 한다
+      await uiShow(page, 'scoreboard', { players: TEAM16_STATS, score: { owner: 2, charterer: 1, target: 3, round: 4 }, mapId: 'nexus', meId: 'q0' });
+      await see('scoreboard-team16', '.sk-scoreboard', { fits: '.sk-sb-panel' });
+      await page.fn(() => { window.__qa.ui.hide('scoreboard'); });
+      await uiShow(page, 'scoreboard', { mode: 'ffa', target: 20, players: FFA16_STATS, mapId: 'nexus', meId: 'f1' });
+      await see('scoreboard-ffa16', '.sk-scoreboard', { fits: '.sk-sb-panel' });
       await page.fn(() => { window.__qa.ui.hide('scoreboard'); });
 
       t.setSection(`${phone.id}: 결과`);
@@ -554,27 +583,70 @@ export default {
         return null;
       });
       if (!spot) throw new Error('평지를 찾지 못했어요');
-      await page.fn((s) => {
-        const qa = window.__qa;
-        qa.teleport(s.a.x, 0, s.a.z);
-        qa.ctx.player.state.onGround = true;
-        qa.placeBot(0, s.b.x, 0, s.b.z);
-        const p = qa.ctx.player.state, b = qa.run.bots[0];
-        const dx = p.pos[0] - b.body.pos[0], dz = p.pos[2] - b.body.pos[2], dy = (p.pos[1] + 1.2) - (b.body.pos[1] + 1.6);
-        b.yaw = Math.atan2(-dx, -dz);
-        b.pitch = Math.atan2(dy, Math.hypot(dx, dz));
-        b.brain.think = (dt, view) => ({ forward: 0, strafe: 0, jump: false, walk: false, yawDelta: 0, pitchDelta: 0, fire: true, zoom: false, reload: view.self.ammo.mag === 0, slot: null });
-      }, spot);
-      await page.waitFor('!__qa.world.localAlive', 20000, { intervalMs: 50, label: '봇에게 쓰러짐' });
-      await page.eval('__qa.freezeBots()');
+      /** 평지 a에 세우고 b의 봇이 쏘게 해 쓰러질 때까지(부활 보호가 끝나면 맞는다). 쓰러지면 봇을 다시 멈춘다 */
+      const dieToBot = async () => {
+        await page.fn((s) => {
+          const qa = window.__qa;
+          qa.teleport(s.a.x, 0, s.a.z);
+          qa.ctx.player.state.onGround = true;
+          qa.placeBot(0, s.b.x, 0, s.b.z);
+          const p = qa.ctx.player.state, b = qa.run.bots[0];
+          const dx = p.pos[0] - b.body.pos[0], dz = p.pos[2] - b.body.pos[2], dy = (p.pos[1] + 1.2) - (b.body.pos[1] + 1.6);
+          b.yaw = Math.atan2(-dx, -dz);
+          b.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+          b.brain.think = (dt, view) => ({ forward: 0, strafe: 0, jump: false, walk: false, yawDelta: 0, pitchDelta: 0, fire: true, zoom: false, reload: view.self.ammo.mag === 0, slot: null });
+        }, spot);
+        await page.waitFor('!__qa.world.localAlive', 20000, { intervalMs: 50, label: '봇에게 쓰러짐' });
+        await page.eval('__qa.freezeBots()');
+      };
+      /** 페이지에서: 휴대폰 '부활' 버튼의 자리. 숨었거나 그려지지 않으면(죽은 동안 치우는 전투 버튼 규칙) null */
+      const useRect = `(() => { const b = document.querySelector('.pc-tb--use'); if (!b || b.hidden) return null; const r = b.getBoundingClientRect(); return r.width > 0 ? { text: b.textContent, l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height } : null; })()`;
+      /**
+       * 연습장 경기 시계(run.opts.timeScale만큼 틱마다 돈다)와 World의 부활 표시 시계를 함께 멈추거나 다시 돌린다.
+       * 느린 기기에서 사진과 자리 재기가 3초 부활과 겨루지 않게 한다. 멈춘 동안에는 즉시 부활 요청을 받지 않는다
+       */
+      const freezeClock = (on) => page.fn((v) => {
+        const qa = window.__qa, opts = qa.run.opts;
+        if (v) { qa.savedTimeScale = opts.timeScale; opts.timeScale = 0; qa.world.setPaused(true); }
+        else { qa.world.setPaused(false); opts.timeScale = qa.savedTimeScale || 1; }
+      }, on);
+      // 살아 있을 때의 발사 버튼 자리: 죽은 동안 뜨는 '부활' 버튼은 이 자리를 피해야 한다(쓰러지며 거듭 누른 발사가 값을 내지 않게)
+      const fireRect = await page.eval(`(() => { const r = document.querySelector('.pc-tb--fire').getBoundingClientRect(); return r.width > 0 ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null; })()`);
+      await dieToBot();
       await waitTicks(page, 2);
       await page.waitFor('__qa.ui.isVisible("loadout") && !document.querySelector(".sk-lc").hidden', 3000, { label: '부활 패널' });
+      await freezeClock(true);
       await see('real-compact', '.sk-lc');
       const d = await page.fn(deathLayout);
+      const useBtn = await page.eval(useRect);
+      const quickText = await page.eval(`__qa.text('.sk-rsp-quick')`);
       t.check(inside(d.lc, d.vw, d.vh) && inside(d.rsp, d.vw, d.vh), `${phone.id} 실제 경기: 패널과 부활 안내가 화면 안에 있다`, d);
       t.check(!overlaps(d.lc, d.rsp), `${phone.id} 실제 경기: 패널이 부활 안내를 가리지 않는다`, d);
       t.check(!overlaps(d.lc, d.hint), `${phone.id} 실제 경기: 패널이 아래 안내를 가리지 않는다`, d);
       t.check((await page.eval('__qa.world.internals.drops.size')) >= 1, `${phone.id} 실제 경기: 죽으면 들고 있던 총이 떨어진다`);
+      // 즉시 부활: 휴대폰은 죽은 동안 아래 가운데(무기 칸 위)에 '부활' 버튼이 뜬다(연습장 5 P)
+      t.check(!!useBtn && useBtn.text === '부활', `${phone.id} 실제 경기: 즉시 부활 버튼이 보인다`, useBtn);
+      t.check(!!useBtn && inside(useBtn, d.vw, d.vh) && ![d.lc, d.rsp, d.hint, d.slots].some((r) => overlaps(useBtn, r)), `${phone.id} 실제 경기: 부활 버튼이 화면 안에 있고 무기 패널·부활 안내·아래 안내·무기 칸에 닿지 않는다`, { useBtn, d });
+      t.check(!!useBtn && !!fireRect && !overlaps(useBtn, fireRect), `${phone.id} 실제 경기: 부활 버튼이 발사 버튼 자리를 피한다`, { useBtn, fireRect });
+      t.check(!!useBtn && useBtn.w >= TAP_MIN && useBtn.h >= TAP_MIN, `${phone.id} 실제 경기: 부활 버튼이 ${TAP_MIN}px 이상이다`, useBtn);
+      t.check(/부활.*5 P/.test(quickText), `${phone.id} 실제 경기: 부활 안내에 즉시 부활 값`, quickText);
+      await see('real-quick', '.sk-hud');
+      await freezeClock(false);
+      // 첫 죽음은 누르지 않고 기다린다: 3초 뒤 저절로 나오고, 포인트는 그대로, 버튼과 패널은 닫힌다
+      const pointsBefore = await page.eval('__qa.ctx.account.profile.points');
+      await page.waitFor('__qa.world.localAlive', 12000, { intervalMs: 50, label: '부활' });
+      await page.waitFor('!__qa.ui.isVisible("loadout")', 3000, { label: '부활하면 패널이 닫힌다' });
+      t.check((await page.eval('__qa.ctx.account.profile.points')) === pointsBefore, `${phone.id} 실제 경기: 기다려 나오면 포인트를 쓰지 않는다`, { pointsBefore });
+      t.check((await page.eval(useRect)) == null, `${phone.id} 실제 경기: 나오면 부활 버튼이 숨는다`);
+      // 두 번째 죽음: 부활까지 3초뿐이라 사진 없이 버튼이 뜨자마자 누른다. 1.5초 안에 나오면 저절로 나온 것이 아니다
+      await dieToBot();
+      await page.waitFor(`${useRect} !== null`, 2000, { intervalMs: 30, label: '부활 버튼' });
+      const pointsQuick = await page.eval('__qa.ctx.account.profile.points');
+      await tap(page, '.pc-tb--use');
+      const quick = await page.waitFor('__qa.world.localAlive', 1500, { intervalMs: 30, label: '즉시 부활' }).then(() => true, () => false);
+      t.check(quick, `${phone.id} 실제 경기: 부활 버튼으로 바로 나온다`);
+      t.check((await page.eval('__qa.ctx.account.profile.points')) === pointsQuick - 5, `${phone.id} 실제 경기: 즉시 부활에 5 P를 낸다`, { pointsQuick });
+      t.check((await page.eval(useRect)) == null, `${phone.id} 실제 경기: 즉시 부활 뒤 부활 버튼이 숨는다`);
       await page.waitFor('__qa.world.localAlive', 12000, { intervalMs: 50, label: '부활' });
       await page.waitFor('!__qa.ui.isVisible("loadout")', 3000, { label: '부활하면 패널이 닫힌다' });
       await page.press('Escape');

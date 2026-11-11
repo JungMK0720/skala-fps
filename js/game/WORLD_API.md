@@ -133,8 +133,9 @@ await world.loadMap(mapId, { mode, ruleset });
 | `setMode('team'\|'ffa')` / `loadMap(mapId, { mode })` | `unloadMap`과 `mode` 없는 `loadMap`은 `'team'`으로 되돌린다. FFA: 다른 모든 액터가 적(아바타 한 가지 적 색 = 레드 팀 빨강), 아군 이름표·아군 관전 없음(죽으면 쓰러진 시점 그대로 부활 대기). `world.mode`로 읽는다 |
 | `spawnLocal({ id, name, team:null, spawn, loadout, protectMs })` | FFA 부활(처음 출격도 같다). 부활 대기 표시를 지우고 `protectMs` 동안 HUD `protect`(🛡 보호 중). **내가 `hitClaim`을 내거나 내 수류탄이 터지면(`explosion`, 피해 주장) 보호 표시가 바로 끝**(match 규칙과 같게) |
 | `setRespawn({ inMs, killer?, weaponName? } \| null)` | 내 부활 대기 표시. World가 매 프레임 `hud.respawn = { seconds, killer, weaponName }`을 센다(살아 있으면 숨김). `spawnLocal`이 지운다 |
+| `setQuickRespawn({ cost, ok } \| null)` | 개인전 즉시 부활(MODES.md 10절). 부활 대기 패널에 "[E] 즉시 부활 · cost P"(`hud.respawn.quick = { cost, ok, touch }`)를 띄우고 E(`input:use`)를 받는다. 휴대폰은 `touch:use { on, label: '부활' }`로 버튼을 보인다(죽은 동안 아래 가운데, 발사 버튼 자리는 피한다). `ok:false`(포인트 부족)면 안내만 바뀌고 E는 알림만. 부활까지 0.7초 넘게 남았을 때만 받는다. 이벤트 `quickRespawn { cost }`로 요청을 내보내고(1.5초 안에 다시 누른 것은 무시), 확정·결제는 부르는 쪽이 한다. `spawnLocal`·`loadMap`·`unloadMap`이 지운다 |
 | `setProtect(ms \| true \| false)` | 내 보호 표시를 직접 켜고 끈다(스냅샷 `protect`를 따를 때) |
-| `setActorProtect(id, ms \| true \| false)` | 다른 사람 보호 표시 — 이름표 앞에 🛡, 시간이 지나면 저절로 꺼짐. `setActorState(id, { protect: bool })`로 줘도 된다 |
+| `setActorProtect(id, ms \| true \| false)` | 다른 사람 보호 표시 — 이름표에 🛡(적은 이름 없이 🛡만, MODES.md 11절), 시간이 지나면 저절로 꺼짐. `setActorState(id, { protect: bool })`로 줘도 된다 |
 | `setRound({ mode:'ffa', phase, timeLeftMs, kills, rank, total, leaderName, leaderKills, target })` | FFA HUD 점수(평평한 필드 또는 `score:{...}`, 일부만 줘도 이전 값 유지) → `hud.score = { mode:'ffa', ... }`, `roundTime` = 경기 남은 시간. FFA에선 `alive`·`teamSize`를 쓰지 않는다 |
 | `setActorState(id, { crouch })` | 앉은 자세(core 아바타) + **앉은 히트박스**로 판정(`getTargets()`의 대상에 `crouch:true` — core가 안 실으면 World가 채움) + 원격 발소리 작게(1.6 m마다, Shift 걷기는 무음) |
 | `getLocalState().crouch` | 내 앉기 상태(sync → `FLAG.crouch`) |
@@ -180,5 +181,5 @@ await world.loadMap(mapId, { mode, ruleset });
 - **휴대폰**: 할 수 있을 때 `bus.emit('touch:use', { on, label: '설치' | '해체' })` → engine/touch.js가 버튼을 보이고 숨긴다.
 - **HUD**: 매 프레임 `hud.set({ bomb })`(ui/README의 bomb 칸): 진영, 목표, 상태, 폭발 타이머, 진행 막대, 안내, 구역 표시(3D → 화면 투영, 화면 밖이면 가장자리), 💣 소지.
 - **모형**: 설치·떨어진 폭탄을 바닥에 그린다. 설치되면 삐 소리(`beepInterval`)에 맞춰 빨간 불이 깜박인다. 떨어진 폭탄은 공격 팀에게만 주황 고리.
-- **이름표**: 폭탄을 든 아군 이름 앞에 💣(내가 공격 팀일 때만). avatars는 건드리지 않고 이름만 바꾼다.
+- **이름표**: 폭탄을 든 아군 이름 앞에 💣(내가 공격 팀일 때만). `avatars.add(id, { name, badge: '💣' })`로 상태 표시만 따로 넘긴다(적의 이름표는 이름 없이 상태 표시만, engine/nametag.js).
 - **소리**: `bomb_beep`, `bomb_key`(설치 중), `bomb_armed`, `bomb_defuse`(해체 중), `bomb_defused`, `bomb_pickup`, `bomb_explode`(fx/audio.js, 합성). 폭발 연출은 `fx.explosion`을 크게 두 번.

@@ -104,7 +104,7 @@ export function createResults(ctx) {
       h('b', { text: fmtDelta(x.points) }))));   // 쉬움 난이도 줄처럼 깎이는 값은 "-4"(앞에 +를 겹치지 않는다)
     setText(rewardTotal, reward.points != null ? `보유 ${fmtPoints(reward.points)}` : '');
     rewardTotal.hidden = reward.points == null;
-    countUp(Math.max(0, Math.round(num(reward.gained, 0))));
+    countUp(Math.round(num(reward.gained, 0)));   // 즉시 부활 값이 더 크면 이번 판은 음수(-15)다
   }
 
   const rounds = h('ol', { class: 'sk-res-rounds', 'aria-label': '라운드 기록' });

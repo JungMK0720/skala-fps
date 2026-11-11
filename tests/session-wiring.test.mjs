@@ -189,7 +189,7 @@ const WORLD_CALLS = [
   'unloadMap', 'setRuleset', 'reset', 'spawnLocal', 'setLocalLoadout', 'setLocalHp', 'killLocal', 'addActor', 'removeActor', 'setActorState',
   'actorFire', 'actorGrenade', 'actorDeath', 'feedbackDamage', 'setRound', 'setControlsEnabled', 'setScoreboard', 'setHint', 'setPauseOptions',
   'setMode', 'setRespawn', 'setProtect', 'setActorProtect', 'sound', 'addDrop', 'removeDrop', 'setBomb', 'bombEvent',
-  'openSwap', 'closeSwap', 'setMoverClock'];
+  'openSwap', 'closeSwap', 'setMoverClock', 'setQuickRespawn'];
 /** 폭파 미션 시험용 미션 칸과 맵 목록(미션 맵 하나) */
 const BOMB_MISSION = {
   sites: [{ id: 'A', x: 10, y: 0, z: 10, w: 6, d: 6 }, { id: 'B', x: 10, y: 0, z: -10, w: 6, d: 6 }],
@@ -1069,6 +1069,167 @@ describe('세션 연결', () => {
   });
 });
 
+/* ================================================================== 개인전 즉시 부활 */
+
+/** 포인트를 들고 즉시 부활 값을 내는 가짜 계정 칸(fakeAccount의 over) */
+function wallet(name, points) {
+  return {
+    profile: { nickname: name, owned: OWNED.slice(), points },
+    spent: [],
+    spendPoints(n) {
+      if (this.profile.points < n) return { ok: false, spent: 0, reason: 'points', points: this.profile.points };
+      this.profile.points -= n;
+      this.spent.push(n);
+      return { ok: true, spent: n, points: this.profile.points };
+    }
+  };
+}
+
+describe('개인전 즉시 부활', () => {
+  /** 칼전 개인전을 live까지. 부활은 4초라 즉시 부활과 구별된다 */
+  async function liveFfa(t, pointsA = 100, pointsB = 100) {
+    const env = stage(t, { ffaRules: { respawnMs: 4000, timeLimitMs: 20000 } });
+    const a = env.client('a', '하늘', wallet('하늘', pointsA));
+    const b = env.client('b', '구름', { ...wallet('구름', pointsB), loadout: { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' } });
+    await a.session.open();
+    a.ui.fire('lobby:create', { name: '', max: 2, mapId: 'alley', mode: 'ffa', ruleset: 'knife', killTarget: 20 });
+    await env.settle();
+    await b.session.open();
+    b.ui.fire('lobby:join', { roomId: env.hub.roomId });
+    await env.settle();
+    b.ui.fire('room:ready', { ready: true });
+    a.ui.fire('room:start', {});
+    await env.settle();
+    await env.run(2000);
+    assert.equal(a.session.state.matchPhase, 'live');
+    return { env, a, b };
+  }
+  /** killer가 victim 바로 옆에서 칼로 찌른다(방장의 주장은 다시 재지 않고, 손님의 주장은 방장이 위치로 잰다) */
+  async function stab(env, killer, victim, shotId) {
+    killer.world.pos = [victim.world.pos[0] + 1.2, victim.world.pos[1], victim.world.pos[2]];
+    await env.run(400);
+    killer.world.fire('hitClaim', { victimId: victim.id, part: 'body', weaponId: 'ml_knife', dist: 1, kind: 'stab', t: env.clock.t, count: 1, shotId });
+    await env.run(200);
+  }
+  const asks = (env, from) => env.hub.sent.filter((m) => m.event === EV.respawn && m.from === from);
+
+  test('죽은 손님이 E를 누르면 방장이 바로 출격시키고, 그때 10 P를 낸다. 결과 화면에 한 줄로 보인다', async (t) => {
+    const { env, a, b } = await liveFfa(t);
+    await stab(env, a, b, 1);
+    assert.equal(b.world.calls('killLocal').length, 1);
+    assert.deepEqual(b.world.last('setQuickRespawn'), [{ cost: 10, ok: true }], '부활 대기 패널에 즉시 부활을 건다');
+    const before = b.world.calls('spawnLocal').length;
+
+    b.world.fire('quickRespawn', { cost: 10 });
+    await env.run(300);
+    assert.equal(b.world.calls('spawnLocal').length, before + 1, '4초를 기다리지 않고 나온다');
+    assert.equal(b.account.profile.points, 90);
+    assert.deepEqual(b.account.spent, [10]);
+    assert.ok(asks(env, 'b').length >= 1 && asks(env, 'b').every((m) => m.to === 'a'), '요청은 방장에게만');
+    const sent = asks(env, 'b').length;
+    b.world.fire('quickRespawn', { cost: 10 });   // 살아 있으면 보내지 않는다
+    await env.run(200);
+    assert.equal(asks(env, 'b').length, sent);
+    assert.equal(a.account.spent.length, 0, '방장은 다른 사람 값을 내지 않는다');
+
+    await env.run(20000);
+    const res = b.ui.lastShown('results');
+    assert.ok(res, '결과 화면');
+    assert.deepEqual(res.reward.breakdown.at(-1), { label: '즉시 부활 ×1', points: -10 });
+    assert.equal(res.reward.gained, REWARD.gained - 10, '이번 판 합계에서 뺀다');
+    assert.equal(a.ui.lastShown('results').reward.breakdown.some((r) => r.label.startsWith('즉시 부활')), false, '쓰지 않은 사람에게는 줄이 없다');
+    env.dispose();
+  });
+
+  test('포인트가 모자라면 요청하지 않고 평소대로 부활한다. 방장도 자기 E로 즉시 부활한다', async (t) => {
+    const { env, a, b } = await liveFfa(t, 100, 5);
+    await stab(env, a, b, 1);
+    assert.deepEqual(b.world.last('setQuickRespawn'), [{ cost: 10, ok: false }]);
+    const before = b.world.calls('spawnLocal').length;
+    b.world.fire('quickRespawn', { cost: 10 });
+    await env.run(600);
+    assert.equal(asks(env, 'b').length, 0, '모자라면 보내지 않는다');
+    assert.equal(b.world.calls('spawnLocal').length, before, '아직 부활 대기');
+    await env.run(4000);
+    assert.equal(b.world.calls('spawnLocal').length, before + 1, '평소처럼 4초 뒤 부활');
+    assert.equal(b.account.profile.points, 5);
+
+    // 방장이 죽어서 E: 메시지를 보내지 않고 자기 경기에서 바로 처리한다
+    await stab(env, b, a, 2);
+    assert.equal(a.world.calls('killLocal').length, 1);
+    const hostBefore = a.world.calls('spawnLocal').length;
+    a.world.fire('quickRespawn', { cost: 10 });
+    await env.run(300);
+    assert.equal(a.world.calls('spawnLocal').length, hostBefore + 1);
+    assert.equal(a.account.profile.points, 90);
+    assert.equal(asks(env, 'a').length, 0, '방장은 자기에게 보내지 않는다');
+    env.dispose();
+  });
+});
+
+/* ================================================================== 16인방 */
+
+describe('16인방', () => {
+  const relayNet = (hub, id, name) => ({ ...fakeNet(hub, id, name), transport: 'relay' });
+  // 팀 스폰 둘 + 보조 자리 여섯(world.loadMap이 maps/collision.js에서 받아 오는 모양)
+  const row = (x, n) => Array.from({ length: n }, (_, i) => ({ x, y: 0, z: -7 + i * 2, rotY: 0 }));
+  const SPAWNS16 = {
+    owner: row(-20, 2), charterer: row(20, 2), ffa: SPAWNS.ffa,
+    extra: { owner: row(-22, 6), charterer: row(22, 6), ffa: row(0, 12) }
+  };
+
+  test('Cloudflare 중계면 16명 방을 만들 수 있다. 인원을 안 고르면 8명', async (t) => {
+    const env = stage(t);
+    const a = env.client('a', '하늘', {}, { net: relayNet(env.hub, 'a', '하늘') });
+    await a.session.open();
+    assert.equal(a.ui.props('lobby').maxPlayers, 16, '로비 시트에 상한을 알린다');
+    a.ui.fire('lobby:create', { name: '', max: 99, mapId: 'jetty', mode: 'team' });
+    await env.settle();
+    assert.equal(env.hub.lastCreate.max, 16);
+    assert.ok(a.ui.props('room').chat[0].text.includes('최대 16명'), a.ui.props('room').chat[0].text);
+    a.ui.fire('room:leave', {});
+    await env.settle();
+    a.ui.fire('lobby:create', { name: '', mapId: 'jetty', mode: 'team' });
+    await env.settle();
+    assert.equal(env.hub.lastCreate.max, 8);
+    env.dispose();
+  });
+
+  test('Supabase Realtime이면 예전처럼 6명까지다', async (t) => {
+    const env = stage(t);
+    const s = env.client('s', '바다');
+    await s.session.open();
+    assert.equal(s.ui.props('lobby').maxPlayers, 6);
+    s.ui.fire('lobby:create', { name: '', max: 16, mapId: 'jetty', mode: 'team' });
+    await env.settle();
+    assert.equal(env.hub.lastCreate.max, 6, 'Supabase Realtime 무료 한도');
+    assert.ok(s.ui.props('room').chat[0].text.includes('최대 6명'));
+    env.dispose();
+  });
+
+  test('16명이 8:8로 나뉘고, 모두 맵 스폰과 보조 자리에 겹치지 않게 선다', async (t) => {
+    const env = stage(t);
+    const players = Array.from({ length: 16 }, (_, i) => {
+      const id = `p${i + 1}`;
+      const c = env.client(id, `대원${i + 1}`, {}, { net: relayNet(env.hub, id, `대원${i + 1}`) });
+      c.world.loadMap = async (...args) => ({ spawns: SPAWNS16, mapName: args[0] });
+      return c;
+    });
+    await startMatch(env, players, { max: 16 });
+    assert.equal(env.hub.meta.max, 16);
+    const m = players[0].session.match;
+    assert.ok(m, '방장 경기');
+    const teams = m.state.players.reduce((acc, p) => { acc[p.team] = (acc[p.team] || 0) + 1; return acc; }, {});
+    assert.deepEqual(teams, { owner: 8, charterer: 8 });
+    const spots = players.map((c) => c.world.last('spawnLocal')[0].spawn);
+    assert.equal(spots.length, 16);
+    let gap = Infinity;
+    for (let i = 0; i < spots.length; i++) for (let j = 0; j < i; j++) gap = Math.min(gap, Math.hypot(spots[i].x - spots[j].x, spots[i].z - spots[j].z));
+    assert.ok(gap >= 1.9, `가장 가까운 두 사람 ${gap} m`);
+    env.dispose();
+  });
+});
+
 describe('대기실 자리 비움', () => {
   /** 방장 a가 방을 만들고 손님 b가 들어와 0.5초 지난 뒤 */
   async function roomOfTwo(t) {
@@ -1933,6 +2094,39 @@ describe('로비·대기실 화면', () => {
   }
   const byText = (root, text) => root.all((k) => k.tagName === 'BUTTON' && k.textContent.includes(text));
   const lastEmit = (ctx, name) => ctx.emitted.filter((e) => e.name === name).at(-1);
+
+  test('방 만들기 시트의 최대 인원: 상한 16명이면 빠른 선택 4·8·12·16명에 처음 8명, 상한을 안 주면 예전처럼 6명까지', () => {
+    const open = (props) => {
+      const ctx = uiCtx();
+      const lobby = createLobby(ctx);
+      lobby.show({ name: '하늘', rooms: [], ...props });
+      byText(lobby.el, '방 만들기')[0].fire('click');
+      const form = lobby.el.all((k) => k.tagName === 'FORM')[0];
+      const group = form.all((k) => k.getAttribute('aria-label') === '최대 인원')[0];
+      return {
+        ctx, form,
+        value: () => group.all((k) => k.tagName === 'OUTPUT')[0].textContent,
+        quick: () => group.all((k) => k.tagName === 'BUTTON' && /^\d+명$/.test(k.textContent)),
+        plus: () => group.all((k) => k.getAttribute('aria-label') === '최대 인원 늘리기')[0]
+      };
+    };
+    const big = open({ maxPlayers: 16 });
+    assert.deepEqual(big.quick().map((b) => b.textContent), ['4명', '8명', '12명', '16명']);
+    assert.equal(big.value(), '8명', '처음에는 8명(4:4)');
+    assert.ok(big.form.textContent.includes('팀당 최대 4명'));
+    big.quick().find((b) => b.textContent === '16명').fire('click');
+    assert.equal(big.value(), '16명');
+    assert.equal(big.plus().disabled, true, '16명이 끝');
+    assert.ok(big.form.textContent.includes('팀당 최대 8명'));
+    big.form.fire('submit');
+    assert.equal(lastEmit(big.ctx, 'lobby:create').payload.max, 16);
+
+    const old = open({});
+    assert.deepEqual(old.quick().map((b) => b.textContent), ['4명', '6명']);
+    assert.equal(old.value(), '6명');
+    old.form.fire('submit');
+    assert.equal(lastEmit(old.ctx, 'lobby:create').payload.max, 6);
+  });
 
   test('로비: 배지, 태그, 방 만들기 시트의 규칙과 맵', () => {
     const ctx = uiCtx();

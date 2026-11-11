@@ -806,6 +806,10 @@
 .sk-rsp-line { display: flex; align-items: baseline; justify-content: center; gap: 4px; margin-top: 6px; color: var(--sk-muted); font-weight: 800; }
 .sk-rsp-num { font: 900 34px/1 var(--sk-stencil); color: var(--sk-accent-hi); }
 .sk-rsp-num:empty { display: none; }
+/* 개인전 즉시 부활 "[E] 즉시 부활 · 10 P". 포인트가 모자라면 흐리게 */
+.sk-rsp-quick { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 8px; font-size: 13px; font-weight: 800; color: var(--sk-accent-hi); }
+.sk-rsp-quick[hidden], .sk-rsp-quick-key[hidden] { display: none; }
+.sk-rsp-quick.is-off { color: var(--sk-dim); }
 .sk-protect {
   position: absolute; left: 50%; top: calc(50% + 30px); transform: translateX(-50%); padding: 3px 10px; border-radius: 999px;
   font-size: 13px; font-weight: 900; color: #dffaff; white-space: nowrap;
@@ -853,6 +857,30 @@
 
 /* 점수판 개인전: 한 목록 */
 .sk-scoreboard.is-ffa .sk-sb-cols { grid-template-columns: 1fr; }
+/* 16인방: 줄이 많으면 줄 높이를 줄이고, 개인전 순위는 두 칸으로 나눈다(Tab을 누르는 동안은 스크롤할 수 없다).
+ * 가로 휴대폰은 두 팀(개인전은 두 칸)을 나란히, 세로 휴대폰은 한 줄로 쌓되 더 촘촘하게 */
+.sk-scoreboard.is-crowded .sk-sb-table th, .sk-scoreboard.is-crowded .sk-sb-table td { padding-top: 4px; padding-bottom: 4px; }
+.sk-scoreboard.is-crowded .sk-sb-team-name { padding-top: 7px; padding-bottom: 7px; }
+.sk-scoreboard.is-ffa.is-crowded .sk-sb-cols { grid-template-columns: 1fr 1fr; }
+@media (max-width: 720px) and (orientation: landscape) {
+  .sk-scoreboard.is-crowded .sk-sb-cols { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 720px) and (orientation: portrait) {
+  .sk-scoreboard.is-ffa.is-crowded .sk-sb-cols { grid-template-columns: 1fr; }
+}
+@media (max-width: 960px) {
+  .sk-scoreboard.is-crowded .sk-sb-table { font-size: 11.5px; }
+  .sk-scoreboard.is-crowded .sk-sb-table th, .sk-scoreboard.is-crowded .sk-sb-table td { padding: 3px 4px; }
+  .sk-scoreboard.is-crowded .sk-sb-team-name { padding: 5px 8px; font-size: 14px; }
+  .sk-scoreboard.is-crowded .sk-sb-name > span:first-child { display: inline-block; max-width: 84px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+}
+/* 세로로 좁은 화면의 8:8 팀전: 두 팀을 쌓으면 18줄이 된다. 위쪽 큰 점수(경기 화면 맨 위 점수와 같다)를 빼고 줄 간격을 더 줄인다 */
+@media (max-width: 720px) and (orientation: portrait) {
+  .sk-scoreboard.is-crowded:not(.is-ffa) { padding: 8px; }
+  .sk-scoreboard.is-crowded:not(.is-ffa) .sk-sb-score { display: none; }
+  .sk-scoreboard.is-crowded:not(.is-ffa) .sk-sb-table th, .sk-scoreboard.is-crowded:not(.is-ffa) .sk-sb-table td { padding-top: 1px; padding-bottom: 1px; }
+  .sk-scoreboard.is-crowded:not(.is-ffa) .sk-sb-team-name { padding-top: 3px; padding-bottom: 3px; }
+}
 .sk-sb-team--ffa { border-top: 4px solid var(--sk-ffa); }
 .sk-sb-rank { width: 3em; font-weight: 900; color: var(--sk-muted); }
 .sk-sb-table tr.is-me .sk-sb-rank { color: var(--sk-accent-hi); }
@@ -1789,6 +1817,8 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
   .sk-rsp-wpn { padding: 1px 6px; font-size: 11.5px; }
   .sk-rsp-line { margin-top: 0; font-size: 12.5px; white-space: nowrap; }
   .sk-rsp-num { font-size: 20px; }
+  .sk-rsp-quick { margin-top: 0; font-size: 12px; white-space: nowrap; }
+  .sk-rsp-quick .sk-key { min-width: 20px; height: 20px; padding: 0 5px; font-size: 11px; }
   .sk-lc { top: 116px; bottom: auto; }
 
   /* 점수판: 입력을 받지 않으므로 스크롤 없이 다 들어가야 한다 */

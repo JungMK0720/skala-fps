@@ -204,6 +204,7 @@ sync.sendMatch({
 | `g2d` 총 버림 | `[id, dropId, weaponId, x,y,z, mag, reserve]` (무제한 −1) | 약 45 | 54 |
 | `g2k` 총 주움 | `[id, dropId]` | 약 15 | 24 |
 | `g2b` 폭탄 의도 | `[id, act, reason?]` (act 0 취소 · 1 설치 · 2 해체) → 방장 | 약 8 | 17 |
+| `g2r` 즉시 부활 | `[id]` (개인전 부활 대기 중 E, `sync.sendRespawn()`) → 방장. 방장이 `match.respawnNow`로 확정하고 그 사람의 `spawn`에 `instant:true`. 방장 교체 때 보내지 않은 요청은 버린다 | 약 4 | 9 |
 | `g2p` 핑 / 퐁(merge) | `[pid, t0, d0]` / `[pid, t0, t1, t2, d2, e0]` | 25 / 43 | 34 / 52 |
 
 `g2f`의 `'stab'` 칸은 sync가 붙이고 읽는다. `decodeFire`는 모르는 칸을 무시한다. 경기 규칙은 `g2m` 부가 영역의 `rs`로 간다. `g2l`을 어떻게 읽는지는 SESSION_API.md 3절 "규칙"에 있다.

@@ -262,6 +262,9 @@ account.remoteEnabled
 | 완주 | 10 | 20 |
 | 난이도 배율(봇전) | 쉬움 0.7 · 보통 1 · 어려움 1.4 | - |
 | 비밀 스팟 첫 발견 | 맵에 적힌 값(기본 100) | 같음 |
+| 개인전 즉시 부활(부활 대기 중 E) 한 번 | −5 | −10 (= 킬 한 번, 난이도 배율 없음) |
+
+즉시 부활 값은 경기 보상과 따로, 방장(연습장은 경기)이 출격을 확정한 그 순간 `account.spendPoints`로 낸다(모자라면 쓸 수 없다). 결과 화면에는 "즉시 부활 ×N"으로 한 줄 더해 이번 판 합계에서 뺀다(`withQuickRespawns`, MODES.md 10절).
 
 `summary = { online, ruleset, mode, mapId, difficulty, kills, deaths, headshots, halfShots, win, draw, seconds, killTarget? }`. 폭파 미션(`mode: 'bomb'`)도 같은 표를 쓴다(설치·해체 보너스는 없다). 연습장과 세션이 경기 끝에 한 번 부르고, 결과 화면에 "+120 P"를 보여 준다.
 개인전 승리 보상은 `round(승리 × 목표 킬 / 20)`이다(`FFA_FULL_WIN_KILLS`). 멀티 10킬 판은 30, 5킬 판은 15이고 내역 줄은 "승리(10킬 판)"이다. 5킬보다 작은 값은 5킬로, `killTarget`이 없는 예전 기록과 20킬보다 긴 판(연습장 주소 값)은 표의 값 그대로다. 봇전은 줄인 값에 난이도 배율을 곱한다. 킬·헤드샷·완주 보상은 줄이지 않는다.

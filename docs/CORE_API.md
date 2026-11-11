@@ -274,7 +274,8 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 - `getTargets()`: **화면에 보이는(보간된) 위치·yaw·자세**로 만든 히트 대상 `[{ id, pos, yaw, alive:true, crouch(0..1), team, name }]`이다. 쓰러진 아바타는 빠진다. `crouch`는 자세 전환 비율이라 히트박스가 보이는 자세와 맞는다.
 - `get(id).kill({ dir })`: 피 없이 총알 방향으로 쓰러진다(0.65 s). `.revive()`.
 - `.setHeld(object3d)`: 손 소켓에 3인칭 무기 모델을 끼운다(총구 = -Z).
-- `teleport(id, state)`, `setLocalTeam(team)`(아군 이름표는 벽 너머로도 보인다. 적 이름표는 35 m 안에서만 보인다), `setDelay(ms)`.
+- `teleport(id, state)`, `setLocalTeam(team)`(아군 이름표는 이름이 벽 너머로도 보인다. 적 이름표에는 닉네임이 없고, 상태 표시 `badge`(🛡 부활 보호)가 있을 때만 그 글자가 35 m 안에서 보인다. 규칙은 `engine/nametag.js`), `setDelay(ms)`.
+- `add(id, { name, team, avatar, badge })`: `badge`는 이름표 앞 상태 표시(World가 정한다: 🛡 보호 · 💣 폭탄을 든 아군).
 - 순수 버퍼만 필요하면 `SnapshotBuffer`(`engine/interp.js`)를 쓴다: `push(t, state)`, `sample(renderTime, out?)`.
 
 ## 10. loop (`createLoop`)

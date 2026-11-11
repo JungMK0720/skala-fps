@@ -53,7 +53,7 @@ const { stats, mvp } = standings(view);      // 점수판·결과 화면용 순�
 |---|---|---|
 | `rules` | 아래 표 | 일부만 줘도 된다. 잘못된 값은 기본값으로 바뀐다 |
 | `players` | `[]` | `[{ id, name?, team?, bot? }]` — `addPlayer`와 같은 규칙으로 넣는다 |
-| `spawns` | 없음 | 맵 `spawns` 그대로(x·z·y는 소수 2자리, rotY는 3자리로 반올림). 없으면 겹치지 않는 대체 위치 |
+| `spawns` | 없음 | 맵 `spawns` 그대로(x·z·y는 소수 2자리, rotY는 3자리로 반올림). 없으면 겹치지 않는 대체 위치. `spawns.extra = { owner, charterer, ffa }`는 16인방 보조 자리(`maps/collision.js crowdSpots`, 빌더가 채운다)로, 사람이 맵 스폰보다 많을 때만 그 뒤에 쓴다. 그래도 모자라면 1.2 m씩 옆으로 비켜 세운다 |
 | `seed` / `rng` | `Math.random` | 스폰 섞기 난수(테스트 재현용) |
 | `getPositions` | 없음 | **FFA**: `() => ({ [id]: {x,z} \| [x,y,z] })`. 부활 지점을 고를 때 부른다(11.3절) |
 | `mission`, `roundOffset`, `chooseCarrier` | 없음 | 폭파 미션(13.1절) |
@@ -68,7 +68,7 @@ const { stats, mvp } = standings(view);      // 점수판·결과 화면용 순�
 | `maxTotalRounds` | 9 | 무승부 재경기를 포함한 총 라운드 상한(안전장치) |
 | `roundTimeMs` / `loadoutMs` / `roundEndMs` | 120000 / 5000 / 4000 | 페이즈 시간 |
 | `hp` | 100 | 라운드 시작 체력 |
-| `maxPlayers` / `maxPerTeam` | 8 / 4 | 정원 |
+| `maxPlayers` / `maxPerTeam` | 8 / 4 | 정원. 세션은 방 인원(16인방이면 16 / 8)으로 정한다 |
 | `ruleset` | `'classic'` | 무기 규칙(12절). 모르는 값은 클래식이다. FFA에서도 같다. `DEFAULT_RULES`와 스냅샷 `ru` 표에는 없고 `rs`로 따로 실린다 |
 
 ### 메서드
@@ -84,6 +84,7 @@ const { stats, mvp } = standings(view);      // 점수판·결과 화면용 순�
 | `setLoadout(id, weaponId)` | loadout만(FFA는 live도) | `pickableWeapons(ruleset)`에 있는 무기만 받는다. 그 밖은 `reject 'bad_weapon'`. 같은 값이면 `[]`. 표시 이름(`'SK-7'`)도 받는다 |
 | `claimHit(claim)` / `claimExplosion(claim)` | live만 | 5절 |
 | `bombIntent(id, action, opt)` | live만 | 폭파 미션 설치·해체 의도(13.2절). 다른 모드는 `reject 'not_bomb'` |
+| `respawnNow(id)` | 개인전 live만 | 즉시 부활(11.3절). 부활을 기다리는 사람을 지금 출격시키고 `spawn { ..., instant: true }`. 거절: `not_ffa` · `not_live` · `unknown_player` · `not_waiting`(살아 있음) · `too_late`(부활까지 `QUICK_RESPAWN_MIN_LEFT_MS` 500 ms 미만) |
 | `snapshot()` | 항상 | 7절 |
 | `dispose()` | — | 이후 모든 메서드는 `[]` |
 | `state` (getter) | — | 읽기 전용 뷰. 접근할 때마다 새 복사본이고, `applySnapshot(snapshot())`과 같다 |
@@ -250,7 +251,7 @@ warmup ──start()──▶ loadout(5s) ─▶ live(2:00) ─▶ roundEnd(4s) 
 - 스폰 배정은 스냅샷에 없다. `roundStart` 이벤트로만 받는다.
 
 ## 8. 플레이어 수명
-- **팀 배정**: `team`이 맞고 자리가 있으면 그 팀, 아니면 인원이 적은 팀(같으면 owner)으로 간다. 8명이 차면 `room_full`.
+- **팀 배정**: `team`이 맞고 자리가 있으면 그 팀, 아니면 인원이 적은 팀(같으면 owner)으로 간다. 정원(`maxPlayers`, 기본 8명)이 차면 `room_full`.
 - **warmup**: 들어오면 바로 참가한다. 나가면 기록까지 지운다.
 - **start() 이후(loadout·live·roundEnd)에 들어오면** 다음 `roundStart`까지 관전한다(`playing:false, alive:false`). loadout 중에 들어와도 다음 라운드부터다.
 - **경기 중 퇴장**:
@@ -314,11 +315,13 @@ warmup ──start()──▶ loadout(5s, 첫 출격 무기) ─▶ live(5:00, �
 - **부활**: 죽으면 `방장 시각 + respawnMs`에 `spawn` 이벤트가 나간다.
   - live가 시작될 때 전원도 같은 `spawn` 이벤트로 나온다.
   - 팀전의 `roundStart.spawns`는 바뀌지 않았다.
+- **즉시 부활** `respawnNow(id)`(MODES.md 10절): 기다리는 사람(늦게 들어와 첫 출격을 기다리는 사람 포함)을 그 자리에서 출격시킨다. 스폰 고르기·보호는 평소와 같고
+  이벤트에만 `instant: true`가 붙는다. 포인트는 경기가 모른다. 요청한 사람이 instant인 자기 spawn을 받을 때 자기 계정에서 낸다.
 - **부활 보호(spawnProtectMs)**:
   - 보호 중인 사람을 친 `claimHit`은 `reject 'protected'`이다. `claimExplosion`은 그 사람만 건너뛴다.
   - 보호 중인 사람이 직접 `claimHit`·`claimExplosion`을 보내면(공격하면) 그 순간 보호가 끝난다. 그래서 자기 수류탄의 자해 피해도 받는다.
 - **목숨마다** 연사 기록이 새로 시작되고, 수류탄이 1개 생긴다.
-- **스폰 위치 후보**는 `spawns.owner` + `spawns.charterer` + `spawns.ffa`이다. 하나도 없으면 원점 둘레 8곳을 쓴다.
+- **스폰 위치 후보**는 `spawns.owner` + `spawns.charterer` + `spawns.ffa`이다. 정원(`maxPlayers`)보다 적으면 `spawns.extra.ffa`(16인방 보조 자리)를 정원까지 더한다. 하나도 없으면 원점 둘레 8곳을 쓴다.
   - `getPositions`가 있을 때:
     - 살아 있는 다른 사람과의 **최소 거리가 큰 순 상위 3곳 중 무작위**로 고른다. 경계에서 거리가 같은 곳은 섞어서 고른다.
     - 방금(1초 안) 스폰한 사람은 그 스폰 지점에 있다고 본다(월드·네트워크가 아직 옮기기 전이므로).
@@ -491,7 +494,7 @@ const m = createMatch({
 
 | opts | 설명 |
 |---|---|
-| `mission` | 맵의 미션 칸(또는 맵 데이터). 구역이 하나도 없으면 `start()`가 `reject 'no_mission'` |
+| `mission` | 맵의 미션 칸(또는 맵 데이터). 구역이 하나도 없으면 `start()`가 `reject 'no_mission'`. `mission.extra = { attack, defense }`는 16인방 보조 자리(`maps/collision.js missionCrowd`, world.loadMap이 붙인다)로, 진영 스폰을 다 쓴 뒤에만 쓴다 |
 | `getPositions` | 구역 안·해체 거리·움직임 취소·떨어진 폭탄 줍기·폭발 피해를 여기서 잰다. 모르는 사람은 마지막으로 안 위치, 그것도 없으면 라운드 스폰. 폭탄을 든 사람의 위치는 live 동안 50 ms마다 새로 둬서, 연결이 끊겨 위치가 먼저 사라져도 마지막으로 본 자리에 떨어진다 |
 | `floorAt` | `(x, fromY, z) → 바닥 높이`(맵 충돌, `physics.getGroundY`). 떨어진 폭탄을 발보다 0.4 m 위에서 아래로 찾은 바닥에 놓는다(공중에서 쓰러져도 줍는 높이 검사와 화면 모형이 같은 높이를 본다). 없거나 값이 이상하면 발 높이 그대로 |
 | `roundOffset` | 방장 이전: 이미 끝난 라운드 수. 공수 교대를 전체 라운드 번호로 센다(session.restoreMatch가 넘긴다) |

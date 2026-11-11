@@ -315,3 +315,41 @@
 - 잠글 수 없는 브라우저(파이어폭스·사파리)는 화면만 넓어진다. 예전처럼 C 키와 `beforeunload` 확인이 지킨다. 휴대폰은 조작을 시작할 때 저절로 전체 화면이 된다(engine/touch.js).
 - bus: `input:fullscreenToggle`(F11) · `input:keyboardLock { locked }` · `input:lockRequest` · `fullscreen:change { active }`.
   `input.keyboardLocked` · `input.canKeyboardLock` · `ctx.toggleFullscreen()` · `ctx.isFullscreen()`(CORE_API.md 7절).
+
+## 10. 개인전 즉시 부활 (`game/match.js` · `game/session.js` · `game/practice.js` · `game/world.js` · `account`)
+
+사용자 요청: "E 누르면 즉시 리스폰. 포인트를 뺄까?" → 빼기로 했다(값 = 그 경기의 킬 보상 한 번).
+
+- **언제:** 개인전 live 중에 죽어서(또는 늦게 들어와 첫 출격을) 기다리는 동안. 부활까지 0.5초 넘게 남았을 때만 받는다(곧 저절로 나오는데 값만 내지 않게. 화면 안내는 0.7초 전에 숨긴다).
+  팀전·폭파 미션은 라운드 중 부활이 없어서 쓰지 않는다. 보호 시간·스폰 고르기는 평소 부활과 같다.
+- **키:** PC는 E(폭파 미션의 설치·해체 키와 같다). 휴대폰은 설치/해체 버튼이 '부활'로 바뀌어(`touch:use { on, label: '부활' }`) 죽은 동안 아래 가운데(무기 칸 바로 위)에 뜬다. 다른 전투 버튼은 죽은 동안 숨고, 발사 버튼 자리는 일부러 피한다(쓰러지는 순간 거듭 누른 발사가 포인트를 쓰지 않게, css/touch.css).
+- **값:** 멀티 10 P · 연습장 5 P(`economy.QUICK_RESPAWN_POINTS` = 킬 보상 표의 `kill`, 난이도 배율 없음). 포인트가 모자라면 안내만 '포인트 부족'으로 바뀌고 E는 알림만 띄운다.
+  - 값을 빼지 않으면 모두가 늘 E를 눌러 부활 3초가 없는 것과 같아진다. 킬 한 번 값이면 목표 킬을 쫓을 때는 쓸 만하고, 죽을 때마다 쓰면 그 판의 킬 보상만큼 줄어든다.
+- **흐름(멀티):** World `quickRespawn` → `sync.sendRespawn()` → `g2r [id]`(방장에게만) → 방장 `match.respawnNow(id)`가 죽었는지·남은 시간을 재고 `spawn { ..., instant: true }`를 낸다
+  → 요청한 사람이 instant인 자기 spawn을 받은 그 순간 `account.spendPoints(10)`. 내가 방장이면 메시지 없이 같은 길로 처리한다. 청하지 않은 instant spawn에는 내지 않는다.
+- **흐름(연습장):** World `quickRespawn` → `match.respawnNow` → 출격했으면 `spendPoints(5)`.
+- **결과 화면:** 낸 값을 '즉시 부활 ×N  −10N' 한 줄로 더하고 이번 판 합계에서 뺀다(`economy.withQuickRespawns`, 합계가 음수일 수 있다). 포인트는 부활할 때 이미 냈다.
+  경기 도중 나가도 낸 값은 돌려받지 않는다.
+- **서버:** 포인트 감소는 `fps_save_profile`이 그대로 받는다(구매와 같은 저장 길). 스키마는 바뀌지 않는다. 방장 판정이라 고친 클라이언트가 값을 안 내는 것은 막지 못한다(다른 보상과 같은 한계, docs/SECURITY.md).
+
+## 11. 적 이름표 숨김 (`engine/nametag.js` · `engine/avatars.js` · `game/world.js`)
+
+사용자 요청: "적인데 닉네임이 보이는 버그."
+
+- 머리 위 이름표: **아군은 이름**(벽 너머로도). **적은 닉네임을 그리지 않는다.** 개인전은 다른 사람이 모두 적이라 아무 이름도 뜨지 않는다.
+- 상태 표시는 남긴다: 개인전 부활 보호는 적에게도 '🛡'만(이름 없이, 35 m 안에서 벽에 가려지게), 폭파 미션의 폭탄 소지는 아군 이름 앞 '💣'.
+- World는 `avatars.add(id, { name, badge })`로 이름과 상태 표시를 따로 넘기고, 아군·적 판정과 글자는 `nametag.js`의 `tagText`·`tagShown`이 정한다.
+- 닉네임은 킬 피드·점수판·부활 패널('하늘에게 당했어요')에는 그대로 나온다.
+
+## 12. 16인방 (`game/session.js` · `ui/lobby.js` · `maps/collision.js` · `game/match.js` · `ui/scoreboard.js`)
+
+사용자 요청: "16인방 기능 추가."
+
+- **상한:** Cloudflare 중계(`transport: 'relay'`, 지금 설정)는 방마다 16명(팀전·폭파 미션 8:8, 개인전 16명). Supabase Realtime으로 되돌리면 무료 한도 때문에 예전처럼 6명.
+  net·중계 서버(`server/relay` 방 허브 상한 16)는 원래 16명을 받으므로 Worker는 다시 배포하지 않는다. 비용은 사람 수에 비례한다(server/relay/README.md 비용 표).
+- **방 만들기:** 최대 인원 −/＋와 빠른 선택 4·8·12·16명. 처음 값은 8명. 세션이 로비 화면에 `maxPlayers`(상한)를 넘긴다.
+- **스폰:** 맵 스폰은 팀당 4~5곳이라, 모자라면 원래 스폰 옆 빈자리를 **보조 자리**로 쓴다(`maps/collision.js crowdSpots`, 팀당 8·개인전 16·폭파 미션 진영당 8까지).
+  둘레 1.3 m·2.4 m 고리를 옆 → 뒤 → 앞 순서로 보고, 벽·턱·물·벽 너머·움직이는 지형의 길·폭파 구역은 피한다. 경기는 **맵 스폰을 다 쓴 뒤에만** 보조 자리를 쓴다(6명 방은 예전과 같다).
+  `npm run check:maps`가 맵마다 수와 설 자리를 검사한다(14개 맵 모두 통과).
+- **화면:** 점수판은 한 팀 6명·개인전 10명을 넘으면 줄을 줄이고, 개인전 순위는 두 칸으로 나눈다(가로 휴대폰은 두 팀을 나란히, 세로로 좁은 화면의 팀전은 큰 점수 줄을 빼고 더 촘촘하게). 대기실은 명단이 길어지면 아래로 민다.
+- **한계:** 16명 실제 경기는 아직 못 해 봤다(가짜 허브 16명 세션 시험·맵 시험만). 느린 기기는 아바타 15명을 그리기 버거울 수 있다.

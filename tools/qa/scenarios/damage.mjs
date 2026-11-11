@@ -355,6 +355,35 @@ export default {
     t.check(!reborn.respawn, '부활하면 부활 패널이 닫힌다', reborn);
     t.errorsOk('피격과 부활');
 
+    t.setSection('즉시 부활(E)');
+    // 다시 쓰러진 뒤 부활 패널의 'E 즉시 부활 · 5 P'를 보고 E를 누르면 3초를 기다리지 않고 나온다(연습장 = 봇 킬 보상 한 번).
+    // 저절로 부활해도 값은 나가지 않으므로, 5 P가 줄었는지와 경기의 instant spawn이 즉시 부활의 증거다
+    await readyTarget(page, open);
+    await lockPointer(page);   // 일시정지에서 돌아온 뒤 잠금이 풀려 있으면 입력이 꺼져 E가 들어가지 않는다
+    await page.fn(() => {
+      const qa = window.__qa, p = qa.ctx.player.state, b = qa.run.bots[0];
+      const dx = p.pos[0] - b.body.pos[0], dz = p.pos[2] - b.body.pos[2], dy = (p.pos[1] + 1.2) - (b.body.pos[1] + 1.6);
+      b.yaw = Math.atan2(-dx, -dz);
+      b.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+      b.brain.think = (dt, view) => ({ forward: 0, strafe: 0, jump: false, walk: false, yawDelta: 0, pitchDelta: 0, fire: true, zoom: false, reload: view.self.ammo.mag === 0, slot: null });
+    });
+    await page.waitFor('!__qa.world.localAlive', 20000, { intervalMs: 50, label: '봇에게 다시 쓰러짐' });
+    // 부활(3초)이 저절로 오기 전에 한 번에 읽고 바로 누른다(느린 헤드리스에서는 화면을 찍는 동안 3초가 지날 수 있다)
+    const dead = await page.fn(() => {
+      const qa = window.__qa;
+      qa.run.bots[0].brain.think = () => ({ forward: 0, strafe: 0, jump: false, walk: false, yawDelta: 0, pitchDelta: 0, fire: false, zoom: false, reload: false, slot: null });
+      return { quick: qa.text('.sk-rsp-quick'), points: qa.ctx.account.profile.points, left: qa.text('.sk-rsp-num'), enabled: qa.ctx.input.enabled };
+    });
+    await page.press('KeyE');
+    const quick = await page.waitFor('__qa.world.localAlive', 2500, { intervalMs: 50, label: '즉시 부활' }).then(() => true, () => false);
+    t.check(/E\s*즉시 부활 · 5 P/.test(dead.quick), '부활 패널에 E 즉시 부활 · 5 P', dead);
+    t.check(quick, 'E를 누르면 나온다', dead);
+    const pointsBefore = dead.points;
+    t.check((await page.eval('__qa.ctx.account.profile.points')) === pointsBefore - 5, '즉시 부활에 5 P를 낸다', { pointsBefore, now: await page.eval('__qa.ctx.account.profile.points') });
+    t.check(await page.eval(`!__qa.visible('.sk-rsp') && __qa.ctx.player.state.hp === 100`), '부활 패널이 닫히고 체력이 찬다');
+    t.check(await page.eval(`__qa.match.some((e) => e.type === 'spawn' && e.instant === true)`), '경기가 즉시 부활로 내보낸 spawn에 instant가 붙는다');
+    t.errorsOk('즉시 부활(E)');
+
     t.setSection('내가 이기는 경기');
     page = await openGame(t, 'sandbox=alley&ruleset=knife&mode=ffa&bots=1&killtarget=5&difficulty=hard&timescale=2', { profile: { nickname: '테스터', points: 500, createdAt: 1 }, settings: LOW_QUALITY, width: 640, height: 360, screen: 'sandbox' });
     await waitRun(page);

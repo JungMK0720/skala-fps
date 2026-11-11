@@ -2,7 +2,7 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 포인트 규칙(순수 함수). docs/DESIGN.md 7절의 표를 데이터로 두고 경기 보상과 비밀 스팟 보상을 계산한다.
- *          개인전 승리 보상은 목표 킬에 비례해 줄인다(20킬 판이 표의 값 전부).
+ *          개인전 승리 보상은 목표 킬에 비례해 줄인다(20킬 판이 표의 값 전부). 개인전 즉시 부활 값도 여기서 정한다.
  *          가격은 weapons/defs.js(무기), core/consts.js EMOTES(이모트), core/avatar-defs.js AVATARS(캐릭터)가 정본이다. 값이 바뀌면 서버 가격표(supabase/schema.sql)와 설계 문서를 함께 고친다.
  */
 import { WEAPON_IDS, getDef } from '../weapons/defs.js';
@@ -19,6 +19,29 @@ export const MATCH_POINTS = Object.freeze({
   bot: Object.freeze({ kill: 5, headshot: 3, win: 30, finish: 10 }),
   multi: Object.freeze({ kill: 10, headshot: 5, win: 60, finish: 20 })
 });
+
+/**
+ * 개인전 즉시 부활(부활 대기 중 E) 한 번의 값 = 그 경기의 킬 보상 한 번(연습장 5 · 멀티 10). 난이도 배율은 붙지 않는다.
+ * 경기 보상(matchReward)과 따로, 방장(연습장은 경기)이 출격을 확정한 그 순간 계정에서 낸다(account.spendPoints). 모자라면 쓸 수 없다.
+ */
+export const QUICK_RESPAWN_POINTS = Object.freeze({ bot: MATCH_POINTS.bot.kill, multi: MATCH_POINTS.multi.kill });
+
+/** 즉시 부활 한 번의 값. online = 멀티플레이 경기인가 */
+export function quickRespawnCost(online) {
+  return online ? QUICK_RESPAWN_POINTS.multi : QUICK_RESPAWN_POINTS.bot;
+}
+
+/**
+ * 결과 화면용 보상에 이번 경기의 즉시 부활 값을 한 줄로 더한다(포인트는 부활할 때 이미 냈다. 보유 포인트 points는 그대로).
+ * reward = recordMatch 결과 { gained, breakdown, points? }, count = 즉시 부활 횟수, spent = 낸 포인트 합.
+ * → 새 객체: gained = 이번 판의 순변화(보상 − 즉시 부활), breakdown 합은 여전히 gained와 같다. 낸 것이 없거나 보상이 없으면 reward 그대로
+ */
+export function withQuickRespawns(reward, quickCount, spent) {
+  const n = count(quickCount), paid = count(spent);
+  if (!reward || typeof reward !== 'object' || !n || !paid) return reward;
+  const lines = Array.isArray(reward.breakdown) ? reward.breakdown : [];
+  return { ...reward, gained: (Number(reward.gained) || 0) - paid, breakdown: [...lines, { label: `즉시 부활 ×${n}`, points: -paid }] };
+}
 
 /** 봇전에만 적용한다 */
 export const DIFFICULTY_BONUS = Object.freeze({

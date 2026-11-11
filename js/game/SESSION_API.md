@@ -44,7 +44,8 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 | `playerName` | 계정 닉네임 → 이 값 → `ui.getPlayerName()` → `ctx.session.name` | 24자. 닉네임이 없을 때만 `open({ name })`으로 바꿀 수 있다 |
 | `bus` | `ctx.bus` | `account:change`를 듣는다(닉네임·장비 변경) |
 | `settings` | | 받기만 한다(점수판 Tab은 World가 처리) |
-| `maxPlayers` | **6** | 방 만들기 최대 인원(무료 플랜 한도 3:3). UI에서 온 `max`는 2..6으로 자른다 |
+| `maxPlayers` | **6** | Supabase Realtime(`net.transport === 'supabase'`)일 때 방 만들기 최대 인원(무료 플랜 한도 3:3). UI에서 온 `max`는 2..6으로 자른다 |
+| `relayMaxPlayers` | **16** | Cloudflare 중계(`net.transport === 'relay'`)일 때 최대 인원(16인방 8:8, MODES.md 12절). 로비 화면에 `maxPlayers`로 넘기고, 고르지 않은 방은 8명 |
 | `mapId` | `'jetty'` | 맵 id가 없을 때. 규칙에 안 맞으면 그 규칙의 첫 맵으로 바꾼다 |
 | `rules` | | `match.js` rules 덮어쓰기(테스트: `{ loadoutMs: 2500, roundEndMs: 1500 }`). `maxPlayers`·`maxPerTeam`은 방 인원으로, `ruleset`은 방 메타로 정한다 |
 | `ffaRules` | | FFA일 때만 더 얹는 rules(테스트: `{ killTarget: 5, respawnMs: 1200, spawnProtectMs: 400 }`). `mode:'ffa'`는 세션이 넣는다 |
@@ -79,8 +80,8 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 ## 3. 흐름
 
 ### 로비
-- `ui.show('lobby', { rooms, loading, error, joining, name })`, `net.lobby.subscribe`로 실시간 갱신한다. 방에 들어가면 구독을 끈다(presence 예산). 방 항목에 `mode`('team'|'ffa')와 `ruleset`이 실린다(net 로비 presence). 목록 배지는 "칼전 · 개인전"이고, 규칙이 없는 옛 항목은 클래식으로 읽는다.
-- `lobby:create {name,mapId,max,mode,ruleset,killTarget?}` → `net.createRoom({ ..., mode, ruleset, killTarget? })`(max 2..6, mode·ruleset·개인전 목표 킬(5~20으로 자른다)은 방 메타, 맵은 `maps.mapsForRuleset(ruleset)`에 있어야 하고 아니면 그 규칙의 첫 맵, 이름이 비면 "닉네임의 방"). `lobby:join {roomId}` → `net.joinRoom`. 실패하면 `error`에 한국어 사유(`ROOM_FULL` → "방이 가득 찼어요." 등).
+- `ui.show('lobby', { rooms, loading, error, joining, name, maxPlayers })`(`maxPlayers` = 이 연결로 만들 수 있는 최대 인원: 중계 16 · Supabase 6), `net.lobby.subscribe`로 실시간 갱신한다. 방에 들어가면 구독을 끈다(presence 예산). 방 항목에 `mode`('team'|'ffa')와 `ruleset`이 실린다(net 로비 presence). 목록 배지는 "칼전 · 개인전"이고, 규칙이 없는 옛 항목은 클래식으로 읽는다.
+- `lobby:create {name,mapId,max,mode,ruleset,killTarget?}` → `net.createRoom({ ..., mode, ruleset, killTarget? })`(max 2..최대 인원(중계 16 · Supabase 6), 없으면 8, mode·ruleset·개인전 목표 킬(5~20으로 자른다)은 방 메타, 맵은 `maps.mapsForRuleset(ruleset)`에 있어야 하고 아니면 그 규칙의 첫 맵, 이름이 비면 "닉네임의 방"). `lobby:join {roomId}` → `net.joinRoom`. 실패하면 `error`에 한국어 사유(`ROOM_FULL` → "방이 가득 찼어요." 등).
 - 연결 중에 누른 방 만들기·참가는 연결되면 실행한다. 방에서 나오는 중(`leaving`: 서버 답을 기다리는 동안 로비 화면이 먼저 뜬다)에 누른 것은 다 나온 뒤에 실행한다(마지막에 누른 것 하나). 그 사이 ← 메뉴를 누르거나 연결이 끊기면 버린다.
 - `lobby:refresh`는 다시 구독(연결 실패 상태면 다시 연결), `lobby:back`은 `'exit'` + core `menu`.
 
@@ -183,6 +184,7 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 | loadout | 처음 무기 선택(전체 화면, "개인전 · 무기 선택", 규칙의 무기 목록) |
 | live · `spawn` | `{ id, spawn, loadout, protectMs }` — 나 → `world.spawnLocal({ id, name, team:null, spawn, loadout, protectMs })`(보호 🛡·부활 대기 지움), 남 → 액터를 그 자리로 순간이동 + `world.setActorProtect(id, ms)` |
 | 죽음 | `world.killLocal` + `world.setRespawn({ inMs, killer, weaponName })`(World가 "💀 하늘에게 당했어요 · 3초 뒤 부활"을 셈) + `ui.show('loadout', { compact:true, ... })`(다음 출격 무기, 화면을 덮지 않음). 고르면 `setLoadout`(FFA는 live에도 허용, **다음 부활부터**). 스냅샷 `respawnIn`으로 남은 시간을 다시 맞춘다 |
+| 즉시 부활 | 죽을 때(늦게 들어와 기다릴 때도) `world.setQuickRespawn({ cost: 10, ok: 포인트 ≥ 10 })`. World `quickRespawn`(E · 휴대폰 '부활' 버튼) → `sync.sendRespawn()` → 방장 `m.respawnNow(from)` → `spawn { instant:true }`. 요청한 사람만 그 spawn을 받을 때 `account.spendPoints(10)`(5초 안에 청한 것만) + 알림 "⚡ 즉시 부활 · −10 P". 결과 화면 보상에 '즉시 부활 ×N' 줄(`economy.withQuickRespawns`). MODES.md 10절 |
 | HUD | `world.setRound({ mode:'ffa', phase, timeLeftMs(경기 남은 시간), kills, rank, total, leaderName, leaderKills, target })` → "🎯 7킬 · 2위/5 · 1위 하늘 12 / 20". HUD는 World가 그린다(세션은 `ui.hud.set`으로 점수·부활·보호를 넣지 않는다) |
 | 원격 보호 | 매 프레임 `setActorState(id, { ..., protect })`(스냅샷 `protect`) — 먼저 쏘면 바로 꺼짐 |
 | 늦게 참가 | 방장이 명단에서 보고 바로 `addPlayer` → match가 죽은 상태로 넣고 `respawnMs` 뒤 `spawn`. 들어온 사람은 부활 대기 표시 + compact 로드아웃 |

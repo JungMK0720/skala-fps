@@ -116,6 +116,8 @@ export const FFA_REASON_LABELS = Object.freeze({
 });
 /** 부활 직후 이 시간 동안은 그 사람 위치를 스폰 지점으로 본다(월드·네트워크가 아직 옮기기 전) */
 const SPAWN_FRESH_MS = 1000;
+/** 개인전 즉시 부활(respawnNow): 부활까지 이보다 적게 남았으면 거절한다(곧 저절로 나오는데 포인트만 내지 않게). 화면 안내는 조금 더 일찍 숨긴다 */
+export const QUICK_RESPAWN_MIN_LEFT_MS = 500;
 
 /** 방장 시계로 연사 간격을 잴 때(claim.t 생략) 네트워크 지터 몫으로 더 주는 허용오차 */
 const HOST_JITTER_MS = 250;
@@ -353,19 +355,24 @@ function sanitizeRules(r) {
   return Object.freeze(out);
 }
 
+/** 스폰 목록 → [{ x, z, rotY, y? }] (모르는 칸은 버린다) */
+function sanitizeSpawnList(list) {
+  const out = [];
+  for (const s of Array.isArray(list) ? list : []) {
+    if (!s || typeof s !== 'object') continue;
+    const x = toNum(s.x), z = toNum(s.z), r = toNum(s.rotY), y = toNum(s.y);
+    if (!Number.isFinite(x) || !Number.isFinite(z)) continue;
+    const o = { x: round2(x), z: round2(z), rotY: Number.isFinite(r) ? Math.round(r * 1000) / 1000 : 0 };
+    if (Number.isFinite(y)) o.y = round2(y);
+    out.push(o);
+  }
+  return out;
+}
+
 function sanitizeSpawns(sp) {
   const out = { owner: [], charterer: [], ffa: [] };
   if (!sp || typeof sp !== 'object') return out;
-  for (const team of [...TEAM_IDS, 'ffa']) {
-    for (const s of Array.isArray(sp[team]) ? sp[team] : []) {
-      if (!s || typeof s !== 'object') continue;
-      const x = toNum(s.x), z = toNum(s.z), r = toNum(s.rotY), y = toNum(s.y);
-      if (!Number.isFinite(x) || !Number.isFinite(z)) continue;
-      const o = { x: round2(x), z: round2(z), rotY: Number.isFinite(r) ? Math.round(r * 1000) / 1000 : 0 };
-      if (Number.isFinite(y)) o.y = round2(y);
-      out[team].push(o);
-    }
-  }
+  for (const team of [...TEAM_IDS, 'ffa']) out[team] = sanitizeSpawnList(sp[team]);
   return out;
 }
 
@@ -418,9 +425,13 @@ function rankRows(sorted) {
   });
   return out;
 }
-/** FFA 스폰 후보 = owner + charterer + ffa. 하나도 없으면 원점 둘레 8곳(가운데를 바라봄) */
-function ffaSpawnList(spawns) {
+/**
+ * FFA 스폰 후보 = owner + charterer + ffa. 정원(want)보다 적으면 보조 자리(extra, 16인방)를 정원까지 더한다.
+ * 하나도 없으면 원점 둘레 8곳(가운데를 바라봄)
+ */
+function ffaSpawnList(spawns, extra = [], want = 0) {
   const list = [...spawns.owner, ...spawns.charterer, ...spawns.ffa].map((s) => ({ ...s }));
+  for (const s of extra) { if (!list.length || list.length >= want) break; list.push({ ...s }); }
   if (list.length) return list;
   return Array.from({ length: 8 }, (_, i) => {
     const t = (i / 8) * Math.PI * 2;
@@ -450,14 +461,20 @@ export function createMatch(opts = {}) {
   const pickable = pickableWeapons(rules.ruleset);   // setLoadout이 받는 무기
   const rng = makeRng(o);
   const spawns = sanitizeSpawns(o.spawns);
+  // 사람이 스폰보다 많을 때(16인방)만 쓰는 보조 자리: spawns.extra{owner,charterer,ffa}·mission.extra{attack,defense} (maps/collision.js crowdSpots)
+  const extraSpawns = sanitizeSpawns(o.spawns && o.spawns.extra);
   const ffa = rules.mode === 'ffa';
   const bombMode = rules.mode === 'bomb';
   const mission = bombMode ? normalizeMission(o.mission) : null;
+  const missionExtra = {
+    attack: sanitizeSpawnList(bombMode && o.mission && o.mission.extra && o.mission.extra.attack),
+    defense: sanitizeSpawnList(bombMode && o.mission && o.mission.extra && o.mission.extra.defense)
+  };
   const roundOffset = Math.max(0, Math.floor(toNum(o.roundOffset) || 0));
   const chooseCarrier = typeof o.chooseCarrier === 'function' ? o.chooseCarrier : null;
   const getPositions = typeof o.getPositions === 'function' ? o.getPositions : null;
   const floorAt = typeof o.floorAt === 'function' ? o.floorAt : null;
-  const ffaSpots = ffa ? ffaSpawnList(spawns) : [];
+  const ffaSpots = ffa ? ffaSpawnList(spawns, extraSpawns.ffa, rules.maxPlayers) : [];
   const spotUsed = [];       // FFA: 스폰 지점별 마지막 사용 시각(방장 시계)
   let recentSpots = [];      // FFA: 최근에 쓴 지점 번호(마지막 2곳)
   let liveStartAt = 0;       // FFA: live가 시작된 방장 시각
@@ -541,11 +558,13 @@ export function createMatch(opts = {}) {
     events.push(ev);
   }
 
-  function spawnFor(pool, i, team) {
-    if (pool.length) {
-      const s = { ...pool[i % pool.length] };
-      const k = Math.floor(i / pool.length);
-      if (k > 0) s.x = round2(s.x + 1.2 * k);   // 스폰보다 인원이 많을 때만: 옆으로 비켜 세운다
+  /** 팀의 i번째 사람 자리: 섞은 스폰(pool) → 보조 자리(extras, 16인방) 순서. 그래도 모자라면 옆으로 비켜 세운다 */
+  function spawnFor(pool, extras, i, team) {
+    const all = pool.length && extras.length ? pool.concat(extras) : pool;
+    if (all.length) {
+      const s = { ...all[i % all.length] };
+      const k = Math.floor(i / all.length);
+      if (k > 0) s.x = round2(s.x + 1.2 * k);   // 스폰·보조 자리보다 인원이 많을 때만
       return s;
     }
     const side = team === 'owner' ? -1 : 1;     // 맵 스폰이 없을 때 대체값(겹치지 않게 줄 세움)
@@ -559,6 +578,14 @@ export function createMatch(opts = {}) {
       if (list.length) return list;
     }
     return spawns[team];
+  }
+  /** spawnPool과 짝인 보조 자리(진영 스폰을 쓰면 진영 보조 자리) */
+  function spawnExtras(team) {
+    if (bombMode && mission) {
+      const side = team === attackTeam ? 'attack' : 'defense';
+      if (mission[side].length) return missionExtra[side];
+    }
+    return extraSpawns[team];
   }
 
   function startRound(events) {
@@ -576,9 +603,10 @@ export function createMatch(opts = {}) {
     if (bombMode) resetBombRound();
     for (const team of TEAM_IDS) {
       const pool = shuffle(spawnPool(team).map((s) => ({ ...s })), rng);
+      const extras = spawnExtras(team);
       let i = 0;
       for (const p of players.values()) {
-        if (p.playing && p.team === team) assigned[p.id] = spawnFor(pool, i++, team);
+        if (p.playing && p.team === team) assigned[p.id] = spawnFor(pool, extras, i++, team);
       }
     }
     const ev = { type: 'roundStart', round, replay: !!prev && prev.winner === null, spawns: assigned, score: { ...score }, ruleset: rules.ruleset };
@@ -1382,7 +1410,8 @@ export function createMatch(opts = {}) {
     return (free.length ? free : order)[0];
   }
 
-  function spawnPlayer(events, p, at, raw) {
+  /** instant: 즉시 부활(respawnNow)로 나간 출격이면 spawn 이벤트에 instant:true를 싣는다(요청한 사람이 그때 포인트를 낸다) */
+  function spawnPlayer(events, p, at, raw, instant) {
     const idx = pickSpot(p, at, raw);
     const base = ffaSpots[idx];
     let k = 0;   // 같은 지점을 방금 쓴 사람이 있으면(지점보다 사람이 많을 때만) 옆으로 비켜 세운다
@@ -1399,7 +1428,28 @@ export function createMatch(opts = {}) {
     clearFireRecord(p);              // 새 목숨: 무기 시계·연사 기록 새로
     p.grenades = 0;                  // 수류탄은 목숨마다 1개
     p.lastSpawn = { idx, x: spawn.x, z: spawn.z, at };
-    events.push({ type: 'spawn', id: p.id, spawn, loadout: p.loadout, protectMs: Math.max(0, Math.round(p.protectUntil - now)), ruleset: rules.ruleset });
+    const ev = { type: 'spawn', id: p.id, spawn, loadout: p.loadout, protectMs: Math.max(0, Math.round(p.protectUntil - now)), ruleset: rules.ruleset };
+    if (instant) ev.instant = true;
+    events.push(ev);
+  }
+
+  /**
+   * (개인전) 즉시 부활: live 중에 죽어서 부활을 기다리는 사람을 지금 출격시킨다(늦게 들어와 첫 출격을 기다리는 사람도 같다).
+   * 스폰 고르기·보호 시간은 평소 부활과 같다. 부활까지 QUICK_RESPAWN_MIN_LEFT_MS보다 적게 남았으면 거절한다(곧 저절로 나온다).
+   * 포인트는 경기가 모른다. 요청한 사람이 instant:true인 자기 spawn을 받았을 때 자기 계정에서 낸다(docs/MODES.md 10절).
+   */
+  function respawnNow(idRaw) {
+    if (disposed) return [];
+    const id = normId(idRaw);
+    if (!ffa) return reject('respawnNow', 'not_ffa', id);
+    if (phase !== 'live') return reject('respawnNow', 'not_live', id);
+    const p = players.get(id);
+    if (!p || !p.connected || !p.playing) return reject('respawnNow', 'unknown_player', id);
+    if (p.alive || p.respawnAt == null) return reject('respawnNow', 'not_waiting', id);
+    if (p.respawnAt - now < QUICK_RESPAWN_MIN_LEFT_MS) return reject('respawnNow', 'too_late', id);
+    const events = [];
+    spawnPlayer(events, p, Math.max(now, liveStartAt), readPositions(), true);
+    return events;
   }
 
   function ffaRanking() {
@@ -1509,7 +1559,7 @@ export function createMatch(opts = {}) {
   applyCarry(o.carry);
 
   return {
-    tick, addPlayer, removePlayer, setTeam, setLoadout, start, claimHit, claimExplosion, bombIntent, snapshot, dispose,
+    tick, addPlayer, removePlayer, setTeam, setLoadout, start, claimHit, claimExplosion, bombIntent, respawnNow, snapshot, dispose,
     /** 읽기 전용 뷰. 접근할 때마다 새 복사본(= applySnapshot(snapshot())) */
     get state() { return applySnapshot(snapshot()); },
     get rules() { return rules; },

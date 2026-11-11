@@ -38,6 +38,7 @@ import { createBot, pickBotWeapon, botLoadout, loadoutKey } from './bots.js';
 import { BOMB, BOMB_REASON_LABELS, siteAt, within, otherTeam } from './mission.js';
 import { buildNavGrid } from './navgrid.js';
 import { meleeTrace } from './world.js';
+import { quickRespawnCost, withQuickRespawns } from '../account/economy.js';
 import { h, btn } from '../ui/dom.js';
 import { sheet, createModal, mapCard } from '../ui/parts.js';
 
@@ -242,6 +243,8 @@ export function createPractice({ ctx, world, ui }) {
     let resultsAt = 0, resultsEv = null;
     let recorded = false, reward = null;          // 경기당 한 번만 계정에 기록한다
     let myHalfShots = 0, myKnifeKills = 0;
+    let quickCount = 0, quickPaid = 0;            // 개인전 즉시 부활(E): 낸 횟수·포인트(결과 화면 줄)
+    const quickCost = quickRespawnCost(false);
     const alive = new Map();                 // id → bool (팀전: 이번 라운드 / 개인전: 지금)
     const spawnOf = new Map();               // id → 최근 스폰
     const kills = new Map(), deaths = new Map(), heads = new Map();   // 경기 이벤트로 센다(개인전 HUD, 계정 기록)
@@ -692,6 +695,7 @@ export function createPractice({ ctx, world, ui }) {
         if (ffa) {
           const respawnMs = num(match.rules && match.rules.respawnMs, 3000);
           world.setRespawn({ inMs: respawnMs / opts.timeScale, killer: ev.killer !== ev.victim ? ev.killerName : '', weaponName: weapon ? weapon.short || weapon.name : '' });
+          offerQuick();
           if (ui) ui.show('loadout', { compact: true, weapons: pickList(), ruleset: rs.id, seconds: 0, selected: lastPick, title: '다음 부활 무기' });
         }
       } else {
@@ -728,7 +732,8 @@ export function createPractice({ ctx, world, ui }) {
         seconds: Math.round(simMs / opts.timeScale / 1000),
         ...(ffa ? { killTarget: opts.killTarget } : {})   // 짧은 개인전은 승리 보상을 줄인다(account/economy.js)
       });
-      if (res) reward = { gained: res.gained, breakdown: res.breakdown, points: res.points };
+      // 즉시 부활 값은 부활할 때 냈다. 결과 화면에는 이번 판의 순변화로 한 줄 더 보여 준다
+      if (res) reward = withQuickRespawns({ gained: res.gained, breakdown: res.breakdown, points: res.points }, quickCount, quickPaid);
     }
 
     function onMatchEnd(ev) {
@@ -801,6 +806,26 @@ export function createPractice({ ctx, world, ui }) {
     }));
     offs.push(world.on('loadoutPick', (p) => {
       if (p && p.id) { lastPick = p.id; apply(match.setLoadout(me.id, p.id)); }
+    }));
+    // 개인전 즉시 부활: 부활 대기 중 E(휴대폰 '부활' 버튼). 경기가 받아 주면(내 spawn에 instant) 그때 계정에서 낸다
+    function offerQuick() {
+      const acc = ctx.account;
+      const pts = acc && acc.profile ? Number(acc.profile.points) || 0 : 0;
+      world.setQuickRespawn(acc && typeof acc.spendPoints === 'function' ? { cost: quickCost, ok: pts >= quickCost } : null);
+    }
+    offs.push(world.on('quickRespawn', () => {
+      const acc = ctx.account;
+      if (!ffa || phase !== 'live' || meAlive() || !acc || typeof acc.spendPoints !== 'function') return;
+      if (!acc.profile || (Number(acc.profile.points) || 0) < quickCost) { offerQuick(); return; }
+      const evs = match.respawnNow(me.id);
+      if (evs.some((e) => e.type === 'spawn' && e.id === me.id && e.instant)) {
+        const r = acc.spendPoints(quickCost);
+        if (r && r.ok) {
+          quickCount += 1; quickPaid += r.spent;
+          if (ui) ui.hud.callout(`⚡ 즉시 부활 · −${r.spent} P`);
+        }
+      }
+      apply(evs);
     }));
     // 폭파 미션: 내 E 키(휴대폰 설치/해체 버튼) 의도 → 경기가 위치·시간을 재서 확정한다
     offs.push(world.on('bombAction', (a) => {
