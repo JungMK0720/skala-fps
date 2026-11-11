@@ -93,6 +93,8 @@ npm run serve
 
 **중계 서버**: [server/relay](server/relay/README.md)의 Cloudflare Worker + Durable Objects(로비 하나, 방마다 하나)가 멀티 메시지를 Supabase Realtime 대신 중계합니다. 서버가 프레임을 받는 사람에게 직접 나눠 주므로 Supabase 무료 한도에 묶이지 않습니다. 배포 설정은 이 서버(`https://skala-relay.skala-fps.workers.dev`)를 씁니다(`js/config.js`의 `transport: 'relay'`, `'supabase'`로 바꾸면 Supabase Realtime으로 돌아갑니다). 판정은 지금처럼 방장 브라우저가 합니다. 배포와 전환 절차는 [docs/CLOUDFLARE_SOP.md](docs/CLOUDFLARE_SOP.md)에 있습니다.
 
+**전체 공지**: 운영자가 운영자 패널(`dev/notice.html`)에서 보낸 공지가 게임 화면을 열어 둔 모든 사람의 화면 맨 위에 뜹니다. 받는 화면이 서명을 확인하므로 운영자 열쇠가 없으면 보낼 수 없습니다. 사용법과 열쇠 관리는 [docs/NOTICE.md](docs/NOTICE.md)에 있습니다.
+
 ## 개발
 
 ```bash
@@ -108,6 +110,7 @@ npm run check
 | [docs/SECURITY.md](docs/SECURITY.md) | 보안·치트 대비: 무엇을 어디서 검사하는지, 남은 한계, 권위 서버로 가는 길 |
 | [docs/BALANCE.md](docs/BALANCE.md) | 무기 밸런스 수치와 근거 |
 | [docs/MAP_GUIDE.md](docs/MAP_GUIDE.md) | 맵 만드는 법 |
+| [docs/NOTICE.md](docs/NOTICE.md) | 전체 공지: 운영자 패널 사용법, 열쇠 만들기·바꾸기, 동작 원리 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/CORE_API.md](docs/CORE_API.md) | 엔진 구조와 API |
 
 ## 저작권

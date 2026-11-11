@@ -6,8 +6,10 @@
  *          개인전 중간 참가를 볼 때만 셋째 클라이언트를 잠깐 띄운다(둘 중 하나가 나가면 기권승으로 끝나기 때문이다).
  *          실서버의 인증·전송 한도·지연은 검증하지 못한다. 페이지가 둘이어야 하는 유일한 시나리오라 작은 화면과 저사양으로 돌린다.
  *          --relay <주소|node>면 실시간 메시지만 중계 서버(server/relay)로 보내고, 닉네임·프로필 RPC는 그대로 가짜 Supabase가 받는다.
+ *          그때는 운영 설정처럼 전체 공지 연결도 켠다: 경기 중인 두 화면에 공지가 뜨는지, 연결이 끊겼다 돌아와도 공지 연결이 살아나는지 본다.
  */
 import { startRelay } from '../../../server/relay/src/node.js';
+import { createNoticeSender, generateNoticeKeys, importNoticePrivateKey } from '../../../js/net/notice.js';
 import { startFakeSupabase } from '../fake-supabase.mjs';
 import { LOW_QUALITY, clickFire, lockPointer, qaInit, readyGame, sleep, startPractice, waitIdle, waitTicks } from '../kit.mjs';
 
@@ -62,8 +64,10 @@ export default {
     const relay = t.relay === 'node' ? await startRelay({ port: 0 }) : null;
     const relayUrl = relay ? relay.url : (t.relay ? t.relay.replace(/\/+$/, '') : null);
     const relayLabel = relay ? 'Node 어댑터' : relayUrl;
+    // 중계 서버를 쓸 때는 운영 설정처럼 전체 공지도 켠다(게임 화면마다 로비 허브에 공지 연결이 하나 더 열린다)
+    const noticeKeys = relayUrl ? await generateNoticeKeys() : null;
     t.server.setConfig(relayUrl
-      ? `window.SKALA_CONFIG = { supabase: { url: ${JSON.stringify(fake.url)}, anonKey: 'sb_qa_fake' }, transport: 'relay', relay: { url: ${JSON.stringify(relayUrl)} } };`
+      ? `window.SKALA_CONFIG = { supabase: { url: ${JSON.stringify(fake.url)}, anonKey: 'sb_qa_fake' }, transport: 'relay', relay: { url: ${JSON.stringify(relayUrl)} }, notice: { key: ${JSON.stringify(noticeKeys.publicKey)} } };`
       : fake.config);
     if (relayUrl) t.log(`   실시간 메시지는 중계 서버(${relayLabel})로 보낸다`);
     let guest = null;
@@ -216,6 +220,38 @@ export default {
       await guest.bringToFront();
       t.errorsOk('경기 채팅');
 
+      if (noticeKeys) {
+        // 운영자 쪽은 Node에서 바로 보낸다(운영자 패널 화면은 notice 시나리오가 본다)
+        t.setSection('경기 중 전체 공지');
+        const feedOn = '__qa.game.notices.state().connected';
+        await eventually(t, host, feedOn, '방장 화면이 공지 연결을 열어 두었다', 15000);
+        await eventually(t, guest, feedOn, '손님 화면이 공지 연결을 열어 두었다', 15000);
+        const sender = createNoticeSender({ url: relayUrl, privateKey: await importNoticePrivateKey(noticeKeys.privateKey) });
+        try {
+          await sender.open();
+          const seenEnd = Date.now() + 5000;
+          while (sender.viewers < 2 && Date.now() < seenEnd) await sleep(100);
+          t.check(sender.viewers === 2, '운영자 쪽에서 게임 화면 둘이 보인다', sender.viewers);
+          const text = '5분 뒤에 서버를 점검해요';
+          const sent = await sender.send({ text, ttl: 20 });
+          t.check(sent.ok, '경기 중에 공지를 보낸다', sent);
+          const up = `(() => { const el = document.querySelector('.sk-notice'); return !!el && !el.hidden && el.classList.contains('is-in') && el.querySelector('.sk-notice-text').textContent === ${JSON.stringify(text)}; })()`;
+          await eventually(t, host, up, '방장 화면 맨 위에 공지가 뜬다', 6000);
+          await eventually(t, guest, up, '손님 화면 맨 위에 공지가 뜬다', 6000);
+          const still = '__qa.ctx.screen === "match" && __qa.ui.isVisible("hud") && __qa.world.localAlive';
+          t.check(await host.eval(still) && await guest.eval(still), '공지가 떠도 두 사람의 경기는 그대로다');
+          await t.shot('match-notice');
+          const down = await sender.retract();
+          t.check(down.ok, '공지를 내린다', down);
+          const gone = `document.querySelector('.sk-notice').hidden`;
+          await eventually(t, host, gone, '방장 화면에서 공지가 내려간다', 6000);
+          await eventually(t, guest, gone, '손님 화면에서 공지가 내려간다', 6000);
+        } finally {
+          sender.close();
+        }
+        t.errorsOk('경기 중 전체 공지');
+      }
+
       t.setSection('방장이 쏜다');
       await arrange(host, guest, spot);
       await waitTicks(host, 10);
@@ -265,6 +301,10 @@ export default {
           }
           await sleep(1500);
           t.check(await host.eval('__qa.ctx.screen === "match" && __qa.world.localAlive') && await guest.eval('__qa.ctx.screen === "match" && __qa.world.localAlive'), '다시 접속한 뒤에도 경기 화면이다');
+          if (noticeKeys) {
+            await eventually(t, host, '__qa.game.notices.state().connected', '끊겼다 돌아온 뒤 방장 화면의 공지 연결도 살아난다', 15000);
+            await eventually(t, guest, '__qa.game.notices.state().connected', '끊겼다 돌아온 뒤 손님 화면의 공지 연결도 살아난다', 15000);
+          }
         }
         await arrange(host, guest, spot);
         await waitTicks(host, 10);

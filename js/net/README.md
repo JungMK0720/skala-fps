@@ -12,6 +12,7 @@
 | `codec.js` | 상태 직렬화 도우미(반올림, 각도 양자화, 짧은 키, delta, 보간) |
 | `limits.js` | 무료 플랜 한도, 예산 계산(`frameCost`, `maxHz`), `TokenBucket`, `SlidingWindowLimiter` |
 | `hubsocket.js` | Cloudflare 중계 서버(`server/relay`)용 소켓 `HubSocket`. 겉모양이 `RealtimeSocket`과 같고 허브(로비·방)마다 WebSocket을 하나씩 연다(8절) |
+| `notice.js` | 전체 공지: 운영자가 서명한 한 줄을 로비 허브 presence에 올리고, 게임 화면이 서명을 확인해 띄운다(9절, [docs/NOTICE.md](../../docs/NOTICE.md)) |
 
 ---
 
@@ -304,3 +305,19 @@ Supabase는 메시지 **개수**로 한도를 세므로 크기보다 개수가 �
 - **presence**는 10.5초에 10번까지 바로 보낸다(Supabase는 31초 4번). 서버 한도는 10초 12번.
 - **하트비트**는 ref를 `'hb'`로 고정한 같은 글자다. 서버 객체가 잠든 채 런타임이 답한다. `net.socket.rtt`는 방 허브의 왕복 시간이다.
 - `net.transport`, `net.stats().transport`로 어느 전송인지 안다. `net.socket.simulateDrop()`은 모든 링크를 끊었다 다시 붙인다(QA).
+
+---
+
+## 9. 전체 공지 (`notice.js`)
+
+운영자가 보낸 공지를 게임 화면을 연 모든 사람에게 띄운다. 중계 서버(`transport: 'relay'`)에서만 동작하고 서버 코드는 바꾸지 않았다. 사용법은 [docs/NOTICE.md](../../docs/NOTICE.md).
+
+- **길**: 로비 허브의 presence. 로비 허브는 broadcast를 받지 않으므로(방 허브만 받는다) 공지는 presence 한 줄로 올린다. 올려 둔 동안 새로 접속한 화면도 `presence_state`로 받는다.
+- **한 줄**: `{ nv: 1, id, at, ttl, k: 'n' | 'x', t0, t1?, t2?, sig }`. 본문은 200자까지이고 100자씩 나눠 싣는다(서버가 글자 칸을 128자에서 자른다). `k: 'x'`는 그 `id`의 공지를 내리는 줄이다.
+- **서명**: ECDSA P-256 + SHA-256(WebCrypto). 서명 대상은 `JSON.stringify(['skala-notice', 1, id, at, ttl, k, 본문])`. 공개 열쇠는 `SKALA_CONFIG.notice.key`, 비밀 열쇠는 운영자만 가진다(`tools/make-notice-key.mjs`).
+  presence는 누구나 올릴 수 있으므로 받는 쪽이 서명·유효 시간(`at + ttl`, 시계 차이 5분 허용)·모양을 확인하고 틀린 줄은 버린다.
+- **받는 쪽** `createNoticeFeed({ url, publicKey, onShow, onHide })`: 게임의 `Net`과 별개로 로비 허브에 WebSocket 하나를 열고 presence를 읽는다(game/index.js가 부팅 때 연다. 메뉴·연습장·경기 어디서나 받는다).
+  자리 표시 `{ nf: 1 }` 한 줄을 올려 운영자 패널이 접속한 화면 수를 셀 수 있게 한다. 같은 공지는 다시 연결돼도 한 번만 띄우고, 늦게 받았으면 남은 시간만큼 띄운다(최소 4초).
+- **보내는 쪽** `createNoticeSender({ url, privateKey })`: `send({ text, ttl })`(앞의 공지를 바꾼다), `retract()`, 이벤트 `'state'`·`'viewers'`·`'notice'`. 운영자 패널(`dev/notice.html`, `js/admin/notice-panel.js`)이 쓴다.
+- **방 목록과 섞이지 않는다**: `Lobby`는 `roomId`가 있는 줄만 방으로 읽으므로 공지 줄과 자리 표시는 목록에 나오지 않는다(`tests/notice.test.mjs`).
+- 한계: 맞는 줄을 그대로 베껴 다시 올리는 것은 막지 못한다(운영자가 정한 시간 안에서만 통하고 내용은 못 바꾼다). Supabase 전송(`transport: 'supabase'`)에서는 공지가 오가지 않는다.

@@ -21,6 +21,7 @@ import { createResults } from './results.js';
 import { createPause } from './pause.js';
 import { createEmotes, emoteIndexAt, EMOTE_WHEEL } from './emotes.js';
 import { createChat } from './chat.js';
+import { createNoticeBanner } from './notice.js';
 import { NICKNAME_MAX, cleanNickname } from '../account/nickname.js';
 
 export { relativeAngle, DEFAULT_SETTINGS, emoteIndexAt, EMOTE_WHEEL };
@@ -142,6 +143,9 @@ export function createUI(rootEl, options = {}) {
     pause: createPause(ctx),
   };
   root.append(scope.el, ...Z_ORDER.map((n) => screens[n].el));
+  // 전체 공지 띠: 어느 화면 위에나 뜬다(화면 목록에 넣지 않는다. 화면을 바꿔도 내려가지 않는다)
+  const notice = createNoticeBanner(ctx);
+  root.append(notice.el);
 
   // 개인전: hud.respawn이 null로 돌아오면(부활) 하단 compact 로드아웃도 닫는다.
   ctx.hooks.respawnEnd = () => {
@@ -292,6 +296,12 @@ export function createUI(rootEl, options = {}) {
       set: (amount, opts) => scope.set(amount, opts),
       get: () => scope.amount,
     },
+    /** 전체 공지 띠(화면 맨 위). show({ id, text, ms }) → 띄웠으면 true, hide(id?) → 내렸으면 true, current() → 떠 있는 공지 또는 null */
+    notice: {
+      show: (o) => (disposed ? false : notice.show(o)),
+      hide: (id) => (disposed ? false : notice.hide(id)),
+      current: () => notice.current(),
+    },
 
     on(action, fn) {
       if (typeof fn !== 'function') return () => {};
@@ -331,6 +341,7 @@ export function createUI(rootEl, options = {}) {
       timers.clear();
       for (const off of cleanups.splice(0)) off();
       for (const s of Object.values(screens)) s.dispose();
+      notice.dispose();
       scope.dispose();
       handlers.clear();
       root.remove();

@@ -107,6 +107,10 @@ html.pc-touch .sk-slot-ico { font-size: 20px; }
 html.pc-touch .sk-top { top: calc(4px + env(safe-area-inset-top)); transform: translateX(-50%) scale(.72); transform-origin: top center; }
 html.pc-touch .sk-speed { top: 46px; bottom: auto; width: 96px; margin-left: -48px; }
 html.pc-touch .sk-killfeed { top: calc(48px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); max-width: 34vw; font-size: 11px; }
+/* 전체 공지 띠: 양쪽 위 귀퉁이의 버튼(일시정지·점수판)을 가리지 않게 폭을 줄인다 */
+html.pc-touch .sk-notice { top: calc(4px + env(safe-area-inset-top)); max-width: calc(100% - 230px); padding: 5px 10px 5px 8px; }
+html.pc-touch .sk-notice-text { font-size: 12.5px; }
+html.pc-touch .sk-ui.sk-has-notice .sk-speed { margin-top: var(--sk-notice-h, 0px); }
 /* 안내 줄은 눌러서 조작을 시작하거나 총을 버린다 */
 /* left 50% 절대 위치라 그냥 두면 화면 폭의 절반에서 줄이 바뀐다. max-content로 두어 max-width까지 한 줄로 쓴다 */
 /* 무기 교체 안내는 휴대폰에서 누르는 버튼이다(js/engine/touch.js onHudDown) */
