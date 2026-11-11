@@ -6,7 +6,10 @@
  */
 import { createWorld, solidToCollider, makeBox, rectSubtract, getGroundY, findFloor, overlapsCapsule, lineOfSight, raycastWorld } from '../engine/physics.js';
 import { buildTriggers, padVelocity, vec3 } from '../engine/triggers.js';
-import { createMovers, normalizeMover, moverPeakSpeed, moverSweep, MOVER_AXES, MOVER_MAX_SPEED, MOVER_MIN_TRAVEL } from '../engine/movers.js';
+import {
+  createMovers, normalizeMover, moverPeakSpeed, moverSweep, doorPassable,
+  MOVER_AXES, MOVER_MAX_SPEED, MOVER_MIN_TRAVEL, DOOR_LIMITS, DOOR_CLEARANCE, DOOR_SILL, DOOR_STUB
+} from '../engine/movers.js';
 import { toRad, LIMITS, TEAM_IDS, MATS, MOVE, PLAYER } from '../core/consts.js';
 
 /** 맵이 rulesets를 안 적었을 때 쓰는 값(DESIGN 5절) */
@@ -166,28 +169,65 @@ function checkProps(props, size, warnings) {
   });
 }
 
+/** 문(가까이 오면 열리는 움직이는 지형)의 door 칸 검사. 값의 범위는 engine/movers.js DOOR_LIMITS */
+function checkDoor(m, tag, warnings) {
+  const d = m.door;
+  if (d !== true && !(d && typeof d === 'object')) { warnings.push(`${tag} door must be true or { range, open, close, linger }`); return; }
+  if (d === true) return;
+  const L = DOOR_LIMITS;
+  const within = (key, lo, hi, unit) => {
+    if (d[key] === undefined) return;
+    if (!isNum(d[key]) || +d[key] < lo || +d[key] > hi) warnings.push(`${tag} door.${key} must be ${lo}..${hi} ${unit}`);
+  };
+  within('range', L.minRange, L.maxRange, 'm');
+  within('open', L.minTime, L.maxTime, 's');
+  within('close', L.minTime, L.maxTime, 's');
+  within('linger', 0, L.maxLinger, 's');
+}
+
 function checkMovers(movers, size, warnings) {
   const seen = new Set();
   movers.forEach((m, i) => {
     const tag = `movers[${i}]`;
     if (!m || typeof m !== 'object') { warnings.push(`${tag} is not an object`); return; }
+    const isDoor = m.door !== undefined && m.door !== null && m.door !== false;
     for (const k of ['x', 'y', 'z']) if (!isNum(m[k])) warnings.push(`${tag} ${k} must be a number`);
     for (const k of ['w', 'h', 'd']) if (!isPos(m[k])) warnings.push(`${tag} ${k} must be > 0`);
     if (!MOVER_AXES.includes(m.axis)) warnings.push(`${tag} axis "${m.axis}" must be x, y or z`);
     if (!isNum(m.dist) || +m.dist === 0) warnings.push(`${tag} dist must be a non-zero number`);
-    if (!isPos(m.period)) warnings.push(`${tag} period must be > 0`);
-    if (m.hold !== undefined && !(isNum(m.hold) && +m.hold >= 0)) warnings.push(`${tag} hold must be >= 0`);
-    if (m.phase !== undefined && !isNum(m.phase)) warnings.push(`${tag} phase must be a number (0..1)`);
+    if (isDoor) checkDoor(m, tag, warnings);
+    else {
+      if (!isPos(m.period)) warnings.push(`${tag} period must be > 0`);
+      if (m.hold !== undefined && !(isNum(m.hold) && +m.hold >= 0)) warnings.push(`${tag} hold must be >= 0`);
+      if (m.phase !== undefined && !isNum(m.phase)) warnings.push(`${tag} phase must be a number (0..1)`);
+    }
     if (m.mat !== undefined && !MATS.includes(m.mat)) warnings.push(`${tag} unknown mat "${m.mat}" → steel`);
     if (m.id !== undefined && m.id !== null) {
       if (seen.has(String(m.id))) warnings.push(`${tag} duplicate id "${m.id}"`);
       seen.add(String(m.id));
     }
     const spec = normalizeMover(m, i);
-    if (!spec) { warnings.push(`${tag} is ignored: it needs x, z, w, h, d, axis, dist, period and period/2 > hold`); return; }
-    if (spec.travel < MOVER_MIN_TRAVEL) warnings.push(`${tag} travels one way in ${round(spec.travel)} s (< ${MOVER_MIN_TRAVEL}); raise period or lower hold`);
-    const speed = moverPeakSpeed(spec);
-    if (speed > MOVER_MAX_SPEED) warnings.push(`${tag} peak speed ${round(speed)} m/s > ${MOVER_MAX_SPEED}; raise period or shorten dist`);
+    if (!spec) {
+      warnings.push(isDoor
+        ? `${tag} is ignored: a door needs x, z, w, h, d, axis and a non-zero dist`
+        : `${tag} is ignored: it needs x, z, w, h, d, axis, dist, period and period/2 > hold`);
+      return;
+    }
+    if (spec.door) {
+      // 문은 사람이 가까이 있으면 닫히지 않으므로 속도 한도를 두지 않는다. 대신 다 열렸을 때 지나갈 수 있어야 한다
+      if (!doorPassable(spec)) {
+        const len = spec.axis === 'x' ? spec.w : spec.d;
+        warnings.push(spec.axis !== 'y'
+          ? `${tag} door slides ${round(Math.abs(spec.dist))} m but is ${round(len)} m long; it must clear its doorway (dist >= ${round(len - DOOR_STUB)})`
+          : spec.dist > 0
+            ? `${tag} door rises only ${round(spec.dist)} m (< ${DOOR_CLEARANCE}); a standing player cannot pass under it`
+            : `${tag} door sinks ${round(-spec.dist)} m but is ${round(spec.h)} m tall; ${round(spec.h + spec.dist)} m stays above the floor (> ${DOOR_SILL})`);
+      }
+    } else {
+      if (spec.travel < MOVER_MIN_TRAVEL) warnings.push(`${tag} travels one way in ${round(spec.travel)} s (< ${MOVER_MIN_TRAVEL}); raise period or lower hold`);
+      const speed = moverPeakSpeed(spec);
+      if (speed > MOVER_MAX_SPEED) warnings.push(`${tag} peak speed ${round(speed)} m/s > ${MOVER_MAX_SPEED}; raise period or shorten dist`);
+    }
     const sweep = moverSweep(spec);
     if (size && (sweep.minX < -size.x / 2 || sweep.maxX > size.x / 2 || sweep.minZ < -size.z / 2 || sweep.maxZ > size.z / 2)) warnings.push(`${tag} leaves size while moving`);
   });

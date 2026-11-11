@@ -487,6 +487,17 @@ function buildWorld(ctx, opts) {
   }
 
   /* ---------- 맵 ---------- */
+  const doorList = [];
+  /**
+   * 문(가까이 오면 열리는 움직이는 지형, engine/movers.js)이 볼 사람들: 살아서 맵에 선 나와, 화면에 보이는 다른 사람(원격·봇)의 발 위치.
+   * 스폰 전이거나 죽은 뒤의 나는 세지 않는다. 문이 있는 맵에서만 틱마다 불린다
+   */
+  function doorBodies() {
+    doorList.length = 0;
+    if (local.spawned && local.alive) doorList.push(player.state.pos);
+    for (const t of ctx.getTargets()) if (t && t.pos) doorList.push(t.pos);
+    return doorList;
+  }
   let loadSeq = 0;                                // 가장 최근의 loadMap·unloadMap 번호. 늦게 끝난 loadMap을 알아챈다
   /** → 맵 정보. 불러오는 동안 unloadMap이나 새 loadMap이 불렸으면 null이고 아무것도 켜지 않는다 */
   async function loadMap(mapId, opt = {}) {
@@ -504,6 +515,7 @@ function buildWorld(ctx, opts) {
     map = built;
     // 움직이는 지형의 시계: 멀티는 세션이 준 방장 시계, 그 밖에는 World 시뮬레이션 시각(연습장 일시정지 중에는 멈춘다)
     built.setMoverClock(() => { const t = moverClock ? moverClock() : NaN; return Number.isFinite(t) ? t : clock; });
+    built.setMoverBodies(doorBodies);
     bombView.load(built.data);
     props.load(built.data, built.colliders);     // 기다리지 않는다: 표시 전용이고 cannon-es는 CDN에서 온다
     if (nades) nades.dispose();

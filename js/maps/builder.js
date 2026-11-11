@@ -13,6 +13,7 @@
  *   map.getGroundY(x, z[, fromY]) / map.raycastWorld(o, d, max) / map.traceShot(o, d, max, targets)
  *   map.update(dt, t, alpha)  // 장식·발판·포털 애니메이션, 움직이는 지형 메시 자리(alpha = 틱 사이 보간 비율)
  *   map.movers / map.tickMovers(dt) / map.setMoverClock(fn)  // 움직이는 지형(engine/movers.js). tickMovers는 틱마다 몸보다 먼저 부른다
+ *   map.setMoverBodies(fn)    // 문이 볼 사람들(살아 있는 사람의 발 위치 목록을 돌려주는 함수). 문이 없는 맵에서는 부르지 않는다
  *   map.dispose()
  *
  * 렌더: solids는 재질별로 한 메시에 합친다(드로우콜 ≈ 재질 수). 바닥(y=0)은 플레이 영역을 덮는 슬래브로 만들고,
@@ -151,7 +152,7 @@ export function buildMap(data, scene, opts = {}) {
     drawCalls++;
   }
 
-  // --- 움직이는 지형: 하나마다 메시 하나(원점 기준 상자). 움직이는 것임을 알아보게 위아래에 띠를 두른다 ---
+  // --- 움직이는 지형(문 포함): 하나마다 메시 하나(원점 기준 상자). 움직이는 것임을 알아보게 위아래에 띠를 두른다 ---
   const moverMeshes = [];
   for (const m of world.movers.list) {
     const s = m.spec;
@@ -163,7 +164,8 @@ export function buildMap(data, scene, opts = {}) {
     mesh.castShadow = !NO_SHADOW_MATS.has(s.mat);
     mesh.receiveShadow = true;
     mesh.position.set(s.x, s.y, s.z);
-    const trimMat = s.mat === 'yellow' ? 'metal_dark' : 'yellow';
+    // 오가는 지형은 노란 띠로 조심하라고 알리고, 문은 위아래에 문틀 같은 어두운 띠를 두른다
+    const trimMat = s.door ? (s.mat === 'wood_dark' ? 'metal_dark' : 'wood_dark') : (s.mat === 'yellow' ? 'metal_dark' : 'yellow');
     const tb = new GeoBatch();
     const edge = 0.02, ts = matScale(trimMat);
     const band = (y0, y1) => tb.addBox(-s.w / 2 - edge, y0, -s.d / 2 - edge, s.w / 2 + edge, y1, s.d / 2 + edge, ts, { skipTop: true, skipBottom: true });
@@ -186,7 +188,7 @@ export function buildMap(data, scene, opts = {}) {
       mesh.position.set(s.x + (s.axis === 'x' ? off : 0), s.y + (s.axis === 'y' ? off : 0), s.z + (s.axis === 'z' ? off : 0));
     }
   }
-  let moverClock = null, moverTime = 0;
+  let moverClock = null, moverTime = 0, moverBodies = null;
 
   if (scene) scene.add(group);
 
@@ -217,12 +219,14 @@ export function buildMap(data, scene, opts = {}) {
     lineOfSight: (a, b) => lineOfSight(world, a, b),
     /** 움직이는 지형의 시계: 초를 돌려주는 함수(멀티는 방장 시계). null이거나 숫자가 아니면 맵을 불러온 뒤 흐른 틱 시간을 쓴다 */
     setMoverClock(fn) { moverClock = typeof fn === 'function' ? fn : null; },
+    /** 문(가까이 오면 열리는 움직이는 지형)이 볼 사람들: 살아 있는 사람의 발 위치 목록([x, y, z] 또는 { x, y, z })을 돌려주는 함수. null이면 문은 닫힌 채다 */
+    setMoverBodies(fn) { moverBodies = typeof fn === 'function' ? fn : null; },
     /** 틱마다 한 번, 몸을 움직이기 전에 부른다. 충돌체를 이번 틱의 자리로 옮긴다 */
     tickMovers(dt) {
       if (world.movers.empty) return;
       moverTime += dt;
       const t = moverClock ? moverClock() : NaN;
-      stepMovers(world, Number.isFinite(t) ? t : moverTime);
+      stepMovers(world, Number.isFinite(t) ? t : moverTime, world.movers.doors && moverBodies ? moverBodies() : null);
     },
     update(dt, t, alpha = 1) {
       animateMaterials(dt);

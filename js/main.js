@@ -86,8 +86,8 @@ function fatal(msg, err) {
   ui.append(box);
 }
 
-/** 맵 만들기·치우기. 셰이더를 미리 준비해 첫 프레임에 끊기지 않게 한다. */
-function createMapHost({ maps, renderer, avatars }) {
+/** 맵 만들기·치우기. 셰이더를 미리 준비해 첫 프레임에 끊기지 않게 한다. bodies = 문(움직이는 지형)이 볼 사람 목록을 돌려주는 함수 */
+function createMapHost({ maps, renderer, avatars, bodies }) {
   let map = null;
   let loading = false;
   let queue = Promise.resolve();
@@ -131,6 +131,7 @@ function createMapHost({ maps, renderer, avatars }) {
     try {
       const t0 = performance.now();
       const built = buildMap(data, renderer.scene, { onWarn: (m) => console.warn(`[map:${id}]`, m) });
+      built.setMoverBodies(bodies);   // World가 맵을 받으면 자기 목록(스폰 전·죽은 뒤를 뺀다)으로 바꾼다
       renderer.setTheme(built.theme);
       map = built;
       await prewarm();
@@ -406,7 +407,15 @@ async function boot() {
   player.state.name = session.name;
 
   const maps = await import('./maps/index.js');
-  mapHost = createMapHost({ maps, renderer, avatars });
+  // 문(가까이 오면 열리는 움직이는 지형)이 볼 사람들: 살아 있는 내 몸과 사격 대상(다른 사람·봇)의 발 위치
+  const doorBodies = [];
+  const moverBodies = () => {
+    doorBodies.length = 0;
+    if (player.state.alive) doorBodies.push(player.state.pos);
+    for (const t of getTargets()) if (t && t.pos && t.alive !== false) doorBodies.push(t.pos);
+    return doorBodies;
+  };
+  mapHost = createMapHost({ maps, renderer, avatars, bodies: moverBodies });
   const machine = createScreenMachine();
   const targetProviders = new Set();
   const plugins = [];
