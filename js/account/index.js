@@ -26,6 +26,7 @@
  *                                 서버를 쓰면 시작할 때 fps_features를 한 번 묻고 avatars:true일 때만 연다. 오프라인·로컬은 늘 열려 있다.
  *                                 열리기 전 buy(캐릭터)는 { ok:false, reason:'closed' }다. 기본 캐릭터와 이미 가진 캐릭터 장착은 그대로 된다
  *   recordMatch의 summary에 knifeKills를 넣으면 전적에 쌓인다(선택).
+ *   account.spendPoints(n)        물건이 아닌 곳에 n 포인트를 쓴다(개인전 즉시 부활). → { ok, spent, points, reason? }, 모자라면 reason 'points'
  *
  * 닉네임 게이트는 'account:change'도 들어야 한다. 프로필을 잃어도 토큰이 남아 있으면 동기화가 끝난 뒤 닉네임이 돌아온다.
  */
@@ -39,7 +40,7 @@ import {
   normalizeProfile, normalizeStats, sameProfile, sameProgress, secretEntry
 } from './store.js';
 
-export { START_POINTS, isAvatarId, isEmoteId, matchReward, priceOf } from './economy.js';
+export { START_POINTS, isAvatarId, isEmoteId, matchReward, priceOf, quickRespawnCost } from './economy.js';
 export { cleanNickname, nicknameKey, validateNickname } from './nickname.js';
 
 export const SAVE_DEBOUNCE_MS = 2000;
@@ -434,6 +435,19 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     return { gained, breakdown, points: profile.points };
   }
 
+  /**
+   * 물건이 아닌 곳에 포인트를 쓴다(개인전 즉시 부활). 모자라면 쓰지 않는다. 서버(fps_save_profile)는 줄어든 포인트를 그대로 받는다.
+   * → { ok, spent, points, reason? }  reason: 'amount'(양수 정수가 아님) | 'points'(모자람)
+   */
+  function spendPoints(amount) {
+    const n = typeof amount === 'number' ? amount : NaN;   // 숫자만 받는다('10' 같은 글자는 거절)
+    if (!Number.isInteger(n) || n <= 0) return { ok: false, spent: 0, reason: 'amount', points: profile.points };
+    if (profile.points < n) return { ok: false, spent: 0, reason: 'points', points: profile.points };
+    profile.points -= n;
+    commit();
+    return { ok: true, spent: n, points: profile.points };
+  }
+
   /** secret: 맵 데이터의 { id, name, points? }. 같은 스팟은 한 번만 보상한다. */
   function findSecret(mapId, secret) {
     const id = secret && typeof secret === 'object' ? secret.id : secret;
@@ -538,6 +552,7 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     equipAvatar,
     isOwned,
     recordMatch,
+    spendPoints,
     findSecret,
     resetLocal,
     syncFromRemote,

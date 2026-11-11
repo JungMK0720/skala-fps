@@ -115,19 +115,25 @@ export function createScoreboard(ctx) {
     const ffa = mode === 'ffa';
     el.classList.toggle('is-ffa', ffa);
     scoreLine.hidden = ffa;
+    // 16인방: 줄이 많으면(개인전 10명 넘게, 팀전 한 팀 6명 넘게) 줄 높이를 줄여 Tab을 누른 채로 한눈에 들어오게 한다(스크롤할 수 없다)
+    const all = normStatPlayers(p);
+    const perTeam = Math.max(0, ...TEAM_KEYS.map((t) => all.filter((x) => x.team === t).length));
+    el.classList.toggle('is-crowded', ffa ? all.length > 10 : perTeam > 6);
     if (ffa) {
-      const rows = rankPlayers(normStatPlayers(p));
+      const rows = rankPlayers(all);
       const target = Math.max(1, Math.floor(num(p.target != null ? p.target : p.killTarget != null ? p.killTarget : p.score && p.score.target, FFA_TARGET)));
       const me = rows.find((x) => x.me);
       const m = p.mapName ? { name: p.mapName } : mapInfo(ctx.maps, p.maps, p.mapId);
       setText(title, `개인전 · 목표 ${target}킬`);
       setText(meta, [m && m.name, me ? `내 순위 ${me.rank}위 / ${rows.length}명` : `${rows.length}명`].filter(Boolean).join(' · '));
-      cols.replaceChildren(ffaTable(rows));
+      // 사람이 많으면(16인방) 순위를 두 칸으로 나눠 나란히 둔다. 세로 화면은 css가 다시 한 줄로 쌓는다
+      const half = Math.ceil(rows.length / 2);
+      cols.replaceChildren(...(rows.length > 10 ? [ffaTable(rows.slice(0, half)), ffaTable(rows.slice(half))] : [ffaTable(rows)]));
       return;
     }
     // 팀전과 폭파 미션: 팀별 두 표. 폭파 미션은 제목에 모드, 팀 머리에 공격/수비(attack = 이번 라운드 공격 팀)
     const bomb = mode === 'bomb';
-    const players = normStatPlayers(p);
+    const players = all;
     const sc = p.score || {};
     const target = Math.max(1, Math.floor(num(sc.target, 3)));
     const bestOf = Math.max(1, Math.floor(num(sc.bestOf, target * 2 - 1)));

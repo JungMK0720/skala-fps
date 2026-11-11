@@ -83,7 +83,7 @@ function pageSetup(opts) {
       if (!run || qa.hooked === run) return;
       qa.hooked = run;
       const m = run.match;
-      for (const name of ['tick', 'claimHit', 'claimExplosion', 'setLoadout', 'bombIntent']) {
+      for (const name of ['tick', 'claimHit', 'claimExplosion', 'setLoadout', 'bombIntent', 'respawnNow']) {
         const fn = m[name];
         m[name] = (...args) => {
           const evs = fn.apply(m, args);

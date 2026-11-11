@@ -13,7 +13,7 @@ import { PAD_HEIGHT_TOL, stepTriggers } from '../js/engine/triggers.js';
 import { moverBox, moverSweep, moverPeakSpeed } from '../js/engine/movers.js';
 import { SITE_IDS, normalizeMission, placeMission, siteAt, siteContains } from '../js/game/mission.js';
 import { NAV_EDGE, buildNavGrid } from '../js/game/navgrid.js';
-import { buildCollision, validateMap } from '../js/maps/collision.js';
+import { CROWD, buildCollision, missionCrowd, validateMap } from '../js/maps/collision.js';
 
 /** 새 맵 전용 요구 사항(팀 스폰 수, 개인전 스폰 수, 경고를 오류로 취급)을 적용할 id. rulesets가 있는 맵도 같다(테스트 맵 제외) */
 const NEW_MAPS = new Set(['alley', 'dojo', 'longshot', 'nexus', 'relay', 'railyard', 'observatory', 'cqb', 'sorthub']);
@@ -340,6 +340,24 @@ function checkSpawns(data, col, strict, out) {
   return seen.length;
 }
 
+/**
+ * 16인방 보조 자리(maps/collision.js crowdSpots): 팀마다 스폰 + 보조 자리가 CROWD.TEAM(8), 개인전 후보가 CROWD.FFA(16)에 닿아야 하고,
+ * 보조 자리도 스폰처럼 설 수 있어야 한다. 모자라면 경기가 사람을 1.2 m씩 옆으로 비켜 세워서 벽에 낄 수 있다
+ */
+function checkCrowd(col, out) {
+  const extra = col.spawns.extra || {};
+  const totals = {};
+  for (const team of [...TEAM_IDS, 'ffa']) {
+    const list = extra[team] || [];
+    list.forEach((p, i) => checkStanding(col.world, `spawns.extra.${team}[${i}]`, p.x, p.y, p.z, out));
+    const base = team === 'ffa' ? TEAM_IDS.reduce((n, t) => n + (col.spawns[t] || []).length, 0) + (col.spawns.ffa || []).length : (col.spawns[team] || []).length;
+    const want = team === 'ffa' ? CROWD.FFA : CROWD.TEAM;
+    totals[team] = base + list.length;
+    if (totals[team] < want) out.errors.push(`spawns.${team}: ${base} spawns + ${list.length} crowd spots < ${want}; a 16-player room would stack people 1.2 m apart (add spawns or clear room around them)`);
+  }
+  return totals;
+}
+
 function checkWalkability(data, col, out) {
   const nav = buildNavGrid(data);
   const { spawns } = col;
@@ -538,6 +556,19 @@ export function checkMission(data, nav, out = { errors: [], warnings: [] }, col 
       }
     });
   }
+  // 16인방 보조 자리: 진영마다 스폰 + 보조 자리가 CROWD.TEAM(8). 보조 자리도 설 수 있고 구역 밖이어야 한다
+  const crowd = missionCrowd(placed, world, col.bounds);
+  for (const side of MISSION_SIDES) {
+    const list = (crowd && crowd.extra && crowd.extra[side]) || [];
+    list.forEach((p, i) => {
+      const label = `mission.extra.${side}[${i}]`;
+      checkStanding(world, label, p.x, p.y, p.z, out);
+      const inside = siteAt(m.sites, p);
+      if (inside) out.errors.push(`${label} ${fmt(p.x, p.y, p.z)} is inside site ${inside.id}`);
+    });
+    if (placed[side].length + list.length < CROWD.TEAM) out.errors.push(`mission.${side}: ${placed[side].length} spawns + ${list.length} crowd spots < ${CROWD.TEAM}; a 16-player room would stack people 1.2 m apart`);
+    report[`${side}Crowd`] = list.length;
+  }
   const far = col.theme.fog[1];
   const seen = [];
   placed.attack.forEach((a, i) => placed.defense.forEach((b, j) => {
@@ -587,6 +618,7 @@ export function checkMap(id, data) {
   };
 
   out.los = checkSpawns(data, col, strict, out);
+  out.counts.crowd = EXEMPT_MAPS.has(id) ? null : checkCrowd(col, out);
   const nav = checkWalkability(data, col, out);
   out.nav = { nodes: nav.info.nodes, good: nav.info.good, ms: Math.round(nav.info.buildMs) };
   out.mission = checkMission(data, nav, out, col);
@@ -668,7 +700,8 @@ function printTable(reports) {
 
 /** 폭파 미션 줄: 진영 스폰 수, 구역마다 진영별 최단·평균 경로와 바닥 칸 */
 function printMission(m) {
-  console.log(`  mission: 공격 스폰 ${m.attack} · 수비 스폰 ${m.defense}${m.los ? ` · 서로 보이는 쌍 ${m.los}` : ''}`);
+  const crowd = (n) => (n ? ` + 보조 ${n}` : '');
+  console.log(`  mission: 공격 스폰 ${m.attack}${crowd(m.attackCrowd)} · 수비 스폰 ${m.defense}${crowd(m.defenseCrowd)}${m.los ? ` · 서로 보이는 쌍 ${m.los}` : ''}`);
   const side = (v) => (v ? `${Math.round(v.min)} m(평균 ${Math.round(v.avg)})` : '길 없음');
   for (const s of m.sites) console.log(`  ${s.id}: 공격 ${side(s.attack)} / 수비 ${side(s.defense)} · 바닥 ${s.nodes}칸 ${s.area} m² · ${s.name}`);
 }

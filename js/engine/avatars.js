@@ -6,12 +6,13 @@
 
 /*
  *   const avatars = createAvatars({ scene, camera });
- *   avatars.add(id, { name, team, avatar })  // 이미 있으면 갱신. avatar = 캐릭터 id(core/avatar-defs.js), 모르는 값은 기본 캐릭터
+ *   avatars.add(id, { name, team, avatar, badge })  // 이미 있으면 갱신. avatar = 캐릭터 id(core/avatar-defs.js), 모르는 값은 기본 캐릭터
+ *                                            // badge = 이름표 앞 상태 표시('🛡'·'💣'). 적의 이름표는 이름 없이 badge만(engine/nametag.js)
  *   avatars.push(id, t, state)               // 스냅샷 { pos:[x,y,z], yaw, pitch, moving, walking, crouch, alive, slot, weaponId, ... }, t = ms
  *   avatars.update(now, dt)                  // 매 프레임: now − delay(100 ms) 시점으로 보간 → 메시·히트박스 갱신
  *   avatars.getTargets()                     // raycastPlayers용 [{ id, pos, yaw, alive, crouch(0..1), team, name }] (보간된 화면 위치·자세)
  *   avatars.get(id).kill({ dir:[x,z] }) / .revive() / .setHeld(object3d) / .setName() / .setTeam() / .setAvatar(id)
- *   avatars.setLocalTeam(team)               // 아군 이름표는 벽 너머로도 보임
+ *   avatars.setLocalTeam(team)               // 아군 이름표는 벽 너머로도 보임. 적(개인전은 모두)은 이름을 숨기고 상태 표시만 35 m 안에서
  *   avatars.setLocalBody({ visible, pos, yaw, team, name, emote, crouch, slot, weaponId, avatar })  // 3인칭(이모트) 때 내 몸 (player.getBodyState())
  *   avatars.remove(id) / clear() / dispose()
  *   await avatars.prewarm(fn)                // 맵 로드 때: 모든 캐릭터 × 두 팀의 평소 몸·앉은 다리·이모트 리그 부품을 장면에 잠깐 넣고 fn(컴파일·한 번 그리기)
@@ -39,6 +40,7 @@ import * as THREE from 'three';
 import { TEAMS, TEAM_IDS, NET, HITBOX, PLAYER, EMOTE_BLEND, emoteById } from '../core/consts.js';
 import { AVATAR_IDS, DEFAULT_AVATAR, avatarIdOf } from '../core/avatar-defs.js';
 import { SnapshotBuffer, lerpAngle } from './interp.js';
+import { tagText, tagShown } from './nametag.js';
 import { RIG, NEUTRAL, makePose, lerpPose, sampleEmote, sideRot } from './emoteanim.js';
 
 const FONT = "'Pretendard','Noto Sans KR','Malgun Gothic','Apple SD Gothic Neo',system-ui,sans-serif";
@@ -932,6 +934,7 @@ class Avatar {
     this.id = id;
     this.mgr = mgr;
     this.name = opts.name || String(id);
+    this.badge = opts.badge ? String(opts.badge) : '';   // 이름표 앞 상태 표시(🛡 보호 · 💣 폭탄)
     this.team = TEAMS[opts.team] ? opts.team : 'charterer';
     this.avatarId = avatarIdOf(opts.avatar);   // 캐릭터(모르는 값은 기본)
     this.buffer = new SnapshotBuffer({ maxExtrapolate: 150 });
@@ -992,25 +995,36 @@ class Avatar {
     this.legL = mk(G.legL); this.legL.position.set(-0.11, 0, 0); this.hips.add(this.legL);
     this.legR = mk(G.legR); this.legR.position.set(0.11, 0, 0); this.hips.add(this.legR);
     this.body.add(this.hips);
-    // 이름표
+    this.buildTag();
+  }
+
+  isAlly() { return !!this.mgr.localTeam && this.mgr.localTeam === this.team; }
+
+  /** 이름표를 (다시) 만든다. 아군 = 상태 표시 + 이름(벽 너머로도), 적 = 상태 표시만(없으면 이름표 없음). 규칙은 engine/nametag.js */
+  buildTag() {
+    const ally = this.isAlly();
+    const text = tagText(this.name, this.badge, ally);
+    const y = this.tag ? this.tag.position.y : 2.18;
     if (this.tag) { this.tag.material.map.dispose(); this.tag.material.dispose(); this.root.remove(this.tag); }
-    const tex = makeNameTexture(this.name, this.team);
-    const smat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false });
+    const tex = makeNameTexture(text, this.team);
+    const smat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: !ally, fog: false });
     this.tag = new THREE.Sprite(smat);
     this.tag.scale.set(1.1, 0.275, 1);
-    this.tag.position.set(0, 2.18, 0);
+    this.tag.position.set(0, y, 0);
     this.tag.renderOrder = 10;
-    this.root.add(this.tag);
-    this.applyTagMode();
-  }
-
-  applyTagMode() {
-    const ally = this.mgr.localTeam && this.mgr.localTeam === this.team;
-    this.tag.material.depthTest = !ally;  // 아군은 벽 너머로도
     this.tag.userData.ally = ally;
+    this.tag.userData.text = text;
+    this.tag.visible = !!text && this.alive && !this.isLocal;
+    this.root.add(this.tag);
   }
 
-  setName(name) { if (name && name !== this.name) { this.name = String(name); this.build(); } }
+  /** 내 팀이 바뀌면(setLocalTeam) 아군·적이 바뀐 이름표만 다시 만든다(적이 되면 이름이 빠진다) */
+  applyTagMode() {
+    if (!this.tag || this.tag.userData.ally !== this.isAlly()) this.buildTag();
+  }
+
+  setName(name) { if (name && name !== this.name) { this.name = String(name); this.buildTag(); } }
+  setBadge(badge) { const b = badge ? String(badge) : ''; if (b !== this.badge) { this.badge = b; this.buildTag(); } }
   setTeam(team) { if (TEAMS[team] && team !== this.team) { this.team = team; this.build(); } }
   /** 캐릭터 바꾸기(모르는 id는 기본 캐릭터). 쓰러져 있거나 이모트 중이어도 다음 프레임부터 새 모양이다 */
   setAvatar(id) {
@@ -1087,7 +1101,7 @@ class Avatar {
     if (this.rig) { this.rig.root.visible = false; this.hips.visible = true; }
     this.body.rotation.set(0, 0, 0);
     this.body.position.set(0, 0, 0);
-    this.tag.visible = true;
+    this.tag.visible = !!this.tag.userData.text && !this.isLocal;   // 거리·생존은 다음 update가 다시 본다
   }
 
   /** 칼을 휘두르기 시작한다. 'stab'은 앞으로 내지르고, 나머지는 좌우를 번갈아 벤다 */
@@ -1197,14 +1211,13 @@ class Avatar {
       this.walkAmp = 0;
     }
 
-    // 이름표: 적은 35 m 넘으면 숨김
-    if (this.tag.visible !== (this.alive && this.visible)) this.tag.visible = this.alive && this.visible;
-    if (this.tag.visible && !this.tag.userData.ally && this.mgr.camera) {
-      const cp = this.mgr.camera.position;
-      const dist = Math.hypot(cp.x - this.pos[0], cp.z - this.pos[2]);
-      this.tag.visible = dist < 35;
-    }
-    if (this.isLocal) this.tag.visible = false;
+    // 이름표: 아군은 이름(벽 너머로도), 적은 이름 없이 상태 표시만 35 m 안에서(engine/nametag.js)
+    const cam = this.mgr.camera && this.mgr.camera.position;
+    const show = tagShown({
+      text: this.tag.userData.text, ally: this.tag.userData.ally, alive: this.alive, visible: this.visible, local: this.isLocal,
+      dist: cam ? Math.hypot(cam.x - this.pos[0], cam.z - this.pos[2]) : 0
+    });
+    if (this.tag.visible !== show) this.tag.visible = show;
     this.root.visible = this.visible;
   }
 
@@ -1253,6 +1266,7 @@ export function createAvatars({ scene, camera, delay = NET.INTERP_DELAY_MS } = {
     let a = map.get(id);
     if (a) {
       if (opts.name) a.setName(opts.name);
+      if (opts.badge !== undefined) a.setBadge(opts.badge);
       if (opts.team) a.setTeam(opts.team);
       if (opts.avatar !== undefined) a.setAvatar(opts.avatar);
       return a;

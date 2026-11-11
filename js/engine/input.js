@@ -28,7 +28,7 @@
  *   · N(라운드 시작 전 무기 교체, input:loadout) · F11(전체 화면 켜고 끄기, input:fullscreenToggle)
  * Space: input.state.jump = 누르는 동안 true(player가 착지 즉시 다시 뛰는 데 쓴다), input:jump는 누른 순간 1번.
  *        잠금을 잃거나 창 포커스를 잃으면 풀리고, 키 반복으로는 다시 켜지지 않는다.
- * E(폭파 미션): 누르는 동안 input.state.use = true. 누른 순간 input:use{down:true}, 뗀 순간(눌려 있었을 때만) input:use{down:false}.
+ * E(폭파 미션 설치·해체, 개인전 부활 대기 중 즉시 부활 — 둘 다 World가 듣는다): 누르는 동안 input.state.use = true. 누른 순간 input:use{down:true}, 뗀 순간(눌려 있었을 때만) input:use{down:false}.
  *        키 반복은 무시하고, 입력이 꺼져 있으면 눌리지 않는다. 잠금·창 포커스를 잃거나 setEnabled(false)면 떼어진다(releaseAll).
  *        휴대폰은 설치/해체 버튼이 input.touch.use(down)으로 같은 상태와 이벤트를 낸다.
  * bus 이벤트: input:lock{locked} · input:fire{down} · input:aim{active,source} · input:zoom{down}(터치 조준 버튼) · input:reload · input:inspect · input:drop · input:slot{slot}

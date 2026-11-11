@@ -146,6 +146,11 @@ export default {
       t.check(opts.n === (combo.mode === 'ffa' ? 2 : 3), '봇 수', opts);
       await page.eval('__qa.trackBots()');
       await page.waitFor('__qa.run && __qa.run.phase === "live"', 30000, { label: 'live 단계' });
+      // 머리 위 이름표: 아군 봇은 이름이 보이고, 적(개인전은 모두)은 닉네임 없이 상태 표시(🛡)만 있다
+      const tags = await page.eval(`__qa.ctx.avatars.list().map((a) => ({ id: a.id, ally: !!a.tag.userData.ally, text: a.tag.userData.text, name: a.name, visible: a.tag.visible }))`);
+      const leak = tags.filter((x) => !x.ally && x.text && x.text.includes(x.name));
+      t.check(tags.length === opts.n && !leak.length, '적의 이름표에 닉네임이 없다', { leak, tags });
+      if (combo.mode !== 'ffa') t.check(tags.filter((x) => x.ally).length === 1 && tags.filter((x) => x.ally).every((x) => x.text === x.name), '아군 봇의 이름표에는 이름이 있다', tags);
       await page.waitFor('__qa.ui.isVisible("results")', MATCH_TIMEOUT_MS, { intervalMs: 500, label: '결과 화면' });
       let gained = await checkMatch(t, page, combo, 1, 500);
       await checkBots(t, page, combo);

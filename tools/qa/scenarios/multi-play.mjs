@@ -336,6 +336,17 @@ export default {
       await guest.waitFor('__qa.visible(".sk-rsp")', 2000, { label: '손님 부활 패널' });
       t.check(/방장에게 당했어요/.test(await guest.eval(`__qa.text('.sk-rsp-main')`)), '누구에게 당했는지 보인다', await guest.eval(`__qa.text('.sk-rsp-main')`));
       await host.waitFor(`__qa.text('.sk-ffa-me .sk-ts-score') === '1'`, 3000, { label: '방장 킬 수' });
+      // 즉시 부활: 부활 패널의 'E 즉시 부활 · 10 P'를 보고 E를 누르면 방장이 확인해 바로 출격시키고, 그때 10 P를 낸다.
+      // 저절로 부활하면 값이 나가지 않으므로 10 P가 줄었는지가 즉시 부활의 증거다. 3초 안에 끝나게 한 번에 읽고 바로 누른다
+      const dead = await guest.fn(() => { const qa = window.__qa; return { quick: qa.text('.sk-rsp-quick'), points: qa.ctx.account.profile.points, left: qa.text('.sk-rsp-num') }; });
+      const hostPoints = await host.eval('__qa.ctx.account.profile.points');
+      await guest.press('KeyE');
+      const quick = await guest.waitFor('__qa.world.localAlive', 2600, { intervalMs: 50, label: '즉시 부활' }).then(() => true, () => false);
+      t.check(/E\s*즉시 부활 · 10 P/.test(dead.quick), '부활 패널에 E 즉시 부활 · 10 P', dead);
+      t.check(quick, 'E를 누르면 나온다', dead);
+      const pointsAfter = await guest.eval('__qa.ctx.account.profile.points');
+      t.check(pointsAfter === dead.points - 10, '즉시 부활에 10 P를 낸다(방장이 확인한 출격에만)', { before: dead.points, pointsAfter });
+      t.check((await host.eval('__qa.ctx.account.profile.points')) === hostPoints, '방장은 다른 사람의 즉시 부활 값을 내지 않는다', hostPoints);
       await guest.waitFor('__qa.world.localAlive', 8000, { intervalMs: 50, label: '손님 부활' });
       t.check(await guest.eval('__qa.ctx.player.state.hp === 100 && !__qa.visible(".sk-rsp")'), '부활하면 체력이 찬다');
       t.errorsOk('칼전 개인전');

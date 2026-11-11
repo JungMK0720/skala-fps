@@ -39,9 +39,11 @@ import {
 } from './modes.js';
 import { avatarIdOf } from '../core/avatar-defs.js';
 import { BOMB_REASON_LABELS } from './mission.js';
+import { quickRespawnCost, withQuickRespawns } from '../account/economy.js';
 
 export const SESSION_DEFAULTS = Object.freeze({
-  maxPlayers: 6,          // 무료 플랜 한도(3:3). 방 만들기 max는 2..maxPlayers로 자른다
+  maxPlayers: 6,          // Supabase Realtime(transport 'supabase') 무료 한도(3:3). 방 만들기 max는 2..이 값으로 자른다
+  relayMaxPlayers: 16,    // Cloudflare 중계(transport 'relay')는 방 허브가 따로라 8:8까지(net·중계 서버 방 인원 상한도 16)
   mapId: 'jetty',
   sendHz: 10,             // sync rateHz(실제 = min(10, room.rate))
   hostTickMs: 100,        // 방장 경기 루프(setInterval: 백그라운드 탭에서도 돈다)
@@ -59,6 +61,8 @@ export const SESSION_DEFAULTS = Object.freeze({
 });
 
 export const ROOM_NOTE = '무료 서버 한도 때문에 최대 6명(인원이 적을수록 더 부드러워요)';
+/** 중계 서버(transport 'relay')로 들어온 방의 첫 안내. max = 이 방의 최대 인원 */
+export const relayRoomNote = (max) => `이 방은 최대 ${max}명이에요. 사람이 많을수록 느린 기기에서는 끊길 수 있어요.`;
 /** 채팅 도배 막기: 내가 보내는 것은 5초에 4줄까지(넘으면 안내만), 받는 것은 한 사람당 5초에 6줄까지(고친 클라이언트 대비) */
 export const CHAT_LIMIT = Object.freeze({ windowMs: 5000, send: 4, receive: 6 });
 const CHAT_SLOW = '채팅을 너무 빨리 보내고 있어요. 잠시 뒤에 다시 보내 주세요.';
@@ -94,7 +98,10 @@ const ERROR_TEXT = Object.freeze({
   NO_NET: '멀티플레이 서버에 연결할 수 없어요.'
 });
 /** 내보낸 사람에게서 오면 버리는 이벤트 */
-const BANNED_DROP = new Set(['fire', 'hitClaim', 'grenade', 'loadout', 'chat', 'drop', 'pick', 'bomb']);
+const BANNED_DROP = new Set(['fire', 'hitClaim', 'grenade', 'loadout', 'chat', 'drop', 'pick', 'bomb', 'respawn']);
+/** 개인전 즉시 부활(E) 한 번의 값(멀티 = 킬 보상 한 번)과, 요청 뒤 내 spawn(instant)을 내 요청의 답으로 보는 시간 */
+const QUICK_COST = quickRespawnCost(true);
+const QUICK_WAIT_MS = 5000;
 const CLOSE_TEXT = Object.freeze({
   'kicked:full': '방이 가득 차서 들어가지 못했어요.',
   'kicked:cheat': '비정상 플레이가 반복돼 방장이 방에서 내보냈어요.',
@@ -471,6 +478,7 @@ export function restoreMatch({ snapshot: source, players = [], spawns, seed, rng
     claimHit: pass(inner.claimHit),
     claimExplosion: pass(inner.claimExplosion),
     bombIntent: pass(inner.bombIntent),
+    respawnNow: pass(inner.respawnNow),   // 개인전 전용(팀전에서는 거절만 돌려준다)
     dispose() { disposed = true; inner.dispose(); },
     get state() { return applySnapshot(snapshot()); },
     get rules() { return R; },
@@ -565,6 +573,7 @@ export function createSession(options = {}) {
   if (!ui || typeof ui.show !== 'function' || typeof ui.on !== 'function') throw new TypeError('createSession: ui가 필요합니다');
   const now = typeof o.now === 'function' ? o.now : defaultNow;
   const maxPlayers = clampInt(o.maxPlayers, 2, 16, 6);
+  const relayMaxPlayers = clampInt(o.relayMaxPlayers, 2, 16, 16);
 
   /* ---------------------------------------------------------------- 이벤트 · 안전 호출 */
   const listeners = new Map();
@@ -605,6 +614,8 @@ export function createSession(options = {}) {
   let lobbyOff = null, lobbyRooms = [], lobbyError = null, lobbyNotice = null, busy = false;
   let pendingAction = null; // 연결 중이거나 방에서 나오는 중에 누른 방 만들기·참가(연결되면, 다 나오면 실행)
   let room = null, sync = null, me = null, leaving = false;
+  /** 지금 연결로 만들 수 있는 방의 최대 인원: Cloudflare 중계면 relayMaxPlayers(16), Supabase Realtime이면 maxPlayers(6) */
+  const roomLimit = () => (net && net.transport === 'relay' ? Math.max(maxPlayers, relayMaxPlayers) : maxPlayers);
   let autoTeam = null;      // { at }: 먼저 있던 사람의 팀을 다 모른 채 자동으로 고른 팀(그 팀들이 보이면 한 번 다시 고른다, recheckTeam)
   let roomOffs = [];
   let chat = [];
@@ -783,7 +794,10 @@ export function createSession(options = {}) {
     subscribeLobby();
   }
   function showLobby() {
-    U('show', 'lobby', { rooms: lobbyRooms, loading: !lobbyError && !(net && net.lobby && net.lobby.synced), error: lobbyError, notice: lobbyNotice, joining: null, name: playerName });
+    U('show', 'lobby', {
+      rooms: lobbyRooms, loading: !lobbyError && !(net && net.lobby && net.lobby.synced), error: lobbyError, notice: lobbyNotice, joining: null, name: playerName,
+      maxPlayers: roomLimit()
+    });
   }
   function subscribeLobby() {
     if (lobbyOff || !net) return;
@@ -858,7 +872,7 @@ export function createSession(options = {}) {
     if (!net) { noNet(); return; }
     busy = true;
     phase = 'joining';
-    const max = clampInt(p && p.max, 2, maxPlayers, maxPlayers);
+    const max = clampInt(p && p.max, 2, roomLimit(), Math.min(8, roomLimit()));
     const mode = modeOf(p && p.mode);
     const ruleset = mode === 'bomb' ? 'classic' : normalizeRuleset(p && p.ruleset);   // 폭파 미션은 클래식 고정
     U('update', 'lobby', { error: null, loading: true });
@@ -906,7 +920,7 @@ export function createSession(options = {}) {
     finishedMid = null;
     remoteGear.clear();
     banned.clear(); strikes.reset(); moveGuard.resetAll(); selfTrail.length = 0;
-    chat = [{ system: true, text: ROOM_NOTE }];
+    chat = [{ system: true, text: net && net.transport === 'relay' ? relayRoomNote(clampInt(r.meta && r.meta.max, 2, 16, roomLimit())) : ROOM_NOTE }];
     chatSeen.clear();
     known = new Map(r.players().map((x) => [x.id, x.name]));
     noteAvatars(r.players());
@@ -1802,7 +1816,8 @@ export function createSession(options = {}) {
       playing: false, localAlive: false, localHp: 0, team: myRoomTeam(), spawnFallback: false,
       pick: pickFor(rs), pickSent: '', gearJson: '', gearQueued: false, liveLoadout: null, resultsShown: false, lastDataAt: now(), enteredAt: now(),
       killerName: null, compact: false, protect: null, aliveMismatchAt: 0,
-      startedAt: null, knifeKills: 0   // 처음 출격한 시각(null이면 아직 출격 전), 내 칼 킬 수
+      startedAt: null, knifeKills: 0,  // 처음 출격한 시각(null이면 아직 출격 전), 내 칼 킬 수
+      quickAt: 0, quickCount: 0, quickPaid: 0   // 개인전 즉시 부활: 마지막 요청 시각, 낸 횟수·포인트(결과 화면 줄)
     };
     trace('enter match', mid, mapId, c.mode, c.ruleset, room && room.isHost() ? 'host' : 'member');
     actors.clear();
@@ -2336,6 +2351,7 @@ export function createSession(options = {}) {
     const protectMs = Math.max(0, Number(e.protectMs) || 0);
     if (!c.round) c.round = 1;
     if (id === me) {
+      const quick = !!e.instant && !c.localAlive;   // 즉시 부활로 나왔다(같은 출격을 두 번 받아도 한 번만 낸다)
       c.playing = true;
       c.localAlive = true;
       c.localHp = (c.view && c.view.rules && c.view.rules.hp) || DEFAULT_RULES.hp;
@@ -2343,6 +2359,7 @@ export function createSession(options = {}) {
       c.killWeapon = null;
       c.aliveMismatchAt = 0;
       c.protect = protectMs > 0;
+      if (quick) payQuick(c); else c.quickAt = 0;
       if (c.compact) { c.compact = false; U('hide', 'loadout'); }
       W('setRespawn', null);
       W('spawnLocal', { id: me, name: myName(), team: null, spawn: { ...sp }, loadout: lo || c.pick, protectMs });
@@ -2371,7 +2388,41 @@ export function createSession(options = {}) {
     c.killWeapon = weaponLabel(weaponId) || null;
     const respawnMs = Number(c.view && c.view.rules && c.view.rules.respawnMs) > 0 ? Number(c.view.rules.respawnMs) : 3000;
     W('setRespawn', { inMs: respawnMs, killer: c.killerName || undefined, weaponName: c.killWeapon || undefined });
+    offerQuick(c);
     showCompactLoadout();
+  }
+
+  /* ---------------------------------------------------------------- 개인전 즉시 부활(E · 휴대폰 '부활' 버튼) */
+  function myPoints() {
+    const a = account();
+    const p = a && a.profile;
+    return p && Number.isFinite(Number(p.points)) ? Number(p.points) : 0;
+  }
+  /** 부활 대기 패널에 즉시 부활을 건다(값과 포인트가 되는지). 죽을 때와 스냅샷마다 부른다. 계정이 없으면 끈다 */
+  function offerQuick(c) {
+    if (!c || c.mode !== 'ffa' || c.phase !== 'live' || !c.playing) return;
+    const a = account();
+    W('setQuickRespawn', a && typeof a.spendPoints === 'function' ? { cost: QUICK_COST, ok: myPoints() >= QUICK_COST } : null);
+  }
+  /** World 'quickRespawn' → 방장에게 청한다. 확정은 방장의 match.respawnNow, 값은 확정된 내 spawn(instant)을 받을 때 낸다(payQuick) */
+  function requestQuick() {
+    const c = current;
+    if (phase !== 'match' || !c || c.mode !== 'ffa' || c.phase !== 'live' || !c.playing || c.localAlive || !sync) return;
+    if (myPoints() < QUICK_COST) { offerQuick(c); return; }
+    c.quickAt = now();
+    trace('quick respawn', c.mid);
+    sync.sendRespawn();
+  }
+  /** 내 spawn에 instant가 붙어 왔다. 내가 방금 청한 것일 때만 낸다(청하지 않은 즉시 부활에는 내지 않는다) */
+  function payQuick(c) {
+    const asked = c.quickAt > 0 && now() - c.quickAt < QUICK_WAIT_MS;
+    c.quickAt = 0;
+    if (!asked) return;
+    const r = call(account(), 'spendPoints', QUICK_COST);
+    if (!r || !r.ok) return;
+    c.quickCount += 1;
+    c.quickPaid += r.spent;
+    H('callout', `⚡ 즉시 부활 · −${r.spent} P`);
   }
 
   function showCompactLoadout() {
@@ -2408,6 +2459,7 @@ export function createSession(options = {}) {
       if (vp.alive && c.localAlive && vp.hp !== c.localHp) { c.localHp = vp.hp; W('setLocalHp', vp.hp); }
       if (!vp.alive) {
         if (isNum(vp.respawnIn)) W('setRespawn', { inMs: Math.max(0, vp.respawnIn), killer: c.killerName || undefined, weaponName: c.killWeapon || undefined });
+        offerQuick(c);   // 늦게 들어와 첫 출격을 기다리는 사람도 같다
         showCompactLoadout();
       } else if (c.protect && vp.protect === false) {
         c.protect = false;
@@ -2537,7 +2589,8 @@ export function createSession(options = {}) {
     if (!summary) return null;
     recordedMids.add(c.mid);
     const res = call(a, 'recordMatch', summary);
-    return res ? { gained: res.gained, breakdown: res.breakdown, points: res.points } : null;
+    // 개인전 즉시 부활 값은 부활할 때 냈다. 결과 화면에는 이번 판의 순변화로 한 줄 더 보여 준다
+    return res ? withQuickRespawns({ gained: res.gained, breakdown: res.breakdown, points: res.points }, c.quickCount, c.quickPaid) : null;
   }
 
   function showResults(view, ev) {
@@ -2639,6 +2692,10 @@ export function createSession(options = {}) {
       case 'bomb':
         // (방장) 폭파 미션 설치·해체 시작·취소 의도. 위치·생존·시간은 match가 직접 재서 확정한다. 내 의도도 sync가 여기로 돌려준다
         if (hm && hm.mode === 'bomb' && hostReady()) publishReal(hm.m.bombIntent(String(e.from), e.act, { reason: e.reason }));
+        break;
+      case 'respawn':
+        // (방장) 개인전 즉시 부활 요청. 죽어서 기다리는 중인지·남은 시간은 match가 재고, 되면 그 사람의 spawn에 instant:true를 싣는다
+        if (hm && hm.mode === 'ffa' && hostReady()) publishReal(hm.m.respawnNow(String(e.from)));
         break;
       case 'grenade':
         if (phase === 'match' && current && current.loaded && e.from !== me) {
@@ -2753,6 +2810,7 @@ export function createSession(options = {}) {
     sync.sendBomb(a.act, a.reason);
   });
   wOn('loadoutPick', (p) => pickLoadout(p.id != null ? p.id : p.weaponId != null ? p.weaponId : p.primary));
+  wOn('quickRespawn', () => requestQuick());
   wOn('leave', () => { if (phase === 'match') leaveRoom(); });
 
   /* ---------------------------------------------------------------- 프레임: 원격 보간 → world */

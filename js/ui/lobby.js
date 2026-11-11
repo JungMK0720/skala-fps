@@ -14,8 +14,14 @@ import {
 } from '../game/modes.js';
 
 const ROOM_NAME_MAX = 24;
-// 무료 Realtime 한도(초당 메시지) 때문에 방은 최대 6명(3:3). props.maxPlayers로 더 낮출 수 있다.
+// 방 인원 상한은 세션이 props.maxPlayers로 정한다: Cloudflare 중계는 16명(8:8), Supabase Realtime은 무료 한도 때문에 6명(3:3).
+// 값을 안 주면 예전처럼 6명. 이 화면이 받는 가장 큰 값은 ROOM_CAP(net·중계 서버의 방 인원 상한과 같다)
 const ROOM_MAX = 6;
+const ROOM_CAP = 16;
+/** 방 만들기 시트가 처음 고르는 인원(상한이 더 작으면 상한) */
+const ROOM_DEFAULT = 8;
+/** 최대 인원 빠른 선택(상한보다 큰 값은 빼고, 상한은 늘 넣는다) */
+const ROOM_PRESETS = Object.freeze([4, 8, 12, 16]);
 const cleanRoomName = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, ROOM_NAME_MAX);
 const countOf = (v) => (Array.isArray(v) ? v.length : num(v, 0));
 /** rulesets를 적지 않은 맵이 고를 수 있는 규칙(DESIGN 5절) */
@@ -75,7 +81,7 @@ export function mapsForMode(maps, mode, ruleset) {
 export function createLobby(ctx) {
   let p = {};
   let formMap = null;
-  let formMax = ROOM_MAX;
+  let formMax = ROOM_DEFAULT;
   let formMode = 'team';
   let formRule = DEFAULT_RULESET;
   let formKills = FFA_KILLS.def;
@@ -118,6 +124,7 @@ export function createLobby(ctx) {
   const maxNote = h('span', { class: 'sk-set-hint' });
   const minus = btn('−', () => setMax(formMax - 1), 'sk-btn--icon', { 'aria-label': '최대 인원 줄이기' });
   const plus = btn('＋', () => setMax(formMax + 1), 'sk-btn--icon', { 'aria-label': '최대 인원 늘리기' });
+  const maxQuick = createChoiceRow({ label: '최대 인원 빠른 선택', onPick: (id) => setMax(Number(id)), cls: 'sk-stepper-quick' });
   const formErr = h('p', { class: 'sk-field-err', role: 'alert' });
   const form = h('form', { class: 'sk-create', novalidate: true, onsubmit: (e) => { e.preventDefault(); doCreate(); } },
     h('label', { class: 'sk-field' }, h('span', { class: 'sk-field-label', text: '방 이름' }), nameIn),
@@ -134,20 +141,24 @@ export function createLobby(ctx) {
     h('div', { class: 'sk-field' }, h('span', { class: 'sk-field-label', text: '맵 선택' }), mapBox),
     h('div', { class: 'sk-field' },
       h('span', { class: 'sk-field-label', text: '최대 인원' }),
-      h('div', { class: 'sk-stepper' }, minus, maxOut, plus, maxNote)),
+      h('div', { class: 'sk-stepper', role: 'group', 'aria-label': '최대 인원' }, minus, maxOut, plus, maxQuick.el),
+      maxNote),
     formErr,
     h('div', { class: 'sk-form-actions' },
       btn('취소', () => modal.close(), 'sk-btn--ghost'),
       h('button', { type: 'submit', class: 'sk-btn sk-btn--primary' }, '＋ 방 만들기')));
   const createSheet = sheet({ title: '＋ 방 만들기', onClose: () => modal.close(), body: form, cls: 'sk-create-sheet' });
 
-  const roomMax = () => clamp(Math.round(num(p.maxPlayers, ROOM_MAX)), 2, ROOM_MAX);
+  const roomMax = () => clamp(Math.round(num(p.maxPlayers, ROOM_MAX)), 2, ROOM_CAP);
   function setMax(n) {
-    formMax = clamp(Math.round(n), 2, roomMax());
+    const top = roomMax();
+    formMax = clamp(Math.round(num(n, ROOM_DEFAULT)), 2, top);
     setText(maxOut, `${formMax}명`);
     setText(maxNote, formMode === 'ffa' ? `최대 ${formMax}명 · 모두가 적` : `팀당 최대 ${Math.ceil(formMax / 2)}명`);
     minus.disabled = formMax <= 2;
-    plus.disabled = formMax >= roomMax();
+    plus.disabled = formMax >= top;
+    const quick = [...new Set([...ROOM_PRESETS.filter((v) => v < top), top])];
+    maxQuick.set(quick.map((v) => ({ id: String(v), label: `${v}명` })), String(formMax));
   }
   const allMaps = () => mapList(ctx.maps, p.maps);
   /** 모드를 바꾼다. 미션 맵이 하나도 없으면 폭파 미션 대신 팀전 */

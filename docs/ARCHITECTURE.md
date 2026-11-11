@@ -88,7 +88,7 @@ Enter 채팅(팀 경기는 입력칸에서 Tab으로 전체 ↔ 팀, MODES.md 8�
 ## 7. 멀티플레이
 - 로비: Presence 채널 `skalafps:lobby` — 방장이 방 메타 `{roomId, name, mapId, hostName, players, max, status}`를 track. 방 목록 = 로비 presence.
 - 방: Broadcast+Presence 채널 `skalafps:room:<roomId>`. **방장(host) 권위**: 팀 배정·라운드·판정 확정·점수.
-- 팀: **블루 팀**(내부 id `owner`, 남색) vs **레드 팀**(내부 id `charterer`, 빨강). 최대 8명(4:4), 최소 2명.
+- 팀: **블루 팀**(내부 id `owner`, 남색) vs **레드 팀**(내부 id `charterer`, 빨강). 최소 2명. 최대는 Cloudflare 중계면 16명(8:8, 16인방), Supabase Realtime이면 6명(MODES.md 12절).
 - 모드: 팀 섬멸전, **5판 3선승**, 라운드 2:00, 라운드 중 부활 없음. 시간 종료 시 생존자 많은 팀 → 같으면 남은 체력 합 → 같으면 무승부(재경기).
 - 폭파 미션: 공격·수비로 나뉘는 팀 모드(MODES.md 5절). 클라이언트는 설치·해체 의도만 보내고 방장이 위치·시간을 재서 확정한다.
 - 경기 채팅: 팀 경기에서는 전체·팀 범위를 고른다. 팀 채팅은 팀원을 받는 사람으로 정해 보낸다(MODES.md 8절).

@@ -58,8 +58,14 @@ html.pc-touch #pc-view canvas { touch-action: none; }
 .pc-tb--emote { right: calc(104px + env(safe-area-inset-right)); width: 52px; }
 .pc-tb--chat { right: calc(162px + env(safe-area-inset-right)); width: 48px; }
 .pc-tb[hidden] { display: none; }
-/* 죽어 있는 동안은 전투 버튼을 치워 무기 고르는 패널을 가리지 않는다 */
-.pc-touch-layer.is-dead .pc-tb-act { display: none; }
+/* 죽어 있는 동안은 전투 버튼을 치워 무기 고르는 패널을 가리지 않는다.
+   개인전 즉시 부활 버튼('부활', touch:use가 켤 때만)만 남아 아래 가운데(무기 칸 바로 위)에 뜬다.
+   쏘던 엄지 자리(발사 버튼)는 피한다: 쓰러지는 순간 거듭 누른 발사가 포인트를 쓰지 않게 */
+.pc-touch-layer.is-dead .pc-tb-act:not(.pc-tb--use) { display: none; }
+.pc-touch-layer.is-dead .pc-tb--use {
+  left: 50%; right: auto; bottom: calc(86px + env(safe-area-inset-bottom)); width: 128px; height: 48px; margin-left: -64px;
+  border-radius: 24px; font-size: 17px;
+}
 .pc-touch-layer.is-dead .pc-stick { display: none; }
 
 /* ---------- 세로 화면 안내 ---------- */

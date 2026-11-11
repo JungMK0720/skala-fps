@@ -81,6 +81,20 @@ export function swapPromptSpec(swap, touch = false) {
   return { key: touch || swap.open ? '' : 'N', main, sub };
 }
 
+/**
+ * 개인전 부활 대기 패널의 즉시 부활 줄. quick = { cost, ok, touch } (World hud.respawn.quick).
+ * → { key: 'E' | '', text, ok } | null. 휴대폰은 키 대신 '부활' 버튼을, 포인트가 모자라면 그 사실을 적는다
+ */
+export function quickRespawnSpec(quick) {
+  if (!quick || typeof quick !== 'object') return null;
+  const cost = Math.floor(num(quick.cost, 0));
+  if (!(cost > 0)) return null;
+  if (quick.ok === false) return { key: '', text: `즉시 부활 ${cost} P · 포인트 부족`, ok: false };
+  return quick.touch
+    ? { key: '', text: `'부활' 버튼 · ${cost} P`, ok: true }   // 휴대폰 한 줄 패널이 넓어지지 않게 짧게(버튼 글자가 '부활'이다)
+    : { key: 'E', text: `즉시 부활 · ${cost} P`, ok: true };
+}
+
 export function bannerSpec(o) {
   if (!o || typeof o !== 'object') return null;
   const text = (v) => (v == null ? '' : String(v));
@@ -306,9 +320,14 @@ export function createHud(ctx) {
   const rspWpn = h('span', { class: 'sk-rsp-wpn', hidden: true });
   const rspNum = h('b', { class: 'sk-rsp-num' });
   const rspTxt = h('span', { class: 'sk-rsp-txt' });
+  // 즉시 부활 줄 "[E] 즉시 부활 · 10 P"(개인전, World가 hud.respawn.quick을 줄 때만)
+  const rspQuickKey = h('kbd', { class: 'sk-key sk-rsp-quick-key', text: 'E' });
+  const rspQuickTxt = h('span', { class: 'sk-rsp-quick-txt' });
+  const rspQuick = h('div', { class: 'sk-rsp-quick', hidden: true }, rspQuickKey, rspQuickTxt);
   const respawnEl = h('div', { class: 'sk-rsp', hidden: true, role: 'status' },
     h('div', { class: 'sk-rsp-top' }, rspMain, rspWpn),
-    h('div', { class: 'sk-rsp-line' }, rspNum, rspTxt));
+    h('div', { class: 'sk-rsp-line' }, rspNum, rspTxt),
+    rspQuick);
   const protectEl = h('div', { class: 'sk-protect', hidden: true, role: 'status', text: '🛡 보호 중' });
   // 이모트 중 하단 안내 "🕺 탱고 · 움직이면 취소"(MODES.md 4.3)
   const emoteEl = h('div', { class: 'sk-emote-banner', hidden: true, role: 'status' });
@@ -521,10 +540,11 @@ export function createHud(ctx) {
     for (const d of ctx.weapons.values()) if (d.name === name || d.short === name) return d;
     return null;
   }
-  // respawn: { seconds, killer?, weaponName?, weaponId? } | null
+  // respawn: { seconds, killer?, weaponName?, weaponId?, quick?: { cost, ok, touch } } | null
   function applyRespawn(r) {
     const on = !!r && typeof r === 'object';
     const sec = on ? Math.max(0, Math.ceil(num(r.seconds, 0))) : 0;
+    const quick = on ? quickRespawnSpec(r.quick) : null;
     const self = ctx.playerName;
     const killer = on && r.killer && String(r.killer) !== self ? String(r.killer) : '';
     let w = null;
@@ -533,7 +553,7 @@ export function createHud(ctx) {
       const d = weaponByName(String(r.weaponName));
       w = d ? weaponInfo(ctx.weapons, d.id, { weaponName: String(r.weaponName) }) : { icon: '', name: String(r.weaponName) };
     }
-    const sig = on ? JSON.stringify([sec, killer, w && w.name, w && w.icon]) : '';
+    const sig = on ? JSON.stringify([sec, killer, w && w.name, w && w.icon, quick && quick.key, quick && quick.text]) : '';
     if (sig === st.respSig) return;
     const wasOn = st.respSig !== '';
     st.respSig = sig;
@@ -547,7 +567,13 @@ export function createHud(ctx) {
     if (w) setText(rspWpn, w.icon ? `${w.icon} ${w.name}` : w.name);
     setText(rspNum, sec > 0 ? String(sec) : '');
     setText(rspTxt, sec > 0 ? '초 뒤 부활' : '곧 부활해요…');
-    respawnEl.setAttribute('aria-label', `${rspMain.textContent} · ${sec > 0 ? `${sec}초 뒤 부활` : '곧 부활'}`);
+    rspQuick.hidden = !quick;
+    if (quick) {
+      rspQuickKey.hidden = !quick.key;
+      setText(rspQuickTxt, quick.text);
+      rspQuick.classList.toggle('is-off', !quick.ok);
+    }
+    respawnEl.setAttribute('aria-label', `${rspMain.textContent} · ${sec > 0 ? `${sec}초 뒤 부활` : '곧 부활'}${quick ? ` · ${quick.key ? `${quick.key} ` : ''}${quick.text}` : ''}`);
   }
 
   function applyProtect(v) {

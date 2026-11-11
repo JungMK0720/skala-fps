@@ -5,13 +5,16 @@
  *          키보드·마우스와 같은 입력 상태와 이벤트로 바꾸므로 게임 코드는 터치를 몰라도 된다. 화면 규칙은 css/touch.css에 있다.
  *          라이플을 들면 조준 버튼이 '조준 사격'이 된다(누르는 동안 조준하며 쏜다, 판단은 game/world.js의 touch:aimFire).
  *          이모트 버튼은 누른 채 끌어 고르거나, 짧게 눌러 휠을 열어 두고 칸을 눌러 고른다. 채팅 버튼은 멀티플레이 경기에서만 보인다(session의 chat:available).
- *          폭파 미션의 설치/해체 버튼(PC의 E)은 평소에 숨어 있다가 World가 touch:use { on, label }을 보낼 때만 보인다. 누르고 있는 동안 input.touch.use(true),
+ *          폭파 미션의 설치/해체 버튼(PC의 E)은 평소에 숨어 있다가 World가 touch:use { on, label }을 보낼 때만 보인다(개인전 부활 대기 중에는 '부활'). 누르고 있는 동안 input.touch.use(true),
  *          떼면 use(false)이고, 누르는 중에 숨으면 그 자리에서 뗀다.
  */
 import { EMOTE_WHEEL } from '../core/consts.js';
 import { TOUCH, isStickSide, knobOffset, stickState, wheelTapAt } from './touch-logic.js';
 
-/** 버튼 정의: [동작, 글자, 묶음]. act는 살아 있을 때만 보이는 전투 버튼이고 top은 언제나 보인다(채팅은 멀티플레이 경기에서만, 설치/해체는 touch:use가 켤 때만) */
+/**
+ * 버튼 정의: [동작, 글자, 묶음]. act는 살아 있을 때만 보이는 전투 버튼이고 top은 언제나 보인다(채팅은 멀티플레이 경기에서만, 설치/해체는 touch:use가 켤 때만).
+ * 죽은 동안에는 act 가운데 use만 남는다: 개인전 즉시 부활 '부활' 버튼이 아래 가운데에 뜬다. 발사 버튼 자리는 피한다(css/touch.css)
+ */
 const BUTTONS = [
   ['fire', '발사', 'act'],
   ['zoom', '조준', 'act'],

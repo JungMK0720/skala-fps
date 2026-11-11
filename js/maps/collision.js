@@ -4,10 +4,10 @@
  * Purpose: 맵 데이터 → 물리 월드(three.js 없음). 브라우저 빌더와 node 도구가 똑같은 충돌체를 쓰도록
  *          충돌체 구성(움직이는 지형 포함), 테마 정규화, 스폰 배치, 맵 데이터 검사를 이 파일에 모았다.
  */
-import { createWorld, solidToCollider, makeBox, rectSubtract, getGroundY, findFloor } from '../engine/physics.js';
+import { createWorld, solidToCollider, makeBox, rectSubtract, getGroundY, findFloor, overlapsCapsule, lineOfSight, raycastWorld } from '../engine/physics.js';
 import { buildTriggers, padVelocity, vec3 } from '../engine/triggers.js';
 import { createMovers, normalizeMover, moverPeakSpeed, moverSweep, MOVER_AXES, MOVER_MAX_SPEED, MOVER_MIN_TRAVEL } from '../engine/movers.js';
-import { toRad, LIMITS, TEAM_IDS, MATS, MOVE } from '../core/consts.js';
+import { toRad, LIMITS, TEAM_IDS, MATS, MOVE, PLAYER } from '../core/consts.js';
 
 /** 맵이 rulesets를 안 적었을 때 쓰는 값(DESIGN 5절) */
 export const DEFAULT_RULESETS = Object.freeze(['classic', 'sniper']);
@@ -265,7 +265,88 @@ function placeSpawn(world, bounds, p) {
 
 const validSpawns = (list) => (Array.isArray(list) ? list : []).filter((p) => p && Number.isFinite(+p.x) && Number.isFinite(+p.z));
 
-function buildSpawns(data, world, bounds, sx) {
+/**
+ * 16인방(팀당 8명·개인전 16명)처럼 사람이 맵 스폰보다 많을 때 쓰는 보조 자리. 경기(match.js)는 스폰을 다 쓴 뒤에만 이 자리를 쓴다.
+ * 원래 스폰 둘레 RINGS 고리의 8방향(옆 → 뒤 → 앞 순서)을 스폰마다 돌아가며 보고, 사람이 설 수 있는 곳만 고른다.
+ */
+export const CROWD = Object.freeze({
+  TEAM: 8,                 // 팀(폭파 미션은 진영)마다 스폰 + 보조 자리
+  FFA: 16,                 // 개인전 후보(팀 스폰 + 개인전 스폰 + 보조 자리)
+  RINGS: Object.freeze([1.3, 2.4]),
+  GAP: 1.1,                // 다른 스폰·보조 자리와 이만큼은 떨어진다(m)
+  FLOOR_TOL: 0.3,          // 발밑 바닥이 원래 스폰과 이만큼 안에서 같은 높이(m)
+  EDGE: 0.6                // 맵 가장자리에서 이만큼 안쪽(m)
+});
+/** 정면 기준 각도(도): 옆 → 뒤 → 뒤 대각선 → 앞 대각선 → 앞. 같은 팀이 나란히 서고 앞을 덜 가린다 */
+const CROWD_DIRS = Object.freeze([90, -90, 180, 135, -135, 45, -45, 0]);
+
+/**
+ * 원래 스폰 list(바닥 높이 y 포함)는 그대로 두고, 모자란 want − list.length곳을 그 둘레에서 찾는다.
+ * 조건: 몸이 벽·낮은 천장·턱에 걸리지 않고, 발밑 바닥이 원래 스폰과 같은 높이이며 물이 아니고, 원래 스폰에서 허리 높이로 보이고
+ * (투명 막이 포함 — 벽 너머가 아님), 맵 가장자리 안쪽이고, 다른 스폰·보조 자리와 GAP 넘게 떨어져 있고, avoid 상자(움직이는 지형이
+ * 지나가는 부피·폭파 구역)에 몸이 닿지 않는다. 방향(rotY)은 원래 스폰 것을 쓴다. → [{ x, y, z, rotY, extra: true }] (못 찾으면 그만큼 적게)
+ */
+export function crowdSpots(world, bounds, list, want, avoid = []) {
+  const base = (Array.isArray(list) ? list : []).filter((p) => p && isNum(p.x) && isNum(p.z) && isNum(p.y));
+  const need = Math.max(0, Math.floor(Number(want) || 0) - base.length);
+  const out = [];
+  if (!need || !base.length || !world) return out;
+  const R = PLAYER.RADIUS, H = PLAYER.HEIGHT, STEP = PLAYER.STEP;
+  const taken = base.map((p) => ({ x: +p.x, y: +p.y, z: +p.z }));
+  const boxes = (Array.isArray(avoid) ? avoid : []).filter(Boolean);
+  const inBounds = (x, z) => !bounds || (x >= bounds.minX + CROWD.EDGE && x <= bounds.maxX - CROWD.EDGE && z >= bounds.minZ + CROWD.EDGE && z <= bounds.maxZ - CROWD.EDGE);
+  const roomy = (x, y, z) => taken.every((q) => Math.abs(q.y - y) > H || Math.hypot(q.x - x, q.z - z) >= CROWD.GAP);
+  const clearOf = (x, y, z) => boxes.every((b) => x + R <= b.minX || x - R >= b.maxX || z + R <= b.minZ || z - R >= b.maxZ || y + H <= b.minY || y >= b.maxY);
+  const tryAt = (p, dist, deg) => {
+    const yaw = (+p.rotY || 0) + (deg * Math.PI) / 180;
+    const x = Math.round((+p.x - Math.sin(yaw) * dist) * 100) / 100;   // 정면 = −Z(yaw 0) 기준 방향
+    const z = Math.round((+p.z - Math.cos(yaw) * dist) * 100) / 100;
+    if (!inBounds(x, z)) return null;
+    const y = getGroundY(world, x, z, +p.y + STEP, 0.05);
+    if (!Number.isFinite(y) || Math.abs(y - p.y) > CROWD.FLOOR_TOL) return null;
+    if (overlapsCapsule(world, x, y, z, R - 0.02, H)) return null;
+    const below = raycastWorld(world, [x, y + 0.3, z], [0, -1, 0], 0.8, { includeHidden: true });
+    if (below && below.mat === 'water') return null;
+    if (!lineOfSight(world, [+p.x, +p.y + 1, +p.z], [x, y + 1, z], { includeHidden: true })) return null;
+    if (!roomy(x, y, z) || !clearOf(x, y, z)) return null;
+    return { x, y: Math.round(y * 100) / 100, z, rotY: +p.rotY || 0, extra: true };
+  };
+  for (const dist of CROWD.RINGS) {
+    for (const deg of CROWD_DIRS) {
+      for (const p of base) {
+        const s = tryAt(p, dist, deg);
+        if (!s) continue;
+        out.push(s);
+        taken.push(s);
+        if (out.length >= need) return out;
+      }
+    }
+  }
+  return out;
+}
+
+/** 움직이는 지형이 지나가는 부피(보조 자리가 피할 상자) */
+function moverAvoid(movers) {
+  return movers && !movers.empty ? movers.list.map((m) => moverSweep(m.spec)) : [];
+}
+
+/**
+ * 폭파 미션 진영 스폰(game/mission.js placeMission 결과)에 16인방 보조 자리를 붙인다 → { ...mission, extra: { attack, defense } }.
+ * 구역(sites) 안과 움직이는 지형의 길(world.movers)은 피한다. 미션이 없으면 그대로 돌려준다
+ */
+export function missionCrowd(mission, world, bounds) {
+  if (!mission || !world || !Array.isArray(mission.attack) || !Array.isArray(mission.defense)) return mission || null;
+  const avoid = [...(Array.isArray(mission.sites) ? mission.sites : []), ...moverAvoid(world.movers)];
+  return Object.freeze({
+    ...mission,
+    extra: Object.freeze({
+      attack: crowdSpots(world, bounds, mission.attack, CROWD.TEAM, avoid),
+      defense: crowdSpots(world, bounds, mission.defense, CROWD.TEAM, avoid)
+    })
+  });
+}
+
+function buildSpawns(data, world, bounds, sx, avoid = []) {
   if (!world) return null;
   const spawns = {};
   for (const team of TEAM_IDS) {
@@ -279,6 +360,12 @@ function buildSpawns(data, world, bounds, sx) {
     spawns[team] = list.map((p) => placeSpawn(world, bounds, p));
   }
   spawns.ffa = validSpawns(data.spawns && data.spawns.ffa).map((p) => placeSpawn(world, bounds, p));
+  // 16인방 보조 자리(CROWD): 팀은 팀 스폰 옆, 개인전은 모든 스폰 옆. 경기는 스폰을 다 쓴 뒤에만 쓴다
+  spawns.extra = {
+    owner: crowdSpots(world, bounds, spawns.owner, CROWD.TEAM, avoid),
+    charterer: crowdSpots(world, bounds, spawns.charterer, CROWD.TEAM, avoid),
+    ffa: crowdSpots(world, bounds, [...spawns.owner, ...spawns.charterer, ...spawns.ffa], CROWD.FFA, avoid)
+  };
   return spawns;
 }
 
@@ -353,7 +440,7 @@ export function buildCollision(data) {
   const worldOpts = { bounds, groundMat: theme.ground === 'none' ? 'concrete' : theme.ground, floorY: theme.ground === 'none' ? 0 : null };
   const movers = createMovers(data && data.movers);
   // 스폰 높이는 움직이는 지형을 뺀 월드에서 찾는다. createWorld가 충돌체에 id를 매기므로 스폰용 월드를 먼저 만들고 버린다
-  const spawns = buildSpawns(data || {}, movers.empty ? null : createWorld(colliders.slice(), worldOpts), bounds, sx);
+  const spawns = buildSpawns(data || {}, movers.empty ? null : createWorld(colliders.slice(), worldOpts), bounds, sx, moverAvoid(movers));
   for (const m of movers.list) colliders.push(m.collider);
   const world = createWorld(colliders, worldOpts);
   const triggers = buildTriggers(data);

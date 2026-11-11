@@ -154,7 +154,7 @@ props 없음. 계정에서 읽습니다. 닉네임 변경(같은 검사 + 저장
 ```js
 { rooms: [{ roomId, name, mapId, hostName, players /*수 또는 배열*/, max, status: 'waiting'|'playing',
             mode? /*'team'|'ffa'|'bomb'*/, killTarget? /*개인전 목표 킬, 기본 20*/ }],
-  loading?, error?, notice? /*알림(자리 비움으로 방이 닫힘 등)*/, joining? /*roomId*/, name?, maps?, maxPlayers? /*기본 6*/ }
+  loading?, error?, notice? /*알림(자리 비움으로 방이 닫힘 등)*/, joining? /*roomId*/, name?, maps?, maxPlayers? /*방 만들기 상한: 세션이 준다(중계 16 · Supabase 6), 없으면 6. 시트는 처음 8명(상한이 작으면 상한), 빠른 선택 4·8·12·16명*/ }
 ```
 대기 중인 방이 먼저 나옵니다. 꽉 찬 방과 게임 중인 방은 참가 버튼이 꺼집니다. 방이 없으면 빈 상태를, `loading`이면 스피너를, `error`면 경고와 [다시 시도]를, `notice`면 [다시 시도] 없는 알림 줄을 보여 줍니다.
 - 방 항목에 규칙 · 모드 배지가 붙습니다: "클래식 · 팀전" / "칼전 · 개인전 · 10킬" / "클래식 · 폭파 미션"(`sk-mode-badge--bomb`, 폭파 미션은 규칙 값과 상관없이 클래식). 개인전 배지에는 목표 킬이 붙고, `killTarget`이 없으면 20킬로 읽습니다. 게임 중인 팀전 · 폭파 미션 방은 잠기고, 개인전은 중간 참가할 수 있습니다.
@@ -223,7 +223,7 @@ N이나 Esc를 누르면 고르지 않고 닫히며 `loadout:close { reason:'key
 | `score` (개인전) | `{ mode:'ffa', kills, rank, total, leaderName, leaderKills, target = 20 }` → "🎯 7킬 · 2위/5 · 1위 하늘 12 / 20". 팀 칸 대신 내 킬 / 순위 칸을 보여 주고, 1위면 금색으로 표시. 킬피드도 중립 색으로 바뀜 |
 | `alive`, `teamSize` | `{ owner, charterer }` 생존자 수 / 팀 인원(점으로 표시). 팀전 전용 |
 | `team` | 내 팀. '내 팀' 표시(개인전은 `null`) |
-| `respawn` | `{ seconds, killer?, weaponName?, weaponId? }` → "💀 하늘에게 당했어요 · 3초 뒤 부활"(무기 칩 포함). `killer`가 없거나 나 자신이면 "💀 전사했어요". `null`이면 숨김(이때 compact 로드아웃도 닫힘) |
+| `respawn` | `{ seconds, killer?, weaponName?, weaponId?, quick? }` → "💀 하늘에게 당했어요 · 3초 뒤 부활"(무기 칩 포함). `killer`가 없거나 나 자신이면 "💀 전사했어요". `null`이면 숨김(이때 compact 로드아웃도 닫힘). `quick: { cost, ok, touch }`(개인전 즉시 부활)이면 아래에 "[E] 즉시 부활 · 10 P"(휴대폰 "'부활' 버튼 · 10 P", 포인트가 모자라면 흐린 "즉시 부활 10 P · 포인트 부족") 줄(`quickRespawnSpec`) |
 | `protect` | `true` → 조준점 아래 "🛡 보호 중" + 체력 칸 청록 테두리 |
 | `hint` / `spectate` | 하단 안내 문구 / "👁️ 관전 중 · 이름". 빈 값이면 숨김 |
 | `swap` | `{ seconds, weaponName?, open? } \| null` — 라운드 시작 전 무기 교체 안내 "N 을 눌러 무기 교체!" + "지금 RX-4 · 4초 뒤 시작". 휴대폰은 "눌러서 무기 교체!"이고 누르면 engine/touch.js가 `input:loadout`을 낸다 |
@@ -406,4 +406,5 @@ ui.chat.open() / close() / isOpen() / clear() / scope() / setScope('all' | 'team
 - 게임패드 조작은 없습니다. 휴대폰 터치 조작은 engine/touch.js가 맡습니다.
 - 채팅에는 욕설 필터가 없습니다. 길이(120자)와 도배(session의 `CHAT_LIMIT`)만 제한합니다.
 - 점수판 핑과 생존 여부는 엔진이 주는 값을 그대로 보여 줍니다.
+- 16인방: 한 팀 6명·개인전 10명을 넘으면 점수판이 `is-crowded`가 되어 줄 높이를 줄이고, 개인전 순위는 두 칸으로 나눠 나란히 둡니다(가로 휴대폰은 두 팀도 나란히, 세로 휴대폰은 한 줄로 쌓고 팀전은 위쪽 큰 점수를 뺀다). Tab을 누르는 동안은 스크롤할 수 없어서입니다.
 - 아이콘 일부는 이모지라 OS에 따라 모양이 다릅니다.
