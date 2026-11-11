@@ -449,7 +449,10 @@ test('map index lists every map with rulesets and filters by ruleset', async () 
   const index = await import('../js/maps/index.js').finally(() => { console.warn = realWarn; });
 
   const { MAP_IDS, MAPS, MAP_LIST, TEST_MAP, getMap, mapsForRuleset } = index;
-  assert.deepEqual([...MAP_IDS], ['rooftop', 'glasshouse', 'alley', 'cqb', 'sorthub', 'longshot', 'dojo', 'nexus', 'jetty', 'tankfarm', 'vlcc', 'relay', 'railyard', 'observatory']);
+  assert.deepEqual([...MAP_IDS], [
+    'rooftop', 'glasshouse', 'alley', 'cqb', 'sorthub', 'lot', 'schoolyard', 'karaoke', 'hanok',
+    'longshot', 'dojo', 'nexus', 'jetty', 'tankfarm', 'vlcc', 'relay', 'railyard', 'observatory'
+  ]);
   assert.deepEqual(Object.keys(MAPS), [...MAP_IDS]);
   const entry = (id) => MAP_LIST.find((m) => m.id === id);
   assert.deepEqual(entry('jetty').rulesets, ['classic', 'sniper']);

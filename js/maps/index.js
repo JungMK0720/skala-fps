@@ -19,9 +19,11 @@
 import { DEFAULT_RULESETS, RULESET_NAMES } from './collision.js';
 
 // 순서가 메뉴 순서이고, 규칙마다 처음 나오는 맵이 그 규칙의 기본 맵이다(칼전 rooftop, 클래식 alley, 스나전 longshot)
-// 좁은 맵 cqb·sorthub는 alley 뒤에 둔다. 폭파 미션 맵은 맨 끝에 두어 규칙별 기본 맵을 바꾸지 않고, 그중 처음인 relay가 폭파 미션의 기본 맵이다
+// 좁은 맵(cqb·sorthub, 개활지 lot·schoolyard, 문이 열리는 karaoke·hanok)은 alley 뒤에 둔다.
+// 폭파 미션 맵은 맨 끝에 두어 규칙별 기본 맵을 바꾸지 않고, 그중 처음인 relay가 폭파 미션의 기본 맵이다
 export const MAP_IDS = Object.freeze([
-  'rooftop', 'glasshouse', 'alley', 'cqb', 'sorthub', 'longshot', 'dojo', 'nexus', 'jetty', 'tankfarm', 'vlcc',
+  'rooftop', 'glasshouse', 'alley', 'cqb', 'sorthub', 'lot', 'schoolyard', 'karaoke', 'hanok',
+  'longshot', 'dojo', 'nexus', 'jetty', 'tankfarm', 'vlcc',
   'relay', 'railyard', 'observatory'
 ]);
 
@@ -154,6 +156,10 @@ const KNOWN = {
   alley: { name: '항구 골목', nameEn: 'Harbor Alley', rulesets: ['classic', 'knife'] },
   cqb: { name: '근접전 훈련장', nameEn: 'CQB Yard', rulesets: ['classic', 'knife'], tag: '좁은 맵' },
   sorthub: { name: '택배 분류 센터', nameEn: 'Parcel Hub', rulesets: ['classic', 'knife'], tag: '좁은 맵' },
+  lot: { name: '재개발 공터', nameEn: 'Vacant Lot', rulesets: ['classic', 'knife'], tag: '좁은 맵' },
+  schoolyard: { name: '초등학교 운동장', nameEn: 'Schoolyard', rulesets: ['classic', 'knife'], tag: '좁은 맵' },
+  karaoke: { name: '코인 노래방', nameEn: 'Coin Karaoke', rulesets: ['classic', 'knife'], tag: '좁은 맵' },
+  hanok: { name: '한옥 민박', nameEn: 'Hanok Stay', rulesets: ['classic', 'knife'], tag: '좁은 맵' },
   dojo: { name: '벚꽃 도장', nameEn: 'Blossom Dojo', rulesets: ['classic', 'knife', 'sniper'], tag: '통합' },
   longshot: { name: '협곡 저격장', nameEn: 'Canyon Range', rulesets: ['sniper'], tag: '스나 전용' },
   nexus: { name: '넥서스', nameEn: 'Nexus', rulesets: ['classic', 'knife', 'sniper'], tag: '통합' },

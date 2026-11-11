@@ -16,7 +16,7 @@ import { NAV_EDGE, buildNavGrid } from '../js/game/navgrid.js';
 import { CROWD, buildCollision, missionCrowd, validateMap } from '../js/maps/collision.js';
 
 /** 새 맵 전용 요구 사항(팀 스폰 수, 개인전 스폰 수, 경고를 오류로 취급)을 적용할 id. rulesets가 있는 맵도 같다(테스트 맵 제외) */
-const NEW_MAPS = new Set(['alley', 'dojo', 'longshot', 'nexus', 'relay', 'railyard', 'observatory', 'cqb', 'sorthub']);
+const NEW_MAPS = new Set(['alley', 'dojo', 'longshot', 'nexus', 'relay', 'railyard', 'observatory', 'cqb', 'sorthub', 'lot', 'schoolyard', 'karaoke', 'hanok']);
 const EXEMPT_MAPS = new Set(['testyard']);
 const MIN_TEAM_SPAWNS = 4;
 const MIN_FFA_SPAWNS = 6;
@@ -389,6 +389,24 @@ function checkProps(data, world, out) {
 
 const boxHit = (a, b, eps = 0.02) => a.minX < b.maxX - eps && b.minX < a.maxX - eps && a.minZ < b.maxZ - eps && b.minZ < a.maxZ - eps && a.minY < b.maxY - eps && b.minY < a.maxY - eps;
 const footprintInside = (a, b, eps = 0.02) => a.minX >= b.minX - eps && a.maxX <= b.maxX + eps && a.minZ >= b.minZ - eps && a.maxZ <= b.maxZ + eps;
+const boxInside = (a, b, eps = 0.02) => footprintInside(a, b, eps) && a.minY >= b.minY - eps && a.maxY <= b.maxY + eps;
+
+/**
+ * 문(가까이 오면 열리는 움직이는 지형) 하나의 문간 검사. still = 움직이는 지형을 뺀 월드(buildCollision).
+ * 문이 선 자리가 다른 도형 속이 아닌지, 문 앞뒤(얇은 쪽)에 사람이 설 바닥이 있는지 본다. 한쪽이 막혀 있으면 문을 열어도 지나갈 수 없다.
+ */
+function checkDoorway(spec, tag, still, out) {
+  const floor = spec.y;
+  const stands = (x, z) => Math.abs(getGroundY(still.world, x, z, floor + STEP, R - 0.05) - floor) <= STEP
+    && !overlapsCapsule(still.world, x, floor + STEP, z, R - 0.02, H - STEP);
+  if (!stands(spec.x, spec.z)) out.errors.push(`${tag} door stands inside a solid or over a gap at ${fmt(spec.x, floor, spec.z)}; nobody can walk through its doorway`);
+  const alongX = spec.w >= spec.d;                     // 문이 x로 길면 문 앞뒤는 z 쪽이다
+  const reach = (alongX ? spec.d : spec.w) / 2 + R + 0.2;
+  for (const sign of [-1, 1]) {
+    const px = alongX ? spec.x : spec.x + sign * reach, pz = alongX ? spec.z + sign * reach : spec.z;
+    if (!stands(px, pz)) out.errors.push(`${tag} door has no standing room on its ${sign < 0 ? '-' : '+'}${alongX ? 'z' : 'x'} side at ${fmt(px, floor, pz)}`);
+  }
+}
 
 /**
  * 움직이는 지형 검사(docs/MAP_GUIDE.md 11절). 판정은 게임과 같은 engine/movers.js로 읽는다.
@@ -415,7 +433,8 @@ export function checkMovers(data, col, out = { errors: [], warnings: [] }) {
     const tag = `movers[${spec.src}] "${spec.id}"`;
     const sweep = moverSweep(spec);
     const horizontal = spec.axis !== 'y';
-    report.push({ id: spec.id, axis: spec.axis, dist: spec.dist, period: spec.period, hold: spec.hold, speed: r2(moverPeakSpeed(spec)) });
+    report.push({ id: spec.id, axis: spec.axis, dist: spec.dist, period: spec.period, hold: spec.hold, speed: r2(moverPeakSpeed(spec)), door: spec.door ? { ...spec.door } : null });
+    if (spec.door) checkDoorway(spec, tag, still, out);
 
     const grown = { minX: sweep.minX - R - 0.1, maxX: sweep.maxX + R + 0.1, minZ: sweep.minZ - R - 0.1, maxZ: sweep.maxZ + R + 0.1 };
     for (const [label, p] of spots) {
@@ -437,14 +456,19 @@ export function checkMovers(data, col, out = { errors: [], warnings: [] }) {
       if (p && Number.isFinite(+p.x) && Number.isFinite(+p.z) && insideBody(sweep, +p.x, +p.y || 0, +p.z, +p.size > 0 ? +p.size : 1)) out.warnings.push(`props[${i}] starts in the path of ${tag}`);
     });
 
-    // 도형과 겹침: 위아래로 움직이는 상자는 자기보다 넓은 도형 속(문 위 벽)으로 들어가도 된다
+    // 도형과 겹침: 위아래로 움직이는 상자는 자기보다 넓은 도형 속(문 위 벽)으로 들어가도 된다.
+    // 옆으로 여는 문은 다 열린 문짝을 통째로 품는 도형(문 옆 벽) 속으로 들어간다. 그런 벽이 없으면 문짝이 사람이 서는 자리를 쓸고 지나간다
+    const openBox = spec.door && horizontal ? moverBox(spec, spec.dist) : null;
+    let pocket = false;
     for (const c of statics) {
       if (!boxHit(c, sweep)) continue;
       if (!horizontal && footprintInside(sweep, c)) continue;
+      if (openBox && boxInside(openBox, c)) { pocket = true; continue; }
       out.errors.push(`${tag} passes through solids[${c.index}] (${c.mat}) at x ${r2(c.minX)}..${r2(c.maxX)}, z ${r2(c.minZ)}..${r2(c.maxZ)}, y ${r2(c.minY)}..${r2(c.maxY)}`);
     }
+    if (openBox && !pocket) out.errors.push(`${tag} door slides into open space; put the wall beside the doorway where the open door ends up (one solid must contain the whole open door)`);
 
-    if (horizontal) {
+    if (horizontal && !spec.door) {
       // 멈추는 자리 앞: 밀려 온 사람이 설 자리가 있어야 한다(없으면 벽과 상자 사이에 끼인다)
       const alongX = spec.axis === 'x';
       const lo = alongX ? sweep.minX : sweep.minZ, hi = alongX ? sweep.maxX : sweep.maxZ;
@@ -717,7 +741,11 @@ function printDetails(reports) {
     }
     for (const s of r.secrets) console.log(`  secret ${s.id}: ${s.via ? `via ${s.via}` : 'unreachable'}`);
     if (r.mission) printMission(r.mission);
-    for (const m of r.movers) console.log(`  mover ${m.id}: ${m.axis} ${m.dist > 0 ? '+' : ''}${m.dist} m, ${m.period} s cycle (hold ${m.hold} s), peak ${m.speed} m/s`);
+    for (const m of r.movers) {
+      console.log(m.door
+        ? `  door ${m.id}: ${m.axis} ${m.dist > 0 ? '+' : ''}${m.dist} m, opens within ${m.door.range} m in ${m.door.open} s, closes in ${m.door.close} s once nobody has been near for ${m.door.linger} s`
+        : `  mover ${m.id}: ${m.axis} ${m.dist > 0 ? '+' : ''}${m.dist} m, ${m.period} s cycle (hold ${m.hold} s), peak ${m.speed} m/s`);
+    }
     for (const e of r.errors) console.log(`  ERROR ${e}`);
     for (const w of r.warnings) console.log(`  warn  ${w}`);
   }

@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 시나리오 15. 맵 둘러보기. 새 맵 열하나를 코어만 띄워(?plugins=0) 카메라를 스폰, 발판, 포털, 비밀 스팟, 골목, 폭파 구역, 움직이는 지형마다 옮겨 사진을 남긴다.
+ * Purpose: 시나리오 15. 맵 둘러보기. 새 맵 열다섯을 코어만 띄워(?plugins=0) 카메라를 스폰, 발판, 포털, 비밀 스팟, 골목, 폭파 구역, 움직이는 지형(문 포함)마다 옮겨 사진을 남긴다.
  *          기하와 분위기를 눈으로 볼 때 쓴다. 사용법: npm run qa -- --only maps [--filter dojo 또는 dojo/pad 또는 rooftop,glasshouse]
  */
 import { MAPS } from '../../../js/maps/index.js';
@@ -11,7 +11,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { qaInit, richProfile, sleep } from '../kit.mjs';
 
-const MAP_IDS = ['rooftop', 'glasshouse', 'dojo', 'longshot', 'nexus', 'alley', 'relay', 'railyard', 'observatory', 'cqb', 'sorthub'];
+const MAP_IDS = ['rooftop', 'glasshouse', 'dojo', 'longshot', 'nexus', 'alley', 'relay', 'railyard', 'observatory', 'cqb', 'sorthub', 'lot', 'schoolyard', 'karaoke', 'hanok'];
 const SHEET = { cols: 2, rows: 3, w: 480, h: 270 };
 const DOWN = -Math.PI / 2 + 0.002;
 
@@ -148,6 +148,49 @@ const HAND = {
     view('site-b-mast', 12.5, 0, 21, 18.5, 14, 21.9),
     view('rotation', 24, 0, -17, 24, 1.6, 17),
     view('mid-link', 9, 0, 0, 21, 1.6, 0)
+  ],
+  lot: [
+    view('base-exit', -15.4, 0, -2, -13, 1.6, -9),
+    view('field-from-north-exit', -12.5, 0, -9.5, 0, 1.4, -2),
+    view('pipes', -11.5, 0, -4.8, -8, 1.2, -8),
+    view('mound-foot-west', -7.6, 0, 0.4, 0, 1.4, 0),
+    view('mound-top', 0, 1, 0, 12, 1.2, -6),
+    view('truck-rear', -1.2, 0, 8, -8, 1.6, 8),
+    view('truck-bed', -4.4, 1.2, 8, -9, 2.2, 8),
+    view('south-fence', 0, 0, 11, -10, 1.4, 6)
+  ],
+  schoolyard: [
+    view('base-exit', -18.1, 0, -2, -15, 1.6, -8),
+    view('field-from-shed', -12.9, 0, -6.5, 4, 1.4, 0),
+    view('goal', -6.5, 0, 0, -13, 1.4, 0),
+    view('jungle-gym', -11.6, 0, -9.6, -8, 1.3, -6.5),
+    view('podium-stairs', -8.6, 0, -11.2, -2, 1.6, -11.4),
+    view('podium-top', 0, 1, -11.4, 0, 1, 6),
+    view('stands-top', 0, 1.2, 12.2, 0, 1.6, -8),
+    view('vault-and-tree', -1, 0, 1, -5, 1.2, 4)
+  ],
+  karaoke: [
+    view('counter', -13.9, 0, 0, -12, 1.6, -6.5),
+    view('north-corridor', -10.6, 0, -6.6, 6, 1.6, -6.6),
+    view('door-1-closed', -6, 0, -7.4, -6, 1.3, -5),
+    view('door-1-open', -6, 0, -6.2, -5, 1.2, -2),
+    view('room-1', -7.6, 0, -3.6, -3.4, 1, -1.6),
+    view('room-1-to-4', -5.2, 0, -1.6, -4.5, 1.3, 3),
+    view('room-2', -1.8, 0, -1.3, 1.2, 1, -3.4),
+    view('west-corridor', -10.5, 0, 3.6, -10.5, 1.6, -5),
+    view('side-door-open', -10.1, 0, -2.5, -6, 1.2, -2.5)
+  ],
+  hanok: [
+    view('yard', 0, 0, 2.3, 0, 1.6, -4),
+    view('yard-west', 3.4, 0, 0, -5.6, 1.5, 1.5),
+    view('hall-door-open', -2, 0.3, -3.3, -1, 1.4, -8),
+    view('hall-north', -4.6, 0.3, -6.2, 4, 1.4, -8),
+    view('room-nw', -9.25, 0.3, -7.6, -9.25, 1.5, -4.2),
+    view('room-west', -10.6, 0.3, -1.6, -5.7, 1.4, 1.5),
+    view('veranda', 5, 0.3, -3.4, -5, 1.6, -3.4),
+    view('alley-west', -14.3, 0, -3, -14.3, 1.6, 9),
+    view('alley-north', 6, 0, -11.3, -10, 1.6, -11.3),
+    view('back-door-closed', -9.25, 0, -12.1, -9.25, 1.5, -9.8)
   ]
 };
 
@@ -285,7 +328,7 @@ function grabCell({ name, col, row, reset, W, H, cols, rows }) {
 
 export default {
   name: 'maps',
-  title: '새 맵 열하나의 스폰, 발판, 포털, 비밀 스팟, 골목, 폭파 구역, 움직이는 지형 사진',
+  title: '새 맵 열다섯의 스폰, 발판, 포털, 비밀 스팟, 골목, 폭파 구역, 움직이는 지형·문 사진',
   timeoutMs: 15 * 60 * 1000,
   async run(t) {
     for (const id of MAP_IDS) {

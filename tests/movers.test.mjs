@@ -2,7 +2,7 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 움직이는 지형(engine/movers.js) 테스트. 왕복 운동 표, 충돌체 옮기기, 위에 선 몸 실어 나르기, 옆에서 밀기,
- *          총알 판정, 맵 데이터 검사와 kit 뒤집기를 확인한다.
+ *          총알 판정, 맵 데이터 검사와 kit 뒤집기, 가까이 오면 열리는 문을 확인한다.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,11 +10,13 @@ import { LIMITS, PLAYER, TICK_DT } from '../js/core/consts.js';
 import { moveCharacter, raycastWorld, lineOfSight } from '../js/engine/physics.js';
 import {
   MOVER_MAX_SPEED, MOVER_MIN_TRAVEL, normalizeMover, normalizeMovers, moverProgress, moverOffset, moverPeakSpeed, moverBox, moverSweep,
-  createMovers, stepMovers, carryBody
+  createMovers, stepMovers, carryBody,
+  DOOR_DEFAULTS, DOOR_LIMITS, DOOR_CLEARANCE, normalizeDoor, doorNear, doorPassable
 } from '../js/engine/movers.js';
 import { buildCollision, validateMap } from '../js/maps/collision.js';
 import { buildNavGrid } from '../js/game/navgrid.js';
 import { rotate180, mirrorX, mirrorZ } from '../js/maps/kit.js';
+import { checkMap } from '../tools/check-maps.mjs';
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps, `${a} ≈ ${b}`);
 
@@ -289,4 +291,177 @@ test('kit 뒤집기: 자리와 가는 방향을 함께 뒤집고 id에 꼬리표
   // 돌린 쌍은 같은 시각에 서로 대칭인 자리에 있다
   const a = normalizeMover(SLED), b = normalizeMover(r);
   for (const t of [0, 2, 3.75, 6, 9]) near(a.x + moverOffset(a, t), -(b.x + moverOffset(b, t)));
+});
+
+/* ---------------- 문(가까이 오면 열리는 움직이는 지형) ---------------- */
+
+// 동서로 놓인 벽(z 0)의 문간 하나: 문간 x -0.9 ~ 0.9, 문짝은 동쪽 벽 속으로 1.8 m 들어간다
+const DOOR = { id: 'door', x: 0, y: 0, z: 0, w: 1.8, h: 2.2, d: 0.1, mat: 'paper', axis: 'x', dist: 1.8, door: true };
+const DOOR_WALL = [
+  { type: 'box', x: -3.45, y: 0, z: 0, w: 5.1, h: 3, d: 0.3, mat: 'plaster' },
+  { type: 'box', x: 3.45, y: 0, z: 0, w: 5.1, h: 3, d: 0.3, mat: 'plaster' },
+  { type: 'box', x: 0, y: 2.2, z: 0, w: 1.8, h: 0.8, d: 0.3, mat: 'plaster' }
+];
+
+test('문: door 칸은 기본값을 채우고 범위를 벗어난 값은 자른다. 주기는 필요 없다', () => {
+  assert.equal(normalizeDoor(undefined), null);
+  assert.equal(normalizeDoor(false), null);
+  assert.deepEqual(normalizeDoor(true), { ...DOOR_DEFAULTS });
+  assert.deepEqual(normalizeDoor({ range: 2.5, open: 0.4 }), { ...DOOR_DEFAULTS, range: 2.5, open: 0.4 });
+  assert.deepEqual(normalizeDoor({ range: 99, open: 0, close: 99, linger: -1 }),
+    { range: DOOR_LIMITS.maxRange, open: DOOR_LIMITS.minTime, close: DOOR_LIMITS.maxTime, linger: 0 });
+  const s = normalizeMover(DOOR);
+  assert.deepEqual([s.period, s.hold, s.phase, s.travel], [0, 0, 0, DOOR_DEFAULTS.open]);
+  assert.deepEqual(s.door, { ...DOOR_DEFAULTS });
+  assert.equal(moverProgress(s, 123.4), 0, '시각만으로는 움직이지 않는다');
+  assert.equal(moverOffset(s, 5), 0);
+  assert.equal(normalizeMover(SLED).door, null, '주기로 움직이는 지형은 문이 아니다');
+  assert.equal(normalizeMover({ ...DOOR, dist: 0 }), null);
+  assert.ok(normalizeMover({ ...DOOR, axis: 'y', dist: 2.3 }), '위아래로 여는 문');
+  assert.equal(createMovers([DOOR, SLED]).doors, 1);
+});
+
+test('문: 다 열리면 지나갈 수 있어야 한다(옆으로, 위로, 아래로)', () => {
+  const pass = (m) => doorPassable(normalizeMover({ ...DOOR, ...m }));
+  assert.equal(pass({}), true);
+  assert.equal(pass({ dist: -1.8 }), true);
+  assert.equal(pass({ dist: 1.2 }), false, '문짝이 문간에 남는다');
+  assert.equal(pass({ w: 0.1, d: 1.8, axis: 'z', dist: -1.8 }), true);
+  assert.equal(pass({ w: 0.1, d: 1.8, axis: 'z', dist: 1 }), false);
+  assert.equal(pass({ axis: 'y', dist: DOOR_CLEARANCE }), true);
+  assert.equal(pass({ axis: 'y', dist: 1.7 }), false, '머리가 걸린다');
+  assert.equal(pass({ axis: 'y', dist: -2.2 }), true, '바닥 속으로 다 내려간다');
+  assert.equal(pass({ axis: 'y', dist: -1.5 }), false, '윗부분이 턱으로 남는다');
+});
+
+test('문: 닫힌 문짝에서 잰 거리로 사람을 알아보고, 다른 층은 세지 않는다', () => {
+  const s = normalizeMover({ ...DOOR, door: { range: 1.5 } });
+  assert.equal(doorNear(s, [[0, 0, 1.4]]), true);
+  assert.equal(doorNear(s, [[0, 0, 1.7]]), false);
+  assert.equal(doorNear(s, [[0.9 + 1.4, 0, 0]]), true, '문짝 끝에서 잰다');
+  assert.equal(doorNear(s, [[0.9 + 1.2, 0, 1.2]]), false, '모서리에서는 대각선 거리');
+  assert.equal(doorNear(s, [{ x: 0, y: 0, z: -1 }]), true, '{ x, y, z }도 받는다');
+  assert.equal(doorNear(s, [new Float32Array([0, 0, 1])]), true);
+  assert.equal(doorNear(s, [[0, 3.2, 0.5]]), false, '위층');
+  assert.equal(doorNear(s, [[0, -2, 0.5]]), false, '아래층');
+  assert.equal(doorNear(s, [[0, 1.1, 0.5]]), true, '뛰어오른 사람');
+  assert.equal(doorNear(s, [null, [20, 0, 20], [0, 0, 0.5]]), true);
+  assert.equal(doorNear(s, []), false);
+  assert.equal(doorNear(s, null), false);
+  assert.equal(doorNear(normalizeMover(SLED), [[-4, 0, 0]]), false, '문이 아니면 늘 false');
+});
+
+test('문: 사람이 오면 open초에 열리고, 떠나면 linger초 뒤 close초에 닫힌다. 시계가 멈추면 문도 멈춘다', () => {
+  const col = buildCollision(mapWith([{ ...DOOR, door: { range: 1.5, open: 0.25, close: 0.5, linger: 0.6 } }], DOOR_WALL));
+  const m = col.movers.list[0];
+  const here = [[0, 0, 1]], away = [[0, 0, 6]];
+  stepMovers(col.world, 10, here);
+  assert.equal(m.off, 0, '처음 부를 때는 흐른 시간이 없다');
+  let t = 10;
+  const run = (sec, bodies) => { for (let i = Math.round(sec / TICK_DT); i > 0; i--) { t += TICK_DT; stepMovers(col.world, t, bodies); } };
+  run(0.125, here);
+  near(m.open, 0.5, 0.05);
+  assert.ok(m.off > 1.8 * 0.7 && m.off < 1.8, `빨리 열리기 시작한다: ${m.off}`);
+  run(0.2, here);
+  assert.equal(m.open, 1);
+  near(m.off, 1.8);
+  near(m.collider.minX, 0.9);                        // 문짝이 동쪽 벽 속에 있다
+  run(1, here);
+  assert.equal(m.open, 1, '사람이 있는 동안은 닫히지 않는다');
+  run(0.5, away);
+  assert.equal(m.open, 1, 'linger가 지나기 전에는 그대로다');
+  run(0.2, away);
+  assert.ok(m.open < 1 && m.open > 0, `닫히는 중: ${m.open}`);
+  const paused = m.open;
+  for (let i = 0; i < 30; i++) stepMovers(col.world, t, away);   // 시계가 멈춤(연습장 일시정지)
+  assert.equal(m.open, paused);
+  run(0.1, here);
+  assert.ok(m.open > paused, '닫히다가도 사람이 오면 다시 열린다');
+  run(0.3, here);
+  run(2, away);
+  assert.equal(m.open, 0);
+  assert.equal(m.off, 0);
+  near(m.collider.minX, -0.9);
+  run(1, null);
+  assert.equal(m.open, 0, '사람 목록이 없으면 닫힌 채다');
+  // 시계가 크게 튀어도 한 번에 0.25초만 진행한다
+  stepMovers(col.world, t + 500, here);
+  assert.equal(m.open, 1);
+  stepMovers(col.world, t + 400, here);
+  assert.equal(m.open, 1, '시계가 뒤로 가면 진행하지 않는다');
+});
+
+test('문: 닫혀 있으면 사람·총알·시야를 막고, 다가가면 열려 지나간다', () => {
+  const col = buildCollision(mapWith([DOOR], DOOR_WALL));
+  stepMovers(col.world, 0, null);
+  const eyeA = [0, 1.5, -3], eyeB = [0, 1.5, 3];
+  assert.equal(lineOfSight(col.world, eyeA, eyeB), false, '닫힌 문 너머는 보이지 않는다');
+  assert.ok(raycastWorld(col.world, eyeA, [0, 0, 1], 10).collider.dynamic, '총알은 문짝에 맞는다');
+  assert.equal(lineOfSight(col.world, eyeA, eyeB, { filter: (c) => !c.dynamic }), true, '방장의 벽 가림 검사는 문을 빼고 본다');
+  // 아무도 알아보지 않으면(목록 없음) 문에 막힌다
+  const blocked = { pos: [0, 0, -3], vel: [0, 0, 0], onGround: true };
+  for (let i = 0; i < 90; i++) { stepMovers(col.world, i * TICK_DT, null); moveCharacter(col.world, blocked, { x: 0, z: PLAYER.WALK }, TICK_DT); }
+  assert.ok(blocked.pos[2] < -0.05 - PLAYER.RADIUS + 0.02, `문 앞에서 멈춘다: ${blocked.pos[2]}`);
+  // 걸어오는 사람을 알아보면 열려서 그대로 지나간다
+  const col2 = buildCollision(mapWith([DOOR], DOOR_WALL));
+  const walker = { pos: [0, 0, -4], vel: [0, 0, 0], onGround: true };
+  let slowest = Infinity;
+  for (let i = 0; i < 120; i++) {
+    stepMovers(col2.world, i * TICK_DT, [walker.pos]);
+    const z0 = walker.pos[2];
+    moveCharacter(col2.world, walker, { x: 0, z: PLAYER.WALK }, TICK_DT);
+    if (i > 20 && z0 < 1) slowest = Math.min(slowest, (walker.pos[2] - z0) / TICK_DT);
+  }
+  assert.ok(walker.pos[2] > 3, `문을 지나갔다: ${walker.pos[2]}`);
+  assert.ok(slowest > PLAYER.WALK * 0.9, `걷는 속도 그대로 지나간다: ${slowest}`);
+  // 문을 지난 사람이 아직 가까이 있어 문은 열려 있다
+  stepMovers(col2.world, 120 * TICK_DT, [[0, 0, 0.5]]);
+  assert.equal(lineOfSight(col2.world, eyeA, eyeB), true, '열린 문으로는 보인다');
+});
+
+test('validateMap: 문은 주기·속도 검사를 받지 않고, door 값과 열림 폭을 검사한다', () => {
+  assert.deepEqual(validateMap(mapWith([DOOR], DOOR_WALL)).warnings, []);
+  assert.deepEqual(validateMap(mapWith([{ ...DOOR, door: { range: 2, open: 0.2, close: 0.4, linger: 1 } }], DOOR_WALL)).warnings, []);
+  const warn = (m) => validateMap(mapWith([{ ...DOOR, ...m }], DOOR_WALL)).warnings.join('\n');
+  assert.match(warn({ door: 'yes' }), /door must be true or/);
+  assert.match(warn({ door: { range: 0.2 } }), /door\.range must be/);
+  assert.match(warn({ door: { open: 9 } }), /door\.open must be/);
+  assert.match(warn({ door: { linger: -1 } }), /door\.linger must be/);
+  assert.match(warn({ dist: 1 }), /must clear its doorway/);
+  assert.match(warn({ axis: 'y', dist: 1.5 }), /rises only/);
+  assert.match(warn({ axis: 'y', dist: -1 }), /stays above the floor/);
+  assert.match(warn({ axis: 'q' }), /axis/);
+  assert.doesNotMatch(warn({}), /peak speed|travels one way|period/);
+});
+
+test('검사기: 옆으로 여는 문은 들어갈 벽이 있어야 하고, 문간 앞뒤에 설 자리가 있어야 한다', () => {
+  const run = (movers, solids) => checkMap('door_test', mapWith(movers, solids));
+  const ok = run([DOOR], DOOR_WALL);
+  assert.deepEqual(ok.errors, []);
+  assert.deepEqual(ok.movers.map((m) => [m.id, m.axis, m.dist, !!m.door]), [['door', 'x', 1.8, true]]);
+  // 벽 없이 여는 문: 문짝이 사람이 서는 자리를 쓸고 지나간다
+  assert.match(run([DOOR], []).errors.join('\n'), /slides into open space/);
+  // 문짝보다 짧은 벽: 문짝이 벽 밖으로 삐져나온다
+  const stub = { type: 'box', x: 1.4, y: 0, z: 0, w: 1, h: 3, d: 0.3, mat: 'plaster' };
+  assert.match(run([DOOR], [DOOR_WALL[0], stub]).errors.join('\n'), /passes through solids\[1\]/);
+  // 문 바로 앞을 가구가 막고 있다
+  const desk = { type: 'box', x: 0, y: 0, z: 0.7, w: 1.6, h: 1, d: 0.8, mat: 'wood' };
+  assert.match(run([DOOR], [...DOOR_WALL, desk]).errors.join('\n'), /no standing room on its \+z side/);
+  // 문간에 스폰이 있다
+  const data = mapWith([DOOR], DOOR_WALL);
+  const onDoor = checkMap('door_test', { ...data, spawns: { ...data.spawns, ffa: [{ x: 0, z: 0.2, rotY: 0 }] } });
+  assert.match(onDoor.errors.join('\n'), /spawns\.ffa\[0\].*stands in the path of movers\[0\] "door"/);
+  // 위로 여는 문: 문 위 벽 속으로 들어간다(문보다 넓은 도형이면 된다)
+  const tall = DOOR_WALL.map((s) => (s.y > 0 ? { ...s, h: 2.8 } : { ...s, h: 5 }));
+  assert.deepEqual(run([{ ...DOOR, axis: 'y', dist: 2.2 }], tall).errors, []);
+  // 주기로 움직이는 수평 상자의 규칙(멈추는 자리 앞 1.5 m)은 문에는 적용하지 않는다
+  assert.doesNotMatch(run([DOOR], DOOR_WALL).errors.concat(run([DOOR], DOOR_WALL).warnings).join('\n'), /pinned|walkway/);
+});
+
+test('kit 뒤집기: 문도 자리와 여는 방향을 함께 뒤집는다', () => {
+  const [r] = rotate180([DOOR]);
+  assert.deepEqual([r.x, r.z, r.dist, r.axis, r.id, r.door], [0, 0, -1.8, 'x', 'door_r', true]);
+  const zDoor = { ...DOOR, w: 0.1, d: 1.8, axis: 'z', x: -5, z: 2 };
+  assert.deepEqual([mirrorX([zDoor])[0].x, mirrorX([zDoor])[0].dist], [5, 1.8], 'x로 뒤집어도 z 방향 문은 그대로 연다');
+  assert.deepEqual([mirrorZ([zDoor])[0].z, mirrorZ([zDoor])[0].dist], [-2, -1.8]);
 });

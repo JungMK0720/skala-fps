@@ -202,6 +202,23 @@ export default {
       t.check(new RegExp(RULESETS[id].desc).test(await textOf(page, '.sk-sheet .sk-field-hint')), `${id}: 규칙 설명`);
     }
     await t.shot('practice-sheet');
+    // 좁은 개인전 맵 넷(공터·운동장·노래방·한옥)의 카드: 아이콘이 그려져 있는지 보고 사진으로 남긴다
+    await page.clickText(seg('규칙'), RULESETS.classic.name);
+    const smallNames = ['lot', 'schoolyard', 'karaoke', 'hanok'].map((id) => MAPS[id].name);
+    const smallCards = (scrollTo) => page.fn(({ names, scrollTo: to }) => {
+      const cards = [...document.querySelectorAll('.sk-mapcards .sk-mapcard')];
+      const pick = (name) => cards.find((c) => c.querySelector('.sk-mapcard-name').textContent === name);
+      const top = pick(to);
+      if (top) top.scrollIntoView({ block: 'start' });
+      return names.map((name) => { const c = pick(name); return { name, found: !!c, shapes: c ? c.querySelectorAll('.sk-mapico *').length : 0, tag: c && c.querySelector('.sk-mapcard-tag') ? c.querySelector('.sk-mapcard-tag').textContent : '' }; });
+    }, { names: smallNames, scrollTo });
+    const small = await smallCards(smallNames[0]);
+    t.check(small.every((c) => c.found && c.shapes > 0 && c.tag === '좁은 맵'), '좁은 개인전 맵 넷의 카드에 아이콘과 꼬리표가 있다', small);
+    await sleep(150);
+    await t.shot('practice-sheet-small-maps-1');
+    await smallCards(smallNames[3]);
+    await sleep(150);
+    await t.shot('practice-sheet-small-maps-2');
     await page.clickText(seg('규칙'), RULESETS.knife.name);
     await page.clickText(seg('모드'), '팀전');
     const teamCounts = await page.eval(`[...document.querySelectorAll('.sk-seg[aria-label="인원"] .sk-seg-btn')].map((b) => b.textContent)`);

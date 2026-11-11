@@ -159,18 +159,21 @@ export default {
   portals: [ { x, y, z, w, h, d, to: { x, y, z, rotY }, color } ],   // 특수 장소 이동(순간이동, 속도 0)
   secrets: [ { id, name, x, y, z, w, h, d, points: 100 } ],          // 비밀 스팟 판정 상자. 들어가면 1회 보상
   props: [ { type: 'crate'|'barrel', x, y, z, size?, mass? } ],      // 물리 소품(cannon-es, 표시 전용). y = 밑면 높이, size = 상자 모서리 또는 드럼통 높이
-  movers: [ { id, x, y, z, w, h, d, mat, axis: 'x'|'y'|'z', dist, period, hold?, phase? } ]   // 움직이는 지형: 길을 왕복하는 상자(충돌 있음, MAP_GUIDE 11절)
+  movers: [ { id, x, y, z, w, h, d, mat, axis: 'x'|'y'|'z', dist, period, hold?, phase? },   // 움직이는 지형: 길을 왕복하는 상자(충돌 있음, MAP_GUIDE 11절)
+            { id, x, y, z, w, h, d, mat, axis, dist, door: true | { range, open, close, linger } } ]   // 문: 사람이 가까이 오면 dist만큼 가서 열린다
 };
 ```
 - `js/engine/triggers.js`(순수): `buildTriggers(data)` → `world.triggers`, `stepTriggers(world, body, height, state, dt = TICK_DT)` → `{ pad, portal, secrets: [] }`. 발판은 발이 사각형 안이고 높이 차 0.35 이내일 때, 재발동 대기 0.35초. `padVelocity(from, target, apex, g)`도 여기.
 - `player.tick`이 호출하고 bus로 알린다: `player:pad {pad, pos}`, `player:portal {portal, pos}`, `player:secret {secret, pos}`. 연습장 봇도 `stepTriggers`로 발판을 탄다.
-- `js/engine/movers.js`(순수): `createMovers(list)` → `world.movers`, `stepMovers(world, t)`(틱마다, 몸보다 먼저), `carryBody(world, body)`(위에 선 몸을 싣는다), `moverOffset(spec, t)`.
+- `js/engine/movers.js`(순수): `createMovers(list)` → `world.movers`, `stepMovers(world, t, bodies)`(틱마다, 몸보다 먼저), `carryBody(world, body)`(위에 선 몸을 싣는다), `moverOffset(spec, t)`.
+  문(`door`)은 시각이 아니라 사람을 보고 움직인다: `bodies`(살아 있는 사람의 발 위치 목록) 중 하나가 닫힌 문짝에서 `range` m 안이면 열리고, 아무도 없으면 닫힌다(`doorNear`, `stepDoor`).
+  목록은 `map.setMoverBodies(fn)`으로 넣는다: World는 살아서 맵에 선 나와 화면에 보이는 다른 사람·봇을 넘긴다. 화면마다 따로 계산하므로 보내는 메시지가 없다.
   충돌체는 `dynamic: true`가 붙어 `world.colliders`에 들어가고, `physics.createWorld`가 격자에 넣지 않고 늘 검사한다(상자를 옮겨도 판정이 맞는다).
   시계는 `map.setMoverClock(fn)`으로 넣는다: 멀티는 `sync.hostNow()`, 그 밖에는 World 시각. 길 찾기(`navgrid`)와 스폰 배치는 움직이는 지형을 보지 않는다.
 - `js/maps/builder.js`: 발판·포털을 자동으로 그린다(빛나는 원판, 위로 흐르는 화살표, 포인트 라이트 없이 emissive). `map.update`에서 움직인다.
 - `validateMap`이 새 필드를 검사하고, `tools/check-maps.mjs`가 **스폰이 벽에 박히지 않는지, 발판 궤적이 target 근처에 실제로 착지하는지, 비밀 스팟이 발판·점프로 갈 수 있는지(시뮬레이션)**를 확인한다.
 - 새 재질 12종(`consts.MATS`)과 장식 타입: `tree`(분홍 벚나무, 충돌 없음), `bamboo`, `lantern`, `banner`, `rope`, `vent`, `crateStack`.
-- `js/maps/index.js`: `MAP_IDS = ['rooftop','glasshouse','alley','cqb','sorthub','longshot','dojo','nexus','jetty','tankfarm','vlcc','relay','railyard','observatory']`. 파일이 없거나 깨지면 기존처럼 테스트 맵으로 대체한다. `MAP_LIST` 항목에 `rulesets`, `tag`. `mapsForRuleset(id)` 추가. 순서가 메뉴 순서이고, 규칙마다 처음 나오는 맵이 그 규칙의 기본 맵이다(클래식 `alley`, 칼전 `rooftop`, 스나전 `longshot`).
+- `js/maps/index.js`: `MAP_IDS = ['rooftop','glasshouse','alley','cqb','sorthub','lot','schoolyard','karaoke','hanok','longshot','dojo','nexus','jetty','tankfarm','vlcc','relay','railyard','observatory']`. 파일이 없거나 깨지면 기존처럼 테스트 맵으로 대체한다. `MAP_LIST` 항목에 `rulesets`, `tag`. `mapsForRuleset(id)` 추가. 순서가 메뉴 순서이고, 규칙마다 처음 나오는 맵이 그 규칙의 기본 맵이다(클래식 `alley`, 칼전 `rooftop`, 스나전 `longshot`).
 
 ### 새 맵 여섯 개
 | id | 이름 | 규칙 | 크기 기준 | 컨셉 |
@@ -195,6 +198,21 @@ export default {
 | `sorthub` | 택배 분류 센터 | classic, knife | 44×32 m | **좁은 맵.** 180° 대칭 2층 창고. 선반 두 줄이 통로 셋을 만들고 2층 통로 둘이 가운데 다리로 이어진다. 움직이는 지형 여섯: 2층으로 오르내리는 리프트, 14초에 4초 열리는 도크 셔터, 가운데 통로의 무인 수레(팀마다 하나씩). 계단이 따로 있어 봇도 2층에 간다 |
 
 네 맵 모두 `tests/new-maps.test.mjs`가 이름·배지·미션 길 길이·대칭·움직이는 지형·검사기 통과를 확인한다.
+
+### 좁은 개인전 맵 넷 (개활지 둘, 문이 열리는 맵 둘)
+사용자 요청: "개인전 맵을 좁은 것으로 넷 더. 공터·운동장처럼 크게 움직이는 것 없이 지형지물만 있는 넓은 개활지 맵, 그리고 좁은 방에서 문이 열리며 갑작스럽게 공격하는 맵."
+개활지 둘에는 발판·포털·움직이는 지형이 없다. 문이 열리는 둘에는 가까이 오면 옆으로 열리는 문(`movers`의 `door`, MAP_GUIDE 11절)이 여덟 개씩 있다.
+넷 다 팀전·개인전·칼전에 쓰고, 팀 스폰은 여덟 곳씩이다(16명 방의 한 팀). 이름과 구조는 직접 설계했다(1절).
+
+| id | 이름 | 규칙 | 크기 | 컨셉 |
+|---|---|---|---|---|
+| `lot` | 재개발 공터 | classic, knife | 36×26 m | **개활지.** 180° 대칭. 울타리 안 흙바닥에 가운데 흙더미(1 m, 동서 비탈로 오른다), 세워 둔 흄관, 덤프트럭, 벽돌 더미, 방호벽이 흩어져 있다. 몸을 다 가리는 것은 흄관·트럭뿐이다. 트럭 짐칸이 비밀 스팟 |
+| `schoolyard` | 초등학교 운동장 | classic, knife | 40×26 m | **개활지.** 좌우 대칭. 북쪽 구령대(1 m, 양옆 계단)와 남쪽 스탠드(3단) 사이 모래 운동장. 한가운데는 비어 있고 정글짐(지나갈 수 없지만 살 사이로 총알이 간다)·골대·뜀틀·화단이 가장자리에 놓여 있다 |
+| `karaoke` | 코인 노래방 | classic, knife | 32×17 m | **문 맵.** 180° 대칭 실내(천장 있음). 방 여섯(3×2)을 네온 복도가 한 바퀴 두른다. 복도 쪽 자동문 여섯과 옆문 둘(사람이 1.4 m 안에 오면 0.22초에 열린다). 위아래 방은 문 없는 틈으로 이어져 복도에서 복도로 가로지른다. 복도 바깥쪽으로 걸으면 문이 열리지 않는다 |
+| `hanok` | 한옥 민박 | classic, knife | 32×26 m | **문 맵.** 180° 대칭. 마당을 방 여덟이 ㅁ자로 두르고 그 바깥을 뒤안길이 돈다. 방은 기단(0.3 m) 위에 있고 지붕이 덮는다. 마당 쪽 창호지 미닫이문 넷과 뒤안길 쪽 뒷문 넷(1.5 m 안에 오면 0.25초에 열린다). 마당과 뒤안길은 방 둘과 문 둘을 지나야 이어진다 |
+
+`tests/ffa-maps.test.mjs`가 이름·배지·크기·스폰 수와 간격·대칭·검사기 통과를 보고, 개활지 둘은 "걷기 칸 두 곳이 눈높이에서 서로 보이는 비율"이 기존 좁은 맵의 두 배를 넘는지,
+문 맵 둘은 문이 닫혔을 때 그 비율이 낮은지와 문마다 닫히면 시야가 끊기고 다가가면 그 문만 열리는지를 확인한다.
 
 ## 6. 규칙(룰셋) · 모드
 

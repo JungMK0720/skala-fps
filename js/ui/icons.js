@@ -78,6 +78,32 @@ const MAP_DRAW = {
     fill('M9 10 h10 v3 h-10 Z M29 10 h10 v3 h-10 Z M9 19 h10 v3 h-10 Z M29 19 h10 v3 h-10 Z'),
     accent('M22 4 V28 M26 4 V28'),
   ],
+  // 울타리 안 공터: 가운데 흙더미와 양옆 비탈, 흩어진 흄관과 덤프트럭
+  lot: () => [
+    line('M3 4 H45 V28 H3 Z'),
+    fill('M21 13 h6 v6 h-6 Z M9 22 h8 v3 h-8 Z M31 7 h8 v3 h-8 Z'),
+    ring(12, 10, 2.5),
+    ring(36, 22, 2.5),
+    accent('M15 16 H21 M27 16 H33'),
+  ],
+  // 운동장: 가운데 선과 가운데 원, 양쪽 골대, 위쪽 구령대
+  schoolyard: () => [
+    line('M4 6 H44 V28 H4 Z M24 6 V28'),
+    ring(24, 17, 4),
+    fill('M19 2 h10 v4 h-10 Z'),
+    accent('M4 13 H8 V21 H4 M44 13 H40 V21 H44'),
+  ],
+  // 복도가 두른 방 여섯과 복도 쪽으로 난 문들
+  karaoke: () => [
+    line('M3 3 H45 V29 H3 Z M10 9 H38 V23 H10 Z M10 16 H38 M19 9 V23 M29 9 V23'),
+    accent('M13 9 H16 M23 9 H26 M32 9 H35 M13 23 H16 M22 23 H25 M32 23 H35'),
+  ],
+  // 마당을 두른 ㅁ자 집채와 마당 쪽 문 넷, 가운데 평상
+  hanok: () => [
+    line('M5 3 H43 V29 H5 Z M17 11 H31 V21 H17 Z'),
+    fill('M22 14.5 h4 v3 h-4 Z'),
+    accent('M21 11 H24 M24 21 H27 M17 16 V19 M31 13 V16'),
+  ],
   // 서쪽 하역장에서 세 길이 동쪽의 두 구역으로 간다
   relay: () => [
     fill('M3 10 h7 v12 h-7 Z'),

@@ -297,10 +297,11 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 { id, data, name, theme(정규화), group, world, colliders, spawns:{owner:[{x,y,z,rotY}],charterer:[…]}, bounds:{minX,maxX,minZ,maxZ},
   seaLevel, warnings, stats:{solids, colliders, drawCalls, triangles, decor, lights, movers},
   getGroundY(x,z,fromY?), findFloor(x,z), raycastWorld(o,d,max), traceShot(o,d,max,targets), sphereSweep(body,dt,opt), lineOfSight(a,b),
-  movers, tickMovers(dt), setMoverClock(fn), update(dt,t,alpha), dispose() }
+  movers, tickMovers(dt), setMoverClock(fn), setMoverBodies(fn), update(dt,t,alpha), dispose() }
 ```
 - **움직이는 지형**(`data.movers`, MAP_GUIDE.md 11절): 하나마다 메시 하나로 그리고 위아래에 노란 띠를 두른다. `tickMovers(dt)`는 틱마다 몸보다 먼저 불러 충돌체를 옮기고
   (core 루프가 부른다), `update(dt, t, alpha)`가 메시를 직전 틱과 이번 틱 자리 사이에 놓는다. `setMoverClock(fn)`은 초를 돌려주는 시계(멀티: 방장 시계)이고, 없으면 맵을 불러온 뒤 흐른 틱 시간이다.
+  문(`door`가 있는 항목)은 사람이 가까이 오면 열린다. `setMoverBodies(fn)`이 살아 있는 사람의 발 위치 목록을 돌려주는 함수를 받는다(core는 내 몸과 사격 대상을, World는 스폰한 나와 보이는 사람·봇을 넘긴다). 문은 문틀 같은 어두운 띠를 두른다.
 - **렌더**: solids는 재질별로 한 메시로 합친다(UV는 월드 좌표 ÷ `MAT_INFO[mat].scale`). 맵 하나의 정적 드로우콜은 재질 수와 같아서 약 12–15개다. 파이프와 부표는 InstancedMesh로 그린다.
 - **바닥**: 플레이 영역 전체에 윗면 y = 0인 바닥 슬래브를 깔고 충돌체도 만든다.
   - 윗면이 y ≤ 0.05이고 아랫면이 0보다 낮은 box(물 웅덩이·바닥 높이 패치·구덩이)는 그 자리를 슬래브에서 도려낸다. z-fighting이 없어진다.
