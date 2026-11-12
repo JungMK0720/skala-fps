@@ -39,6 +39,7 @@ import { BOMB, BOMB_REASON_LABELS, siteAt, within, otherTeam } from './mission.j
 import { buildNavGrid } from './navgrid.js';
 import { meleeTrace } from './world.js';
 import { quickRespawnCost, withQuickRespawns } from '../account/economy.js';
+import { startHordeSolo } from './horde/solo.js';
 import { h, btn } from '../ui/dom.js';
 import { sheet, createModal, mapCard } from '../ui/parts.js';
 
@@ -51,8 +52,10 @@ const BOMB_MAP = 'relay';
 const FALLBACK_MAP = 'testyard';
 /** 맵 목록에 rulesets가 없을 때의 값(DESIGN 5절) */
 const DEFAULT_MAP_RULESETS = Object.freeze(['classic', 'sniper']);
-const MODE_NAME = Object.freeze({ team: '팀전', ffa: '개인전', bomb: '폭파 미션' });
-const modeIn = (m) => (m === 'ffa' || m === 'bomb' ? m : 'team');
+const MODE_NAME = Object.freeze({ team: '팀전', ffa: '개인전', bomb: '폭파 미션', zombie: '좀비 물량 막기' });
+const modeIn = (m) => (m === 'ffa' || m === 'bomb' || m === 'zombie' ? m : 'team');
+/** 좀비 물량 막기를 고르면 먼저 선택되는 맵 */
+const ZOMBIE_MAP = 'alley';
 /** 샷건이 여러 부위를 맞혔을 때 주장에 쓰는 부위 순서(앞이 우선, World의 내 사격과 같다) */
 const PART_ORDER = Object.freeze(['head', 'body', 'legs', 'hand', 'foot']);
 const DIFFS = ['easy', 'normal', 'hard'];
@@ -90,7 +93,7 @@ export function loadPrefs() {
   try { p = JSON.parse(localStorage.getItem(PREF_KEY) || 'null'); } catch (e) { p = null; }
   const o = { ...PRACTICE_DEFAULTS, ...(p && typeof p === 'object' ? p : {}) };
   o.ruleset = normalizeRuleset(o.ruleset);
-  if (o.mode !== 'team' && o.mode !== 'ffa' && o.mode !== 'bomb') o.mode = PRACTICE_DEFAULTS.mode;
+  if (o.mode !== 'team' && o.mode !== 'ffa' && o.mode !== 'bomb' && o.mode !== 'zombie') o.mode = PRACTICE_DEFAULTS.mode;
   o.mapId = String(o.mapId || PRACTICE_DEFAULTS.mapId);
   o.size = clamp(Math.round(num(o.size, PRACTICE_DEFAULTS.size)), 1, 4);
   o.ffaBots = clamp(Math.round(num(o.ffaBots, PRACTICE_DEFAULTS.ffaBots)), 1, 7);
@@ -110,6 +113,7 @@ function mapsFor(maps, ruleset, mode) {
     if (maps && typeof maps.mapsForMode === 'function') return maps.mapsForMode('bomb', 'classic');
     return ((maps && maps.MAP_LIST) || []).filter((m) => !m.test && m.mission && rulesOf(m).includes('classic'));
   }
+  if (mode === 'zombie') ruleset = 'classic';   // 좀비 물량 막기는 모든 무기를 쓰는 클래식 맵에서 한다
   if (maps && typeof maps.mapsForRuleset === 'function') return maps.mapsForRuleset(ruleset);
   const list = (maps && maps.MAP_LIST) || [];
   return list.filter((m) => !m.test && rulesOf(m).includes(ruleset));
@@ -119,7 +123,7 @@ function validMapFor(maps, ruleset, wanted, mode) {
   const list = mapsFor(maps, ruleset, mode);
   const has = (id) => list.some((m) => m.id === id);
   if (wanted && has(wanted)) return wanted;
-  const preferred = mode === 'bomb' ? BOMB_MAP : RULESET_MAP[ruleset];
+  const preferred = mode === 'bomb' ? BOMB_MAP : mode === 'zombie' ? ZOMBIE_MAP : RULESET_MAP[ruleset];
   if (has(preferred)) return preferred;
   return list.length ? list[0].id : wanted || preferred;
 }
@@ -135,8 +139,8 @@ export function practiceOptions(params = {}, maps = null) {
   // 우선순위: 직접 준 params → URL(시험용) → 지난 선택 → 기본값
   const mq = params.mode || q.get('mode') || prefs.mode;
   const mode = modeIn(mq);
-  // 폭파 미션은 클래식 규칙 고정
-  const ruleset = mode === 'bomb' ? 'classic' : normalizeRuleset(params.ruleset || q.get('ruleset') || prefs.ruleset);
+  // 폭파 미션·좀비 물량 막기는 클래식 규칙 고정
+  const ruleset = mode === 'bomb' || mode === 'zombie' ? 'classic' : normalizeRuleset(params.ruleset || q.get('ruleset') || prefs.ruleset);
   const chosenMap = params.mapId || q.get('sandbox');
   const mapId = chosenMap ? String(chosenMap) : maps ? validMapFor(maps, ruleset, prefs.mapId, mode) : prefs.mapId;
   const size = clamp(Math.round(num(params.size, num(mode !== 'ffa' ? q.get('bots') : null, num(prefs.size, PRACTICE_DEFAULTS.size)))), 1, 4);
@@ -157,7 +161,14 @@ export function practiceOptions(params = {}, maps = null) {
   const bombSite = bs === 'A' || bs === 'B' ? bs : null;
   // 라운드 시작 전 대기 시간(초) 시험용: &loadout=20. 0이면 규칙 기본값(5초)
   const loadoutSec = clamp(num(params.loadoutSec, num(q.get('loadout'), 0)), 0, 60);
-  return { mapId, mode, ruleset, size, ffaBots, difficulty, timeScale, killTarget, botWeapon, botEmote, bombCarrier, bombSite, loadoutSec };
+  // 좀비 물량 막기 시험용(&debug=1일 때만): &stage=N(이 스테이지부터), &seed=N(같은 판 재현), &prep=초(첫 준비 시간).
+  // 중간 스테이지부터 시작해도 그 앞 스테이지는 깬 것으로 치지 않는다(보상 없음, director.js)
+  const qaFlags = q.get('debug') === '1';
+  const startStage = clamp(Math.round(num(params.startStage, num(qaFlags ? q.get('stage') : null, 1))), 1, 500);
+  const seed = Math.max(0, Math.round(num(params.seed, num(q.get('seed'), 0)))) >>> 0;
+  const prepSec = num(params.prepSec, num(q.get('prep'), 0));
+  const hordeRules = prepSec > 0 ? { prepMs: clamp(prepSec, 0.2, 60) * 1000 } : null;
+  return { mapId, mode, ruleset, size, ffaBots, difficulty, timeScale, killTarget, botWeapon, botEmote, bombCarrier, bombSite, loadoutSec, startStage, seed, hordeRules };
 }
 
 export function createPractice({ ctx, world, ui }) {
@@ -209,6 +220,8 @@ export function createPractice({ ctx, world, ui }) {
   function startRun(optsIn, info) {
     const map = info.map;
     const nav = navFor(info.data);
+    // 좀비 물량 막기(혼자): 봇·match.js 대신 좀비 시뮬레이션(horde/solo.js)
+    if (optsIn.mode === 'zombie') return startHordeSolo({ ctx, world, ui, opts: { ...optsIn }, info, nav, onRestart: () => restart() });
     const rng = mulberry32((Date.now() ^ 0x5f3759df) >>> 0);
     const opts = { ...optsIn };
     const ffa = opts.mode === 'ffa';
@@ -1122,21 +1135,23 @@ export function createPracticeSetup({ ui, maps, onStart }) {
     if (sel.mode === 'bomb' && !bombOk) sel.mode = 'team';
     // 폭파 미션에서 다른 모드로 돌아가면 전에 고른 규칙을 다시 쓴다. 폭파 미션으로 출격해도 저장은 이 규칙으로 한다(출격은 클래식)
     let ruleBeforeBomb = sel.ruleset;
-    if (sel.mode === 'bomb') sel.ruleset = 'classic';
+    // 폭파 미션·좀비 물량 막기는 클래식 규칙만 쓴다
+    const fixed = (m) => m === 'bomb' || m === 'zombie';
+    if (fixed(sel.mode)) sel.ruleset = 'classic';
     const mapBox = h('div', { class: 'sk-mapcards', role: 'radiogroup', 'aria-label': '맵 선택' });
     const drawMaps = () => mapBox.replaceChildren(...mapsFor(maps, sel.ruleset, sel.mode).map((m) => mapCard(m, { selected: m.id === sel.mapId, onPick: (id) => { sel.mapId = id; drawMaps(); } })));
     sel.mapId = validMapFor(maps, sel.ruleset, sel.mapId, sel.mode);
     drawMaps();
     // 규칙을 바꾸면 그 규칙의 대표 맵으로 옮긴다
     const ruleHint = h('p', { class: 'sk-field-hint' });
-    const drawRuleHint = () => { ruleHint.textContent = sel.mode === 'bomb' ? '폭파 미션은 클래식 규칙만 써요' : rulesetOf(sel.ruleset).desc; };
+    const drawRuleHint = () => { ruleHint.textContent = fixed(sel.mode) ? `${MODE_NAME[sel.mode]}은 클래식 규칙만 써요` : rulesetOf(sel.ruleset).desc; };
     drawRuleHint();
     const onRuleChange = () => {
       sel.mapId = validMapFor(maps, sel.ruleset, RULESET_MAP[sel.ruleset], sel.mode);
       drawMaps();
       drawRuleHint();
     };
-    const ruleBox = seg(() => (sel.mode === 'bomb' ? ['classic'] : RULESET_IDS).map((id) => [id, RULESETS[id].name]), 'ruleset', '규칙', onRuleChange);
+    const ruleBox = seg(() => (fixed(sel.mode) ? ['classic'] : RULESET_IDS).map((id) => [id, RULESETS[id].name]), 'ruleset', '규칙', onRuleChange);
     // 인원: 팀전 = 팀당 1~4명, 개인전 = 봇 1~7명(나까지 최대 8명)
     const countKey = () => (sel.mode === 'ffa' ? 'ffaBots' : 'size');
     const countItems = () => (sel.mode === 'ffa'
@@ -1154,33 +1169,39 @@ export function createPracticeSetup({ ui, maps, onStart }) {
     const HINTS = {
       ffa: '개인전 · 모두가 적 · 먼저 20킬(5분) · 죽으면 3초 뒤 부활(1.5초 보호). Esc로 일시정지.',
       team: '5판 3선승 · 라운드 2분 · 나와 아군 봇은 블루 팀, 적 봇은 레드 팀이에요. Esc로 일시정지.',
-      bomb: '공격은 A·B 구역에 폭탄 설치(E 3초) → 35초 뒤 폭발, 수비는 해체(E 5초) · 5판 3선승 · 라운드 1:40 · 2라운드 뒤 공수 교대. 나와 아군 봇은 블루 팀이에요.'
+      bomb: '공격은 A·B 구역에 폭탄 설치(E 3초) → 35초 뒤 폭발, 수비는 해체(E 5초) · 5판 3선승 · 라운드 1:40 · 2라운드 뒤 공수 교대. 나와 아군 봇은 블루 팀이에요.',
+      zombie: '혼자 스테이지마다 몰려오는 좀비를 막아요 · 탄은 스테이지 사이에 채워지지 않고(예비 탄 3배) 깰 때마다 강화 카드 1장(다시 뽑기 1번) · 5스테이지마다 보스. 친구와 하려면 멀티플레이에서 좀비 방(최대 4명)을 여세요.'
     };
     let shownMode = sel.mode;
+    const diff = field('봇 난이도', seg(() => [['easy', '쉬움'], ['normal', '보통'], ['hard', '어려움']], 'difficulty', '난이도'));
     const drawMode = () => {
       count.lab.textContent = sel.mode === 'ffa' ? '봇 수 (나 + 봇, 최대 8명)' : '인원 (나 + 봇)';
       hint.textContent = HINTS[sel.mode] || HINTS.team;
+      // 좀비 물량 막기에는 봇이 없다
+      count.el.hidden = sel.mode === 'zombie';
+      diff.el.hidden = sel.mode === 'zombie';
       drawCount();
       if (sel.mode !== shownMode) {
-        // 폭파 미션 ↔ 다른 모드: 규칙과 맵 목록이 달라진다
-        if (sel.mode === 'bomb') { ruleBeforeBomb = sel.ruleset; sel.ruleset = 'classic'; }
-        else if (shownMode === 'bomb') sel.ruleset = normalizeRuleset(ruleBeforeBomb);
-        if (sel.mode === 'bomb' || shownMode === 'bomb') {
+        // 폭파 미션·좀비 ↔ 다른 모드: 규칙과 맵 목록이 달라진다
+        if (fixed(sel.mode) && !fixed(shownMode)) ruleBeforeBomb = sel.ruleset;
+        if (fixed(sel.mode)) sel.ruleset = 'classic';
+        else if (fixed(shownMode)) sel.ruleset = normalizeRuleset(ruleBeforeBomb);
+        if (fixed(sel.mode) || fixed(shownMode)) {
           ruleBox.redraw();
           drawRuleHint();
-          sel.mapId = validMapFor(maps, sel.ruleset, sel.mode === 'bomb' ? BOMB_MAP : sel.mapId, sel.mode);
+          sel.mapId = validMapFor(maps, sel.ruleset, sel.mode === 'bomb' ? BOMB_MAP : sel.mode === 'zombie' ? ZOMBIE_MAP : sel.mapId, sel.mode);
           drawMaps();
         }
         shownMode = sel.mode;
       }
     };
-    const modeItems = () => [['team', MODE_NAME.team], ['ffa', MODE_NAME.ffa], ...(bombOk ? [['bomb', MODE_NAME.bomb]] : [])];
+    const modeItems = () => [['team', MODE_NAME.team], ['ffa', MODE_NAME.ffa], ...(bombOk ? [['bomb', MODE_NAME.bomb]] : []), ['zombie', `🧟 ${MODE_NAME.zombie}`]];
     const modeBox = seg(modeItems, 'mode', '모드', drawMode);
     drawMode();
     const start = btn('출격', () => {
-      if (sel.mode === 'bomb') sel.ruleset = 'classic';
-      // 폭파 미션은 클래식으로 출격하지만, 저장하는 규칙은 폭파 미션 전 규칙이다(다음에 다른 모드로 바꾸면 그 규칙이 돌아온다)
-      savePrefs(sel.mode === 'bomb' ? { ...sel, ruleset: normalizeRuleset(ruleBeforeBomb) } : sel);
+      if (fixed(sel.mode)) sel.ruleset = 'classic';
+      // 폭파 미션·좀비는 클래식으로 출격하지만, 저장하는 규칙은 그 전 규칙이다(다음에 다른 모드로 바꾸면 그 규칙이 돌아온다)
+      savePrefs(fixed(sel.mode) ? { ...sel, ruleset: normalizeRuleset(ruleBeforeBomb) } : sel);
       modal.close();
       onStart({ mapId: sel.mapId, mode: sel.mode, ruleset: sel.ruleset, size: sel.size, bots: sel.ffaBots, difficulty: sel.difficulty });
     }, 'sk-btn--primary', { 'data-autofocus': '' });
@@ -1192,7 +1213,7 @@ export function createPracticeSetup({ ui, maps, onStart }) {
         field('모드', modeBox).el,
         field('맵', mapBox).el,
         count.el,
-        field('봇 난이도', seg(() => [['easy', '쉬움'], ['normal', '보통'], ['hard', '어려움']], 'difficulty', '난이도')).el,
+        diff.el,
         hint
       ],
       foot: [btn('취소', () => modal.close(), 'sk-btn--ghost'), start],
@@ -1201,8 +1222,13 @@ export function createPracticeSetup({ ui, maps, onStart }) {
   }
 
   return {
-    open() {
+    /** opts.mode: 'zombie'면 좀비 물량 막기를 고른 채로 연다(지난번에 다른 모드였으면 좀비 대표 맵으로). 출격 전까지 저장하지 않는다 */
+    open(opts) {
       sel = loadPrefs();
+      if (opts && opts.mode === 'zombie' && sel.mode !== 'zombie') {
+        sel.mode = 'zombie';
+        sel.mapId = ZOMBIE_MAP;
+      }
       modal.open(build());
     },
     close() { modal.close(); },

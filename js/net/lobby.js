@@ -33,13 +33,14 @@ function killsOf(v) {
 }
 
 /**
- * presence 객체는 키가 10개까지라(limits.FREE_PLAN) 모드와 규칙을 mode 키 하나에 싣는다: 'team', 'ffa', 'bomb', 'team:knife', 'ffa:sniper'.
+ * presence 객체는 키가 10개까지라(limits.FREE_PLAN) 모드와 규칙을 mode 키 하나에 싣는다: 'team', 'ffa', 'bomb', 'zombie', 'team:knife', 'ffa:sniper'.
+ * 'zombie'(좀비 물량 막기)를 모르는 옛 클라이언트는 팀전으로 읽는다(새로고침하면 바로 보인다).
  * 클래식은 규칙을 적지 않으므로 규칙이 없는 옛 항목은 그대로 클래식으로 읽힌다. 비밀번호 방은 끝에 ':p'를 붙인다('team:classic:p').
  * 개인전 목표 킬은 넷째 칸에 싣는다('ffa:classic::10', 'ffa:knife:p:5'). 셋째 칸까지만 읽던 클라이언트도 비밀번호 여부를 그대로 읽는다.
  * 목표 킬이 없는 개인전 항목은 게임 기본값(20킬)으로 읽힌다.
  */
 export function packRoomKind(mode, ruleset, locked = false, killTarget) {
-  const m = mode === 'ffa' || mode === 'bomb' ? mode : 'team';
+  const m = mode === 'ffa' || mode === 'bomb' || mode === 'zombie' ? mode : 'team';
   const rs = typeof ruleset === 'string' && RULESET_RE.test(ruleset) ? ruleset : DEFAULT_RULESET;
   const kills = m === 'ffa' ? killsOf(killTarget) : 0;
   if (kills) return `${m}:${rs}:${locked ? 'p' : ''}:${kills}`;
@@ -47,10 +48,10 @@ export function packRoomKind(mode, ruleset, locked = false, killTarget) {
   return rs === DEFAULT_RULESET ? m : `${m}:${rs}`;
 }
 
-/** → { mode:'team'|'ffa'|'bomb', ruleset, locked, killTarget? }. 어떤 규칙 이름이 있는지는 게임이 안다(모르는 이름은 화면에서 클래식으로 읽는다) */
+/** → { mode:'team'|'ffa'|'bomb'|'zombie', ruleset, locked, killTarget? }. 어떤 규칙 이름이 있는지는 게임이 안다(모르는 이름은 화면에서 클래식으로 읽는다) */
 export function unpackRoomKind(v) {
   const [m, rs, flag, k] = (typeof v === 'string' ? v : '').split(':');
-  const out = { mode: m === 'ffa' || m === 'bomb' ? m : 'team', ruleset: rs && RULESET_RE.test(rs) ? rs : DEFAULT_RULESET, locked: flag === 'p' };
+  const out = { mode: m === 'ffa' || m === 'bomb' || m === 'zombie' ? m : 'team', ruleset: rs && RULESET_RE.test(rs) ? rs : DEFAULT_RULESET, locked: flag === 'p' };
   const kills = out.mode === 'ffa' ? killsOf(k) : 0;
   if (kills) out.killTarget = kills;
   return out;

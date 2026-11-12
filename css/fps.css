@@ -1990,3 +1990,151 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
   .sk-sb-team-name { padding: 5px 10px; font-size: 14px; }
   .sk-sb-table th, .sk-sb-table td { padding: 4px 5px; }
 }
+
+/* ───────────── 좀비 물량 막기: 스테이지 띠 · 보스 체력 · 동료 (ui/horde.js) ───────────── */
+.sk-hz { pointer-events: none; }
+.sk-hz-top {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; padding: 6px 14px; max-width: calc(100% - 24px);
+}
+.sk-hz-top.is-boss { border-color: rgba(255, 90, 60, .55); box-shadow: 0 0 18px rgba(255, 60, 40, .25), 0 14px 34px rgba(0, 0, 0, .38); }
+.sk-hz-top.is-clear { border-color: rgba(61, 220, 151, .55); }
+.sk-hz-stage { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.sk-hz-ico { font-size: 20px; align-self: center; }
+.sk-hz-stage-l { font-size: 12px; color: var(--sk-muted); font-weight: 700; letter-spacing: .04em; }
+.sk-hz-stage-n { font-size: 26px; font-weight: 900; color: #b6ff7a; font-variant-numeric: tabular-nums; text-shadow: 0 0 10px rgba(140, 255, 90, .35); }
+.sk-hz-sub { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.sk-hz-line { font-size: 14px; font-weight: 800; color: var(--sk-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-hz-clock { font-size: 11.5px; color: var(--sk-muted); font-variant-numeric: tabular-nums; }
+.sk-hz-bosses { position: absolute; top: 66px; left: 50%; transform: translateX(-50%); width: min(520px, calc(100% - 24px)); display: flex; flex-direction: column; gap: 6px; }
+.sk-hz-boss { padding: 4px 8px 6px; border-radius: 8px; background: rgba(10, 6, 8, .62); border: 1px solid rgba(255, 90, 60, .35); }
+.sk-hz-boss.is-rage { border-color: rgba(255, 40, 40, .8); animation: sk-hz-pulse 1s ease-in-out infinite; }
+.sk-hz-bhead { display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 800; }
+.sk-hz-bname { color: #ffd6c9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-hz-bskill { color: var(--sk-warn); font-size: 12px; }
+.sk-hz-bpct { margin-left: auto; color: var(--sk-muted); font-variant-numeric: tabular-nums; }
+.sk-hz-bbar { height: 8px; margin-top: 3px; border-radius: 4px; background: rgba(255, 255, 255, .1); overflow: hidden; }
+.sk-hz-bfill { display: block; height: 100%; background: linear-gradient(90deg, #ff3c3c, #ff9a3c); transform-origin: left center; transition: transform .2s; }
+.sk-hz-team { position: absolute; top: 12px; left: var(--sk-safe-l, 12px); margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; width: 190px; }
+.sk-hz-mate { display: grid; grid-template-columns: 1fr auto; gap: 1px 6px; padding: 4px 7px; border-radius: 7px; background: rgba(6, 10, 18, .58); font-size: 12px; }
+.sk-hz-mate.is-me { border: 1px solid rgba(63, 140, 255, .5); }
+.sk-hz-mate.is-down { opacity: .65; }
+.sk-hz-mname { font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-hz-mhp { color: var(--sk-muted); font-variant-numeric: tabular-nums; text-align: right; }
+.sk-hz-mbar { grid-column: 1 / -1; position: relative; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .1); overflow: hidden; }
+.sk-hz-mbar > i { position: absolute; inset: 0; background: var(--sk-ok); transform-origin: left center; transition: transform .2s; }
+.sk-hz-mate.is-down .sk-hz-mbar > i { background: var(--sk-bad); }
+.sk-hz-shield { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(143, 220, 255, .85); }
+.sk-hz-warn { position: absolute; left: 50%; bottom: 23%; transform: translateX(-50%); padding: 5px 12px; border-radius: 8px; background: rgba(60, 8, 8, .7); color: #ffd0c4; font-weight: 800; font-size: 14px; white-space: nowrap; }
+@keyframes sk-hz-pulse { 50% { box-shadow: 0 0 16px rgba(255, 40, 40, .55); } }
+
+/* ───────────── 좀비 물량 막기: 카드 고르기 (ui/cards.js) ───────────── */
+.sk-cards { display: grid; place-items: center; padding: 16px; background: rgba(3, 5, 10, .62); pointer-events: auto; overflow-y: auto; }
+.sk-cd-panel { width: min(980px, 100%); display: flex; flex-direction: column; gap: 14px; }
+.sk-cd-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.sk-cd-title { margin: 0; font-size: 26px; color: #b6ff7a; }
+.sk-cd-sub { margin: 4px 0 0; color: var(--sk-muted); font-size: 14px; }
+.sk-cd-timer { font-size: 18px; font-weight: 900; color: var(--sk-text); font-variant-numeric: tabular-nums; }
+.sk-cd-timer.is-urgent { color: var(--sk-bad); }
+.sk-cd-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.sk-cd-grid.is-four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.sk-cd-card {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 250px; padding: 18px 14px 16px;
+  border-radius: 14px; border: 2px solid var(--cd-color); color: var(--sk-text); text-align: center; cursor: pointer;
+  background: radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--cd-color) 22%, transparent), rgba(12, 17, 30, .96) 70%);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .06);
+  transition: transform .12s, box-shadow .12s, opacity .2s;
+  font: inherit;
+}
+.sk-cd-card:hover:not([disabled]), .sk-cd-card:focus-visible { transform: translateY(-4px); box-shadow: 0 16px 30px rgba(0, 0, 0, .5), 0 0 22px color-mix(in srgb, var(--cd-color) 45%, transparent); outline: none; }
+.sk-cd-card[disabled] { cursor: default; opacity: .45; }
+.sk-cd-card.is-picked { opacity: 1; transform: translateY(-4px); box-shadow: 0 0 0 3px var(--sk-ok), 0 16px 30px rgba(0, 0, 0, .5); }
+.sk-cd-key { position: absolute; top: 8px; left: 10px; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font-size: 12px; font-weight: 900; background: rgba(255, 255, 255, .1); color: var(--sk-muted); }
+.sk-cd-icon { font-size: 44px; line-height: 1.1; filter: drop-shadow(0 4px 8px rgba(0, 0, 0, .5)); }
+.sk-cd-name { font-size: 18px; font-weight: 900; }
+.sk-cd-tier { font-size: 12px; font-weight: 800; letter-spacing: .08em; color: var(--cd-color); }
+.sk-cd-desc { font-size: 14px; line-height: 1.45; color: #d6e0ee; }
+.sk-cd-owned { margin-top: auto; font-size: 12px; color: var(--sk-muted); }
+.sk-cd--legend { animation: sk-cd-shine 2.4s ease-in-out infinite; }
+@keyframes sk-cd-shine { 50% { box-shadow: 0 10px 26px rgba(0, 0, 0, .45), 0 0 26px rgba(255, 176, 46, .45); } }
+.sk-cd-foot { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.sk-cd-wait { margin: 0; color: var(--sk-muted); font-size: 13px; }
+.sk-cd-perks { margin: 0; padding: 8px 10px; list-style: none; display: flex; flex-wrap: wrap; gap: 6px 14px; border-radius: 10px; background: rgba(6, 10, 18, .55); font-size: 12.5px; }
+.sk-cd-perks li { display: flex; gap: 5px; color: var(--sk-muted); }
+.sk-cd-perks b { color: var(--sk-text); }
+@media (max-width: 760px) {
+  .sk-cd-grid, .sk-cd-grid.is-four { grid-template-columns: 1fr; gap: 8px; }
+  .sk-cd-card { min-height: 0; flex-direction: row; flex-wrap: wrap; align-items: center; text-align: left; gap: 4px 10px; padding: 10px 12px 10px 38px; }
+  .sk-cd-icon { font-size: 30px; }
+  .sk-cd-desc { flex: 1 1 100%; font-size: 13px; }
+  .sk-cd-owned { margin-top: 0; }
+  .sk-cd-title { font-size: 21px; }
+  .sk-hz-team { width: 150px; top: 64px; }
+  .sk-hz-top { gap: 8px; padding: 5px 10px; }
+  .sk-hz-stage-n { font-size: 21px; }
+  .sk-hz-line { font-size: 12.5px; }
+  .sk-hz-bosses { top: 58px; }
+}
+
+/* ───────── 메인 메뉴 버튼 일곱 개(2026-11-12): 좀비 물량 막기 · 건의하기 ─────────
+   12칸 격자. 멀티플레이는 한 줄, 연습장과 좀비 물량 막기는 반씩, 상점·설정·조작법·건의하기는 넷이 한 줄이라 줄 수는 그대로다.
+   위쪽 화면 크기별 규칙의 칸 수(6칸 격자)보다 뒤에 있어 모든 크기에서 이 칸 수를 쓴다 */
+.sk-menu-nav { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.sk-menu-btn { grid-column: span 12; }
+.sk-menu-btn--wide { grid-column: span 6; }
+.sk-menu-btn--sub { grid-column: span 3; }
+.sk-menu-btn--zombie .sk-menu-ico { color: #9fd86b; }
+.sk-menu-btn.has-new { position: relative; border-color: rgba(255, 196, 77, .75); }
+.sk-menu-btn.has-new::after {
+  content: ''; position: absolute; top: 7px; right: 7px; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--sk-warn); box-shadow: 0 0 10px rgba(255, 196, 77, .8);
+}
+.sk-menu-btn.has-new .sk-menu-sub { color: var(--sk-warn); opacity: 1; }
+@media (max-height: 480px) { .sk-menu-btn--sub .sk-menu-sub { display: none; } }
+
+/* 건의하기 시트(ui/feedback.js) */
+.sk-feedback { width: min(620px, 100%); }
+.sk-fb-intro { font-size: 13.5px; line-height: 1.5; color: var(--sk-muted); }
+.sk-fb-gate {
+  padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 700; line-height: 1.45; color: var(--sk-warn);
+  background: rgba(255, 196, 77, .08); box-shadow: inset 0 0 0 1px rgba(255, 196, 77, .35);
+}
+.sk-fb-kinds { align-self: stretch; }
+.sk-fb-kinds .sk-seg-btn { flex: 1 1 0; }
+.sk-fb-text { min-height: 128px; padding: 10px 12px; resize: vertical; font: 600 14.5px/1.5 var(--sk-font); }
+.sk-fb-meta { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.sk-fb-count { flex: none; font: 700 12px/1.4 var(--sk-mono); color: var(--sk-dim); }
+.sk-fb-count.is-short { color: var(--sk-warn); }
+.sk-fb-status { font-size: 13px; font-weight: 700; line-height: 1.45; color: var(--sk-muted); }
+.sk-fb-status:empty { display: none; }
+.sk-fb-status[data-tone="good"] { color: var(--sk-ok); }
+.sk-fb-status[data-tone="bad"] { color: var(--sk-bad); }
+.sk-fb-mine { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--sk-line); }
+.sk-fb-list-note { font-size: 12.5px; color: var(--sk-dim); }
+.sk-fb-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.sk-fb-list:empty { display: none; }
+.sk-fb-item {
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px;
+  background: rgba(4, 7, 14, .55); box-shadow: inset 0 0 0 1px rgba(160, 195, 245, .14);
+}
+.sk-fb-item.has-reply { box-shadow: inset 0 0 0 1px rgba(53, 224, 255, .38); }
+.sk-fb-item.is-new { box-shadow: inset 0 0 0 1px rgba(255, 196, 77, .7), 0 0 14px rgba(255, 196, 77, .14); }
+.sk-fb-item-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sk-fb-when { margin-left: auto; font: 600 11.5px/1 var(--sk-mono); color: var(--sk-dim); }
+.sk-fb-st { background: rgba(255, 255, 255, .08); color: var(--sk-muted); }
+.sk-fb-st--read { background: rgba(53, 224, 255, .14); color: var(--sk-cyan); }
+.sk-fb-st--done { background: rgba(80, 220, 140, .16); color: var(--sk-ok); }
+.sk-fb-st--hold { background: rgba(255, 196, 77, .14); color: var(--sk-warn); }
+.sk-fb-body {
+  margin: 0; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--sk-text);
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.sk-fb-reply { padding: 8px 10px; border-left: 3px solid var(--sk-cyan); border-radius: 0 6px 6px 0; background: rgba(53, 224, 255, .07); }
+.sk-fb-reply-who { font-size: 11.5px; font-weight: 800; color: var(--sk-cyan); }
+.sk-fb-reply-text { margin: 4px 0 0; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-height: 480px) {
+  /* 일시정지 버튼에 건의하기가 늘어 네 칸으로(휴대폰은 설정·조작법·건의하기·나가기 한 줄, 줄 수는 그대로) */
+  .sk-pause-btns { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .sk-fb-intro { display: none; }
+  .sk-fb-text { min-height: 84px; }
+}

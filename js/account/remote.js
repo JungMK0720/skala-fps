@@ -75,7 +75,11 @@ export function createRemote({ fetch: fetchImpl, config, timeoutMs = RPC_TIMEOUT
       p_secrets: profile.secrets
     }, opts),
     topPlayers: (limit) => call('fps_top_players', { p_limit: limit }),
-    /** 서버가 아는 기능 { ok:true, avatars:true }. schema.sql을 다시 실행하기 전의 서버는 404(PGRST202)라 { ok:false, status:404 } */
-    features: () => call('fps_features', {}, { quiet: true })
+    /** 서버가 아는 기능 { ok:true, avatars:true, feedback:true }. schema.sql을 다시 실행하기 전의 서버는 404(PGRST202)라 { ok:false, status:404 } */
+    features: () => call('fps_features', {}, { quiet: true }),
+    /** 건의 보내기(docs/FEEDBACK.md). fb = { kind, body, info }. 건의함이 없는 서버는 404라 { ok:false, status:404 } */
+    sendFeedback: (token, fb) => call('fps_send_feedback', { p_token: token, p_kind: fb.kind, p_body: fb.body, p_info: fb.info || {} }, { quiet: true }),
+    /** 내가 보낸 건의와 운영자 답(최근 10개) */
+    myFeedback: (token) => call('fps_my_feedback', { p_token: token }, { quiet: true })
   };
 }

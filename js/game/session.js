@@ -40,6 +40,11 @@ import {
 import { avatarIdOf } from '../core/avatar-defs.js';
 import { BOMB_REASON_LABELS } from './mission.js';
 import { quickRespawnCost, withQuickRespawns } from '../account/economy.js';
+import { createHorde, applyHordeSnapshot, restoreHorde, hordeSummary, zombieIdOf } from './horde/director.js';
+import { createHordeClient, hordeScoreboard } from './horde/client.js';
+import { cardRows } from './horde/solo.js';
+import { HORDE } from './horde/rules.js';
+import { buildNavGrid } from './navgrid.js';
 
 export const SESSION_DEFAULTS = Object.freeze({
   maxPlayers: 6,          // Supabase Realtime(transport 'supabase') 무료 한도(3:3). 방 만들기 max는 2..이 값으로 자른다
@@ -185,8 +190,11 @@ function errorText(e) {
 }
 const isJoinable = (snap) => !!snap && !snap.abort && (!!snap.prep || ACTIVE.has(snap.ph));
 /** 'ffa'(개인전) | 'bomb'(폭파 미션) | 'team'(팀전, 기본) */
-const modeOf = (v) => (v === 'ffa' || v === 'bomb' ? v : 'team');
-const MODE_LABEL = Object.freeze({ team: '팀전 · 5판 3선승', ffa: '개인전 · 모두가 적', bomb: '폭파 미션 · 5판 3선승' });
+const modeOf = (v) => (v === 'ffa' || v === 'bomb' || v === 'zombie' ? v : 'team');
+/** 좀비 물량 막기(game/horde): 모두 같은 편(블루), 최대 4명, 클래식 고정 */
+const ZOMBIE_MAX = HORDE.maxPlayers;
+const isZombieMode = (m) => m === 'zombie';
+const MODE_LABEL = Object.freeze({ team: '팀전 · 5판 3선승', ffa: '개인전 · 모두가 적', bomb: '폭파 미션 · 5판 3선승', zombie: '좀비 물량 막기 · 최대 4명' });
 /** 팀으로 나뉘는 모드(팀전·폭파 미션) */
 const isTeamMode = (m) => m !== 'ffa';
 /** 목표 킬 안내를 이 시간 안에 다시 바꾸면 채팅에 새 줄을 더하지 않고 마지막 안내 줄을 고친다(방장이 ＋를 연달아 누를 때) */
@@ -872,9 +880,10 @@ export function createSession(options = {}) {
     if (!net) { noNet(); return; }
     busy = true;
     phase = 'joining';
-    const max = clampInt(p && p.max, 2, roomLimit(), Math.min(8, roomLimit()));
     const mode = modeOf(p && p.mode);
-    const ruleset = mode === 'bomb' ? 'classic' : normalizeRuleset(p && p.ruleset);   // 폭파 미션은 클래식 고정
+    const max = isZombieMode(mode) ? clampInt(p && p.max, 2, Math.min(ZOMBIE_MAX, roomLimit()), Math.min(ZOMBIE_MAX, roomLimit()))
+      : clampInt(p && p.max, 2, roomLimit(), Math.min(8, roomLimit()));
+    const ruleset = mode === 'bomb' || isZombieMode(mode) ? 'classic' : normalizeRuleset(p && p.ruleset);   // 폭파 미션·좀비는 클래식 고정
     U('update', 'lobby', { error: null, loading: true });
     try {
       const r = await net.createRoom({
@@ -959,6 +968,7 @@ export function createSession(options = {}) {
       text: r.isHost()
         ? (lastMode === 'ffa' ? '개인전 방을 열었어요. 2명 이상 모이고 모두 준비하면 시작할 수 있어요.'
           : lastMode === 'bomb' ? '폭파 미션 방을 열었어요. 블루 팀이 먼저 공격하고 2라운드 뒤 공수를 바꿔요.'
+          : isZombieMode(lastMode) ? '좀비 물량 막기 방을 열었어요. 혼자서도 시작할 수 있고 최대 4명이 함께 막아요.'
             : '방을 열었어요. 동료가 들어오면 팀을 나누고 준비하세요.')
         : `${r.meta.name || '방'}에 들어왔어요 · ${RULESETS[lastRuleset].name} · ${lastMode === 'ffa' ? `개인전 · 먼저 ${lastKills}킬` : MODE_LABEL[lastMode]}`
     }, false);
@@ -1209,7 +1219,8 @@ export function createSession(options = {}) {
       pushChat({
         system: true,
         text: m === 'ffa' ? `개인전으로 바뀌었어요 · 모두가 적 · 먼저 ${k}킬`
-          : m === 'bomb' ? '폭파 미션으로 바뀌었어요 · 공격 팀이 A·B 구역에 폭탄을 설치해요' : '팀전으로 바뀌었어요 · 5판 3선승'
+          : m === 'bomb' ? '폭파 미션으로 바뀌었어요 · 공격 팀이 A·B 구역에 폭탄을 설치해요'
+            : isZombieMode(m) ? '좀비 물량 막기로 바뀌었어요 · 최대 4명이 함께 스테이지를 버텨요' : '팀전으로 바뀌었어요 · 5판 3선승'
       }, false);
     } else if (k !== lastKills && m === 'ffa') {
       noteKills(k);
@@ -1233,7 +1244,7 @@ export function createSession(options = {}) {
   /** (방장) 규칙 바꾸기 → 방 메타 · 로비 목록. 지금 맵을 이 규칙에서 못 쓰면 쓸 수 있는 맵으로 같이 바꾼다 */
   function setRoomRuleset(id) {
     if (!room || phase !== 'room' || !room.isHost() || hm) return;
-    if (roomMode() === 'bomb') return;   // 폭파 미션은 클래식 고정
+    if (roomMode() === 'bomb' || isZombieMode(roomMode())) return;   // 폭파 미션·좀비는 클래식 고정
     const rs = normalizeRuleset(id);
     if (rs === roomRuleset()) return;
     safeMeta({ ruleset: rs, mapId: validMapFor(rs, room.meta.mapId) });
@@ -1248,17 +1259,24 @@ export function createSession(options = {}) {
     const m = modeOf(mode);
     const from = roomMode();
     if (m === from) return;
-    if (m === 'bomb') {
+    if (isZombieMode(m)) {
+      // 좀비 물량 막기: 4명까지, 클래식 고정. 바꾸기 전 규칙·인원은 다른 모드로 돌아가면 되돌린다
+      if (room.players().length > ZOMBIE_MAX) { pushChat({ system: true, text: `좀비 물량 막기는 ${ZOMBIE_MAX}명까지예요. 인원이 줄면 바꿀 수 있어요.` }); return; }
+      if (from !== 'bomb') beforeBomb = { ruleset: roomRuleset(), mapId: room.meta.mapId || null, max: room.meta.max };
+      else if (beforeBomb) beforeBomb.max = room.meta.max;
+      safeMeta({ mode: m, ruleset: 'classic', mapId: validMapFor('classic', room.meta.mapId, m), max: Math.min(room.meta.max || ZOMBIE_MAX, ZOMBIE_MAX) });
+    } else if (m === 'bomb') {
       const mapId = validMapFor('classic', room.meta.mapId, 'bomb');
       if (!bombMapOk(mapId)) { pushChat({ system: true, text: '폭파 미션을 할 수 있는 맵이 없어요.' }); return; }
       beforeBomb = { ruleset: roomRuleset(), mapId: room.meta.mapId || null };
       safeMeta({ mode: m, ruleset: 'classic', mapId });
-    } else if (from === 'bomb' && beforeBomb) {
+    } else if ((from === 'bomb' || isZombieMode(from)) && beforeBomb) {
       const rs = normalizeRuleset(beforeBomb.ruleset);
       const cur = room.meta.mapId;
       const mapId = cur && validMapFor(rs, cur, m) === cur ? cur : validMapFor(rs, beforeBomb.mapId || cur, m);
+      const max = isZombieMode(from) && beforeBomb.max ? clampInt(beforeBomb.max, 2, roomLimit(), room.meta.max) : undefined;
       beforeBomb = null;
-      safeMeta({ mode: m, ruleset: rs, mapId });
+      safeMeta({ mode: m, ruleset: rs, mapId, ...(max ? { max } : {}) });
     } else {
       beforeBomb = null;
       safeMeta({ mode: m });
@@ -1280,7 +1298,7 @@ export function createSession(options = {}) {
   }
 
   function setTeam(team) {
-    if (!room || phase !== 'room' || !TEAM_IDS.includes(team) || roomMode() === 'ffa') return;
+    if (!room || phase !== 'room' || !TEAM_IDS.includes(team) || roomMode() === 'ffa' || isZombieMode(roomMode())) return;
     const n = room.players().filter((x) => x.team === team && x.id !== me).length;
     if (n >= teamCap()) { pushChat({ system: true, text: `${TEAM_NAME[team]} 팀이 가득 찼어요.` }); return; }
     autoTeam = null;   // 직접 고른 팀은 늦게 온 presence로 바꾸지 않는다
@@ -1302,7 +1320,7 @@ export function createSession(options = {}) {
   /** 팀 채팅을 쓸 수 있는가: 팀이 있는 경기(팀전·폭파 미션) 중일 때만. 대기실과 개인전은 전체 채팅뿐이다 */
   function teamChatOk() {
     const c = current;
-    return phase === 'match' && !!c && c.mode !== 'ffa';
+    return phase === 'match' && !!c && c.mode !== 'ffa' && !isZombieMode(c.mode);
   }
   /** 경기 중 내 팀: 방장이 확정한 팀, 아직 없으면 방 명단의 팀 */
   function myMatchTeam() {
@@ -1329,7 +1347,7 @@ export function createSession(options = {}) {
     }
     sync.sendChat(t);
     // broadcast는 보낸 사람에게 되돌아오지 않는다 → 내 메시지는 직접 넣는다
-    pushChat({ name: myName(), text: t, team: roomMode() === 'ffa' ? null : myRoomTeam(), me: true });
+    pushChat({ name: myName(), text: t, team: roomMode() === 'ffa' || isZombieMode(roomMode()) ? null : myRoomTeam(), me: true });
   }
   /** 경기 중 Enter·채팅 버튼(input:chat) → HUD 채팅 입력칸 */
   function onChatKey() {
@@ -1416,6 +1434,11 @@ export function createSession(options = {}) {
       if (TEAM_IDS.includes(x.team)) n[x.team]++; else unassigned++;
       if (x.id !== me && !x.ready) notReady++;
     }
+    if (isZombieMode(mode)) {
+      // 좀비 물량 막기: 혼자서도 시작할 수 있고 4명까지
+      if (list.length > ZOMBIE_MAX) return `좀비 물량 막기는 ${ZOMBIE_MAX}명까지예요.`;
+      return notReady ? '아직 준비하지 않은 플레이어가 있어요.' : '';
+    }
     if (mode === 'ffa') {
       if (list.length < 2) return '2명 이상 있어야 시작할 수 있어요.';
       return notReady ? '아직 준비하지 않은 플레이어가 있어요.' : '';
@@ -1462,7 +1485,7 @@ export function createSession(options = {}) {
     const mode = roomMode();
     const why = startProblem(room.players(), mode);
     if (why) { pushChat({ system: true, text: why }); return; }
-    const ruleset = mode === 'bomb' ? 'classic' : roomRuleset();
+    const ruleset = mode === 'bomb' || isZombieMode(mode) ? 'classic' : roomRuleset();
     const mapId = validMapFor(ruleset, room.meta.mapId || o.mapId, mode);
     if (mode === 'bomb' && !bombMapOk(mapId)) { pushChat({ system: true, text: '이 맵에서는 폭파 미션을 할 수 없어요. 미션 맵을 골라 주세요.' }); return; }
     const mid = randomId(8);
@@ -1481,6 +1504,7 @@ export function createSession(options = {}) {
   function hostCreate() {
     const h = hm;
     if (!h || h.m || !current || current.mid !== h.mid || !room) return;
+    if (isZombieMode(h.mode)) { hostCreateHorde(h); return; }
     const ffa = h.mode === 'ffa';
     const bomb = h.mode === 'bomb';
     const list = room.players().filter((x) => ffa || TEAM_IDS.includes(x.team));
@@ -1492,6 +1516,30 @@ export function createSession(options = {}) {
       mission: bomb ? current.mission || undefined : undefined,
       floorAt: bomb ? floorAt : undefined
     });
+    h.members = new Set(list.map((x) => x.id));
+    h.prepDeadline = now() + o.prepTimeoutMs;
+    h.lastTick = now();
+    h.timer = setInterval(hostLoop, o.hostTickMs);
+    safeMeta({ status: 'playing' });
+    publish([]);
+  }
+
+  /** 좀비 맵의 내비 그리드(맵 데이터마다 한 번 만든다) */
+  const navCache = new WeakMap();
+  function navFor(data) {
+    if (!data || typeof data !== 'object') return null;
+    let nav = navCache.get(data);
+    if (!nav) { try { nav = buildNavGrid(data); navCache.set(data, nav); } catch (e) { report(e, 'navgrid'); nav = null; } }
+    return nav;
+  }
+  /** (방장) 좀비 물량 막기 시뮬레이션: 방 사람(4명까지)을 넣고 match.js와 같은 길(tick·publish)로 돌린다 */
+  function hordeOpts() {
+    const m = call(world, 'getMap');
+    return { world: m ? m.world : null, nav: navFor(current && current.mapData), spawns: (current && current.spawns) || (m && m.spawns) || {}, getPositions: positions };
+  }
+  function hostCreateHorde(h) {
+    const list = room.players().slice(0, ZOMBIE_MAX);
+    h.m = createHorde({ ...hordeOpts(), players: list.map((x) => ({ id: x.id, name: x.name })), rules: o.hordeRules || undefined });
     h.members = new Set(list.map((x) => x.id));
     h.prepDeadline = now() + o.prepTimeoutMs;
     h.lastTick = now();
@@ -1530,7 +1578,8 @@ export function createSession(options = {}) {
     }
     const ev = h.m.tick(dt);
     if (hm !== h) return;
-    if (ev.length) publish(ev);
+    // 좀비 물량 막기는 좀비 자리가 틱마다 바뀌므로 이벤트가 없어도 틱마다(10 Hz) 스냅샷을 보낸다
+    if (ev.length || isZombieMode(h.mode)) publish(ev);
     else if (t - h.lastSnapAt >= o.snapshotMs) publish([]);
   }
 
@@ -1542,7 +1591,7 @@ export function createSession(options = {}) {
     const list = room.players();
     const ids = new Set(list.map((x) => x.id));
     const evs = [];
-    const ffa = h.mode === 'ffa';
+    const ffa = h.mode === 'ffa' || isZombieMode(h.mode);   // 좀비: 팀 없이 넣고, 늦게 온 사람은 다음 스테이지에 나온다
     for (const x of list) {
       if (h.members.has(x.id) || banned.has(x.id) || (!ffa && !TEAM_IDS.includes(x.team))) continue;
       // FFA: 늦게 온 사람도 바로 참가(match가 죽은 상태로 넣고 respawnMs 뒤 spawn)
@@ -1600,6 +1649,11 @@ export function createSession(options = {}) {
     if (!hostReady()) return;
     const from = String(e.from);
     if (banned.has(from)) return;
+    if (isZombieMode(hm.mode)) {
+      if (!zombieIdOf(e.victimId)) return;   // 이 모드에는 사람끼리 주는 피해가 없다
+      publishReal(hm.m.claimHit({ attackerId: from, victimId: e.victimId, weaponId: e.weaponId, part: e.part, dist: e.dist, kind: e.kind, count: e.count, shotId: e.shotId }));
+      return;
+    }
     let dist = e.dist;
     if (from !== me) {
       const v = verifyHit(e);
@@ -1690,6 +1744,13 @@ export function createSession(options = {}) {
     if (!c || !room || !room.isHost() || hm) return;
     const last = sync ? sync.lastMatch() : null;
     const snap = last && last.snapshot && last.snapshot.mid === c.mid ? last.snapshot : null;
+    if (isZombieMode(c.mode)) {
+      const hv = snap ? applyHordeSnapshot(snap) : null;
+      if (!hv || snap.prep || snap.abort || hv.phase === 'warmup') { abortMatch('host-left', snap); return; }
+      if (hv.phase === 'over') { showResults(null); return; }
+      takeOverHorde(c, snap);
+      return;
+    }
     const view = snap ? applySnapshot(snap) : null;
     if (!view || snap.prep || snap.abort || view.phase === 'warmup') { abortMatch('host-left', snap); return; }
     if (view.phase === 'matchEnd') { showResults(view); return; }
@@ -1718,6 +1779,28 @@ export function createSession(options = {}) {
       H('center', '방장을 이어받았어요 👑', 2500, { sub: '점수를 이어 라운드를 다시 시작해요', tone: 'warn' });
     } catch (err) {
       report(err, 'takeOver');
+      stopHost();
+      abortMatch('host-left', snap);
+    }
+  }
+
+  /** 좀비 이어받기: 스테이지·카드·체력·좀비 자리를 이어 같은 스테이지를 계속한다 */
+  function takeOverHorde(c, snap) {
+    try {
+      const players = room.players().slice(0, ZOMBIE_MAX).map((x) => ({ id: x.id, name: x.name }));
+      const m = restoreHorde(snap, { ...hordeOpts(), players, rules: o.hordeRules || undefined });
+      if (!m) throw new Error('좀비 스냅샷을 풀 수 없어요');
+      hm = {
+        mid: c.mid, mapId: c.mapId, mode: 'zombie', ruleset: 'classic', m, preparing: false, prepDeadline: 0, acks: new Set(),
+        members: new Set(players.map((p) => p.id)), missing: new Map(), timer: null, lastTick: now(), lastSnapAt: -Infinity, restored: true
+      };
+      hm.timer = setInterval(hostLoop, o.hostTickMs);
+      safeMeta({ status: 'playing' });
+      trace('takeover zombie', c.mid, 'stage', m.stage, m.phase);
+      publish(m.resume());
+      H('center', '방장을 이어받았어요 👑', 2500, { sub: '같은 스테이지를 이어서 막아요', tone: 'warn' });
+    } catch (err) {
+      report(err, 'takeOverHorde');
       stopHost();
       abortMatch('host-left', snap);
     }
@@ -1782,6 +1865,13 @@ export function createSession(options = {}) {
   function onControl(p, msg) {
     if (!p || typeof p !== 'object' || !msg || !room) return;
     if (p.k === 'loaded') { if (hm && p.mid === hm.mid) hm.acks.add(String(msg.from)); return; }
+    // 좀비 물량 막기 카드: { k:'zcard', mid, act:'pick'|'reroll', card } 손님 → 방장
+    if (p.k === 'zcard') {
+      if (hm && hostReady() && isZombieMode(hm.mode) && p.mid === hm.mid && !banned.has(String(msg.from))) {
+        publishReal(hm.m.cardAction(String(msg.from), p.act === 'reroll' ? 'reroll' : 'pick', typeof p.card === 'string' ? p.card.slice(0, 16) : ''));
+      }
+      return;
+    }
     if (p.k === 'prep' && msg.from === room.hostId() && typeof p.mid === 'string' && p.mid.length <= 16) {
       if (phase === 'room' && p.mid !== finishedMid) enterMatch(p.mid, cleanText(p.map, 32) || room.meta.mapId || o.mapId, p.mode, p.rs);
       return;
@@ -1817,7 +1907,8 @@ export function createSession(options = {}) {
       pick: pickFor(rs), pickSent: '', gearJson: '', gearQueued: false, liveLoadout: null, resultsShown: false, lastDataAt: now(), enteredAt: now(),
       killerName: null, compact: false, protect: null, aliveMismatchAt: 0,
       startedAt: null, knifeKills: 0,  // 처음 출격한 시각(null이면 아직 출격 전), 내 칼 킬 수
-      quickAt: 0, quickCount: 0, quickPaid: 0   // 개인전 즉시 부활: 마지막 요청 시각, 낸 횟수·포인트(결과 화면 줄)
+      quickAt: 0, quickCount: 0, quickPaid: 0,  // 개인전 즉시 부활: 마지막 요청 시각, 낸 횟수·포인트(결과 화면 줄)
+      horde: null, hview: null, mapData: null, cardSentAt: 0   // 좀비 물량 막기: 화면 쪽 진행(horde/client.js), 마지막 뷰, 맵 데이터(방장 내비)
     };
     trace('enter match', mid, mapId, c.mode, c.ruleset, room && room.isHost() ? 'host' : 'member');
     actors.clear();
@@ -1843,10 +1934,12 @@ export function createSession(options = {}) {
     c.spawns = res && res.spawns ? res.spawns : null;
     c.mission = res && res.mission ? res.mission : null;   // 폭파 미션 구역·진영 스폰(world.loadMap이 바닥 높이를 채운다)
     c.mapName = (res && res.mapName) || '';
-    W('setMode', c.mode);   // FFA면 모든 액터가 적, 폭파 미션이면 폭탄 화면(loadMap이 'team'으로 되돌리므로 로드 뒤에)
+    c.mapData = (res && res.data) || null;
+    W('setMode', c.mode);
+    if (isZombieMode(c.mode)) startHordeClient(c);   // FFA면 모든 액터가 적, 폭파 미션이면 폭탄 화면(loadMap이 'team'으로 되돌리므로 로드 뒤에)
     W('setControlsEnabled', true);
     // 경기 채팅: HUD와 함께 보이고(loadMap이 HUD를 띄운 뒤), 휴대폰 채팅 버튼을 켠다. 줄은 enterMatch에서 비웠다
-    U('show', 'chat', { teamChat: c.mode !== 'ffa' });   // 팀이 있는 경기면 전체·팀 탭(Tab 키)을 쓴다
+    U('show', 'chat', { teamChat: c.mode !== 'ffa' && !isZombieMode(c.mode) });   // 팀이 있는 경기면 전체·팀 탭(Tab 키)을 쓴다
     busEmit('chat:available', { on: true });
     if (!c.round) W('setHint', '다른 플레이어를 기다리는 중…');
     if (hm && hm.mid === c.mid && !hm.m) hostCreate();
@@ -1879,6 +1972,7 @@ export function createSession(options = {}) {
     current = null;
     fireQ.length = 0;
     if (c) {
+      if (c.horde) { try { c.horde.dispose(); } catch (e) { report(e, 'horde dispose'); } c.horde = null; }
       for (const id of actors.keys()) W('removeActor', id);
       actors.clear();
       W('setHint', '');
@@ -1950,6 +2044,7 @@ export function createSession(options = {}) {
       if (!hm) matchToRoom(ABORT_TEXT[snap.abort] || ABORT_TEXT['host-left']);
       return;
     }
+    if (isZombieMode(c.mode)) { processHordeData(c, d, snap); return; }
     const view = snap ? applySnapshot(snap) : null;
     if (view && view.ruleset !== c.ruleset) {
       // 규칙은 방장 스냅샷이 정본이다(방 메타가 늦게 온 채로 들어온 경우)
@@ -1966,6 +2061,105 @@ export function createSession(options = {}) {
     if (current !== c || !view) return;
     try { applyView(view, from); } catch (err) { report(err, 'applyView'); }
     if (current === c && snap.prep && room && !room.isHost() && now() - c.ackAt > 1000) sendAck(c);
+  }
+
+
+  /* ---------------------------------------------------------------- 좀비 물량 막기(화면 쪽) */
+  /** 방장 스냅샷을 World·HUD 띠·카드 화면에 옮기는 진행(horde/client.js). 방장도 같은 길로 받는다 */
+  function startHordeClient(c) {
+    if (c.horde) return;
+    c.horde = createHordeClient({
+      world, ui, meId: me, myName: () => myName(), loadout: () => c.pick, input: ctx && ctx.input,
+      actions: { pick: (card) => sendCard(c, 'pick', card), reroll: () => sendCard(c, 'reroll') },
+      onOver: () => { if (current === c) showResults(null); },
+      onActorSpawn: (id, sp) => {
+        const a = actors.get(id);
+        if (!a) return;
+        a.dead = false;
+        a.spawn = sp && isNum(+sp.x) ? { pos: [+sp.x, +sp.y || 0, +sp.z || 0], yaw: +sp.rotY || 0, at: now(), first: true } : null;
+      },
+      onActorDown: (id) => {
+        const a = actors.get(id);
+        if (a && !a.dead) { a.dead = true; W('actorDeath', id, {}); }
+      },
+      onFeed: (text) => pushChat({ system: true, text }, false)
+    });
+  }
+  /** 카드 고르기·다시 뽑기를 방장에게(내가 방장이면 바로) */
+  function sendCard(c, act, card) {
+    if (!room || current !== c) return;
+    const msg = { k: 'zcard', mid: c.mid, act, ...(card ? { card: String(card) } : {}) };
+    if (room.isHost()) { onControl(msg, { from: me }); return; }
+    try { room.sendTo(room.hostId(), CONTROL_EVENT, msg); } catch (e) { report(e, 'zcard'); }
+  }
+  /** 좀비 뷰 → 세션 공용 모양(점수판·이름·원격 아바타 frame()이 읽는 players). 모두 블루 팀이다 */
+  function hordeCompatView(hv) {
+    return {
+      mode: 'zombie', phase: hv.phase === 'over' ? 'matchEnd' : 'live', round: Math.max(1, hv.stage),
+      players: hv.players.map((p) => ({
+        id: p.id, name: p.name, team: 'owner', connected: p.connected, playing: p.spawned, alive: p.alive, hp: p.hp,
+        kills: p.kills, deaths: p.downs, headshots: p.heads
+      })),
+      score: { owner: 0, charterer: 0 }, rules: { hp: HORDE.baseHp }
+    };
+  }
+  function processHordeData(c, d, snap) {
+    if (snap && snap.abort) { if (!hm) matchToRoom(ABORT_TEXT[snap.abort] || ABORT_TEXT['host-left']); return; }
+    const evs = (Array.isArray(d.events) ? d.events : []).filter((e) => ownEvent(e, c));
+    const hv = snap ? applyHordeSnapshot(snap) : null;
+    if (!c.horde) startHordeClient(c);
+    if (!hv) { if (c.hview && evs.length) c.horde.apply(c.hview, evs, now()); return; }
+    c.hview = hv;
+    c.view = hordeCompatView(hv);
+    const vp = hv.players.find((p) => p.id === me);
+    c.playing = !!vp;
+    c.team = 'owner';
+    c.round = Math.max(1, hv.stage);          // localState()가 내 상태를 보내려면 0보다 커야 한다
+    c.phase = hv.phase === 'over' ? 'matchEnd' : 'live';
+    if (c.startedAt == null && vp && vp.spawned) c.startedAt = now();
+    c.horde.apply(hv, evs, now());
+    if (current !== c) return;
+    c.localAlive = !!(vp && vp.alive) && !!world.localAlive;
+    if (!vp || !vp.spawned) W('setHint', '관전 중 — 다음 스테이지부터 함께해요'); else W('setHint', '');
+    placeActors(c.view, null);
+    // 일어난 동료(놓친 spawn 이벤트): 쓰러진 표시를 거둔다
+    for (const p of c.view.players) { const a = actors.get(p.id); if (a && a.dead && p.alive) a.dead = false; }
+    if (snap.prep && room && !room.isHost() && now() - c.ackAt > 1000) sendAck(c);
+  }
+  /** 좀비 결과 화면: 도달 스테이지·생존 시간·내 처치와 고른 카드. 계정 기록은 경기마다 한 번 */
+  function showHordeResults(c) {
+    if (!c || c.resultsShown || !c.hview) return;
+    c.resultsShown = true;
+    const hv = c.hview;
+    const sum = hordeSummary(hv, me);
+    let reward = null;
+    if (c.playing && !recordedMids.has(c.mid)) {
+      recordedMids.add(c.mid);
+      const a = account();
+      if (a && typeof a.recordZombie === 'function') {
+        try {
+          reward = a.recordZombie({ online: true, stage: sum.stage, cleared: sum.cleared, bossKills: sum.bossKills, kills: sum.kills, headshots: sum.heads, seconds: Math.round(sum.ms / 1000) });
+        } catch (e) { report(e, 'recordZombie'); }
+      }
+    }
+    const mine = hv.players.find((p) => p.id === me);
+    const props = {
+      mode: 'zombie', stage: sum.stage, cleared: sum.cleared, ms: sum.ms, mapId: c.mapId, mapName: c.mapName || undefined, meId: me,
+      best: reward ? reward.best : 0, newBest: !!(reward && reward.newBest),
+      reward: reward ? { gained: reward.gained, breakdown: reward.breakdown, points: reward.points } : undefined,
+      cards: cardRows(mine ? mine.cards : []),
+      players: hv.players.map((p) => ({ id: p.id, name: p.name, kills: p.kills, head: p.heads, boss: p.bossKills, damage: p.damage, downs: p.downs, cards: p.cards.length, me: p.id === me }))
+    };
+    finishedMid = c.mid;
+    const wasHost = !!hm;
+    teardownMatch();
+    phase = 'results';
+    noteRoomActivity();
+    if (wasHost || (room && room.isHost())) safeMeta({ status: 'waiting' });
+    const sec = Math.floor(sum.ms / 1000);
+    pushChat({ system: true, text: `좀비 물량 막기 끝 — 스테이지 ${sum.stage}까지 버텼어요 (${Math.floor(sec / 60)}분 ${String(sec % 60).padStart(2, '0')}초)` }, false);
+    U('show', 'results', props);
+    screen('results');
   }
 
   function onMatchEvent(e, view, from) {
@@ -2595,6 +2789,7 @@ export function createSession(options = {}) {
 
   function showResults(view, ev) {
     const c = current;
+    if (c && isZombieMode(c.mode)) { showHordeResults(c); return; }
     if (!c || c.resultsShown) return;
     const v = view || c.view;
     if (!v) return;
@@ -2623,6 +2818,7 @@ export function createSession(options = {}) {
 
   function scoreboardData() {
     const c = current;
+    if (c && isZombieMode(c.mode)) return hordeScoreboard(c.hview, me, { ping: pingOf, meta: { mapId: c.mapId, mapName: c.mapName || undefined } });
     const v = c && c.view;
     if (!v) return null;
     if (c.mode === 'ffa') {
@@ -2750,6 +2946,8 @@ export function createSession(options = {}) {
     if (!state || !hostReady()) return;
     const pid = String(id);
     if (pid === me || banned.has(pid) || !hm.members.has(pid)) return;
+    // 좀비 물량 막기: 사람끼리 겨루지 않고, 이동 카드·보스의 밀어내기로 빨라지므로 이동 검사를 하지 않는다
+    if (isZombieMode(hm.mode)) return;
     const c = current;
     if (!c || c.phase !== 'live') { moveGuard.reset(pid); return; }
     const bad = moveGuard.feed(pid, { t: state.t, pos: state.pos, alive: state.alive !== false });

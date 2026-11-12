@@ -129,6 +129,8 @@ document.addEventListener('pointerlockchange', () => {
 - 플레이어 카드: 닉네임, 포인트, 마이페이지 버튼. 계정이 바뀌면 `ui.refreshAccount()`로 갱신됩니다.
 - 멀티플레이는 `account.remoteEnabled`가 false이면 꺼지고 사유를 보여 줍니다. `multiDisabled`가 문자열이면 그 사유로 끕니다.
 - 설정, 조작법은 메뉴 안의 시트로 열립니다(이벤트 없음. 설정 변경은 `settings:change`로 옵니다).
+- 건의하기도 메뉴 안의 시트입니다(`ui/feedback.js`, docs/FEEDBACK.md). 보내기·목록은 `ctx.account.sendFeedback`·`myFeedback`을 직접 부르고, 보내면 `feedback:sent`가 납니다.
+  이 기기에서 보낸 적이 있으면 메뉴가 5분에 한 번까지 내 건의를 읽어, 운영자의 새 답이 있으면 버튼에 표시(`has-new`)를 켭니다. 마지막으로 본 답 시각은 `localStorage` `skalafps.feedback.v1`.
 
 ### `nickname` — 첫 실행 게이트
 ```js
@@ -329,9 +331,9 @@ ui.chat.open() / close() / isOpen() / clear() / scope() / setScope('all' | 'team
 
 ### `pause`
 ```js
-{ leaveLabel = '방 나가기', leaveConfirm?, note? }
+{ leaveLabel = '방 나가기', leaveConfirm?, note?, info? }
 ```
-버튼은 계속하기, 설정, 조작법, 나가기(한 번 더 확인)입니다. 연습장에서는 `leaveLabel: '연습장 나가기'`를 쓰세요.
+버튼은 계속하기, 설정, 조작법, 건의하기, 나가기(한 번 더 확인)입니다. `info`(`{ mode, map }`)는 건의를 보낼 때 진단 정보로 함께 갑니다. 연습장에서는 `leaveLabel: '연습장 나가기'`를 쓰세요.
 
 ## 이벤트(`ui.on`)
 
@@ -364,6 +366,7 @@ ui.chat.open() / close() / isOpen() / clear() / scope() / setScope('all' | 'team
 | `chat:send` | `{ text, scope }` | 경기 채팅. `scope`: `'all'` / `'team'` |
 | `results:back` / `results:lobby` | `{}` | |
 | `pause:resume` / `pause:leave` | `{}` | 둘 다 일시정지 화면을 스스로 닫음 |
+| `feedback:sent` | `{ kind, where }` | 건의를 보냈다. `where`: `'menu'` / `'pause'` |
 
 ### 폭파 미션 입력(엔진 bus, UI 이벤트 아님)
 

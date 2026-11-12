@@ -191,9 +191,10 @@ export async function install(ctx) {
     if (e.from === 'sandbox') gate.leftSandbox();
     showMenu();
   }
-  function openPracticeSetup() {
+  /** opts.mode: 'zombie'면 좀비 물량 막기를 고른 채로 연다(메뉴의 좀비 물량 막기 버튼) */
+  function openPracticeSetup(opts) {
     multi.close();
-    setup.open();
+    setup.open(opts && opts.mode ? { mode: opts.mode } : undefined);
   }
 
   /* ---------- 마이페이지 · 상점 (메뉴 안의 UI 페이지) ---------- */
@@ -226,7 +227,8 @@ export async function install(ctx) {
     bus.on('fullscreen:denied', (e) => { if (e && e.notify) toast.notify('이 브라우저 화면에서는 전체 화면을 켤 수 없어요. 앉은 채 앞으로 갈 때는 C 키를 쓰세요.'); }),
     bus.on('map:error', (e) => toast.notify(`맵을 불러오지 못했어요: ${(e && (e.message || e.id)) || ''}`)),
     bus.on('screen:unavailable', (e) => toast.notify(`${SCREEN_LABEL[e && e.name] || (e && e.name) || ''} 화면은 아직 준비 중이에요.`)),
-    ui.on('menu:sandbox', openPracticeSetup),
+    ui.on('menu:sandbox', () => openPracticeSetup()),
+    ui.on('menu:zombie', () => openPracticeSetup({ mode: 'zombie' })),
     ui.on('menu:multi', () => multi.open()),
     ui.on('menu:mypage', () => ui.show('mypage')),
     ui.on('menu:shop', () => openShop('menu')),

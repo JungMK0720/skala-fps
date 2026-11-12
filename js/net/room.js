@@ -72,7 +72,7 @@ function metaValue(k, v) {
   if (k === 'name' || k === 'mapId') return sanitizeName(v, 32);
   if (k === 'max') return Math.max(2, Math.min(16, v | 0 || 8));
   if (k === 'status') return v === 'playing' ? 'playing' : 'waiting';
-  if (k === 'mode') return v === 'ffa' || v === 'bomb' ? v : 'team';
+  if (k === 'mode') return v === 'ffa' || v === 'bomb' || v === 'zombie' ? v : 'team';
   if (k === 'ruleset') return sanitizeName(v, 16);
   if (k === 'topo') return ['mesh', 'relay', 'auto'].includes(v) ? v : 'auto';
   return v;

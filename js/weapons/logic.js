@@ -128,10 +128,34 @@ export function createArsenal(opts = {}) {
   /** 이번 목숨에 바닥에 버려 비어 있는 칸(1·2). 다음 목숨(resetRound)에 자기 장비로 돌아온다 */
   const emptied = new Set();
 
-  const fresh = (id) => {
+  /**
+   * 무기 배율(좀비 물량 막기의 카드·탄약 규칙, setMods). 기본값은 모두 '바꾸지 않음'이라 다른 모드는 표의 값 그대로다.
+   * mag·magAdd: 탄창 크기, fire: 연사(사격 간격·볼트·점사 간격·칼 쿨다운을 나눈다), reload·draw: 재장전·꺼내기 속도,
+   * spread·recoil: 탄퍼짐·반동 배율, reserve: 예비 탄 배율, finiteMags > 0이면 예비가 무제한인 총도 '탄창 × finiteMags × reserve'로 제한,
+   * nades: 최대 수류탄 +, thrift: 쏴도 탄이 줄지 않을 확률
+   */
+  const MOD_BASE = Object.freeze({ mag: 1, magAdd: 0, fire: 1, reload: 1, draw: 1, spread: 1, recoil: 1, reserve: 1, finiteMags: 0, nades: 0, thrift: 0 });
+  const mods = { ...MOD_BASE };
+  const pos = (v, d) => (Number.isFinite(v) && v > 0 ? v : d);
+  /** 이 무기의 탄창 크기(배율 반영). 탄창이 없는 무기는 null */
+  const magOf = (id) => {
     const d = WEAPONS[id];
+    return d.mag == null ? null : Math.max(1, Math.round(d.mag * mods.mag) + (mods.magAdd | 0));
+  };
+  /** 이 무기의 최대 예비 탄(배율 반영). 무제한이면 Infinity */
+  const reserveOf = (id) => {
+    const d = WEAPONS[id];
+    if (d.reserve == null) return null;
+    if (!Number.isFinite(d.reserve)) return mods.finiteMags > 0 ? Math.max(0, Math.round(d.mag * mods.finiteMags * mods.reserve)) : Infinity;
+    return Math.max(0, Math.round(d.reserve * mods.reserve));
+  };
+  const countOf = (id) => (WEAPONS[id].count == null ? null : WEAPONS[id].count + Math.max(0, mods.nades | 0));
+  const intervalOf = (d) => d.fireInterval / mods.fire;
+  const drawOf = (id) => WEAPONS[id].drawTime / mods.draw;
+
+  const fresh = (id) => {
     return {
-      mag: d.mag ?? null, reserve: d.reserve ?? null, count: d.count ?? null,
+      mag: magOf(id), reserve: reserveOf(id), count: countOf(id),
       nextFireAt: 0, lastShotAt: -1e9, boltUntil: 0, bloom: 0, shotIndex: 0, swingIndex: 0,
     };
   };
@@ -218,7 +242,7 @@ export function createArsenal(opts = {}) {
     const mv = lerp(s.move ?? 0, s.adsMove ?? s.move ?? 0, a) * moveF;
     const air = lerp(s.air ?? 0, s.adsAir ?? s.air ?? 0, a) * airF;
     const bloom = (w.bloom || 0) * lerp(1, s.adsBloomMul ?? 1, a);
-    return clamp((base + mv + air + bloom) * (motion.crouch ? CROUCH_SPREAD : 1), 0, s.max ?? 45);
+    return clamp((base + mv + air + bloom) * (motion.crouch ? CROUCH_SPREAD : 1) * mods.spread, 0, s.max ?? 45);
   }
 
   // ── 입력 정규화 ───────────────────────────────────────────────
@@ -282,7 +306,7 @@ export function createArsenal(opts = {}) {
       const lf = clamp(r.loopFrom ?? n - 1, 0, n - 1);
       i = lf + ((i - lf) % (n - lf));
     }
-    const mul = lerp(1, r.adsMul ?? 1, a);
+    const mul = lerp(1, r.adsMul ?? 1, a) * mods.recoil;
     const kYaw = -pat[i][0] * DEG * mul;   // 패턴 x(오른쪽 +) → yaw는 왼쪽이 +
     const kPitch = pat[i][1] * DEG * mul;
     recoil.yaw = clamp(recoil.yaw + kYaw, -r.maxYaw * DEG, r.maxYaw * DEG);
@@ -380,8 +404,8 @@ export function createArsenal(opts = {}) {
     cur = id;
     reloadQueued = false;
     semiAt = -1e9;
-    setState('draw', WEAPONS[id].drawTime);
-    emit('switch', { from, to: id, slot: WEAPONS[id].slot, drawTime: WEAPONS[id].drawTime });
+    setState('draw', drawOf(id));
+    emit('switch', { from, to: id, slot: WEAPONS[id].slot, drawTime: drawOf(id) });
   }
 
   function switchTo(id) {
@@ -461,7 +485,7 @@ export function createArsenal(opts = {}) {
   function startReload() {
     const d = def(), w = wst();
     reloadEmpty = w.mag === 0;
-    const dur = reloadEmpty && d.reloadEmpty ? d.reloadEmpty : d.reload;
+    const dur = (reloadEmpty && d.reloadEmpty ? d.reloadEmpty : d.reload) / mods.reload;
     reloadQueued = false;
     releaseZoom();
     setState('reload', dur);
@@ -469,8 +493,8 @@ export function createArsenal(opts = {}) {
   }
 
   function finishReload() {
-    const d = def(), w = wst();
-    const take = Math.min(d.mag - w.mag, w.reserve);
+    const w = wst();
+    const take = Math.max(0, Math.min(magOf(cur) - w.mag, w.reserve));
     w.mag += take;
     w.reserve -= take;
     setState('idle');
@@ -481,7 +505,7 @@ export function createArsenal(opts = {}) {
     const d = def(), w = wst();
     if (d.mag == null) { reloadQueued = false; return; }
     if (inp.reloadPressed) reloadQueued = true;
-    if (w.mag >= d.mag || w.reserve <= 0) { reloadQueued = false; return; }
+    if (w.mag >= magOf(cur) || w.reserve <= 0) { reloadQueued = false; return; }
     if (!reloadQueued && w.mag !== 0) return;        // 탄창이 비면 자동 재장전
     if (state !== 'idle' || bolting() || time + EPS < w.nextFireAt) return;
     startReload();
@@ -502,13 +526,14 @@ export function createArsenal(opts = {}) {
       pellets.push({ yaw, pitch, dir: dirFromYawPitch(yaw, pitch) });
     }
     const recoilAtShot = { yaw: recoil.yaw, pitch: recoil.pitch };
-    w.mag -= 1;
+    // 탄 절약(좀비 모드 카드): 이 확률로 탄창이 줄지 않는다
+    if (!(mods.thrift > 0 && rng() < mods.thrift)) w.mag -= 1;
     w.lastShotAt = time;
     lastShotAt = time;
     const shotIndex = Math.floor(w.shotIndex + EPS);
     const kick = kickRecoil(d, w, a);
     if (d.spread && d.spread.bloomPerShot) w.bloom = Math.min(d.spread.bloomMax ?? Infinity, w.bloom + d.spread.bloomPerShot);
-    if (d.fire !== 'auto') w.nextFireAt = time + d.fireInterval;
+    if (d.fire !== 'auto') w.nextFireAt = time + intervalOf(d);
     const isScope = !!(d.zoom && d.zoom.accurateAt != null);
     const scoped = d.zoom ? (isScope ? a >= 1 : zoomP >= 0.5) : false;
     const p0 = pellets[0];
@@ -525,9 +550,9 @@ export function createArsenal(opts = {}) {
     }
     if (d.fire === 'bolt') {
       if (w.mag > 0) {
-        w.boltUntil = time + d.bolt;
+        w.boltUntil = time + d.bolt / mods.fire;
         w.nextFireAt = w.boltUntil;
-        emit('boltCycle', { duration: d.bolt });
+        emit('boltCycle', { duration: d.bolt / mods.fire });
       } else {
         w.boltUntil = 0;
         w.nextFireAt = time + (d.emptyShotRecover ?? 0.3);
@@ -561,7 +586,7 @@ export function createArsenal(opts = {}) {
       const continuous = (n > 0 || prevFire) && w.nextFireAt >= time - dt - EPS;
       const base = continuous ? w.nextFireAt : time;
       shoot();
-      w.nextFireAt = base + d.fireInterval;
+      w.nextFireAt = base + intervalOf(d);
       n++;
       if (state !== 'idle') break;
     }
@@ -574,7 +599,7 @@ export function createArsenal(opts = {}) {
   /** 예약된 점사 탄을 쏜다. 버튼을 떼도 끝까지 나가고, 탄이 떨어지면 거기서 끝난다. */
   function runBurst() {
     const d = def(), w = wst();
-    const gap = d.burst.gap;
+    const gap = d.burst.gap / mods.fire;
     while (burst && time + EPS >= burst.nextAt) {
       const at = burst.nextAt;
       shoot();
@@ -582,9 +607,9 @@ export function createArsenal(opts = {}) {
       if (burst.left > 0 && w.mag > 0) {
         burst.nextAt = at + gap;
         // 남은 발까지 쏘고 쉬는 시점까지 잠가 둔다. 점사 중에 교체해서 재사격 대기를 건너뛰지 못하게 한다.
-        w.nextFireAt = burst.nextAt + gap * (burst.left - 1) + d.fireInterval;
+        w.nextFireAt = burst.nextAt + gap * (burst.left - 1) + intervalOf(d);
       } else {
-        w.nextFireAt = at + d.fireInterval;
+        w.nextFireAt = at + intervalOf(d);
         burst = null;
       }
     }
@@ -598,11 +623,12 @@ export function createArsenal(opts = {}) {
     else if (inp.zoomDown || inp.zoomTogglePressed) kind = 'stab';
     if (!kind) return;
     const m = d.melee[kind];
-    swing = { kind, windup: m.windup, hit: false, index: w.swingIndex++ };
-    w.nextFireAt = time + m.cooldown;
+    const cooldown = m.cooldown / mods.fire;
+    swing = { kind, windup: Math.min(m.windup, cooldown * 0.8), hit: false, index: w.swingIndex++ };
+    w.nextFireAt = time + cooldown;
     w.lastShotAt = time;
-    setState('swing', m.cooldown);
-    emit('swing', { kind, duration: m.cooldown, windup: m.windup, index: swing.index, damage: m.damage, range: m.range });
+    setState('swing', cooldown);
+    emit('swing', { kind, duration: cooldown, windup: swing.windup, index: swing.index, damage: m.damage, range: m.range });
   }
 
   function tryPrime(inp) {
@@ -632,8 +658,8 @@ export function createArsenal(opts = {}) {
   function finishThrow() {
     setState('idle');
     if (available(cur)) {           // 여러 개를 들 수 있게 바뀌면 다시 꺼낸다
-      setState('draw', def().drawTime);
-      emit('switch', { from: cur, to: cur, slot: def().slot, drawTime: def().drawTime });
+      setState('draw', drawOf(cur));
+      emit('switch', { from: cur, to: cur, slot: def().slot, drawTime: drawOf(cur) });
       return;
     }
     const back = prev && prev !== cur && carried(prev) && available(prev) ? prev : otherWeapon(cur);
@@ -740,9 +766,9 @@ export function createArsenal(opts = {}) {
     if (!d) return null;
     const w = inv[id];
     // 수류탄 슬롯이 금지된 규칙에서는 0개로 알린다. 봇이 던지려고 슬롯을 바꾸다 멈추지 않게 한다.
-    if (d.count != null) return { weaponId: id, kind: 'count', mag: carried(id) ? w.count : 0, magSize: d.count, reserve: 0, infinite: false, reloading: false };
+    if (d.count != null) return { weaponId: id, kind: 'count', mag: carried(id) ? w.count : 0, magSize: countOf(id), reserve: 0, infinite: false, reloading: false };
     if (d.mag == null) return { weaponId: id, kind: 'none', mag: null, magSize: null, reserve: null, infinite: true, reloading: false };
-    return { weaponId: id, kind: 'mag', mag: w.mag, magSize: d.mag, reserve: w.reserve, infinite: w.reserve === Infinity,
+    return { weaponId: id, kind: 'mag', mag: w.mag, magSize: magOf(id), reserve: w.reserve, reserveMax: reserveOf(id), infinite: w.reserve === Infinity,
       reloading: id === cur && state === 'reload' };
   }
 
@@ -771,11 +797,10 @@ export function createArsenal(opts = {}) {
 
   /** 칸 slot에 총 id를 넣고 바로 꺼낸다. 탄약은 남은 만큼 이어받되 정의의 최대를 넘지 못한다(프리미엄 예비는 무제한 그대로) */
   function putInSlot(slot, id, ammo, draw = true) {
-    const d = WEAPONS[id];
     const left = (v, max) => (Number.isFinite(v) ? clamp(Math.floor(v), 0, max) : max);
     const w = fresh(id);
-    w.mag = left(ammo && ammo.mag, d.mag);
-    if (d.reserve !== Infinity) w.reserve = left(ammo && ammo.reserve, d.reserve);
+    w.mag = left(ammo && ammo.mag, magOf(id));
+    if (w.reserve !== Infinity) w.reserve = left(ammo && ammo.reserve, w.reserve);
     emptied.delete(slot);
     loadout[slot] = id;
     inv[id] = w;
@@ -824,7 +849,7 @@ export function createArsenal(opts = {}) {
     const d = def();
     let progress = stateProgress();
     const s = publicState();
-    if (s === 'bolt') progress = clamp(1 - (inv[cur].boltUntil - time) / d.bolt, 0, 1);
+    if (s === 'bolt') progress = clamp(1 - (inv[cur].boltUntil - time) / (d.bolt / mods.fire), 0, 1);
     return { id: cur, slot: d.slot, name: d.name, nameEn: d.nameEn, short: d.short, def: d,
       state: s, progress, elapsed: stateT, duration: Number.isFinite(stateDur) ? stateDur : 0, previous: prev };
   }
@@ -913,14 +938,72 @@ export function createArsenal(opts = {}) {
     const from = cur;
     cur = firstAllowedWeapon();
     prev = otherWeapon(cur, [2, 1, 3, 4]);
-    const drawDur = o.draw ? def().drawTime : 0;
+    const drawDur = o.draw ? drawOf(cur) : 0;
     setState(o.draw ? 'draw' : 'idle', drawDur);
     emit('switch', { from, to: cur, slot: def().slot, drawTime: drawDur, reset: true });
   }
 
   if (opts.draw) {
-    setState('draw', def().drawTime);
-    emit('switch', { from: null, to: cur, slot: def().slot, drawTime: def().drawTime });
+    setState('draw', drawOf(cur));
+    emit('switch', { from: null, to: cur, slot: def().slot, drawTime: drawOf(cur) });
+  }
+
+  /**
+   * 배율을 바꾼다(없는 키는 그대로, null이면 기본값으로). 지금 든 탄은 그대로 두고, 예비 탄이 새 최대를 넘으면 자른다.
+   * → 지금 배율(사본)
+   */
+  function setMods(o) {
+    if (o === null) Object.assign(mods, MOD_BASE);
+    else if (o && typeof o === 'object') {
+      for (const k of Object.keys(MOD_BASE)) {
+        if (!(k in o)) continue;
+        const v = Number(o[k]);
+        if (!Number.isFinite(v)) continue;
+        if (k === 'magAdd' || k === 'nades') mods[k] = Math.max(0, Math.round(v));
+        else if (k === 'thrift') mods[k] = clamp(v, 0, 0.9);
+        else if (k === 'finiteMags') mods[k] = Math.max(0, v);
+        else mods[k] = clamp(pos(v, MOD_BASE[k]), 0.05, 20);
+      }
+    }
+    for (const id of WEAPON_IDS) {
+      const w = inv[id];
+      const rmax = reserveOf(id);
+      if (w.reserve != null && rmax != null && w.reserve > rmax) w.reserve = rmax;
+      if (w.reserve === Infinity && Number.isFinite(rmax)) w.reserve = rmax;
+      if (w.count != null) w.count = Math.min(w.count, countOf(id));
+    }
+    return { ...mods };
+  }
+
+  /** 들고 있는 총들(주무기·보조)의 예비 탄을 최대까지 채운다 */
+  function refillReserve() {
+    for (const slot of [1, 2]) {
+      const id = loadout[slot];
+      const rmax = reserveOf(id);
+      if (rmax != null) inv[id].reserve = rmax;
+    }
+  }
+  /** 수류탄을 최대까지 채운다 */
+  function refillGrenades() {
+    const g = inv[GRENADE_ID];
+    g.count = countOf(GRENADE_ID);
+    return g.count;
+  }
+  /** 든 총의 탄창에 n발을 바로 넣는다(탄창 크기까지, 좀비 모드 '탄약 회수') → 넣은 수 */
+  function addMagAmmo(n, id = cur) {
+    const w = inv[id], mx = magOf(id);
+    if (!w || mx == null || !(n > 0)) return 0;
+    const add = Math.max(0, Math.min(mx - w.mag, Math.floor(n)));
+    w.mag += add;
+    return add;
+  }
+  /** 총의 예비 탄에 n발 더하기(최대까지) → 더한 수 */
+  function addReserve(n, id = cur) {
+    const w = inv[id], rmax = reserveOf(id);
+    if (!w || rmax == null || !Number.isFinite(rmax) || !(n > 0)) return 0;
+    const add = Math.max(0, Math.min(rmax - w.reserve, Math.floor(n)));
+    w.reserve += add;
+    return add;
   }
 
   function setPrimary(id) {
@@ -965,9 +1048,15 @@ export function createArsenal(opts = {}) {
     resetRound,
     giveGrenade: (n = 1) => {
       const g = inv[GRENADE_ID];
-      g.count = clamp((g.count || 0) + (n | 0), 0, WEAPONS[GRENADE_ID].count);
+      g.count = clamp((g.count || 0) + (n | 0), 0, countOf(GRENADE_ID));
       return g.count;
     },
+    setMods,
+    getMods: () => ({ ...mods }),
+    refillReserve,
+    refillGrenades,
+    addMagAmmo,
+    addReserve,
     getTime: () => time,
     dispose: () => { queue = []; },
   };

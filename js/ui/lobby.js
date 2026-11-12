@@ -33,23 +33,27 @@ export const RULE_CHOICES = Object.freeze(RULESET_IDS.map((id) => Object.freeze(
 })));
 
 /** 고를 수 있는 모드(방 만들기 시트와 대기실이 같이 쓴다) */
-export const MODE_IDS = Object.freeze(['team', 'ffa', 'bomb']);
+export const MODE_IDS = Object.freeze(['team', 'ffa', 'bomb', 'zombie']);
+/** 좀비 물량 막기 방의 최대 인원(함께 막는 사람 수) */
+export const ZOMBIE_MAX = 4;
 /** 폭파 미션은 클래식 규칙만 쓴다 */
 export const BOMB_RULESET = 'classic';
 /** 모드 칸의 작은 글자. 개인전 칸은 고른 목표 킬을 넣어 ffaSubText로 쓴다 */
-const MODE_SUB = Object.freeze({ team: '블루 vs 레드 · 5판 3선승', bomb: '공격·수비 · A/B 구역에 폭탄' });
+const MODE_SUB = Object.freeze({ team: '블루 vs 레드 · 5판 3선승', bomb: '공격·수비 · A/B 구역에 폭탄', zombie: '함께 버티기 · 최대 4명' });
 const ffaSubText = (kills) => `모두가 적 · ${kills}킬`;
 const MODE_HINT = Object.freeze({
   team: '블루 vs 레드 섬멸전이에요. 라운드 중 부활 없이 5판 3선승으로 겨뤄요.',
   bomb: '공격 팀은 A나 B 구역에 폭탄을 설치하고, 수비 팀은 막거나 해체해요. 5판 3선승이고 2라운드 뒤 공수를 바꿔요.',
+  zombie: '최대 4명이 함께 스테이지마다 몰려오는 좀비를 막아요. 탄은 스테이지 사이에 채워지지 않고(예비 탄 3배), 깰 때마다 강화 카드를 1장씩 골라요. 5스테이지마다 보스가 나와요.',
 });
 /** 모드 안내 글. 개인전은 고른 목표 킬을 넣는다 */
 const modeHintText = (mode, kills) => (mode === 'ffa'
   ? `모두가 적이에요. 먼저 ${kills}킬을 채우면 우승하고, 죽으면 3초 뒤 부활해요.` : MODE_HINT[mode]);
 
-/** 이 모드에서 쓰는 규칙. 폭파 미션은 언제나 클래식 */
+/** 이 모드에서 쓰는 규칙. 폭파 미션과 좀비 물량 막기는 언제나 클래식 */
 export function ruleForMode(mode, ruleset) {
-  return modeKey(mode) === 'bomb' ? BOMB_RULESET : normalizeRuleset(ruleset);
+  const m = modeKey(mode);
+  return m === 'bomb' || m === 'zombie' ? BOMB_RULESET : normalizeRuleset(ruleset);
 }
 
 /**
@@ -57,6 +61,7 @@ export function ruleForMode(mode, ruleset) {
  * killTarget을 넘기면 개인전 배지에 목표 킬을 붙인다('칼전 · 개인전 · 10킬'). 팀전·폭파 미션에는 붙이지 않는다
  */
 export function ruleBadge(ruleset, mode, killTarget) {
+  if (modeKey(mode) === 'zombie') return `🧟 ${MODE_NAME.zombie}`;
   const base = `${RULESETS[ruleForMode(mode, ruleset)].name} · ${MODE_NAME[modeKey(mode)]}`;
   return modeKey(mode) === 'ffa' && killTarget !== undefined ? `${base} · ${normalizeKillTarget(killTarget)}킬` : base;
 }
@@ -73,9 +78,10 @@ export function missionMaps(maps) {
   return maps.filter((m) => !!m && m.mission === true && (Array.isArray(m.rulesets) ? m.rulesets : DEFAULT_MAP_RULESETS).includes(BOMB_RULESET));
 }
 
-/** 모드·규칙으로 고를 수 있는 맵. 폭파 미션은 미션 맵만, 나머지는 mapsForRule */
+/** 모드·규칙으로 고를 수 있는 맵. 폭파 미션은 미션 맵만, 좀비 물량 막기는 클래식 맵, 나머지는 mapsForRule */
 export function mapsForMode(maps, mode, ruleset) {
-  return modeKey(mode) === 'bomb' ? missionMaps(maps) : mapsForRule(maps, ruleset);
+  const m = modeKey(mode);
+  return m === 'bomb' ? missionMaps(maps) : mapsForRule(maps, m === 'zombie' ? BOMB_RULESET : ruleset);
 }
 
 export function createLobby(ctx) {
@@ -118,7 +124,7 @@ export function createLobby(ctx) {
   });
   const killField = h('div', { class: 'sk-field', hidden: true }, h('span', { class: 'sk-field-label', text: '목표 킬' }), killPick.el);
   // 폭파 미션이면 클래식으로 고정하고 버튼을 끈다(고른 규칙은 다른 모드로 돌아가면 다시 쓴다)
-  const ruleRow = createChoiceRow({ label: '규칙 선택', onPick: (id) => { if (formMode !== 'bomb') setRule(id); } });
+  const ruleRow = createChoiceRow({ label: '규칙 선택', onPick: (id) => { if (formMode !== 'bomb' && formMode !== 'zombie') setRule(id); } });
   const ruleHint = h('p', { class: 'sk-set-hint' });
   const maxOut = h('output', { class: 'sk-stepper-val', 'aria-live': 'polite' });
   const maxNote = h('span', { class: 'sk-set-hint' });
@@ -149,15 +155,15 @@ export function createLobby(ctx) {
       h('button', { type: 'submit', class: 'sk-btn sk-btn--primary' }, '＋ 방 만들기')));
   const createSheet = sheet({ title: '＋ 방 만들기', onClose: () => modal.close(), body: form, cls: 'sk-create-sheet' });
 
-  const roomMax = () => clamp(Math.round(num(p.maxPlayers, ROOM_MAX)), 2, ROOM_CAP);
+  const roomMax = () => (formMode === 'zombie' ? Math.min(ZOMBIE_MAX, clamp(Math.round(num(p.maxPlayers, ROOM_MAX)), 2, ROOM_CAP)) : clamp(Math.round(num(p.maxPlayers, ROOM_MAX)), 2, ROOM_CAP));
   function setMax(n) {
     const top = roomMax();
     formMax = clamp(Math.round(num(n, ROOM_DEFAULT)), 2, top);
     setText(maxOut, `${formMax}명`);
-    setText(maxNote, formMode === 'ffa' ? `최대 ${formMax}명 · 모두가 적` : `팀당 최대 ${Math.ceil(formMax / 2)}명`);
+    setText(maxNote, formMode === 'ffa' ? `최대 ${formMax}명 · 모두가 적` : formMode === 'zombie' ? `최대 ${formMax}명이 함께 막아요` : `팀당 최대 ${Math.ceil(formMax / 2)}명`);
     minus.disabled = formMax <= 2;
     plus.disabled = formMax >= top;
-    const quick = [...new Set([...ROOM_PRESETS.filter((v) => v < top), top])];
+    const quick = formMode === 'zombie' ? [2, 3, 4].filter((v) => v <= top) : [...new Set([...ROOM_PRESETS.filter((v) => v < top), top])];
     maxQuick.set(quick.map((v) => ({ id: String(v), label: `${v}명` })), String(formMax));
   }
   const allMaps = () => mapList(ctx.maps, p.maps);
@@ -196,11 +202,11 @@ export function createLobby(ctx) {
     renderMapCards();
   }
   function renderRule() {
-    const bomb = formMode === 'bomb';
+    const fixed = formMode === 'bomb' || formMode === 'zombie';
     const rs = ruleForMode(formMode, formRule);
     ruleRow.set(RULE_CHOICES, rs);
-    for (const b of ruleRow.el.children) b.disabled = bomb;
-    setText(ruleHint, bomb ? '폭파 미션은 클래식 규칙만 써요' : RULESETS[rs].desc);
+    for (const b of ruleRow.el.children) b.disabled = fixed;
+    setText(ruleHint, fixed ? `${MODE_NAME[formMode]}은 클래식 규칙만 써요` : RULESETS[rs].desc);
   }
   function renderMapCards() {
     const maps = mapsForMode(allMaps(), formMode, formRule);
@@ -264,8 +270,8 @@ export function createLobby(ctx) {
     const n = countOf(r.players);
     const max = Math.max(1, num(r.max, ROOM_MAX));
     const playing = r.status === 'playing';
-    // 경기 중인 방은 팀전·폭파 미션만 잠근다. 개인전은 언제 들어가도 곧 출격한다(match.js joinFfa: 부활 시간 뒤)
-    const locked = playing && r.mode !== 'ffa';
+    // 경기 중인 방은 팀전·폭파 미션만 잠근다. 개인전은 언제 들어가도 곧 출격하고(match.js joinFfa: 부활 시간 뒤), 좀비 방은 다음 스테이지부터 함께한다
+    const locked = playing && r.mode !== 'ffa' && r.mode !== 'zombie';
     const full = n >= max;
     const joining = p.joining != null && p.joining === r.roomId;
     const m = mapInfo(ctx.maps, p.maps, r.mapId);
@@ -288,7 +294,7 @@ export function createLobby(ctx) {
       btn(label, () => (r.locked ? askPassword(r) : ctx.emit('lobby:join', { roomId: r.roomId })), 'sk-btn--primary sk-room-join', {
         disabled: locked || full || joining,
         'aria-label': `${r.name || '방'} ${label}`,
-        title: locked ? `${MODE_NAME[modeKey(r.mode)]}은 경기가 끝나면 들어갈 수 있어요` : playing && !full ? '진행 중인 개인전에 들어가 곧 출격해요' : null,
+        title: locked ? `${MODE_NAME[modeKey(r.mode)]}은 경기가 끝나면 들어갈 수 있어요` : playing && !full ? (r.mode === 'zombie' ? '진행 중인 좀비 방에 들어가 다음 스테이지부터 함께해요' : '진행 중인 개인전에 들어가 곧 출격해요') : null,
       }));
   }
 

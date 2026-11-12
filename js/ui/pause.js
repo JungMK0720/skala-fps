@@ -1,17 +1,22 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 일시정지 메뉴(Esc). 계속하기, 전체 화면(브라우저 단축키 잠금) 켜고 끄기, 설정, 조작법, 나가기를 보여 준다.
+ * Purpose: 일시정지 메뉴(Esc). 계속하기, 전체 화면(브라우저 단축키 잠금) 켜고 끄기, 설정, 조작법, 건의하기, 나가기를 보여 준다.
+ *          건의하기는 메뉴와 같은 시트(ui/feedback.js)이고, 경기의 모드·맵(props.info)을 진단 정보로 함께 보낸다.
  */
 import { h, btn, setText } from './dom.js';
 import { makeScreen, createModal } from './parts.js';
 import { createSettingsPanel, canLockKeys } from './settings.js';
 import { createControlsPanel } from './controls.js';
+import { createFeedbackPanel } from './feedback.js';
 
 export function createPause(ctx) {
   const modal = createModal();
   const settingsPanel = createSettingsPanel(ctx, { onClose: () => modal.close() });
   const controlsPanel = createControlsPanel({ onClose: () => modal.close() });
+  const feedbackPanel = createFeedbackPanel(ctx, { onClose: () => modal.close(), where: 'pause' });
+  let info = null;
+  const feedbackBtn = btn('건의하기', () => { feedbackPanel.refresh(info); modal.open(feedbackPanel.el); });
 
   const note = h('p', { class: 'sk-pause-note' });
   const resumeBtn = btn('계속하기', () => {
@@ -50,6 +55,7 @@ export function createPause(ctx) {
       fullBtn,
       btn('설정', () => { settingsPanel.refresh(); modal.open(settingsPanel.el); }),
       btn('조작법', () => modal.open(controlsPanel.el)),
+      feedbackBtn,
       leaveBtn),
     confirmBox);
 
@@ -62,6 +68,8 @@ export function createPause(ctx) {
     setText(confirmText, p.leaveConfirm || '정말 나갈까요? 진행 중인 매치에서 빠지게 돼요.');
     setText(note, p.note != null ? p.note : '멀티플레이 중에는 게임이 멈추지 않아요.');
     note.hidden = !note.textContent;
+    info = p.info && typeof p.info === 'object' ? p.info : null;
+    feedbackBtn.hidden = !ctx.account || !ctx.account.remoteEnabled;
     paintFull();
   }
 

@@ -135,9 +135,9 @@ function gunStats(w) {
   const base = `머리 ${d.head} · 몸 ${d.body} · 다리 ${d.legs}`;
   const rows = [rateRow(w)];
   if (w.kind === 'sniper') {
-    const allParts = d.body >= PLAYER_HP && d.legs >= PLAYER_HP;
+    const one = [['head', '머리'], ['body', '몸'], ['legs', '다리']].filter(([p]) => d[p] >= PLAYER_HP).map(([, n]) => n);
     rows.push({ label: '피해', value: base });
-    rows.push({ label: '반샷', value: `${limbsText(d)} · ${allParts ? '나머지 부위 1발 킬' : '머리만 1발 킬'}` });
+    rows.push({ label: '반샷', value: `${limbsText(d)} · ${one.length === 3 ? '나머지 부위 1발 킬' : one.length === 1 ? '머리만 1발 킬' : `${one.join('·')} 1발 킬`}` });
     rows.push({ label: '퀵스코프', value: `줌 ${pct(z.accurateAt)}(${sec(z.accurateAt * z.inTime)})부터 정조준` });
   } else if (w.pellets > 1) {
     rows.push({ label: '피해', value: `펠릿 ${w.pellets}발 · 발당 ${base} · ${limbsText(d)}` });
@@ -176,9 +176,10 @@ const WEAPON_TABLE = {
     tagline: '어디서든 믿고 쓰는 표준 소총.',
     desc: '거리·연사·반동이 고르게 맞춰진 기본 라이플이다. 다른 라이플은 이 총을 기준으로 잰다.',
     recoilNote: '위로 솟다가 좌우로',
-    bars: { power: 55, rate: 62, accuracy: 68, mobility: 72 },
+    bars: { power: 48, rate: 62, accuracy: 68, mobility: 72 },
 
-    damage: { head: 110, body: 30, legs: 22, hand: 15, foot: 15 },
+    // 밸런스 패치(2026-11-12): 몸 30 → 24. 몸 4발(0.30초)에서 5발(0.40초)로 교전이 조금 길어진다. 머리 1발은 그대로
+    damage: { head: 110, body: 24, legs: 18, hand: 12, foot: 12 },
     headIgnoresFalloff: true,                      // 라이플 공통: 거리와 상관없이 머리 1발 킬
     falloff: { start: 30, end: 80, min: 0.75 },
     maxRange: 250,
@@ -196,7 +197,7 @@ const WEAPON_TABLE = {
       hideViewmodelAt: null, moveMul: 0.8, unzoomOnFire: false },
   }),
 
-  // 몸 22로 약하지만 860rpm이라 근거리 TTK가 표준보다 살짝 빠르다. 반동과 탄퍼짐이 그 값을 치른다.
+  // 몸 19로 약하지만 860rpm이라 근거리 TTK(6발 0.35초)가 표준(5발 0.40초)보다 살짝 빠르다. 반동과 탄퍼짐이 그 값을 치른다.
   ar_rapid: gun({
     id: 'ar_rapid', slot: 1, kind: 'rifle', category: 'rifle', fire: 'auto', price: 800,
     name: 'RX-9 스톰', nameEn: 'RX-9 Storm', short: 'RX-9', role: '연사',
@@ -204,9 +205,9 @@ const WEAPON_TABLE = {
     tagline: '퍼붓는 만큼 제어가 어렵다.',
     desc: '가장 빠른 라이플이다. 반동이 넓고 탄도 많이 퍼져서 짧게 끊어 쏘지 않으면 금방 조준을 잃는다.',
     recoilNote: '크고 넓게 흔들린다',
-    bars: { power: 42, rate: 90, accuracy: 45, mobility: 78 },
+    bars: { power: 38, rate: 90, accuracy: 45, mobility: 78 },
 
-    damage: { head: 100, body: 22, legs: 16, hand: 11, foot: 11 },
+    damage: { head: 100, body: 19, legs: 14, hand: 10, foot: 10 },
     headIgnoresFalloff: true,
     falloff: { start: 25, end: 70, min: 0.7 },
     maxRange: 220,
@@ -253,23 +254,24 @@ const WEAPON_TABLE = {
       hideViewmodelAt: null, moveMul: 0.75, unzoomOnFire: false },
   }),
 
-  // 34×3 = 102라서 약 33 m까지는 한 번의 점사가 곧 킬이다. 그보다 멀면 발당 33 이하로 떨어져 두 번째 점사가 필요하다.
+  // 밸런스 패치(2026-11-12): 예전에는 34×3 = 102라 약 33 m까지 점사 한 번(0.13초)이 곧 킬이라 다른 총보다 두 배 넘게 빨랐다.
+  // 지금은 몸 28이라 두 번째 점사의 첫 발에 쓰러진다(0.45초). 그 대신 재사격이 0.32초로 짧고 반동·탄퍼짐이 가장 작은 축이라 중거리에 강하다.
   ar_burst: gun({
     id: 'ar_burst', slot: 1, kind: 'rifle', category: 'rifle', fire: 'burst', price: 1000,
     name: 'BR-3 트리플', nameEn: 'BR-3 Triple', short: 'BR-3', role: '점사',
     icon: '🔱', color: '#8e5bd6', sound: 'rifle', fxKind: 'rifle',
     tagline: '한 번 당기면 세 발.',
-    desc: '한 번 누르면 세 발이 나가고 잠시 쉰다. 세 발을 모두 맞히면 가장 빠르게 끝나지만 빗나가면 공백이 길다.',
+    desc: '한 번 누르면 세 발이 나가고 잠시 쉰다. 두 번의 점사로 쓰러뜨리고, 머리에 한 발이라도 맞으면 바로 끝난다.',
     recoilNote: '세 발 동안 계단식으로',
-    bars: { power: 62, rate: 58, accuracy: 72, mobility: 72 },
+    bars: { power: 55, rate: 60, accuracy: 74, mobility: 72 },
 
-    damage: { head: 110, body: 34, legs: 24, hand: 16, foot: 16 },
+    damage: { head: 110, body: 28, legs: 20, hand: 13, foot: 13 },
     headIgnoresFalloff: true,
     falloff: { start: 30, end: 80, min: 0.75 },
     maxRange: 250,
 
-    // fireInterval은 점사가 끝난 뒤 쉬는 시간. rpm은 쉬는 시간까지 넣은 실효 연사다(3발 / 0.49초).
-    rpm: 367, fireInterval: 0.36,
+    // fireInterval은 점사가 끝난 뒤 쉬는 시간. rpm은 쉬는 시간까지 넣은 실효 연사다(3발 / 0.45초).
+    rpm: 400, fireInterval: 0.32,
     burst: { count: 3, gap: 0.065 },
 
     mag: 30, reserve: 60, reload: 2.3, reloadEmpty: 2.7,
@@ -277,29 +279,30 @@ const WEAPON_TABLE = {
 
     spread: { hip: 1.0, ads: 0.15, move: 2.5, adsMove: 1.0, air: 5, adsAir: 4,
       bloomPerShot: 0.18, bloomMax: 1.2, bloomDecay: 5, adsBloomMul: 0.6, max: 9 },
-    // patternRecover 7: 재사격 간격(0.36초)으로는 패턴이 다 돌아오지 않아 몰아 쏘면 뒤 묶음으로 밀린다
+    // patternRecover 7: 재사격 간격(0.32초)으로는 패턴이 다 돌아오지 않아 몰아 쏘면 뒤 묶음으로 밀린다
     recoil: { pattern: AR_BURST_PATTERN, loopFrom: 3, adsMul: 0.8, maxPitch: 8, maxYaw: 3,
       recoverDelay: 0.1, recoverRate: 8, patternRecover: 7 },
     zoom: { mag: 2.2, inTime: 0.18, outTime: 0.12, accurateAt: null, overlay: null,
       hideViewmodelAt: null, moveMul: 0.8, unzoomOnFire: false },
   }),
 
-  // 감쇠가 없어 어느 거리든 몸 2발. 저격총의 1발과 라이플의 연사 사이를 메운다. 상점 탭은 라이플에 묶는다.
+  // 밸런스 패치(2026-11-12): 예전에는 감쇠가 없어 80 m에서도 몸 2발(0.30초)이라 먼 거리에서 라이플·저격총의 몫을 다 가져갔다.
+  // 지금은 50 m까지 몸 2발(0.36초), 그 뒤로는 3발이다. 저격총의 1발과 라이플의 연사 사이를 메운다. 상점 탭은 라이플에 묶는다.
   dm_mark: gun({
     id: 'dm_mark', slot: 1, kind: 'dmr', category: 'rifle', fire: 'semi', price: 1500,
     name: 'DM-4 마크스맨', nameEn: 'DM-4 Marksman', short: 'DM-4', role: '지정사수',
     icon: '🏹', color: '#6fbf4a', sound: 'dmr', fxKind: 'rifle',
     tagline: '한 발씩 또박또박, 3배로 멀리.',
-    desc: '거리에 따른 감쇠가 없는 반자동 소총이다. 3배 조준에 스코프 오버레이가 없어 주변이 그대로 보인다.',
+    desc: '50 m까지 몸 2발로 쓰러뜨리는 반자동 소총이다. 3배 조준에 스코프 오버레이가 없어 주변이 그대로 보인다.',
     recoilNote: '발마다 크게 튄다',
-    bars: { power: 72, rate: 30, accuracy: 88, mobility: 58 },
+    bars: { power: 70, rate: 26, accuracy: 88, mobility: 58 },
 
-    damage: { head: 130, body: 52, legs: 38, hand: 26, foot: 26 },
+    damage: { head: 130, body: 50, legs: 36, hand: 25, foot: 25 },
     headIgnoresFalloff: true,
-    falloff: null,
+    falloff: { start: 50, end: 120, min: 0.85 },
     maxRange: 350,
 
-    rpm: 200, fireInterval: 60 / 200,
+    rpm: 167, fireInterval: 60 / 167,
 
     mag: 15, reload: 2.6, reloadEmpty: 3.0,
     drawTime: 0.75, moveMul: 0.9,
@@ -368,16 +371,17 @@ const WEAPON_TABLE = {
   }),
 
   // ───────────────────────────── 슬롯 1 · 저격 ─────────────────────────────
-  // 손·발만 맞으면 50(반샷)이라 1발 킬에 조준 실력의 여지를 남긴다. 나머지 부위는 표대로 1발 킬이다.
+  // 손·발만 맞으면 50(반샷)이라 1발 킬에 조준 실력의 여지를 남긴다. 머리·몸은 1발 킬이다.
+  // 밸런스 패치(2026-11-12): 기본 지급 저격총이 다리까지 1발이라 아무 데나 맞혀도 끝났다. 다리는 85로 한 발이 더 필요하다.
   sr_bolt: gun({
     id: 'sr_bolt', slot: 1, kind: 'sniper', category: 'sniper', fire: 'bolt', price: 0,
     name: 'SK-7 볼트', nameEn: 'SK-7 Bolt', short: 'SK-7', role: '저격',
     icon: '🎯', color: '#f2c230', sound: 'sniper', fxKind: 'sniper',
     tagline: '숨을 고르고, 한 방.',
-    desc: '기본 저격총이다. 머리·몸·다리는 1발 킬이고 손끝이나 발에 맞으면 반샷이 된다.',
-    bars: { power: 95, rate: 12, accuracy: 95, mobility: 52 },
+    desc: '기본 저격총이다. 머리·몸은 1발 킬이고 다리는 85, 손끝이나 발에 맞으면 반샷이 된다.',
+    bars: { power: 92, rate: 12, accuracy: 95, mobility: 52 },
 
-    damage: { head: 200, body: 120, legs: 100, hand: 50, foot: 50 },
+    damage: { head: 200, body: 120, legs: 85, hand: 50, foot: 50 },
     falloff: null,
     maxRange: 400,
 
@@ -403,9 +407,9 @@ const WEAPON_TABLE = {
     icon: '🔭', color: '#5b82d6', sound: 'sniper', fxKind: 'sniper',
     tagline: '4배로 찾고 9배로 끝낸다.',
     desc: '우클릭할 때마다 4배, 9배, 해제 순서로 바뀌는 2단 조준경을 달았다. 사격하면 줌이 풀린다.',
-    bars: { power: 95, rate: 10, accuracy: 98, mobility: 45 },
+    bars: { power: 92, rate: 10, accuracy: 98, mobility: 45 },
 
-    damage: { head: 200, body: 120, legs: 100, hand: 50, foot: 50 },
+    damage: { head: 200, body: 120, legs: 85, hand: 50, foot: 50 },
     falloff: null,
     maxRange: 500,
 
@@ -505,7 +509,8 @@ const WEAPON_TABLE = {
     zoom: null,
   }),
 
-  // 약 36 m까지 몸 2발에 머리 1발이라 주무기처럼 쓸 수 있다. 0.46초 간격과 6발 탄창, 큰 반동으로 P-9보다 빗나감의 대가가 크다.
+  // 약 36 m까지 몸 2발에 머리 1발이다. 밸런스 패치(2026-11-12): 예전 0.46초 간격이면 보조무기가 주무기(RX-4)만큼 빨라서
+  // 0.55초로 늦췄다. 6발 탄창과 큰 반동으로 P-9보다 빗나감의 대가가 크다.
   pt_magnum: gun({
     id: 'pt_magnum', slot: 2, kind: 'pistol', category: 'pistol', fire: 'semi', price: 500,
     name: 'M-44 매그넘', nameEn: 'M-44 Magnum', short: 'M-44', role: '보조',
@@ -513,13 +518,13 @@ const WEAPON_TABLE = {
     tagline: '여섯 발, 한 발 한 발이 무겁다.',
     desc: '보조 무기 중 유일하게 가까운 거리에서 머리 1발 킬이 된다. 탄창이 작고 반동이 커서 연타하기 어렵다.',
     recoilNote: '한 발에 크게 튄다',
-    bars: { power: 68, rate: 25, accuracy: 66, mobility: 82 },
+    bars: { power: 68, rate: 21, accuracy: 66, mobility: 82 },
 
     damage: { head: 110, body: 55, legs: 38, hand: 25, foot: 25 },
     falloff: { start: 25, end: 60, min: 0.7 },
     maxRange: 170,
 
-    rpm: 130, fireInterval: 0.46,
+    rpm: 109, fireInterval: 0.55,
 
     mag: 6, reserve: 12, reload: 2.2, reloadEmpty: 2.5,
     drawTime: 0.55, moveMul: 0.97,

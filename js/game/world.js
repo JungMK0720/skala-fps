@@ -34,6 +34,8 @@ import { normalizeMission, placeMission } from './mission.js';
 import { missionCrowd } from '../maps/collision.js';
 import { createBombView } from './bombview.js';
 import { createMultiKill, multiKillTier } from './multikill.js';
+import { createHordeView } from './horde/view.js';
+import { HORDE } from './horde/rules.js';
 
 const STEEL_MATS = new Set(['steel', 'rust', 'deck', 'tank', 'pipe', 'container_red', 'yellow', 'white', 'glass', 'metal_dark']);
 const SPECTATE_DELAY_MS = 1600;
@@ -237,6 +239,20 @@ function buildWorld(ctx, opts) {
     onCarrier: (prev, next) => { for (const id of [prev, next]) { const a = id ? actors.get(String(id)) : null; if (a) refreshAvatar(a); } }
   });
 
+  // 좀비 물량 막기(game/horde): 좀비·보스 그리기와 내 사격 판정. 판정 결과는 다른 사격처럼 'hitClaim'(victimId 'z12')으로 나간다
+  const horde = createHordeView({ THREE, scene: R.scene, fx, play: (name, o) => play(name, o) });
+  const hordePerk = { speed: 1, pierce: 0, maxHp: 100 };
+  let slowUntil = 0, slowMul = 1, grabbedNow = false;
+  /** 내 이동 속도 배율: 무기(줌 포함) × 카드 × 느려짐(비명·얼음) × 좀비에게 붙잡힘 */
+  function speedScaleNow() {
+    let k = arsenal.getMoveMul();
+    if (mode !== 'zombie') return k;
+    k *= hordePerk.speed;
+    if (slowUntil > performance.now()) k *= slowMul;
+    if (grabbedNow) k *= HORDE.grabSlow;
+    return k;
+  }
+
   function emit(evt, data) {
     const set = listeners.get(evt);
     if (!set) return;
@@ -417,7 +433,8 @@ function buildWorld(ctx, opts) {
 
   function openPause() {
     if (!ui) return;
-    ui.show('pause', { leaveLabel: pauseOpts.leaveLabel, note: pauseOpts.note });
+    // info: 일시정지에서 건의를 보낼 때 함께 가는 진단 정보(ui/feedback.js)
+    ui.show('pause', { leaveLabel: pauseOpts.leaveLabel, note: pauseOpts.note, info: { mode, map: map && map.id ? String(map.id) : '' } });
     // 결과 화면이 일시정지 메뉴를 덮어 닫으면 uiPaused가 켜진 채 남는다. 메뉴를 새로 여는 것이니 언제나 알린다
     uiPaused = true;
     emit('pause', { paused: true });
@@ -530,6 +547,7 @@ function buildWorld(ctx, opts) {
     multiKill.reset();
     setMode(opt && opt.mode);
     setRuleset(opt && opt.ruleset);
+    setHordePerks(null);
     fx.clear(false);
     scheduled.length = 0;
     R.setFov(R.baseFov);
@@ -554,6 +572,8 @@ function buildWorld(ctx, opts) {
     clearActors();
     clearDrops();
     bombView.unload();
+    horde.setActive(false);
+    setHordePerks(null);
     if (nades) { nades.dispose(); nades = null; }
     for (const m of nadeMeshes) m.visible = false;
     fx.clear(false);
@@ -592,6 +612,7 @@ function buildWorld(ctx, opts) {
     for (const m of nadeMeshes) m.visible = false;
     clearDrops();
     bombView.reset();
+    horde.clear();
     fx.clear(false);
     scheduled.length = 0;
     multiKill.reset();
@@ -627,7 +648,8 @@ function buildWorld(ctx, opts) {
     spec.id = null; spec.name = '';
     latch.fire = latch.rmb = latch.reload = false; latch.slot = null; latch.wheel = 0;
     vm.setVisible(true);
-    player.setSpeedScale(arsenal.getMoveMul());
+    slowUntil = 0; grabbedNow = false;
+    player.setSpeedScale(speedScaleNow());
     syncFrozen();
     R.setFov(R.baseFov);
     input.setLookScale(1);
@@ -672,12 +694,36 @@ function buildWorld(ctx, opts) {
     return ruleset;
   }
 
-  /** 'team' | 'ffa' | 'bomb'(폭파 미션 = 팀전 화면 + 폭탄) — loadMap 직후 한 번(loadMap(mapId, { mode })도 같다). unloadMap은 'team'으로 되돌린다 */
+  /**
+   * 'team' | 'ffa' | 'bomb'(폭파 미션 = 팀전 화면 + 폭탄) | 'zombie'(좀비 물량 막기 = 모두 블루 팀 + 좀비 무리)
+   * — loadMap 직후 한 번(loadMap(mapId, { mode })도 같다). unloadMap은 'team'으로 되돌린다
+   */
   function setMode(m) {
-    mode = m === 'ffa' || m === 'bomb' ? m : 'team';
+    mode = m === 'ffa' || m === 'bomb' || m === 'zombie' ? m : 'team';
     avatars.setLocalTeam(mode === 'ffa' ? null : local.team);
     for (const a of actors.values()) refreshAvatar(a);
+    horde.setActive(mode === 'zombie' && active);
     return mode;
+  }
+
+  /**
+   * 좀비 물량 막기 카드 효과(내 화면 몫). null이면 모두 기본값.
+   * o = { mods: arsenal.setMods 값, speed: 이동 배율, maxSpeed, jump, pierce, maxHp }
+   */
+  function setHordePerks(o) {
+    if (!o) {
+      hordePerk.speed = 1; hordePerk.pierce = 0; hordePerk.maxHp = 100;
+      arsenal.setMods(null);
+      player.setMoveTuning(null);
+      slowUntil = 0; grabbedNow = false;
+      return;
+    }
+    if (o.mods) arsenal.setMods(o.mods);
+    hordePerk.speed = num(o.speed, 1) > 0 ? num(o.speed, 1) : 1;
+    hordePerk.pierce = Math.max(0, Math.round(num(o.pierce, 0)));
+    hordePerk.maxHp = Math.max(1, Math.round(num(o.maxHp, 100)));
+    player.setMoveTuning({ maxSpeed: num(o.maxSpeed, 1), jump: num(o.jump, 1) });
+    player.setSpeedScale(speedScaleNow());
   }
   /** 내 부활 대기 표시: { inMs, killer?, weaponName? } | null. spawnLocal이 지운다 */
   function setRespawn(o) {
@@ -1105,11 +1151,25 @@ function buildWorld(ctx, opts) {
     const byVictim = new Map();
     let muzzle = null;
     let shown = null;   // fire 이벤트에 실을 펠릿: 사람을 맞힌 첫 펠릿, 없으면 첫 펠릿
+    const zombieMode = mode === 'zombie';
     for (let i = 0; i < pellets; i++) {
       // 앉아 있을 때 탄퍼짐 ×0.8은 arsenal이 한다(motion.crouch) — ev.pellets에 이미 반영돼 있다
       const dv = shotDirection(st.yaw, st.pitch, ev, i);
       const d = [dv[0], dv[1], dv[2]];
-      const hit = traceShot(map.world, eye, d, range, list);
+      let hit = traceShot(map.world, eye, d, range, list);
+      if (zombieMode) {
+        // 좀비: 벽보다 가까운 좀비. 관통 카드가 있으면 뒤의 좀비까지(한 발짜리 총만, 산탄은 펠릿이 나뉘어 맞는다)
+        const n = pellets === 1 ? 1 + hordePerk.pierce : 1;
+        const zs = horde.ray(eye, d, hit.dist, n);
+        if (zs.length) {
+          for (let k = 1; k < zs.length; k++) {
+            const z = zs[k];
+            fx.impact(z.point, [-d[0], -d[1], -d[2]], 'player');
+            if (!byVictim.has(z.id)) byVictim.set(z.id, { hit: { kind: 'player', ...z }, count: 1 });
+          }
+          hit = { kind: 'player', id: zs[0].id, part: zs[0].part, dist: zs[0].dist, point: zs[0].point };
+        }
+      }
       if (!muzzle) muzzle = m ? [m.x, m.y, m.z] : [eye[0] + d[0] * 0.6, eye[1] + d[1] * 0.6 - 0.1, eye[2] + d[2] * 0.6];
       if (i < PELLET_TRACERS) fx.tracer(muzzle, hit.point, fxKind);
       if (hit.kind === 'world') fx.impact(hit.point, hit.normal, hit.mat, hit.collider && hit.collider.dynamic ? NO_DECAL : null);
@@ -1140,7 +1200,10 @@ function buildWorld(ctx, opts) {
     if (hit.kind === 'world') { payload.normal = r3(hit.normal); payload.mat = hit.mat; }
     emit('fire', payload);
     if (byVictim.size) protectUntil = 0;         // 먼저 공격하면 보호 끝(match 규칙과 같게 표시)
-    for (const [victimId, v] of byVictim) {
+    // 관통한 좀비는 가까운 순서로 주장한다(방장이 순서대로 70%씩 줄인다)
+    const claims = [...byVictim].sort((a, b) => a[1].hit.dist - b[1].hit.dist);
+    for (const [victimId, v] of claims) {
+      if (zombieMode) horde.noteHit(victimId);
       emit('hitClaim', {
         victimId, part: v.hit.part, weaponId: ev.weaponId, dist: round2(v.hit.dist), kind: 'shot', t,
         point: r3(v.hit.point), origin: r3(eye), count: v.count, shotId
@@ -1151,8 +1214,12 @@ function buildWorld(ctx, opts) {
   function localMelee(ev) {
     const eye = player.getEye();
     const fwd = player.getAimDir();
-    const hit = meleeTrace(map.world, eye, fwd, num(ev.range, 1.8), num(ev.arc, 0.6), targets(), local.id);
+    // 좀비 모드: 사람은 모두 아군이라 좀비만 벤다(보스는 몸이 커서 사거리를 몸 크기만큼 더 본다)
+    const hit = mode === 'zombie'
+      ? horde.melee(eye, fwd, num(ev.range, 1.8), num(ev.arc, 0.6), (a, b) => lineOfSight(map.world, a, b))
+      : meleeTrace(map.world, eye, fwd, num(ev.range, 1.8), num(ev.arc, 0.6), targets(), local.id);
     if (!hit) return;
+    if (mode === 'zombie') horde.noteHit(hit.id);
     const def = getDef(ev.weaponId);
     if (def) play(def.hitSound);
     fx.slashSpark(hit.point, [-fwd[0], -fwd[1], -fwd[2]]);
@@ -1189,6 +1256,7 @@ function buildWorld(ctx, opts) {
     // 앉은 사람은 판정점(다리·몸·머리)도 낮다 → height = 앉은 키 1.25 m
     if (local.spawned && local.alive) targets.push({ id: local.id, pos: player.state.pos, height: player.state.crouch ? CROUCH_H : PLAYER.HEIGHT });
     for (const a of actors.values()) if (a.alive && a.state) targets.push({ id: a.id, pos: a.state.pos, height: a.state.crouch ? CROUCH_H : PLAYER.HEIGHT });
+    if (mode === 'zombie') for (const z of horde.blastTargets()) targets.push(z);   // 좀비도 같은 엄폐·거리 규칙으로 맞는다
     const res = nades ? nades.explosionDamage(c, targets) : [];
     const victims = [];
     for (const r of res) if (r.damage > 0) victims.push({ id: r.id, dmg: r.damage, dist: round2(r.dist) });
@@ -1449,7 +1517,7 @@ function buildWorld(ctx, opts) {
     // 교전 중이 아닐 때(로드아웃·라운드 끝 등) 미뤄 둔 자동 그래픽 품질 변경을 적용한다
     if (o.phase !== undefined && o.phase !== 'live' && ctx.renderer.applyPendingQuality) ctx.renderer.applyPendingQuality();
     if (o.round !== undefined) rnd.round = num(o.round) | 0;
-    if ((o.mode === 'ffa' || o.mode === 'team' || o.mode === 'bomb') && o.mode !== mode) setMode(o.mode);
+    if ((o.mode === 'ffa' || o.mode === 'team' || o.mode === 'bomb' || o.mode === 'zombie') && o.mode !== mode) setMode(o.mode);
     if (o.attack !== undefined) rnd.attack = o.attack === 'owner' || o.attack === 'charterer' ? o.attack : null;   // 폭파 미션 이번 라운드 공격 팀
     if (mode === 'ffa') {
       // 개인전 점수: 평평한 필드 또는 score:{...} — { kills, rank, total, leaderName, leaderKills, target }
@@ -1518,7 +1586,8 @@ function buildWorld(ctx, opts) {
       // crouch → 탄퍼짐 ×0.8(arsenal, 크로스헤어 getHud도 같이)
       const evs = arsenal.update(dt, wi, { speed: Math.hypot(st.vel[0], st.vel[2]), onGround: st.onGround, walking: st.walking, crouch: !!st.crouch });
       for (const ev of evs) onWeaponEvent(ev);
-      player.setSpeedScale(arsenal.getMoveMul());
+      grabbedNow = mode === 'zombie' && horde.grabbed(st.pos);
+      player.setSpeedScale(speedScaleNow());
       if (rnd.phase === 'live') pickNearbyGun();
       else local.ownDrops.clear();
     }
@@ -1592,6 +1661,7 @@ function buildWorld(ctx, opts) {
     audio.setListener(cam.position, cam.rotation.y, cam.rotation.x);
     drawGrenades();
     if (mode === 'bomb') bombView.frame(dt);
+    if (mode === 'zombie') horde.frame(dt);
     for (const v of dropViews.values()) v.spin.rotation.y += dt * 1.4;
     // 속도 줄기: 걷기 속도부터 나타나 수평 속도 상한에서 가장 세다
     fx.setSpeedAmount(local.spawned && local.alive ? (num(player.state.speed) - PLAYER.WALK) / (MOVE.MAX_SPEED - PLAYER.WALK) : 0);
@@ -1619,6 +1689,7 @@ function buildWorld(ctx, opts) {
     if (em || (alive && thirdAmount() > 0.01)) p.crosshair = false;
     p.emote = em ? { id: em.id, name: em.name, icon: em.icon, loop: em.loop } : null;
     p.hp = local.spawned ? player.state.hp : 100;
+    p.maxHp = mode === 'zombie' ? hordePerk.maxHp : 100;
     p.speed = alive ? num(player.state.speed) : 0;   // 수평 속력(m/s). HUD가 0.1 단위로 잘라 바뀔 때만 DOM에 쓴다
     p.team = local.team;
     p.roundTime = rnd.timeLeftMs == null ? null : Math.max(0, rnd.timeLeftMs - rnd.elapsed) / 1000;
@@ -1629,6 +1700,10 @@ function buildWorld(ctx, opts) {
       p.respawn = respawn && !alive ? { seconds: Math.max(0, Math.ceil((respawn.at - now) / 1000)), killer: respawn.killer || undefined, weaponName: respawn.weaponName || undefined, quick: q } : null;
       p.protect = alive && protectUntil > now;
       syncQuickTouch(!!(q && q.ok && input.touchMode));
+    } else if (mode === 'zombie') {
+      p.score = { mode: 'zombie' };
+      p.respawn = null;
+      p.protect = false;
     } else {
       p.score = { owner: rnd.score.owner, charterer: rnd.score.charterer, target: rnd.target, bestOf: rnd.bestOf, round: rnd.round || undefined };
       if (mode === 'bomb') { p.score.mode = 'bomb'; p.score.attack = rnd.attack || undefined; }
@@ -1684,6 +1759,7 @@ function buildWorld(ctx, opts) {
     removeUnlock();
     try { props.dispose(); } catch (e) { /* ignore */ }
     try { bombView.dispose(); } catch (e) { /* ignore */ }
+    try { horde.dispose(); } catch (e) { /* ignore */ }
     try { vm.dispose(); } catch (e) { /* ignore */ }
     try { fx.dispose(); } catch (e) { /* ignore */ }
     try { audio.dispose(); } catch (e) { /* ignore */ }
@@ -1733,6 +1809,30 @@ function buildWorld(ctx, opts) {
     setQuickRespawn,
     setProtect,
     setActorProtect,
+    /**
+     * 좀비 물량 막기(WORLD_API 9절): 방장 뷰(horde/director.js applyHordeSnapshot)를 받은 시각과 함께 넣으면 좀비·보스·투사체·장판을
+     * 시간축으로 보간해 그린다. 내 사격·칼·수류탄은 이 좀비들을 맞히고 'hitClaim'(victimId 'z12')을 낸다
+     */
+    hordePush: (view, t) => horde.push(view, t),
+    /** 방장 이벤트 중 연출이 필요한 것(skill·chain·enrage) */
+    hordeEvent: (ev) => horde.event(ev),
+    /** 카드 효과(내 화면 몫): { mods, speed, maxSpeed, jump, pierce, maxHp } | null */
+    setHordePerks,
+    /** 비명·얼음 가시: ms 동안 이동 속도 ×mul */
+    slowLocal(mul, ms) {
+      const m = clamp(num(mul, 1), 0.2, 1);
+      slowUntil = Math.max(slowUntil, performance.now() + clamp(num(ms, 0), 0, 10000));
+      slowMul = Math.min(slowUntil > performance.now() ? slowMul : 1, m);
+    },
+    /** 보스 돌진·내려찍기에 밀려남: [vx, vy, vz] */
+    pushLocal(v) { if (local.spawned && local.alive) player.push(v); },
+    /** 들고 있는 총의 예비 탄·수류탄 채우기, 탄창에 탄 더하기(카드·처치 보상) */
+    refillReserve: () => arsenal.refillReserve(),
+    refillGrenades: () => arsenal.refillGrenades(),
+    addMagAmmo: (n) => arsenal.addMagAmmo(n),
+    addReserve: (n) => arsenal.addReserve(n),
+    /** 좀비 무리 화면(시험·HUD용) */
+    get horde() { return horde; },
     /** 폭파 미션(8절): 방장 상태 { attack, state, carrier, carrierName?, actorName?, pos, site, explodeInMs, action, phase } | null, 폭탄 이벤트 하나 */
     setBomb: (info) => bombView.set(info),
     bombEvent: (ev) => bombView.event(ev),
@@ -1781,7 +1881,7 @@ function buildWorld(ctx, opts) {
     get multiKillCount() { return multiKill.count; },
     get paused() { return uiPaused; },
     /** 디버그·테스트용 내부 객체(읽기 전용으로 쓸 것) */
-    get internals() { return { arsenal, vm, fx, audio, nades, actors, local, rnd, props, drops, bombView }; }
+    get internals() { return { arsenal, vm, fx, audio, nades, actors, local, rnd, props, drops, bombView, horde, hordePerk }; }
   };
 
   W.handle = function handle() {

@@ -37,16 +37,19 @@ function decodeFrame(buf) {
 }
 
 /**
- * @param {{ takenNames?: string[], delayMs?: number, features?: boolean }} [options] takenNames: 이미 등록된 것으로 칠 닉네임, delayMs: 메시지 지연,
+ * @param {{ takenNames?: string[], delayMs?: number, features?: boolean, feedback?: boolean }} [options] takenNames: 이미 등록된 것으로 칠 닉네임, delayMs: 메시지 지연,
  *   features: false면 schema.sql을 다시 실행하기 전의 서버처럼 fps_features를 모른다(캐릭터 구매가 닫힌다)
- * @returns {Promise<{ url, config, stats, close() }>} config는 js/config.js에 넣을 글자
+ *   feedback: false면 건의함 함수가 없는 서버(fps_send_feedback·fps_my_feedback이 404)
+ * @returns {Promise<{ url, config, stats, feedback, reply(id, text), close() }>} config는 js/config.js에 넣을 글자
  */
-export async function startFakeSupabase({ takenNames = [], delayMs = 0, features = true } = {}) {
+export async function startFakeSupabase({ takenNames = [], delayMs = 0, features = true, feedback: feedbackOn = true } = {}) {
   const players = new Map();          // 토큰 → 프로필
   const topics = new Map();           // 전체 topic → Set(연결)
   const conns = new Set();
   const stats = { rpc: {}, broadcasts: 0, presence: 0, joins: 0, connections: 0 };
   const taken = new Set(takenNames.map((n) => String(n).toLowerCase()));
+  const feedback = [];                // 건의함(supabase/schema.sql fps_feedback의 흉내). 한도·정리는 단위 테스트가 본다
+  const FEEDBACK_FNS = new Set(['fps_send_feedback', 'fps_my_feedback']);
   let refSeq = 1;
 
   const nameOwner = (name) => {
@@ -75,7 +78,22 @@ export async function startFakeSupabase({ takenNames = [], delayMs = 0, features
       case 'fps_top_players':
         return { ok: true, players: [] };
       case 'fps_features':
-        return features ? { ok: true, avatars: true } : { ok: false, error: 'UNKNOWN' };
+        return features ? { ok: true, avatars: true, feedback: feedbackOn } : { ok: false, error: 'UNKNOWN' };
+      case 'fps_send_feedback': {
+        if (!players.has(a.p_token)) return { ok: false, error: 'NOT_FOUND' };
+        const body = String(a.p_body || '').trim();
+        if (!['bug', 'idea', 'balance', 'other'].includes(a.p_kind) || body.length < 5 || body.length > 1000) return { ok: false, error: 'FEEDBACK_INVALID' };
+        if (feedback.some((f) => f.token === a.p_token && f.body === body)) return { ok: false, error: 'FEEDBACK_DUPLICATE' };
+        const item = { id: feedback.length + 1, token: a.p_token, name: players.get(a.p_token).name, kind: a.p_kind, body, info: a.p_info || {}, status: 'new', reply: null, at: Date.now(), repliedAt: null };
+        feedback.push(item);
+        return { ok: true, id: item.id };
+      }
+      case 'fps_my_feedback': {
+        if (!players.has(a.p_token)) return { ok: false, error: 'NOT_FOUND' };
+        const items = feedback.filter((f) => f.token === a.p_token).reverse().slice(0, 10)
+          .map(({ id, kind, body, status, reply, at, repliedAt }) => ({ id, kind, body, status, reply, at, repliedAt }));
+        return { ok: true, items };
+      }
       default:
         return { ok: false, error: 'UNKNOWN' };
     }
@@ -90,6 +108,8 @@ export async function startFakeSupabase({ takenNames = [], delayMs = 0, features
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
       stats.rpc[m[1]] = (stats.rpc[m[1]] || 0) + 1;
+      // 함수가 없는 서버는 PostgREST처럼 404(PGRST202)를 준다
+      if (!feedbackOn && FEEDBACK_FNS.has(m[1])) { res.writeHead(404, { ...CORS, 'Content-Type': 'application/json' }); res.end('{"code":"PGRST202"}'); return; }
       let args = {};
       try { args = JSON.parse(body || '{}'); } catch (err) { args = {}; }
       res.writeHead(200, { ...CORS, 'Content-Type': 'application/json' });
@@ -228,6 +248,16 @@ export async function startFakeSupabase({ takenNames = [], delayMs = 0, features
     stats,
     players,
     topics,
+    feedback,
+    /** 운영자가 Table Editor에서 reply를 적은 것처럼 답을 단다(새 글이면 확인함으로) */
+    reply(id, text) {
+      const f = feedback.find((x) => x.id === id);
+      if (!f) return false;
+      f.reply = text;
+      f.repliedAt = Date.now();
+      if (f.status === 'new') f.status = 'read';
+      return true;
+    },
     /** 모든 WebSocket을 서버 쪽에서 끊는다. 네트워크가 잠깐 끊긴 상황을 흉내 낸다 */
     dropAll() {
       for (const c of [...conns]) { dropConn(c); c.socket.destroy(); }
