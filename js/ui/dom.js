@@ -114,14 +114,15 @@ export function fmtPlayTime(sec) {
 }
 
 // ---------- 모드 (MODES.md 3.3 · 5절) — mode를 생략하면 'team'. 폭파 미션('bomb')도 팀으로 나뉜다 ----------
-export const modeKey = (m) => (m === 'ffa' ? 'ffa' : m === 'bomb' ? 'bomb' : 'team');
+export const modeKey = (m) => (m === 'ffa' ? 'ffa' : m === 'bomb' ? 'bomb' : m === 'zombie' ? 'zombie' : 'team');
 export const FFA_TARGET = 20;
-export const MODE_ICON = Object.freeze({ team: '⚔️', ffa: '🎯', bomb: '💣' });
-export const MODE_NAME = Object.freeze({ team: '팀전', ffa: '개인전', bomb: '폭파 미션' });
-/** "팀전 · 5판 3선승" / "개인전 · 20킬" / "폭파 미션 · 5판 3선승" */
+export const MODE_ICON = Object.freeze({ team: '⚔️', ffa: '🎯', bomb: '💣', zombie: '🧟' });
+export const MODE_NAME = Object.freeze({ team: '팀전', ffa: '개인전', bomb: '폭파 미션', zombie: '좀비 물량 막기' });
+/** "팀전 · 5판 3선승" / "개인전 · 20킬" / "폭파 미션 · 5판 3선승" / "좀비 물량 막기 · 최대 4명" */
 export function modeLabel(mode, opts = {}) {
   const key = modeKey(mode);
   if (key === 'ffa') return `개인전 · ${Math.max(1, Math.floor(num(opts.killTarget, FFA_TARGET)))}킬`;
+  if (key === 'zombie') return '좀비 물량 막기 · 최대 4명';
   const target = Math.max(1, Math.floor(num(opts.target, 3)));
   const bestOf = Math.max(1, Math.floor(num(opts.bestOf, target * 2 - 1)));
   return `${MODE_NAME[key]} · ${bestOf}판 ${target}선승`;

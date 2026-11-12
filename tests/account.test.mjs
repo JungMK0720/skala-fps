@@ -1133,7 +1133,8 @@ describe('createAccount 상점과 장비', () => {
     assert.equal(r.points, START_POINTS + r.gained);
     assert.equal(r.breakdown.reduce((s, row) => s + row.points, 0), r.gained);
     assert.deepEqual({ ...account.profile.stats }, {
-      kills: 7, deaths: 3, headshots: 2, halfShots: 1, matches: 1, wins: 1, draws: 0, knifeKills: 7, secondsPlayed: 122
+      kills: 7, deaths: 3, headshots: 2, halfShots: 1, matches: 1, wins: 1, draws: 0, knifeKills: 7, secondsPlayed: 122,
+      zombieKills: 0, zombieRuns: 0, zombieBest: 0
     });
     assert.equal(bus.of('account:change').length, 1);
 
@@ -1824,11 +1825,14 @@ describe('supabase/schema.sql', () => {
     fps_get_profile: 'text',
     fps_save_profile: 'text, int, jsonb, jsonb, jsonb, jsonb',
     fps_top_players: 'int',
-    fps_features: ''
+    fps_features: '',
+    fps_send_feedback: 'text, text, text, jsonb',
+    fps_my_feedback: 'text'
   };
   const INTERNAL = {
     fps_clean_name: 'text', fps_name_error: 'text', fps_token_hash: 'text', fps_owned_ok: 'jsonb',
-    fps_item_price: 'text', fps_client_key: '', fps_rate_ok: 'text, int, interval'
+    fps_item_price: 'text', fps_client_key: '', fps_rate_ok: 'text, int, interval',
+    fps_feedback_clean: 'text', fps_feedback_stamp: ''
   };
 
   function functionHead(name) {
@@ -1892,10 +1896,10 @@ describe('supabase/schema.sql', () => {
     assert.equal(Object.keys(listed).length, WEAPON_IDS.length + EMOTE_IDS.length + AVATAR_IDS.length);
   });
 
-  test('fps_features는 캐릭터 구매를 연다(클라이언트가 읽는 모양 { ok:true, avatars:true })', () => {
+  test('fps_features는 캐릭터 구매와 건의함을 연다(클라이언트가 읽는 모양 { ok:true, avatars:true, feedback:true })', () => {
     const m = code.match(/function public\.fps_features\(\)[\s\S]*?\$\$;/);
     assert.ok(m, 'fps_features 정의');
-    assert.ok(m[0].includes("jsonb_build_object('ok', true, 'avatars', true)"), m[0]);
+    assert.ok(m[0].includes("jsonb_build_object('ok', true, 'avatars', true, 'feedback', true)"), m[0]);
     const remoteSrc = readFileSync(new URL('../js/account/remote.js', import.meta.url), 'utf8');
     assert.ok(remoteSrc.includes("call('fps_features'"), '클라이언트가 같은 이름을 부른다');
   });

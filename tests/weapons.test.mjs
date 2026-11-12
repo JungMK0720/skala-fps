@@ -23,19 +23,19 @@ const {
 
 /* ---------- DESIGN 3.2 표 ---------- */
 const TABLE = {
-  ar_std: { name: 'RX-4 돌격소총', kind: 'rifle', fire: 'auto', rpm: 600, head: 110, body: 30, legs: 22, limb: 15, falloff: [30, 80, 0.75], mag: 30, reserve: 60, move: 0.95, price: 0 },
-  ar_rapid: { name: 'RX-9 스톰', kind: 'rifle', fire: 'auto', rpm: 860, head: 100, body: 22, legs: 16, limb: 11, falloff: [25, 70, 0.7], mag: 35, reserve: 70, move: 0.97, price: 800 },
+  ar_std: { name: 'RX-4 돌격소총', kind: 'rifle', fire: 'auto', rpm: 600, head: 110, body: 24, legs: 18, limb: 12, falloff: [30, 80, 0.75], mag: 30, reserve: 60, move: 0.95, price: 0 },
+  ar_rapid: { name: 'RX-9 스톰', kind: 'rifle', fire: 'auto', rpm: 860, head: 100, body: 19, legs: 14, limb: 10, falloff: [25, 70, 0.7], mag: 35, reserve: 70, move: 0.97, price: 800 },
   ar_line: { name: 'LN-3 헤드라인', kind: 'rifle', fire: 'auto', rpm: 480, head: 120, body: 17, legs: 12, limb: 8, falloff: [40, 100, 0.8], mag: 25, reserve: Infinity, move: 0.95, price: 1200 },
-  ar_burst: { name: 'BR-3 트리플', kind: 'rifle', fire: 'burst', interval: 0.36, head: 110, body: 34, legs: 24, limb: 16, falloff: [30, 80, 0.75], mag: 30, reserve: 60, move: 0.95, price: 1000 },
-  dm_mark: { name: 'DM-4 마크스맨', kind: 'dmr', fire: 'semi', rpm: 200, head: 130, body: 52, legs: 38, limb: 26, falloff: null, mag: 15, reserve: Infinity, move: 0.9, price: 1500 },
+  ar_burst: { name: 'BR-3 트리플', kind: 'rifle', fire: 'burst', interval: 0.32, head: 110, body: 28, legs: 20, limb: 13, falloff: [30, 80, 0.75], mag: 30, reserve: 60, move: 0.95, price: 1000 },
+  dm_mark: { name: 'DM-4 마크스맨', kind: 'dmr', fire: 'semi', rpm: 167, head: 130, body: 50, legs: 36, limb: 25, falloff: [50, 120, 0.85], mag: 15, reserve: Infinity, move: 0.9, price: 1500 },
   sm_vx3: { name: 'VX-3 바이퍼', kind: 'smg', fire: 'auto', rpm: 950, head: 60, body: 18, legs: 14, limb: 9, falloff: [12, 40, 0.55], mag: 32, reserve: 64, move: 1.05, price: 600 },
   sg_bx12: { name: 'BX-12 브리처', kind: 'shotgun', fire: 'semi', interval: 0.85, head: 20, body: 14, legs: 10, limb: 7, falloff: [8, 22, 0.35], mag: 6, reserve: 12, move: 0.98, price: 700 },
-  sr_bolt: { name: 'SK-7 볼트', kind: 'sniper', fire: 'bolt', interval: 1.2, head: 200, body: 120, legs: 100, limb: 50, falloff: null, mag: 5, reserve: 10, move: 0.85, price: 0 },
-  sr_twin: { name: 'T-2 트윈옵틱', kind: 'sniper', fire: 'bolt', interval: 1.35, head: 200, body: 120, legs: 100, limb: 50, falloff: null, mag: 5, reserve: Infinity, move: 0.82, price: 1500 },
+  sr_bolt: { name: 'SK-7 볼트', kind: 'sniper', fire: 'bolt', interval: 1.2, head: 200, body: 120, legs: 85, limb: 50, falloff: null, mag: 5, reserve: 10, move: 0.85, price: 0 },
+  sr_twin: { name: 'T-2 트윈옵틱', kind: 'sniper', fire: 'bolt', interval: 1.35, head: 200, body: 120, legs: 85, limb: 50, falloff: null, mag: 5, reserve: Infinity, move: 0.82, price: 1500 },
   sr_swift: { name: 'S-3 스위프트', kind: 'sniper', fire: 'bolt', interval: 0.85, head: 150, body: 85, legs: 60, limb: 40, falloff: null, mag: 7, reserve: 14, move: 0.95, price: 1000 },
   sr_heavy: { name: 'H-50 타이탄', kind: 'sniper', fire: 'bolt', interval: 1.9, head: 300, body: 200, legs: 150, limb: 70, falloff: null, mag: 4, reserve: Infinity, move: 0.75, price: 2500 },
   pt_std: { name: 'P-9 권총', kind: 'pistol', fire: 'semi', interval: 0.16, head: 70, body: 28, legs: 20, limb: 14, falloff: [15, 45, 0.6], mag: 12, reserve: 24, move: 1.0, price: 0 },
-  pt_magnum: { name: 'M-44 매그넘', kind: 'pistol', fire: 'semi', interval: 0.46, head: 110, body: 55, legs: 38, limb: 25, falloff: [25, 60, 0.7], mag: 6, reserve: 12, move: 0.97, price: 500 },
+  pt_magnum: { name: 'M-44 매그넘', kind: 'pistol', fire: 'semi', interval: 0.55, head: 110, body: 55, legs: 38, limb: 25, falloff: [25, 60, 0.7], mag: 6, reserve: 12, move: 0.97, price: 500 },
 };
 const MELEE_TABLE = {
   ml_knife: { name: '호크빌 나이프', slash: [50, 0.45, 1.8, 35], stab: [100, 1.0, 1.8, 12], move: 1.1, price: 0 },
@@ -229,7 +229,7 @@ describe('무기 표(DESIGN 3.2)', () => {
       }
     }
     const burst = WEAPONS.ar_burst.stats.map((s) => s.value).join(' ');
-    assert.ok(burst.includes('3발') && burst.includes('0.065초') && burst.includes('0.36초'));
+    assert.ok(burst.includes('3발') && burst.includes('0.065초') && burst.includes('0.32초'));
     assert.ok(WEAPONS.sg_bx12.stats.some((s) => s.value.includes('펠릿 8발')));
     for (const id of MELEE_IDS) {
       const text = WEAPONS[id].stats.map((s) => s.value).join(' ');
@@ -366,9 +366,9 @@ describe('computeDamage', () => {
   }
 
   test('감쇠 값을 직접 확인한다', () => {
-    assert.equal(computeDamage('ar_std', 'body', 30), 30);
-    assert.equal(computeDamage('ar_std', 'body', 55), 26);     // 30 × 0.875
-    assert.equal(computeDamage('ar_std', 'body', 80), 23);     // 30 × 0.75 = 22.5
+    assert.equal(computeDamage('ar_std', 'body', 30), 24);
+    assert.equal(computeDamage('ar_std', 'body', 55), 21);     // 24 × 0.875
+    assert.equal(computeDamage('ar_std', 'body', 80), 18);     // 24 × 0.75
     assert.equal(computeDamage('sm_vx3', 'head', 40), 33);     // 60 × 0.55
     assert.equal(computeDamage('pt_std', 'head', 45), 42);     // 70 × 0.6
     assert.equal(computeDamage('pt_magnum', 'head', 60), 77);  // 110 × 0.7
@@ -392,16 +392,26 @@ describe('computeDamage', () => {
     assert.equal(computeDamage('sm_vx3', 'head', 500), 33);
   });
 
-  test('저격 반샷: sr_bolt·sr_twin은 손·발 50, 나머지 부위는 1발 킬', () => {
+  test('저격 반샷: sr_bolt·sr_twin은 손·발 50, 머리·몸은 1발 킬, 다리는 85(밸런스 패치)', () => {
     for (const id of ['sr_bolt', 'sr_twin']) {
       for (const dist of [0, 100, 400, 2000]) {
         assert.equal(computeDamage(id, 'hand', dist), 50, `${id} 손 ${dist}`);
         assert.equal(computeDamage(id, 'foot', dist), 50, `${id} 발 ${dist}`);
-        for (const part of ['head', 'body', 'legs']) {
+        for (const part of ['head', 'body']) {
           assert.ok(computeDamage(id, part, dist) >= PLAYER_HP, `${id} ${part} ${dist}`);
         }
+        assert.equal(computeDamage(id, 'legs', dist), 85, `${id} 다리 ${dist}`);
       }
     }
+  });
+
+  test('밸런스 패치: 자동화기는 몸 10 m 0.3~0.7초, 점사 한 번·보조무기로 0.45초 아래 킬이 없다', () => {
+    const shotsToKill = (id, dist) => { let hp = PLAYER_HP, n = 0; while (hp > 0) { n++; hp -= computeDamage(id, 'body', dist); } return n; };
+    assert.equal(shotsToKill('ar_std', 10), 5);
+    assert.equal(shotsToKill('ar_burst', 10), 4, 'BR-3은 점사 한 번(3발)으로 끝나지 않는다');
+    assert.equal(shotsToKill('dm_mark', 40), 2);
+    assert.equal(shotsToKill('dm_mark', 80), 3, 'DM-4는 50 m 밖에서 3발');
+    assert.ok(WEAPONS.pt_magnum.fireInterval >= 0.55, 'M-44 사격 간격');
   });
 
   test('sr_swift는 몸 1발 킬이 아니고 머리만 1발이다', () => {
@@ -435,7 +445,7 @@ describe('computeDamage', () => {
 
   test('총은 최소 1이다. 잘못된 거리는 0으로 본다', () => {
     for (const id of GUN_IDS) for (const part of PARTS) assert.ok(computeDamage(id, part, 1e6) >= 1, `${id} ${part}`);
-    for (const dist of [NaN, undefined, -5]) assert.equal(computeDamage('ar_std', 'body', dist), 30, String(dist));
+    for (const dist of [NaN, undefined, -5]) assert.equal(computeDamage('ar_std', 'body', dist), 24, String(dist));
   });
 
   test('칼은 부위와 거리를 무시하고 kind만 본다', () => {

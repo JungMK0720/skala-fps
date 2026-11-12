@@ -478,6 +478,10 @@ export function createHud(ctx) {
 
   function applyScore(s) {
     const sc = s || {};
+    // 좀비 물량 막기: 팀 점수 대신 스테이지 띠(ui/horde.js)가 위에 뜬다
+    const zombie = sc.mode === 'zombie';
+    top.hidden = zombie;
+    if (zombie) { st.scoreSig = 'zombie'; return; }
     const ffa = sc.mode === 'ffa';
     if (ffa !== st.ffa) {
       st.ffa = ffa;

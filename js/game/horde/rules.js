@@ -1,0 +1,194 @@
+/*
+ * Date: 06NOV2026
+ * Author: Minkyu Jung
+ * Purpose: 좀비 물량 막기 모드의 규칙 값(인원·시간·탄약 배율)과 일반 좀비 6종, 스테이지마다 늘어나는 수·체력·피해·속도 공식을 둔다.
+ *          three.js·DOM에 의존하지 않는 순수 모듈이라 방장 시뮬레이션(director.js)과 node 시험이 그대로 쓴다.
+ */
+
+/** 모드 id. 방 메타·연습장 설정·경기 스냅샷 gm에 같은 값을 쓴다 */
+export const HORDE_MODE = 'zombie';
+
+export const HORDE = Object.freeze({
+  maxPlayers: 4,          // 최대 4인
+  baseHp: 100,            // 시작 최대 체력(카드로 늘어난다)
+  reserveMul: 3,          // 재장전 탄창(예비 탄약)은 기존 맵의 3배. 탄창은 스테이지 사이에 채워지지 않고 이어진다
+  premiumReserveMags: 2,  // 예비가 무제한인 프리미엄 총도 이 모드에서는 탄창 2개 × 배율만큼만 든다
+  prepMs: 7000,           // 첫 스테이지 시작 전 준비 시간
+  breakMs: 3500,          // 카드를 다 고른 뒤 다음 스테이지까지
+  cardMs: 30000,          // 카드 고르기 제한 시간(지나면 첫 카드를 받는다)
+  clearHealFrac: 0.25,    // 스테이지를 깨면 최대 체력의 25%를 회복한다
+  reviveHpFrac: 0.5,      // 쓰러진 사람은 다음 스테이지에 최대 체력의 50%로 일어난다
+  maxAlive: 34,           // 한 번에 맵에 있는 일반 좀비 상한(보스·소환 제외). 넘으면 죽는 만큼 이어서 나온다
+  maxAliveBoss: 18,       // 보스 스테이지의 일반 좀비 상한
+  bossEvery: 5,           // 5스테이지마다 보스
+  twoBossFrom: 50,        // 50스테이지부터 보스 2마리
+  threeBossFrom: 100,     // 100스테이지부터 3마리
+  simHz: 30,              // 좀비 이동·판단 고정 간격
+  flowMs: 400,            // 흐름장(길찾기)을 다시 만드는 간격
+  spawnSafeM: 16,         // 좀비가 나오는 자리는 살아 있는 사람에게서 이만큼 떨어져야 한다
+  grabSlow: 0.72,         // 좀비 몸에 붙잡히면 이동 속도 배율(화면마다 자기 몸으로 잰다)
+  grabRadius: 0.75,
+  maxSummons: 16,         // 보스가 불러낸 좀비 상한
+  maxProjectiles: 40,
+  maxHazards: 16,
+  gameOverMs: 6000        // 전멸 뒤 결과 화면까지
+});
+
+/**
+ * 일반 좀비. hp·damage는 1스테이지 값이고 hpMul·dmgMul을 곱한다.
+ * speed(m/s), attackMs = 공격 간격, windupMs = 휘두르기 시작부터 맞는 순간까지, range = 공격이 닿는 거리(몸 중심끼리, m).
+ * from = 처음 나오는 스테이지, weight = 그 뒤 섞이는 비율. scale은 화면 크기와 히트박스 크기의 배율이다.
+ */
+export const ZOMBIE_TYPES = Object.freeze({
+  walker: Object.freeze({
+    id: 'walker', code: 1, name: '워커', hp: 100, speed: 2.3, damage: 12, attackMs: 1100, windupMs: 380, range: 1.3,
+    radius: 0.35, scale: 1, from: 1, weight: 10, color: 0x6f8f4e, cloth: 0x4d4a3e
+  }),
+  runner: Object.freeze({
+    id: 'runner', code: 2, name: '러너', hp: 65, speed: 5.0, damage: 9, attackMs: 800, windupMs: 260, range: 1.2,
+    radius: 0.33, scale: 0.92, from: 3, weight: 6, color: 0xa3b85c, cloth: 0x6b3a3a
+  }),
+  brute: Object.freeze({
+    id: 'brute', code: 3, name: '브루트', hp: 420, speed: 1.9, damage: 26, attackMs: 1500, windupMs: 520, range: 1.7,
+    radius: 0.45, scale: 1.35, from: 6, weight: 2, color: 0x5b6b3a, cloth: 0x3b4252
+  }),
+  spitter: Object.freeze({
+    id: 'spitter', code: 4, name: '스피터', hp: 85, speed: 2.4, damage: 8, attackMs: 1200, windupMs: 400, range: 1.3,
+    radius: 0.35, scale: 1, from: 8, weight: 2, color: 0x8fc23a, cloth: 0x2f5d50,
+    ranged: Object.freeze({ every: 3200, speed: 15, dmg: 13, keep: 8, range: 24, windupMs: 500 })
+  }),
+  bomber: Object.freeze({
+    id: 'bomber', code: 5, name: '폭발 좀비', hp: 70, speed: 4.1, damage: 0, attackMs: 1000, windupMs: 450, range: 1.5,
+    radius: 0.38, scale: 1.08, from: 10, weight: 2, color: 0xc9a227, cloth: 0x7a3f12,
+    explode: Object.freeze({ radius: 3.8, dmg: 34 })
+  }),
+  crawler: Object.freeze({
+    id: 'crawler', code: 6, name: '크롤러', hp: 55, speed: 4.0, damage: 8, attackMs: 900, windupMs: 300, range: 1.15,
+    radius: 0.33, scale: 0.9, from: 12, weight: 3, color: 0x7d6f5a, cloth: 0x3d3328, low: true
+  })
+});
+
+export const ZOMBIE_IDS = Object.freeze(Object.keys(ZOMBIE_TYPES));
+const BY_CODE = new Map(ZOMBIE_IDS.map((id) => [ZOMBIE_TYPES[id].code, ZOMBIE_TYPES[id]]));
+export const zombieByCode = (code) => BY_CODE.get(code | 0) || null;
+export const zombieType = (id) => (Object.prototype.hasOwnProperty.call(ZOMBIE_TYPES, id) ? ZOMBIE_TYPES[id] : null);
+
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const stageOf = (s) => Math.max(1, Math.floor(Number(s) || 1));
+
+/** 이 스테이지의 일반 좀비 수(보스 스테이지는 이 값의 절반이 호위로 나온다) */
+export function zombieCount(stage) {
+  const s = stageOf(stage);
+  return Math.min(150, Math.round(10 + 3.2 * s + 0.06 * s * s));
+}
+
+/** 체력 배율: 10스테이지 약 2.2배, 20스테이지 약 4.2배, 50스테이지 약 14배, 100스테이지 약 45배 */
+export function hpMul(stage) {
+  const k = stageOf(stage) - 1;
+  return 1 + 0.1 * k + 0.0035 * k * k;
+}
+
+/** 피해 배율: 10스테이지 약 1.4배, 50스테이지 약 3.9배, 100스테이지 약 7.4배 */
+export function dmgMul(stage) {
+  const k = stageOf(stage) - 1;
+  return 1 + 0.045 * k + 0.0003 * k * k;
+}
+
+/** 이동 속도 배율(최대 1.35) */
+export function speedMul(stage) {
+  return Math.min(1.35, 1 + 0.006 * (stageOf(stage) - 1));
+}
+
+/** 좀비가 하나씩 나오는 간격(ms) */
+export function spawnGapMs(stage) {
+  return Math.max(200, 1050 - 24 * stageOf(stage));
+}
+
+/** 한 번에 같이 나오는 좀비 수 */
+export function spawnBurst(stage) {
+  return clamp(1 + Math.floor(stageOf(stage) / 8), 1, 4);
+}
+
+/** 이 스테이지의 보스 수: 5스테이지마다, 50스테이지부터 2마리, 100스테이지부터 3마리 */
+export function bossCount(stage, rules = HORDE) {
+  const s = stageOf(stage);
+  if (s % rules.bossEvery !== 0) return 0;
+  return s >= rules.threeBossFrom ? 3 : s >= rules.twoBossFrom ? 2 : 1;
+}
+
+/** 보스 체력 배율: 5스테이지 1배, 25스테이지 약 3.1배, 50스테이지 약 7배, 100스테이지 약 19배 */
+export function bossHpMul(stage) {
+  const s = stageOf(stage);
+  return 0.6 + 0.08 * s + 0.0012 * s * s;
+}
+
+/**
+ * 이 스테이지에 나올 수 있는 좀비 종류와 비율. 새로 열린 종류는 처음 몇 스테이지 동안 비율을 조금 낮게 둔다.
+ * → [{ type, weight }]
+ */
+export function zombieMix(stage) {
+  const s = stageOf(stage);
+  const out = [];
+  for (const id of ZOMBIE_IDS) {
+    const t = ZOMBIE_TYPES[id];
+    if (s < t.from) continue;
+    const ramp = Math.min(1, 0.4 + (s - t.from) * 0.15);
+    // 워커는 뒤로 갈수록 덜 나온다(빠르고 단단한 종류가 늘어난다)
+    const w = id === 'walker' ? Math.max(3, t.weight - (s - 1) * 0.12) : t.weight * ramp;
+    out.push({ type: t, weight: w });
+  }
+  return out;
+}
+
+/** mulberry32: 같은 씨앗이면 모든 화면에서 같은 수열(카드 제안·스폰 순서 재현용) */
+export function makeRng(seed) {
+  let s = (Number(seed) >>> 0) || 1;
+  return () => {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** 문자열·숫자 여러 개 → 32비트 씨앗(FNV-1a) */
+export function hashSeed(...parts) {
+  let h = 0x811c9dc5;
+  for (const p of parts) {
+    const s = String(p);
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    h ^= 0x2c; h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/** 가중치 목록에서 하나 고르기. items = [{ weight, ... }] */
+export function pickWeighted(items, rng) {
+  let sum = 0;
+  for (const it of items) sum += Math.max(0, it.weight || 0);
+  if (!(sum > 0)) return items[0] || null;
+  let r = rng() * sum;
+  for (const it of items) {
+    r -= Math.max(0, it.weight || 0);
+    if (r <= 0) return it;
+  }
+  return items[items.length - 1];
+}
+
+/**
+ * 이 모드의 무기 탄약. 일반 총은 예비 × 3, 예비가 무제한인 프리미엄 총은 탄창 2개 × 3.
+ * → { mag, reserve } (칼·수류탄은 null)
+ */
+export function hordeAmmo(def, rules = HORDE) {
+  if (!def || def.mag == null) return null;
+  const base = Number.isFinite(def.reserve) ? def.reserve : def.mag * rules.premiumReserveMags;
+  return { mag: def.mag, reserve: Math.round(base * rules.reserveMul) };
+}
+
+/** 스테이지 시간 표시 mm:ss */
+export function fmtClock(ms) {
+  const s = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, '0')}`;
+}

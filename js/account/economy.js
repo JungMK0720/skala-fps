@@ -113,6 +113,39 @@ export function matchReward(summary) {
   return { gained, breakdown };
 }
 
+/**
+ * 좀비 물량 막기 보상(판당). 깬 스테이지·보스 처치·좀비 10마리마다. 좀비 처치는 사람 킬(전적 kills·순위표)에 넣지 않는다.
+ * 판당 상한을 두어 한 판이 서버 하루 한도(5만 점)를 혼자 다 쓰지 않게 한다. 연습장(혼자)은 멀티보다 적다.
+ */
+export const ZOMBIE_POINTS = Object.freeze({
+  bot: Object.freeze({ stage: 8, boss: 20, per10: 3, cap: 1500 }),
+  multi: Object.freeze({ stage: 12, boss: 30, per10: 5, cap: 2500 })
+});
+
+/** 좀비 판 요약을 안전한 값으로: { online, stage(도달), cleared(깬 수), bossKills, kills, seconds } */
+export function readZombieSummary(summary) {
+  const s = summary && typeof summary === 'object' ? summary : {};
+  const stage = Math.max(1, count(s.stage));
+  return {
+    online: !!s.online, stage, cleared: Math.min(stage, count(s.cleared)), bossKills: count(s.bossKills),
+    kills: count(s.kills), headshots: count(s.headshots), seconds: count(Math.round(Number(s.seconds)))
+  };
+}
+
+/** → { gained, breakdown: [{ label, points }] }. breakdown의 합은 항상 gained와 같다 */
+export function zombieReward(summary) {
+  const s = readZombieSummary(summary);
+  const t = s.online ? ZOMBIE_POINTS.multi : ZOMBIE_POINTS.bot;
+  const breakdown = [];
+  const add = (label, points) => { if (points !== 0) breakdown.push({ label, points }); };
+  add(`스테이지 클리어 ×${s.cleared}`, s.cleared * t.stage);
+  add(`보스 처치 ×${s.bossKills}`, s.bossKills * t.boss);
+  add(`좀비 처치 ${s.kills}마리`, Math.floor(s.kills / 10) * t.per10);
+  const sum = breakdown.reduce((a, r) => a + r.points, 0);
+  if (sum > t.cap) add(`판당 상한 ${t.cap} P`, t.cap - sum);
+  return { gained: Math.min(sum, t.cap), breakdown };
+}
+
 /** 비밀 스팟 첫 발견 보상. 맵에 적힌 값, 없으면 기본값. */
 export function secretReward(secret) {
   const n = secret && secret.points;

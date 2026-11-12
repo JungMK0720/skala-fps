@@ -6,6 +6,7 @@
 --          포인트와 전적은 클라이언트가 계산해 보내지만, 서버가 늘어나는 속도(통으로 채우는 한도)와 새로 산 무기의 가격을 확인해
 --          한도를 넘는 만큼은 버린다. 닉네임 등록은 같은 IP에서 한 시간에 60번까지다. 경기 판정은 방장 브라우저가 한다(js/game/anticheat.js).
 --          멀티 채널(skalafps:lobby, skalafps:room:<id>)은 Realtime Broadcast·Presence만 쓰므로 테이블이 필요 없다.
+--          건의함(fps_feedback)은 등록된 닉네임만 fps_send_feedback으로 보내고, 소유자만 대시보드에서 읽는다(docs/FEEDBACK.md).
 
 create schema if not exists extensions;
 create extension if not exists pgcrypto with schema extensions;
@@ -320,10 +321,143 @@ end $$;
 
 -- 이 서버가 아는 기능. 클라이언트는 시작할 때 한 번 묻고, 캐릭터 구매는 avatars가 true일 때만 연다.
 -- 이 파일을 다시 실행하기 전의 서버에는 이 함수가 없어(404) 구매가 닫힌 채로 남으므로, 서버가 모르는 캐릭터를 사서 포인트를 잃지 않는다.
+-- feedback: 건의함(fps_send_feedback·fps_my_feedback)이 있다. 없으면 화면이 글을 쓰기 전에 '아직 열리지 않았어요'라고 알린다.
 create or replace function public.fps_features() returns jsonb
 language sql stable security definer set search_path = public, extensions as $$
-  select jsonb_build_object('ok', true, 'avatars', true)
+  select jsonb_build_object('ok', true, 'avatars', true, 'feedback', true)
 $$;
+
+-- ───────────── 건의함 (2026-11-12) ─────────────
+-- 플레이어가 게임 안에서 소유자에게 바로 보내는 글. 정책도 권한도 없어 API로는 아무도 표를 읽거나 쓰지 못한다.
+-- 소유자는 Supabase 대시보드(Table Editor·SQL Editor)에서 읽고, reply 칸에 답을 적으면 보낸 사람의 건의함에 보인다.
+-- 보낸 사람은 닉네임을 등록한 기기 토큰이어야 한다. 이메일·IP 원문은 받지 않는다(IP는 fps_rate의 해시로만 센다).
+create table if not exists public.fps_feedback (
+  id bigint generated always as identity primary key,
+  player_id bigint references public.fps_players(id) on delete set null,
+  name text not null,
+  kind text not null check (kind in ('bug', 'idea', 'balance', 'other')),
+  body text not null check (char_length(body) between 5 and 1000),
+  info jsonb not null default '{}'::jsonb check (jsonb_typeof(info) = 'object'),
+  status text not null default 'new' check (status in ('new', 'read', 'done', 'hold')),
+  reply text check (reply is null or char_length(reply) <= 500),
+  replied_at timestamptz,
+  created_at timestamptz not null default now()
+);
+alter table public.fps_feedback enable row level security;
+revoke all on public.fps_feedback from public, anon, authenticated;
+revoke all on sequence public.fps_feedback_id_seq from public, anon, authenticated;
+create index if not exists fps_feedback_player_idx on public.fps_feedback (player_id, created_at desc);
+create index if not exists fps_feedback_created_idx on public.fps_feedback (created_at desc);
+-- 소유자가 켜면 그 사람은 더는 건의를 보내지 못한다(도배 대비). Table Editor의 fps_players에서 바꾼다
+alter table public.fps_players add column if not exists feedback_blocked boolean not null default false;
+
+-- 건의 본문 정리. js/account/feedback.js의 cleanFeedback과 같은 순서다(tests/feedback.test.mjs가 대조한다).
+-- 줄바꿈(\n)·탭을 뺀 제어 문자와 안 보이는 글자(폭 없는 공백, 글자 방향 바꾸기)를 지우고, 줄 끝 공백과 세 줄 넘는 빈 줄을 줄인 뒤 앞뒤를 자른다.
+create or replace function public.fps_feedback_clean(p_body text) returns text
+language sql immutable set search_path = public, extensions as $$
+  select btrim(
+    regexp_replace(
+      regexp_replace(
+        regexp_replace(replace(coalesce(p_body, ''), E'\r\n', E'\n'),
+          '[\u0001-\u0008\u000b-\u001f\u007f​-‏‪-‮⁠-⁤⁦-⁩﻿]', '', 'g'),
+        '[ \t]+\n', E'\n', 'g'),
+      '\n{3,}', E'\n\n', 'g'),
+    E' \t\n')
+$$;
+
+-- 소유자가 reply를 적거나 고치면 답한 시각을 찍는다. 새 글(new)에 답하면 확인함(read)으로 바꾼다. 빈 답은 지운 것으로 본다
+create or replace function public.fps_feedback_stamp() returns trigger
+language plpgsql set search_path = public, extensions as $$
+begin
+  if new.reply is distinct from old.reply then
+    new.reply := nullif(btrim(new.reply), '');
+    new.replied_at := case when new.reply is null then null else now() end;
+    if new.reply is not null and new.status = 'new' then new.status := 'read'; end if;
+  end if;
+  return new;
+end $$;
+
+create or replace trigger fps_feedback_stamp before update on public.fps_feedback
+  for each row execute function public.fps_feedback_stamp();
+
+-- 결과: { ok:true, id } 또는 { ok:false, error }. 코드: TOKEN_INVALID, NOT_FOUND, FEEDBACK_INVALID, FEEDBACK_DUPLICATE, FEEDBACK_BLOCKED, RATE_LIMITED
+-- 한도: 한 사람이 10분에 3개·하루 15개, 같은 IP에서 한 시간 40개, 모두 합쳐 하루 500개. 같은 사람이 같은 글을 하루 안에 다시 보내면 FEEDBACK_DUPLICATE.
+-- p_info(화면 크기·모드·맵·버전 같은 진단 정보)는 짧은 문자열·숫자·참거짓 칸만 12개까지 남기고, 너무 크면 버린다(글은 받는다).
+create or replace function public.fps_send_feedback(p_token text, p_kind text, p_body text, p_info jsonb)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v_hash text := public.fps_token_hash(p_token);
+  v public.fps_players%rowtype;
+  v_body text;
+  v_info jsonb := '{}'::jsonb;
+  v_id bigint;
+begin
+  if v_hash is null then return jsonb_build_object('ok', false, 'error', 'TOKEN_INVALID'); end if;
+  if p_kind is null or p_kind not in ('bug', 'idea', 'balance', 'other') or p_body is null or octet_length(p_body) > 8000 then
+    return jsonb_build_object('ok', false, 'error', 'FEEDBACK_INVALID');
+  end if;
+  v_body := public.fps_feedback_clean(p_body);
+  if char_length(v_body) not between 5 and 1000 then
+    return jsonb_build_object('ok', false, 'error', 'FEEDBACK_INVALID');
+  end if;
+  -- 같은 사람의 요청을 줄 세워 한도를 정확히 센다
+  select * into v from public.fps_players where token_hash = v_hash for update;
+  if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
+  if v.feedback_blocked then return jsonb_build_object('ok', false, 'error', 'FEEDBACK_BLOCKED'); end if;
+  if exists (select 1 from public.fps_feedback f
+             where f.player_id = v.id and f.body = v_body and f.created_at > now() - interval '1 day') then
+    return jsonb_build_object('ok', false, 'error', 'FEEDBACK_DUPLICATE');
+  end if;
+  if (select count(*) from public.fps_feedback f where f.player_id = v.id and f.created_at > now() - interval '10 minutes') >= 3
+     or (select count(*) from public.fps_feedback f where f.player_id = v.id and f.created_at > now() - interval '1 day') >= 15
+     or (select count(*) from public.fps_feedback f where f.created_at > now() - interval '1 day') >= 500 then
+    return jsonb_build_object('ok', false, 'error', 'RATE_LIMITED');
+  end if;
+  -- IP 한도는 위를 모두 통과한 요청만 센다
+  if not public.fps_rate_ok('feedback', 40, interval '1 hour') then
+    return jsonb_build_object('ok', false, 'error', 'RATE_LIMITED');
+  end if;
+  if jsonb_typeof(p_info) = 'object' and octet_length(p_info::text) <= 2048 then
+    select coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb) into v_info
+    from (
+      select i.key, i.value from jsonb_each(p_info) as i
+      where char_length(i.key) <= 24
+        and (jsonb_typeof(i.value) in ('number', 'boolean')
+             or (jsonb_typeof(i.value) = 'string' and char_length(i.value #>> '{}') <= 80))
+      order by i.key
+      limit 12
+    ) e;
+  end if;
+  insert into public.fps_feedback (player_id, name, kind, body, info)
+  values (v.id, v.name, p_kind, v_body, v_info)
+  returning id into v_id;
+  return jsonb_build_object('ok', true, 'id', v_id);
+end $$;
+
+-- 보낸 사람은 자기 건의와 답만 본다(최근 10개). 다른 사람의 글·진단 정보는 내보내지 않는다.
+create or replace function public.fps_my_feedback(p_token text) returns jsonb
+language plpgsql stable security definer set search_path = public, extensions as $$
+declare
+  v_hash text := public.fps_token_hash(p_token);
+  v_id bigint;
+begin
+  if v_hash is null then return jsonb_build_object('ok', false, 'error', 'TOKEN_INVALID'); end if;
+  select p.id into v_id from public.fps_players p where p.token_hash = v_hash;
+  if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
+  return jsonb_build_object('ok', true, 'items', coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'id', f.id, 'kind', f.kind, 'body', f.body, 'status', f.status, 'reply', f.reply,
+             'at', (extract(epoch from f.created_at) * 1000)::bigint,
+             'repliedAt', (extract(epoch from f.replied_at) * 1000)::bigint
+           ) order by f.created_at desc, f.id desc)
+    from (
+      select * from public.fps_feedback
+      where player_id = v_id
+      order by created_at desc, id desc
+      limit 10
+    ) f
+  ), '[]'::jsonb));
+end $$;
 
 -- 순위표에는 이름, 킬, 승리, 포인트만 내보낸다.
 create or replace function public.fps_top_players(p_limit int default 20) returns jsonb
@@ -352,6 +486,8 @@ revoke all on function public.fps_owned_ok(jsonb) from public, anon, authenticat
 revoke all on function public.fps_item_price(text) from public, anon, authenticated;
 revoke all on function public.fps_client_key() from public, anon, authenticated;
 revoke all on function public.fps_rate_ok(text, int, interval) from public, anon, authenticated;
+revoke all on function public.fps_feedback_clean(text) from public, anon, authenticated;
+revoke all on function public.fps_feedback_stamp() from public, anon, authenticated;
 
 revoke all on function public.fps_check_nickname(text) from public;
 revoke all on function public.fps_claim_nickname(text, text) from public;
@@ -359,6 +495,8 @@ revoke all on function public.fps_get_profile(text) from public;
 revoke all on function public.fps_save_profile(text, int, jsonb, jsonb, jsonb, jsonb) from public;
 revoke all on function public.fps_top_players(int) from public;
 revoke all on function public.fps_features() from public;
+revoke all on function public.fps_send_feedback(text, text, text, jsonb) from public;
+revoke all on function public.fps_my_feedback(text) from public;
 
 grant execute on function public.fps_check_nickname(text) to anon, authenticated;
 grant execute on function public.fps_claim_nickname(text, text) to anon, authenticated;
@@ -366,6 +504,8 @@ grant execute on function public.fps_get_profile(text) to anon, authenticated;
 grant execute on function public.fps_save_profile(text, int, jsonb, jsonb, jsonb, jsonb) to anon, authenticated;
 grant execute on function public.fps_top_players(int) to anon, authenticated;
 grant execute on function public.fps_features() to anon, authenticated;
+grant execute on function public.fps_send_feedback(text, text, text, jsonb) to anon, authenticated;
+grant execute on function public.fps_my_feedback(text) to anon, authenticated;
 
 -- API가 새 함수를 바로 보도록 스키마 캐시를 다시 읽게 한다.
 notify pgrst, 'reload schema';

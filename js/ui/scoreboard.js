@@ -107,11 +107,43 @@ export function createScoreboard(ctx) {
         h('tbody', {}, rows.length ? rows.map(row) : h('tr', {}, h('td', { colspan: 7, class: 'sk-sb-empty', text: '플레이어 없음' })))));
   }
 
+  /** 좀비 물량 막기: 한 표(처치·헤드샷·보스·피해·쓰러짐·카드) */
+  function zombieTable(rows) {
+    const row = (x) => h('tr', { class: (x.me ? 'is-me ' : '') + (x.alive ? '' : 'is-dead') },
+      h('th', { scope: 'row', class: 'sk-sb-name' }, h('span', { text: x.name }), x.me ? h('span', { class: 'sk-tag', text: '나' }) : null),
+      h('td', { class: 'num', text: x.kills }),
+      h('td', { class: 'num', text: x.head }),
+      h('td', { class: 'num', text: x.boss }),
+      h('td', { class: 'num', text: x.damage.toLocaleString('ko-KR') }),
+      h('td', { class: 'num', text: x.deaths }),
+      h('td', { class: 'num', text: x.cards }),
+      h('td', { class: 'num' }, h('span', { class: 'sk-ping ' + pingClass(x.ping), text: pingText(x.ping) })),
+      h('td', { class: 'num sk-sb-state', text: x.alive ? '생존' : '💀 쓰러짐' }));
+    return h('section', { class: 'sk-sb-team sk-sb-team--ffa' },
+      h('table', { class: 'sk-sb-table' },
+        h('thead', {}, h('tr', {}, ['이름', '처치', '헤드샷', '보스', '피해', '쓰러짐', '카드', '핑', '상태'].map((t, i) => h('th', { scope: 'col', class: i ? 'num' : '', text: t })))),
+        h('tbody', {}, rows.length ? rows.map(row) : h('tr', {}, h('td', { colspan: 9, class: 'sk-sb-empty', text: '플레이어 없음' })))));
+  }
+
   function render(p) {
     const s = JSON.stringify(p);
     if (s === sig) return;
     sig = s;
     const mode = modeKey(p.mode);
+    if (mode === 'zombie') {
+      el.classList.add('is-ffa');
+      el.classList.remove('is-crowded');
+      scoreLine.hidden = true;
+      const rows = (Array.isArray(p.players) ? p.players : []).map((x) => ({
+        id: x.id, name: x.name || '플레이어', kills: num(x.kills, 0) | 0, head: num(x.head, 0) | 0, boss: num(x.boss, 0) | 0, damage: num(x.damage, 0) | 0,
+        deaths: num(x.deaths, 0) | 0, cards: num(x.cards, 0) | 0, ping: x.ping, alive: x.alive !== false, me: !!x.me || (p.meId != null && x.id === p.meId)
+      })).sort((a, b) => b.kills - a.kills || b.damage - a.damage);
+      const m = p.mapName ? { name: p.mapName } : mapInfo(ctx.maps, p.maps, p.mapId);
+      setText(title, `🧟 좀비 물량 막기 · 스테이지 ${Math.max(1, num(p.stage, 1) | 0)}`);
+      setText(meta, [m && m.name, p.elapsed ? `생존 ${p.elapsed}` : '', p.left != null ? `남은 좀비 ${p.left}` : ''].filter(Boolean).join(' · '));
+      cols.replaceChildren(zombieTable(rows));
+      return;
+    }
     const ffa = mode === 'ffa';
     el.classList.toggle('is-ffa', ffa);
     scoreLine.hidden = ffa;

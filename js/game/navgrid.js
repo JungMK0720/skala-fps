@@ -1149,9 +1149,105 @@ export function buildNavGrid(mapData, options) {
     return !Number.isFinite(y) || Math.abs(NY[n] - y) <= STEP + 0.1;
   }
 
+  /* ---------------- 8) 흐름장 (좀비 무리) ----------------
+   * 여러 출발점(살아 있는 사람의 발밑)에서 간선을 거꾸로 따라 한 번 퍼뜨리면, 모든 노드에 '가장 가까운 사람에게 가는 다음 노드'와
+   * 남은 길이가 생긴다. 좀비가 수십 마리여도 A*를 좀비마다 돌리지 않고 이 표를 같이 본다(game/horde/director.js).
+   * 결과는 다음 flowField 호출까지 유효하다. 봇의 A*와 배열을 나누지 않는다. */
+  const flowDist = new Float32Array(Math.max(1, N)), flowNextN = new Int32Array(Math.max(1, N));
+  const flowSeen = new Uint32Array(Math.max(1, N)), flowDone = new Uint32Array(Math.max(1, N));
+  let flowId = 0;
+  let fhN = new Int32Array(Math.max(64, N)), fhF = new Float32Array(Math.max(64, N)), fhSize = 0;
+  function fpush(n, f) {
+    if (fhSize >= fhN.length) {
+      const a = new Int32Array(fhN.length * 2), b = new Float32Array(fhN.length * 2);
+      a.set(fhN); b.set(fhF); fhN = a; fhF = b;
+    }
+    let i = fhSize++;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (fhF[p] <= f) break;
+      fhN[i] = fhN[p]; fhF[i] = fhF[p]; i = p;
+    }
+    fhN[i] = n; fhF[i] = f;
+  }
+  function fpop() {
+    const top = fhN[0];
+    const n = fhN[--fhSize], f = fhF[fhSize];
+    let i = 0;
+    for (;;) {
+      let c = 2 * i + 1;
+      if (c >= fhSize) break;
+      if (c + 1 < fhSize && fhF[c + 1] < fhF[c]) c++;
+      if (fhF[c] >= f) break;
+      fhN[i] = fhN[c]; fhF[i] = fhF[c]; i = c;
+    }
+    fhN[i] = n; fhF[i] = f;
+    return top;
+  }
+  /** a → b 간선 비용(걷기·뛰어내리기·점프·넘어가기). 간선이 없으면 -1 */
+  function edgeCost(a, b) {
+    for (let d = 0; d < 8; d++) if (NB[a * 8 + d] === b) return COST[a * 8 + d];
+    for (let e = XS[a]; e < XS[a + 1]; e++) if (XT[e] === b) return XC[e];
+    return -1;
+  }
+  /**
+   * @param sources [{x,y,z}] 출발점(사람 발 위치). 걸을 수 없는 자리면 가장 가까운 노드에서 시작한다
+   * @param maxCost 이보다 먼(길이 m) 노드는 펼치지 않는다
+   * @returns 이번 흐름장 번호(0이면 출발점이 하나도 없다)
+   */
+  function flowField(sources, maxCost) {
+    if (!(N > 0)) return 0;
+    flowId = (flowId + 1) >>> 0;
+    if (flowId === 0) { flowSeen.fill(0); flowDone.fill(0); flowId = 1; }
+    const id = flowId;
+    const limit = num(maxCost, 400);
+    fhSize = 0;
+    let any = false;
+    for (const p of Array.isArray(sources) ? sources : []) {
+      const s = locate(PX(p), PY(p), PZ(p), 3, false);
+      if (s < 0) continue;
+      any = true;
+      flowSeen[s] = id; flowDist[s] = 0; flowNextN[s] = -1;
+      fpush(s, 0);
+    }
+    if (!any) return 0;
+    while (fhSize > 0) {
+      const m = fpop();
+      if (flowDone[m] === id) continue;
+      flowDone[m] = id;
+      const dm = flowDist[m];
+      for (let j = RS0[m], e = RS0[m + 1]; j < e; j++) {
+        const n = RI[j];
+        if (flowDone[n] === id) continue;
+        const c = edgeCost(n, m);
+        if (c < 0) continue;
+        const nd = dm + c;
+        if (nd > limit) continue;
+        if (flowSeen[n] !== id || nd < flowDist[n]) { flowSeen[n] = id; flowDist[n] = nd; flowNextN[n] = m; fpush(n, nd); }
+      }
+    }
+    return id;
+  }
+  /**
+   * 마지막 흐름장에서 p의 다음 노드. hint = 그 좀비가 지난번에 있던 노드(가까우면 다시 찾지 않는다).
+   * → { node, x, y, z, next: { x, y, z, node, jump } | null(이미 출발점 칸), dist } | null(흐름장 밖)
+   */
+  function flowStep(p, hint) {
+    if (!flowId || !(N > 0)) return null;
+    let n = -1;
+    const x = PX(p), y = PY(p), z = PZ(p);
+    if (Number.isInteger(hint) && hint >= 0 && hint < N && Math.abs(NX[hint] - x) <= CELL * 0.75 && Math.abs(NZ[hint] - z) <= CELL * 0.75 &&
+      (!Number.isFinite(y) || Math.abs(NY[hint] - y) < STEP + 0.3)) n = hint;
+    else n = locate(x, y, z, 2, false);
+    if (n < 0 || flowSeen[n] !== flowId) return null;
+    const m = flowNextN[n];
+    const next = m >= 0 ? { x: NX[m], y: NY[m], z: NZ[m], node: m, jump: edgeType(n, m) === JUMP || NY[m] - NY[n] > STEP + 0.05 } : null;
+    return { node: n, x: NX[n], y: NY[n], z: NZ[n], next, dist: flowDist[n] };
+  }
+
   const buildMs = now() - t0;
   const nav = {
-    findPath, randomPoint, nearestWalkable, losWalk, walkStraight, raycast, isWalkable, floorAt, lanes,
+    findPath, randomPoint, nearestWalkable, losWalk, walkStraight, raycast, isWalkable, floorAt, lanes, flowField, flowStep,
     coverCandidates: (p, maxDist, maxCount, opts) => reachable(p, maxDist, maxCount, opts),
     rayDistance(origin, dir, maxDist) {
       const dx = PX(dir), dy = PY(dir) || 0, dz = PZ(dir), l = Math.hypot(dx, dy, dz) || 1;

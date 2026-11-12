@@ -510,7 +510,66 @@ const DEFS = {
         S.tone({ t: 0.05 + i * 0.06, f, harm: 8, tilt: 1.2, env: 'hold', a: 0.01, h: 0.5, d: 0.45, dur: 1.9, g: 0.22 });
       });
       S.ring({ t: 0.3, f: [2093, 3136, 4186.01, 5274.04], amp: [1, 0.7, 0.45, 0.25], dec: [0.6, 0.45, 0.3, 0.2], g: 0.2 });
-    } }
+    } },
+  // ───────── 좀비 물량 막기(game/horde) ─────────
+  // 좀비 신음: 떨리는 낮은 목소리 + 숨소리. 변형마다 높이가 다르다
+  zombie_groan: { dur: 1.3, prio: 3, level: 0.5, ref: 3, maxDist: 45, muffle: 1, send: 0.12, max: 5, vars: 4, jit: 0.08,
+    r: (S) => S.tone({ f: S.r(95, 135), f1: S.r(70, 90), glide: 0.5, harm: 7, tilt: 1.1, vib: 0.06, vibF: S.r(5, 9), a: 0.12, d: 0.45, dur: 1.2, g: 0.8 })
+      .noise({ dur: 1.1, a: 0.15, d: 0.4, bp: S.r(500, 800), q: 1.5, g: 0.35 }).filter('low', 1600) },
+  // 좀비 할퀴기: 쉭 하는 바람 + 짧은 끙
+  zombie_attack: { dur: 0.45, prio: 5, level: 0.55, ref: 2.5, maxDist: 30, send: 0.05, max: 4, vars: 3, jit: 0.07,
+    r: (S) => S.noise({ dur: 0.22, env: 'bell', bp: (u) => 900 + 1800 * u, q: 1.4, g: 0.6 })
+      .tone({ f: S.r(150, 190), f1: 90, glide: 0.08, harm: 5, a: 0.01, d: 0.1, dur: 0.3, g: 0.5 }) },
+  // 좀비 쓰러짐: 내려가는 신음 + 털썩
+  zombie_die: { dur: 1, prio: 4, level: 0.55, ref: 3, maxDist: 50, muffle: 1, send: 0.1, max: 5, vars: 3, jit: 0.06,
+    r: (S) => S.tone({ f: S.r(140, 170), f1: 55, glide: 0.35, harm: 6, vib: 0.05, a: 0.02, d: 0.3, dur: 0.8, g: 0.7 })
+      .noise({ t: 0.45, dur: 0.3, d: 0.06, lp: 380, brown: 1, g: 0.7 }) },
+  // 땅에서 기어 나옴: 흙이 부서지는 낮은 소리
+  zombie_rise: { dur: 0.9, prio: 3, level: 0.45, ref: 3, maxDist: 40, muffle: 1, send: 0.08, max: 4, vars: 2, jit: 0.06,
+    r: (S) => S.noise({ dur: 0.8, a: 0.05, d: 0.25, lp: 520, brown: 1, g: 0.9 }).click(0.1, 0.3, 1200).click(0.3, 0.25, 1000) },
+  // 침·산 뱉기: 젖은 소리
+  zombie_spit: { dur: 0.5, prio: 4, level: 0.5, ref: 3, maxDist: 45, send: 0.06, max: 3, vars: 2, jit: 0.06,
+    r: (S) => S.noise({ dur: 0.3, env: 'bell', bp: 1400, q: 2.5, g: 0.6 }).tone({ f: 320, f1: 140, glide: 0.06, d: 0.08, dur: 0.25, g: 0.35 }) },
+  // 산이 떨어짐: 치익
+  acid_splash: { dur: 0.7, prio: 4, level: 0.45, ref: 3, maxDist: 45, send: 0.08, max: 3, vars: 2, jit: 0.05,
+    r: (S) => S.noise({ dur: 0.6, a: 0.005, d: 0.2, hp: 1800, g: 0.6 }).noise({ dur: 0.2, d: 0.05, lp: 700, g: 0.4 }) },
+  // 보스 등장·분노: 깊은 포효(맥놀이) + 거친 숨
+  boss_roar: { dur: 2.6, prio: 9, level: 0.9, ref: 14, maxDist: 260, muffle: 1, send: 0.45, max: 2,
+    r: (S) => S.tone({ f: 82, f1: 58, glide: 0.8, harm: 9, tilt: 1, vib: 0.07, vibF: 7, a: 0.15, d: 0.9, dur: 2.4, g: 1 })
+      .tone({ f: 84, f1: 59, glide: 0.8, harm: 7, vib: 0.07, vibF: 6, a: 0.15, d: 0.9, dur: 2.4, g: 0.6 })
+      .noise({ dur: 2.2, a: 0.2, d: 0.7, bp: 650, q: 0.8, g: 0.5 }).sat(1.8) },
+  // 보스 스킬 예고: 부풀어 오르는 바람 소리
+  boss_skill: { dur: 1.2, prio: 8, level: 0.7, ref: 8, maxDist: 160, send: 0.25, max: 3,
+    r: (S) => S.noise({ dur: 1.1, a: 0.6, d: 0.2, bp: (u) => 300 + 2200 * u, q: 1.2, g: 0.8 }).tone({ f: 70, f1: 140, glide: 0.4, a: 0.5, d: 0.3, dur: 1.1, g: 0.4 }) },
+  // 보스 쓰러짐: 큰 쿵 + 내려가는 포효
+  boss_down: { dur: 2.4, prio: 10, level: 0.9, ref: 14, maxDist: 300, muffle: 1, send: 0.5, max: 1,
+    r: (S) => S.tone({ f: 120, f1: 30, glide: 0.6, harm: 8, vib: 0.05, a: 0.02, d: 0.8, dur: 2, g: 1 })
+      .noise({ t: 0.5, dur: 1.2, a: 0.004, d: 0.4, lp: 260, brown: 1, g: 1 }).sat(1.6) },
+  // 충격파·내려찍기: 땅이 울리는 쿵
+  ground_slam: { dur: 1.6, prio: 8, level: 0.9, ref: 10, maxDist: 200, muffle: 1, send: 0.35, max: 2,
+    r: (S) => S.noise({ dur: 0.05, a: 0.0005, d: 0.015, lp: 1800, g: 1 })
+      .tone({ f: 60, f1: 24, glide: 0.25, a: 0.004, d: 0.5, dur: 1.4, g: 1.3 })
+      .noise({ dur: 1.2, a: 0.01, d: 0.35, lp: 300, brown: 1, g: 0.8 }).sat(2) },
+  // 연쇄 번개: 지직
+  zap: { dur: 0.6, prio: 7, level: 0.6, ref: 6, maxDist: 120, send: 0.15, max: 3, vars: 2, jit: 0.05,
+    r: (S) => { S.noise({ dur: 0.5, a: 0.001, d: 0.15, hp: 2200, g: 0.7 }); for (let i = 0; i < 12; i++) S.click(S.rnd() * 0.45, S.r(0.2, 0.6), 3000); } },
+  // 얼음 가시: 쨍
+  ice_crack: { dur: 0.8, prio: 5, level: 0.5, ref: 4, maxDist: 70, send: 0.2, max: 3, vars: 2, jit: 0.05,
+    r: (S) => S.ring({ f: [2400, 3510, 5150], amp: [1, 0.6, 0.35], dec: [0.18, 0.12, 0.08], g: 0.5 }).noise({ dur: 0.1, d: 0.03, hp: 3500, g: 0.4 }) },
+  // 스테이지 시작: 낮은 경보 두 번
+  horde_wave: { ui: 1, dur: 2.2, prio: 10, level: 0.6, max: 1, send: 0.3,
+    r: (S) => S.tone({ f: 233, f1: 311, glide: 0.25, harm: 6, tilt: 1.2, a: 0.04, env: 'hold', h: 0.45, d: 0.15, dur: 0.8, g: 0.6 })
+      .tone({ t: 0.9, f: 233, f1: 311, glide: 0.25, harm: 6, tilt: 1.2, a: 0.04, env: 'hold', h: 0.45, d: 0.2, dur: 1.1, g: 0.6 }) },
+  // 스테이지 깸: 올라가는 세 음
+  horde_clear: { ui: 1, dur: 1.4, prio: 10, level: 0.55, max: 1, send: 0.25,
+    r: (S) => [659.25, 830.61, 987.77].reduce((s, f, i) => s.tone({ t: i * 0.11, f, harm: 5, tilt: 1.3, a: 0.005, d: 0.25, dur: 0.9, g: 0.4 }), S) },
+  // 카드 고름: 반짝
+  card_pick: { ui: 1, dur: 0.6, prio: 8, level: 0.5, max: 2,
+    r: (S) => S.tone({ f: 1046.5, f1: 1568, glide: 0.04, harm: 4, a: 0.003, d: 0.12, dur: 0.4, g: 0.4 })
+      .ring({ t: 0.05, f: [3136, 4186], amp: [1, 0.5], dec: [0.15, 0.1], g: 0.2 }) },
+  // 카드 다시 뽑기: 카드 섞는 소리
+  card_shuffle: { ui: 1, dur: 0.5, prio: 7, level: 0.45, max: 2,
+    r: (S) => { for (let i = 0; i < 7; i++) S.noise({ t: i * 0.05, dur: 0.05, d: 0.012, bp: S.r(2500, 4000), q: 2, g: 0.5 }); } }
 };
 
 export const SOUND_NAMES = Object.freeze(Object.keys(DEFS));

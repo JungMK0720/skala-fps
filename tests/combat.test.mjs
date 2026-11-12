@@ -361,9 +361,9 @@ describe('라이플 헤드 1발', () => {
   });
 
   test('다리·손·발은 거리 감쇠를 받는다', () => {
-    assert.equal(firstOf(liveDuel().claimHit(claim({ weaponId: 'ar_std', part: 'legs', dist: 10 })), 'damage').amount, 22);
-    assert.equal(firstOf(liveDuel().claimHit(claim({ weaponId: 'ar_std', part: 'hand', dist: 10 })), 'damage').amount, 15);
-    assert.equal(firstOf(liveDuel().claimHit(claim({ weaponId: 'ar_std', part: 'foot', dist: 200 })), 'damage').amount, 11);
+    assert.equal(firstOf(liveDuel().claimHit(claim({ weaponId: 'ar_std', part: 'legs', dist: 10 })), 'damage').amount, 18);
+    assert.equal(firstOf(liveDuel().claimHit(claim({ weaponId: 'ar_std', part: 'hand', dist: 10 })), 'damage').amount, 12);
+    assert.equal(firstOf(liveDuel().claimHit(claim({ weaponId: 'ar_std', part: 'foot', dist: 200 })), 'damage').amount, 9);
   });
 });
 
@@ -393,7 +393,8 @@ describe('저격 반샷', () => {
         assert.equal(playerOf(m, 'a').kills, 1);
       });
     }
-    for (const part of ['head', 'body', 'legs']) {
+    // 밸런스 패치(2026-11-12): SK-7·T-2의 다리는 85라 1발 킬이 아니다. H-50만 다리도 1발이다
+    for (const part of id === 'sr_heavy' ? ['head', 'body', 'legs'] : ['head', 'body']) {
       test(`${id}: ${part}는 1발에 죽고 반샷이 아니다`, () => {
         const m = liveDuel();
         const evs = m.claimHit(claim({ weaponId: id, part, dist: 300 }));
@@ -402,6 +403,15 @@ describe('저격 반샷', () => {
         assert.equal(playerOf(m, 'a').halfShots, 0);
       });
     }
+  }
+
+  for (const id of ['sr_bolt', 'sr_twin']) {
+    test(`${id}: 다리는 85로 1발에 죽지 않는다(반샷도 아니다)`, () => {
+      const evs = liveDuel().claimHit(claim({ weaponId: id, part: 'legs', dist: 120 }));
+      assert.equal(firstOf(evs, 'damage').amount, 85);
+      assert.equal(firstOf(evs, 'kill'), undefined);
+      assert.equal(firstOf(evs, 'damage').halfShot, false);
+    });
   }
 
   test('S-3 스위프트는 몸·다리로 죽지 않고 머리로 죽는다', () => {
@@ -457,7 +467,7 @@ describe('산탄 count', () => {
       assert.equal(firstOf(one, 'damage').count, undefined);
     }
     const rifle = liveDuel({ hp: 1000 }).claimHit(claim({ weaponId: 'ar_std', part: 'body', dist: 2, count: 8 }));
-    assert.equal(firstOf(rifle, 'damage').amount, 30, '단발 무기는 count가 1이다');
+    assert.equal(firstOf(rifle, 'damage').amount, 24, '단발 무기는 count가 1이다');
   });
 
   test('멀면 감쇠한다', () => {

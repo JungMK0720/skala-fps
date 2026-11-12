@@ -158,7 +158,15 @@ export default {
     const finish = await shootPart(t, page, 'sr_bolt', 'body');
     t.check(finish.kill && !finish.kill.halfShot, '체력이 깎인 표적도 몸 1발에 쓰러진다', finish.kill);
     await readyTarget(page, far);
-    for (const part of ['body', 'legs', 'head']) {
+    // 밸런스 패치(2026-11-12): SK-7 다리는 85라 1발 킬이 아니다. 몸·머리만 1발
+    const legs = await shootPart(t, page, 'sr_bolt', 'legs');
+    t.check(legs.damage && legs.damage.part === 'legs' && legs.damage.amount === 85 && !legs.damage.halfShot, 'SK-7 다리: 85(반샷 아님)', legs.damage);
+    t.check(!legs.kill && legs.alive && legs.hp === 15, 'SK-7 다리 1발로는 쓰러지지 않는다', { hp: legs.hp, alive: legs.alive });
+    // 체력을 채우려면 한 번 쓰러뜨린다(다음 검사는 체력 100인 표적이어야 한다)
+    const legsFinish = await shootPart(t, page, 'sr_bolt', 'body');
+    t.check(!!legsFinish.kill, '다리를 맞은 표적은 다음 발에 쓰러진다', legsFinish.damage);
+    await readyTarget(page, far);
+    for (const part of ['body', 'head']) {
       const r = await shootPart(t, page, 'sr_bolt', part);
       t.check(r.damage && r.damage.part === part && r.damage.amount === 100 && !r.damage.halfShot, `SK-7 ${part}: 체력 100이 한 번에 닳는다`, r.damage);
       t.check(r.kill && !r.kill.halfShot, `SK-7 ${part} 1발 킬`, r.kill);

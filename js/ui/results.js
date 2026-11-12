@@ -174,6 +174,47 @@ export function createResults(ctx) {
         : h('tr', {}, h('td', { colspan: 5, class: 'sk-sb-empty', text: '기록 없음' })))));
   }
 
+  // ---------- 좀비 물량 막기 ----------
+  const fmtMs = (ms) => { const s = Math.max(0, Math.floor(num(ms, 0) / 1000)); return `${Math.floor(s / 60)}분 ${String(s % 60).padStart(2, '0')}초`; };
+  function renderZombie(p) {
+    const stage = Math.max(1, Math.floor(num(p.stage, 1)));
+    const cleared = Math.max(0, Math.floor(num(p.cleared, stage - 1)));
+    const best = Math.max(0, Math.floor(num(p.best, 0)));
+    el.dataset.winner = 'zombie';
+    setText(kicker, 'ZOMBIE HOLDOUT');
+    setText(titleEl, `🧟 스테이지 ${stage}까지 버텼어요`);
+    setText(scoreEl, cleared ? `${cleared}스테이지 클리어 · 생존 ${fmtMs(p.ms)}` : `생존 ${fmtMs(p.ms)}`);
+    const m = p.mapName ? { name: p.mapName } : mapInfo(ctx.maps, p.maps, p.mapId);
+    setText(verdict, [p.newBest ? '🏆 내 최고 기록!' : best ? `내 최고 ${best}스테이지` : '', m && m.name].filter(Boolean).join(' · '));
+    // 고른 카드(내 것): 왼쪽 칸 · 기록 요약: 오른쪽 칸
+    const cards = Array.isArray(p.cards) ? p.cards : [];
+    rounds.replaceChildren(...(cards.length ? cards.map((c) => h('li', { class: 'sk-res-round sk-res-card', title: c.desc || null, style: { '--cd-color': c.color || '#c9d4e0' } },
+      h('span', { class: 'sk-res-rn', text: c.icon || '🃏' }), h('span', { class: 'sk-res-rw', text: c.name }), c.n > 1 ? h('span', { class: 'sk-res-reason', text: `×${c.n}` }) : null))
+      : [h('li', { class: 'sk-res-round', text: '고른 카드가 없어요.' })]));
+    const players = (Array.isArray(p.players) ? p.players : []).slice().sort((a, b) => num(b.kills) - num(a.kills));
+    const me = players.find((x) => x.me) || players[0];
+    mvpBox.replaceChildren(
+      h('h2', { class: 'sk-panel-title', text: '내 기록' }),
+      me ? h('dl', { class: 'sk-mvp-stats' },
+        h('div', {}, h('dt', { text: '처치' }), h('dd', { text: num(me.kills) | 0 })),
+        h('div', {}, h('dt', { text: '보스' }), h('dd', { text: num(me.boss) | 0 })),
+        h('div', {}, h('dt', { text: '헤드샷' }), h('dd', { text: num(me.head) | 0 })),
+        h('div', {}, h('dt', { text: '피해' }), h('dd', { text: (num(me.damage) | 0).toLocaleString('ko-KR') })),
+        h('div', {}, h('dt', { text: '쓰러짐' }), h('dd', { text: num(me.downs) | 0 }))) : h('p', { class: 'sk-set-hint', text: '기록이 없어요.' }));
+    setText(tableTitle, '함께한 사람');
+    table.replaceChildren(h('table', { class: 'sk-sb-table' },
+      h('thead', {}, h('tr', {}, ['이름', '처치', '헤드샷', '보스', '피해', '쓰러짐', '카드'].map((t, i) => h('th', { scope: 'col', class: i ? 'num' : '', text: t })))),
+      h('tbody', {}, players.length ? players.map((x) => h('tr', { class: x.me ? 'is-me' : '' },
+        h('th', { scope: 'row', class: 'sk-sb-name' }, h('span', { text: x.name || '플레이어' }), x.me ? h('span', { class: 'sk-tag', text: '나' }) : null),
+        h('td', { class: 'num', text: num(x.kills) | 0 }),
+        h('td', { class: 'num', text: num(x.head) | 0 }),
+        h('td', { class: 'num', text: num(x.boss) | 0 }),
+        h('td', { class: 'num', text: (num(x.damage) | 0).toLocaleString('ko-KR') }),
+        h('td', { class: 'num', text: num(x.downs) | 0 }),
+        h('td', { class: 'num', text: num(x.cards) | 0 })))
+        : h('tr', {}, h('td', { colspan: 7, class: 'sk-sb-empty', text: '기록 없음' })))));
+  }
+
   function render(p) {
     renderReward(p.reward);
     const mode = modeKey(p.mode);
@@ -185,6 +226,13 @@ export function createResults(ctx) {
     setText(lobbyBtn, p.lobbyLabel || '로비로');
     lobbyBtn.hidden = p.lobbyLabel === false;
     if (ffa) { renderFfa(p); return; }
+    if (mode === 'zombie') {
+      const head = teamGrid.querySelector('.sk-panel-title');
+      if (head) setText(head, '고른 카드');
+      renderZombie(p);
+      return;
+    }
+    { const head = teamGrid.querySelector('.sk-panel-title'); if (head) setText(head, '라운드 기록'); }
     setText(kicker, mode === 'bomb' ? 'BOMB MISSION' : 'MATCH RESULT');
     setText(tableTitle, '개인 기록');
     renderTeam(p, mode === 'bomb');

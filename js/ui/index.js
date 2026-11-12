@@ -22,15 +22,17 @@ import { createPause } from './pause.js';
 import { createEmotes, emoteIndexAt, EMOTE_WHEEL } from './emotes.js';
 import { createChat } from './chat.js';
 import { createNoticeBanner } from './notice.js';
+import { createHordeHud } from './horde.js';
+import { createCardPicker } from './cards.js';
 import { NICKNAME_MAX, cleanNickname } from '../account/nickname.js';
 
 export { relativeAngle, DEFAULT_SETTINGS, emoteIndexAt, EMOTE_WHEEL };
 
-export const SCREENS = Object.freeze(['menu', 'nickname', 'mypage', 'shop', 'lobby', 'room', 'loadout', 'hud', 'chat', 'emotes', 'scoreboard', 'results', 'pause']);
+export const SCREENS = Object.freeze(['menu', 'nickname', 'mypage', 'shop', 'lobby', 'room', 'loadout', 'hud', 'horde', 'cards', 'chat', 'emotes', 'scoreboard', 'results', 'pause']);
 const PAGES = ['menu', 'mypage', 'shop', 'lobby', 'room', 'results']; // 서로 배타적인 전체 화면
-const GAME_LAYERS = ['hud', 'chat', 'emotes', 'loadout', 'pause', 'scoreboard']; // 게임 중 레이어
-const CURSOR_SCREENS = ['menu', 'nickname', 'mypage', 'shop', 'lobby', 'room', 'loadout', 'results', 'pause']; // 커서가 필요한 화면(emotes는 아님)
-const Z_ORDER = ['hud', 'chat', 'emotes', 'scoreboard', 'loadout', 'pause', 'results', 'room', 'lobby', 'shop', 'mypage', 'menu', 'nickname']; // 아래 → 위
+const GAME_LAYERS = ['hud', 'horde', 'cards', 'chat', 'emotes', 'loadout', 'pause', 'scoreboard']; // 게임 중 레이어
+const CURSOR_SCREENS = ['menu', 'nickname', 'mypage', 'shop', 'lobby', 'room', 'loadout', 'cards', 'results', 'pause']; // 커서가 필요한 화면(emotes는 아님)
+const Z_ORDER = ['hud', 'horde', 'chat', 'emotes', 'scoreboard', 'loadout', 'cards', 'pause', 'results', 'room', 'lobby', 'shop', 'mypage', 'menu', 'nickname']; // 아래 → 위
 const ACCOUNT_SCREENS = ['menu', 'nickname', 'mypage', 'shop', 'loadout']; // 계정이 바뀌면 다시 그리는 화면
 
 const cleanName = (n) => cleanNickname(n).slice(0, NICKNAME_MAX);
@@ -136,6 +138,8 @@ export function createUI(rootEl, options = {}) {
     room: createRoom(ctx),
     loadout: createLoadout(ctx),
     hud: createHud(ctx),
+    horde: createHordeHud(ctx),
+    cards: createCardPicker(ctx),
     chat: createChat(ctx),
     emotes: createEmotes(ctx),
     scoreboard: createScoreboard(ctx),
@@ -213,7 +217,7 @@ export function createUI(rootEl, options = {}) {
     const s = get(name);
     if (!s) return api;
     s.hide();
-    if (name === 'hud') { scope.set(0); screens.emotes.hide(); screens.chat.hide(); }
+    if (name === 'hud') { scope.set(0); screens.emotes.hide(); screens.chat.hide(); screens.horde.hide(); screens.cards.hide(); }
     if (name === 'nickname') setGateBlocking(false);
     refreshCursor();
     return api;

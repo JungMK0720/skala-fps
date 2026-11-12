@@ -190,7 +190,9 @@ describe('모드: 폭파 미션', () => {
     assert.equal(modeLabel('bomb'), '폭파 미션 · 5판 3선승');
     assert.equal(modeLabel('team'), '팀전 · 5판 3선승');
     assert.equal(modeLabel('ffa', { killTarget: 15 }), '개인전 · 15킬');
-    assert.deepEqual(MODE_IDS, ['team', 'ffa', 'bomb']);
+    assert.deepEqual(MODE_IDS, ['team', 'ffa', 'bomb', 'zombie']);
+    assert.equal(MODE_NAME.zombie, '좀비 물량 막기');
+    assert.equal(modeLabel('zombie'), '좀비 물량 막기 · 최대 4명');
   });
 
   test('진영: 공격 팀과 같으면 attack, 다르면 defense, 모르면 빈 값', () => {

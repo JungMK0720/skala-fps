@@ -37,7 +37,7 @@
  *   머리 위가 막혀 있으면 키를 떼도 앉은 채 유지. 앉은 채 Space = 일어설 수 있으면 일어서며 점프(착지 뒤 키가
  *   눌려 있으면 다시 앉음), 막혀 있으면 점프하지 않음. 바뀔 때 bus 'player:crouch' { crouch }.
  */
-import { PLAYER, EMOTE_BLEND, emoteById } from '../core/consts.js';
+import { PLAYER, MOVE, EMOTE_BLEND, emoteById } from '../core/consts.js';
 import { raycastWorld, canStand } from './physics.js';
 import { moveQuake, resetMoveMemory } from './movement.js';
 import { stepTriggers } from './triggers.js';
@@ -515,6 +515,23 @@ export function createLocalPlayer({ bus, input, camera, getWorld, state: initSta
     snapshot,
     setFrozen(v) { state.frozen = !!v; },
     setSpeedScale(s) { state.speedScale = Number.isFinite(s) && s > 0 ? s : 1; },
+    /**
+     * 이동 상한·점프 배율(좀비 물량 막기 카드). maxSpeed = 수평 속도 상한(MOVE.MAX_SPEED) 배율, jump = 점프 높이 배율.
+     * null이면 기본값으로 돌아간다. 점프 높이는 초속의 제곱에 비례하므로 초속에는 제곱근을 곱한다
+     */
+    setMoveTuning(t) {
+      const ms = t && Number.isFinite(t.maxSpeed) && t.maxSpeed > 0 ? t.maxSpeed : 1;
+      const jh = t && Number.isFinite(t.jump) && t.jump > 0 ? t.jump : 1;
+      moveOpt.move = ms !== 1 ? { ...MOVE, MAX_SPEED: MOVE.MAX_SPEED * ms } : undefined;
+      moveOpt.jumpV = jh !== 1 ? PLAYER.JUMP_V * Math.sqrt(jh) : undefined;
+    },
+    /** 밖에서 미는 힘(보스 돌진·내려찍기). v = [vx, vy, vz] m/s를 지금 속도에 더한다 */
+    push(v) {
+      if (!Array.isArray(v) || !state.alive) return;
+      const [x, y, z] = v.map((n) => (Number.isFinite(+n) ? +n : 0));
+      state.vel[0] += x; state.vel[2] += z;
+      if (y > 0) { state.vel[1] = Math.max(state.vel[1], y); state.onGround = false; }
+    },
     get spawnPoint() { return spawnPoint; },
     /** 카메라용 앉은 자세 비율 0..1 (전환 중 보간) */
     get crouchAmount() { return crouchT; },

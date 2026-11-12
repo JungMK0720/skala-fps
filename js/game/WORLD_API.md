@@ -183,3 +183,23 @@ await world.loadMap(mapId, { mode, ruleset });
 - **모형**: 설치·떨어진 폭탄을 바닥에 그린다. 설치되면 삐 소리(`beepInterval`)에 맞춰 빨간 불이 깜박인다. 떨어진 폭탄은 공격 팀에게만 주황 고리.
 - **이름표**: 폭탄을 든 아군 이름 앞에 💣(내가 공격 팀일 때만). `avatars.add(id, { name, badge: '💣' })`로 상태 표시만 따로 넘긴다(적의 이름표는 이름 없이 상태 표시만, engine/nametag.js).
 - **소리**: `bomb_beep`, `bomb_key`(설치 중), `bomb_armed`, `bomb_defuse`(해체 중), `bomb_defused`, `bomb_pickup`, `bomb_explode`(fx/audio.js, 합성). 폭발 연출은 `fx.explosion`을 크게 두 번.
+
+## 9. 좀비 물량 막기 (MODES.md 13절)
+좀비 시뮬레이션은 방장의 `game/horde/director.js`가 하고, World는 받은 뷰를 그리고(`game/horde/view.js`) 내 사격을 좀비에 맞힌다. 화면 HUD는 `ui/horde.js`, 카드 고르기는 `ui/cards.js`, 연결은 `game/horde/client.js`(멀티·혼자 같이 쓴다).
+
+| 메서드 / 이벤트 | 설명 |
+|---|---|
+| `setMode('zombie')` / `loadMap(mapId, { mode: 'zombie' })` | 모두 블루 팀(`team: 'owner'`) 화면 + 좀비 무리. 상단 팀 점수는 숨긴다. `world.mode === 'zombie'` |
+| `hordePush(view, t)` | 방장 뷰(`applyHordeSnapshot` 결과)를 받은 시각과 함께 넣는다. 좀비·보스·투사체·장판을 시간축으로 보간해 그린다 |
+| `hordeEvent(ev)` | 연출이 필요한 방장 이벤트(skill·chain·enrage) |
+| `setHordePerks(o \| null)` | 카드 효과의 내 화면 몫 `{ mods, speed, maxSpeed, jump, pierce, maxHp }`. `mods`는 `arsenal.setMods`(탄창·연사·재장전·탄퍼짐·반동·예비 배율 등). null이면 기본값 |
+| `slowLocal(mul, ms)` | 비명·얼음 가시·붙잡힘: ms 동안 이동 속도 ×mul(0.2~1) |
+| `pushLocal([vx, vy, vz])` | 보스 돌진·내려찍기에 밀려남 |
+| `refillReserve()` · `refillGrenades()` · `addMagAmmo(n)` · `addReserve(n)` | 카드·처치 보상의 탄약 |
+| 이벤트 `hitClaim` | 좀비를 맞히면 `victimId: 'z<번호>'`. 멀티는 그대로 방장에게, 혼자는 director.claimHit |
+| `horde` (getter) | 좀비 무리 화면(시험·HUD용: `rendered`, `nearest`, `ray` 등) |
+
+- **맞히기**: 사격은 좀비 히트박스(머리·몸·다리)와 맵 벽을 같이 레이캐스트하고 가까운 쪽을 맞힌다. 관통 카드가 있으면 같은 탄(`shotId`)이 뒤 좀비도 맞힌다. 칼·수류탄도 같은 엄폐·거리 규칙이다.
+- **붙잡힘**: 좀비 몸 둘레(0.75 m + 좀비 크기에 따라 0.1~0.3 m) 안이면 이동이 ×0.72. 각 화면이 자기 몸으로 잰다(방장에게 묻지 않는다).
+- **체력**: HUD의 최대 체력은 카드로 늘어난 값(`maxHp`)을 쓴다.
+- **멀티**: 좀비 모드에서는 방장이 매 틱 스냅샷을 보내고(`session.js`), 이동 속도 카드·밀려남 때문에 이동 검사(moveGuard)를 끈다.

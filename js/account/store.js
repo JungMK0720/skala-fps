@@ -13,7 +13,8 @@ import { validateNickname } from './nickname.js';
 export const PROFILE_KEY = 'skalafps.profile.v1';
 export const TOKEN_KEY = 'skalafps.token';
 export const PROFILE_VERSION = 2;
-export const STAT_KEYS = Object.freeze(['kills', 'deaths', 'headshots', 'halfShots', 'matches', 'wins', 'draws', 'knifeKills', 'secondsPlayed']);
+// zombieKills·zombieRuns·zombieBest(도달한 가장 높은 스테이지)는 좀비 물량 막기 기록이다. 사람 킬(kills)과 따로 센다
+export const STAT_KEYS = Object.freeze(['kills', 'deaths', 'headshots', 'halfShots', 'matches', 'wins', 'draws', 'knifeKills', 'secondsPlayed', 'zombieKills', 'zombieRuns', 'zombieBest']);
 /** 장비 칸 → 무기 정의의 slot 번호 */
 export const LOADOUT_SLOTS = Object.freeze({ primary: 1, secondary: 2, melee: 3 });
 /** supabase/schema.sql의 fps_save_profile과 같은 상한 */

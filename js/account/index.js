@@ -27,14 +27,20 @@
  *                                 열리기 전 buy(캐릭터)는 { ok:false, reason:'closed' }다. 기본 캐릭터와 이미 가진 캐릭터 장착은 그대로 된다
  *   recordMatch의 summary에 knifeKills를 넣으면 전적에 쌓인다(선택).
  *   account.spendPoints(n)        물건이 아닌 곳에 n 포인트를 쓴다(개인전 즉시 부활). → { ok, spent, points, reason? }, 모자라면 reason 'points'
+ *   account.feedbackBox           건의함: 'open' | 'checking'(묻는 중·네트워크 실패, 보내 보면 안다) | 'closed'(서버 없음·서버가 건의함을 모름)
+ *                                 fps_features의 feedback:true로 연다. 규칙·문구는 ./feedback.js, 설계는 docs/FEEDBACK.md
+ *   await account.sendFeedback({ kind, body, info? })  → { ok, id?, reason?, message }. reason: offline | kind | short | long | closed |
+ *                                 nickname | duplicate | rate | blocked | invalid | network. message는 화면에 그대로 보여 줘도 된다
+ *   await account.myFeedback()    → { ok, items, offline, reason? }  내가 보낸 건의와 운영자 답(최근 10개, feedback.js normalizeFeedbackItems 모양)
  *
  * 닉네임 게이트는 'account:change'도 들어야 한다. 프로필을 잃어도 토큰이 남아 있으면 동기화가 끝난 뒤 닉네임이 돌아온다.
  */
 import { getDef } from '../weapons/defs.js';
 import { EMOTE_WHEEL } from '../core/consts.js';
-import { clampPoints, isAvatarId, isEmoteId, matchReward, priceOf, readSummary, secretReward } from './economy.js';
+import { clampPoints, isAvatarId, isEmoteId, matchReward, priceOf, readSummary, secretReward, readZombieSummary, zombieReward } from './economy.js';
 import { nicknameKey, validateNickname } from './nickname.js';
 import { createRemote } from './remote.js';
+import { FEEDBACK_MESSAGES, feedbackInfo, feedbackResult, normalizeFeedbackItems, validateFeedback } from './feedback.js';
 import {
   LOADOUT_SLOTS, PROFILE_KEY, createStore, defaultProfile, isSecretId, mergeProfiles, normalizeOwned,
   normalizeProfile, normalizeStats, sameProfile, sameProgress, secretEntry
@@ -100,6 +106,7 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
   let queue = Promise.resolve();
   let disposed = false;
   let avatarShop = remote.enabled ? 'checking' : 'open';      // 캐릭터 구매를 열었는가(서버 기능 확인)
+  let feedbackBox = remote.enabled ? 'checking' : 'closed';   // 건의함을 쓸 수 있는가(서버 기능 확인)
   let featureCheck = null;
 
   // ───────────── 내부 상태 ─────────────
@@ -197,7 +204,7 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
 
   /** 네트워크가 돌아왔을 수 있을 때 못 끝낸 일을 이어서 한다 */
   function resumeRemote() {
-    if (avatarShop !== 'open') checkFeatures();
+    if (avatarShop !== 'open' || feedbackBox !== 'open') checkFeatures();
     if (!synced) return syncFromRemote();
     if (pendingClaim && !conflictName) retryNickname();
     return flush();
@@ -340,22 +347,63 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
    * 캐릭터는 서버 가격표가 캐릭터를 알 때만 판다. schema.sql을 다시 실행하기 전의 서버(fps_save_profile)는 모르는 물건을 버리지만
    * 줄어든 포인트는 받아들이므로, 그 사이에 사면 포인트만 잃는다. 그래서 fps_features가 avatars:true라고 답할 때까지 닫아 둔다.
    * 404(함수 없음), 어떤 오류, 값 없음은 모두 닫힘이다. 네트워크가 돌아오면(resumeRemote) 다시 묻는다.
+   * 건의함(feedbackBox)은 답이 오면 feedback:true일 때만 열고, 404면 닫고, 네트워크 실패면 그대로 둔다(보내 보면 안다).
    */
   function checkFeatures() {
-    if (!remote.enabled || disposed || avatarShop === 'open') return Promise.resolve(avatarShop === 'open');
+    if (!remote.enabled || disposed || (avatarShop === 'open' && feedbackBox === 'open')) return Promise.resolve(avatarShop === 'open');
     if (!featureCheck) {
       featureCheck = remote.features()
         .then((r) => {
-          const next = r && r.ok === true && r.avatars === true ? 'open' : 'closed';
-          if (!disposed && next !== avatarShop) {
-            avatarShop = next;
+          const shop = avatarShop === 'open' || (r && r.ok === true && r.avatars === true) ? 'open' : 'closed';
+          const box = r && r.ok === true ? (r.feedback === true ? 'open' : 'closed') : (r && r.status === 404 ? 'closed' : feedbackBox);
+          if (!disposed && (shop !== avatarShop || box !== feedbackBox)) {
+            avatarShop = shop;
+            feedbackBox = box;
             announce();
           }
-          return next === 'open';
+          return shop === 'open';
         })
         .finally(() => { featureCheck = null; });
     }
     return featureCheck;
+  }
+
+  // ───────────── 건의함 (docs/FEEDBACK.md) ─────────────
+  function setFeedbackBox(next) {
+    if (disposed || next === feedbackBox) return;
+    feedbackBox = next;
+    announce();
+  }
+
+  async function sendFeedback(input = {}) {
+    if (!remote.enabled) return { ok: false, reason: 'offline', message: FEEDBACK_MESSAGES.offline };
+    const v = validateFeedback(input || {});
+    if (!v.ok) return v;
+    // 닫혀 있으면 소유자가 그 사이 schema.sql을 실행했을 수 있어 한 번 더 묻는다
+    if (feedbackBox === 'closed') await checkFeatures();
+    if (feedbackBox === 'closed') return { ok: false, reason: 'closed', message: FEEDBACK_MESSAGES.closed };
+    const r = await remote.sendFeedback(store.token(), { kind: v.kind, body: v.body, info: feedbackInfo(input && input.info) });
+    const out = feedbackResult(r);
+    if (out.ok) setFeedbackBox('open');
+    else if (out.reason === 'closed') setFeedbackBox('closed');
+    return out;
+  }
+
+  async function myFeedback() {
+    if (!remote.enabled) return { ok: false, items: [], offline: true, reason: 'offline' };
+    if (feedbackBox === 'closed') return { ok: false, items: [], offline: false, reason: 'closed' };
+    const r = await remote.myFeedback(store.token());
+    if (r && r.ok === true) {
+      setFeedbackBox('open');
+      return { ok: true, items: normalizeFeedbackItems(r.items), offline: false };
+    }
+    if (r && r.status === 404) {
+      setFeedbackBox('closed');
+      return { ok: false, items: [], offline: false, reason: 'closed' };
+    }
+    // 닉네임을 아직 서버에 등록하지 않았으면 보낸 글도 없다
+    if (r && (r.error === 'NOT_FOUND' || r.error === 'TOKEN_INVALID')) return { ok: true, items: [], offline: false };
+    return { ok: false, items: [], offline: true, reason: 'network' };
   }
 
   // ───────────── 상점 · 장비 ─────────────
@@ -433,6 +481,28 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     profile.points = clampPoints(profile.points + gained);
     commit();
     return { gained, breakdown, points: profile.points };
+  }
+
+  /**
+   * 좀비 물량 막기 한 판을 기록한다(판마다 한 번). 좀비 처치는 사람 킬(kills)과 따로 zombieKills에 쌓고, 도달한 스테이지의 최고 기록을 남긴다.
+   * summary = { online, stage, cleared, bossKills, kills, headshots, seconds } → { gained, breakdown, points, best, newBest }
+   */
+  function recordZombie(summary) {
+    const s = readZombieSummary(summary);
+    const { gained, breakdown } = zombieReward(s);
+    const t = profile.stats;
+    const before = t.zombieBest || 0;
+    profile.stats = normalizeStats({
+      ...t,
+      zombieKills: (t.zombieKills || 0) + s.kills,
+      zombieRuns: (t.zombieRuns || 0) + 1,
+      zombieBest: Math.max(before, s.stage),
+      headshots: t.headshots + s.headshots,
+      secondsPlayed: t.secondsPlayed + s.seconds
+    });
+    profile.points = clampPoints(profile.points + gained);
+    commit();
+    return { gained, breakdown, points: profile.points, best: profile.stats.zombieBest, newBest: s.stage > before };
   }
 
   /**
@@ -538,6 +608,7 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     get emoteWheel() { return readProfile().loadout.emotes; },
     get avatar() { return readProfile().loadout.avatar; },
     get avatarShop() { return avatarShop; },
+    get feedbackBox() { return feedbackBox; },
     get remoteEnabled() { return remote.enabled; },
     get nicknamePending() { return !!pendingClaim; },
     get nicknameConflict() { return conflictName; },
@@ -552,12 +623,15 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     equipAvatar,
     isOwned,
     recordMatch,
+    recordZombie,
     spendPoints,
     findSecret,
     resetLocal,
     syncFromRemote,
     flush: () => flush(),
     topPlayers,
+    sendFeedback,
+    myFeedback,
     dispose
   });
 }

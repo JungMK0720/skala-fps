@@ -9,7 +9,7 @@
 import { h, btn, setText, num, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, modeLabel, MODE_ICON, MODE_NAME, SIDE_NAME, bombSide } from './dom.js';
 import { makeScreen, mapCard, createChoiceRow, createStepper } from './parts.js';
 import { mapList, mapInfo } from './icons.js';
-import { RULE_CHOICES, MODE_IDS, mapsForMode, missionMaps, ruleForMode } from './lobby.js';
+import { RULE_CHOICES, MODE_IDS, ZOMBIE_MAX, mapsForMode, missionMaps, ruleForMode } from './lobby.js';
 import { RULESETS, normalizeRuleset, FFA_KILLS, FFA_KILL_PRESETS, normalizeKillTarget } from '../game/modes.js';
 
 const CHAT_MAX = 30;
@@ -66,11 +66,12 @@ export function createRoom(ctx) {
   // ---------- 개인전 명단(팀 버튼 없음) ----------
   const ffaCount = h('span', { class: 'sk-team-count' });
   const ffaList = h('ul', { class: 'sk-team-list', 'aria-label': '개인전 명단' });
+  const ffaEmoji = h('span', { class: 'sk-team-emoji', text: MODE_ICON.ffa, 'aria-hidden': 'true' });
+  const ffaName = h('span', { text: '개인전' });
+  const ffaSub = h('small', { text: '· 모두가 적' });
   const ffaCol = h('section', { class: 'sk-team sk-team--ffa sk-steel', hidden: true },
     h('header', { class: 'sk-team-head' },
-      h('h2', { class: 'sk-team-name' },
-        h('span', { class: 'sk-team-emoji', text: MODE_ICON.ffa, 'aria-hidden': 'true' }),
-        h('span', { text: '개인전' }), h('small', { text: '· 모두가 적' })),
+      h('h2', { class: 'sk-team-name' }, ffaEmoji, ffaName, ffaSub),
       ffaCount),
     ffaList);
 
@@ -86,6 +87,7 @@ export function createRoom(ctx) {
     const me = players.find((x) => x.me);
     if (!me || !me.host || p.starting || modeKey(m) === modeKey(p.mode)) return;
     if (modeKey(m) === 'bomb' && !hasMissionMap()) return; // 미션 맵이 없으면 폭파 미션을 고를 수 없다
+    if (modeKey(m) === 'zombie' && players.length > ZOMBIE_MAX) return; // 좀비 방은 4명까지
     screen.update({ mode: modeKey(m) }); // 즉시 반영, 다음 update가 오면 그 값이 우선
     ctx.emit('room:mode', { mode: modeKey(m) });
   }
@@ -106,7 +108,7 @@ export function createRoom(ctx) {
   function pickRule(id) {
     const me = normPlayers(p).find((x) => x.me);
     const next = normalizeRuleset(id);
-    if (!me || !me.host || p.starting || modeKey(p.mode) === 'bomb' || next === normalizeRuleset(p.ruleset)) return;
+    if (!me || !me.host || p.starting || modeKey(p.mode) === 'bomb' || modeKey(p.mode) === 'zombie' || next === normalizeRuleset(p.ruleset)) return;
     screen.update({ ruleset: next }); // 즉시 반영, 다음 update가 오면 그 값이 우선
     ctx.emit('room:ruleset', { ruleset: next });
   }
@@ -231,15 +233,21 @@ export function createRoom(ctx) {
     const max = Math.max(2, num(p.max, 8));
     const cap = Math.max(1, num(p.teamMax, Math.ceil(max / 2)));
     const mode = modeKey(p.mode);
-    const ffa = mode === 'ffa';
+    const zombie = mode === 'zombie';
+    const ffa = mode === 'ffa' || zombie;   // 좀비 방도 팀 칼럼 없이 한 줄 명단이다(모두 같은 편)
     const bomb = mode === 'bomb';
+    const fixedRule = bomb || zombie;
     const rs = ruleForMode(mode, p.ruleset);
     const kills = normalizeKillTarget(p.killTarget);
 
     setText(title, p.name || '대기실');
     setText(ruleChip, `${RULESETS[rs].icon} ${RULESETS[rs].name}`);
     setText(modeChip, `${MODE_ICON[mode]} ${modeLabel(mode, { killTarget: kills })}`);
-    modeChip.classList.toggle('is-ffa', ffa);
+    modeChip.classList.toggle('is-ffa', mode === 'ffa');
+    modeChip.classList.toggle('is-zombie', zombie);
+    setText(ffaEmoji, zombie ? MODE_ICON.zombie : MODE_ICON.ffa);
+    setText(ffaName, zombie ? '함께 막는 사람' : '개인전');
+    setText(ffaSub, zombie ? '· 모두 같은 편' : '· 모두가 적');
     modeChip.classList.toggle('is-bomb', bomb);
     const m = mapInfo(ctx.maps, p.maps, p.mapId);
     setText(mapChip, `🗺️ ${m ? m.name : '맵 미정'}`);
@@ -287,20 +295,21 @@ export function createRoom(ctx) {
       const on = id === mode;
       b.classList.toggle('is-on', on);
       b.setAttribute('aria-checked', on ? 'true' : 'false');
-      b.disabled = !!p.starting || (id === 'bomb' && !missionReady && !on);
+      b.disabled = !!p.starting || (id === 'bomb' && !missionReady && !on) || (id === 'zombie' && !on && players.length > ZOMBIE_MAX);
       if (id === 'bomb') b.title = missionReady ? '' : '폭파 미션을 할 수 있는 맵이 아직 없어요';
+      if (id === 'zombie') b.title = players.length > ZOMBIE_MAX ? `좀비 물량 막기는 ${ZOMBIE_MAX}명까지예요` : '';
     }
     modePick.hidden = !isHost;
     modeChip.title = isHost ? '' : '모드는 방장만 바꿀 수 있어요';
 
     // 규칙: 방장만 바꾼다. 다른 사람은 설명과 칩으로 확인. 폭파 미션은 클래식뿐이라 고르는 버튼이 없다
-    rulePick.el.hidden = !isHost || bomb;
-    if (isHost && !bomb) rulePick.set(RULE_CHOICES, rs);
-    if (bomb) setText(ruleDesc, '폭파 미션은 클래식 규칙만 써요');
+    rulePick.el.hidden = !isHost || fixedRule;
+    if (isHost && !fixedRule) rulePick.set(RULE_CHOICES, rs);
+    if (fixedRule) setText(ruleDesc, `${MODE_NAME[mode]}은 클래식 규칙만 써요${zombie ? ' · 탄은 스테이지 사이에 채워지지 않고 예비 탄이 3배예요' : ''}`);
     else setText(ruleDesc, isHost ? RULESETS[rs].desc : `${RULESETS[rs].desc} · 규칙은 방장만 바꿀 수 있어요.`);
 
     // 목표 킬: 개인전에서만 보인다. 고르는 칸은 방장에게만
-    killBox.hidden = !ffa;
+    killBox.hidden = mode !== 'ffa';
     killPick.el.hidden = !isHost;
     killPick.set(kills, { disabled: !isHost || !!p.starting });
     setText(killDesc, isHost
@@ -325,7 +334,9 @@ export function createRoom(ctx) {
     //   개인전: 2명 이상 + 방장 외 전원 준비
     const notReady = players.filter((x) => !x.host && !x.ready);
     let reason = '';
-    if (ffa) {
+    if (zombie) {
+      if (players.length > ZOMBIE_MAX) reason = `좀비 물량 막기는 ${ZOMBIE_MAX}명까지예요.`;
+    } else if (ffa) {
       if (players.length < 2) reason = '2명 이상 있어야 시작할 수 있어요.';
     } else if (byTeam.owner.length < 1 || byTeam.charterer.length < 1) reason = '양 팀에 1명 이상 있어야 시작할 수 있어요.';
     else if (unassigned.length) reason = `팀 배정을 기다리는 플레이어가 ${unassigned.length}명 있어요.`;
