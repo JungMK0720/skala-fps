@@ -129,3 +129,4 @@ LN-3·VX-3·BX-12·S-3·H-50·P-9·칼·수류탄은 그대로다. 각자 약점
 
 - `node --test tests/weapons.test.mjs`(무기 표), `tests/combat.test.mjs`(부위·거리 피해), `npm run qa -- --only damage,weapons`(실제 화면의 부위별 피해·사격).
 - 좀비 물량 막기는 이 표를 그대로 쓰되, 예비 탄창이 다른 모드의 3배이고 프리미엄 총도 예비가 정해져 있다(`js/game/horde/rules.js`의 `hordeAmmo`, `docs/MODES.md` 13절).
+  모든 무기를 N으로 언제든 바꿀 수 있지만 한 번 쓴 총은 남은 탄 그대로 돌아오므로 같은 총을 바꿔 들어 탄을 다시 채울 수는 없다(새 총은 목숨마다 한 번 가득). 그 뒤의 탄은 좀비가 떨어뜨리는 보급품(탄창·탄약 상자, `LOOT_TABLE`)과 카드로 채운다.

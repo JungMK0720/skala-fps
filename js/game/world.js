@@ -185,7 +185,8 @@ function buildWorld(ctx, opts) {
 
   /* ---------- 상태 ---------- */
   // loadout = 이 규칙에서 직접 고른 무기(pickSlot). 아직 안 골랐으면 null이고 계정 장비를 쓴다
-  const local = { id: String(ctx.session.id), name: String(ctx.session.name || ''), team: 'owner', alive: false, spawned: false, deadAt: 0, loadout: null, ownDrops: new Set() };
+  // ammoBank: 좀비 물량 막기에서 이번 목숨 동안 바꿔 넣었던 총의 남은 탄(무기 id → { mag, reserve }). 다시 들면 그 탄 그대로다
+  const local = { id: String(ctx.session.id), name: String(ctx.session.name || ''), team: 'owner', alive: false, spawned: false, deadAt: 0, loadout: null, ownDrops: new Set(), ammoBank: new Map() };
   const spec = { id: null, idx: 0, yaw: 0, name: '' };
   const actors = new Map();
   const rnd = { phase: null, round: 0, score: { owner: 0, charterer: 0 }, timeLeftMs: null, elapsed: 0, alive: null, teamSize: null, target: 3, bestOf: 5, ffa: null, attack: null };
@@ -393,15 +394,19 @@ function buildWorld(ctx, opts) {
   /* ---------- 무기 교체(라운드가 시작되기 전 대기 시간) ----------
    * 연습장·세션이 대기 시간이 시작될 때 openSwap으로 알린다. HUD에 "N 을 눌러 무기 교체!"가 뜨고, N(휴대폰은 그 안내를 누름)으로
    * 무기 목록(ui 'loadout'의 swap 모드)을 여닫는다. 무기를 누르면 바로 바뀌고 목록이 닫힌다('loadout:pick' → setLocalLoadout).
-   * 남은 시간은 World 시각으로 잰다(연습장 일시정지 중에는 멈춘다). 시간이 끝나거나 closeSwap이 오면 안내와 목록을 치운다. */
-  let swap = null;                                // { endAt: clock 기준 초, props: 로드아웃 화면에 넘길 값 }
+   * 남은 시간은 World 시각으로 잰다(연습장 일시정지 중에는 멈춘다). 시간이 끝나거나 closeSwap이 오면 안내와 목록을 치운다.
+   * free면 기한이 없다(좀비 물량 막기: 언제든 N으로 연다). 그때 HUD 안내는 prompt가 켜져 있을 때만 띄운다(setSwapPrompt). */
+  let swap = null;                                // { endAt: clock 기준 초, free, prompt, props: 로드아웃 화면에 넘길 값 }
   const swapLeft = () => (swap ? swap.endAt - clock : 0);
   function openSwap(o = {}) {
     closeSwap();
+    const free = !!(o && o.free);
     const secs = num(o && o.seconds, 0);
-    if (!active || !ui || !(secs > 0)) return;
-    swap = { endAt: clock + secs, props: { ...o } };
+    if (!active || !ui || (!free && !(secs > 0))) return;
+    swap = { endAt: free ? Infinity : clock + secs, free, prompt: !(o && o.prompt === false), props: { ...o } };
   }
+  /** 기한 없는 교체(free)의 HUD 안내를 켜고 끈다. N은 그대로 된다 */
+  function setSwapPrompt(on) { if (swap) swap.prompt = !!on; }
   function closeSwap() {
     if (!swap) return;
     const listed = !!(ui && ui.isVisible('loadout'));
@@ -417,8 +422,12 @@ function buildWorld(ctx, opts) {
       return;
     }
     const left = swapLeft();
-    if (left < 0.4 || ui.isVisible('pause')) return;
-    ui.show('loadout', { ...swap.props, swap: true, compact: false, seconds: Math.round(left * 10) / 10, selected: local.loadout || swap.props.selected });
+    // 카드 고르기 화면이 떠 있으면 그 아래에 목록이 가려지므로 열지 않는다(카드를 고른 뒤 연다)
+    if ((!swap.free && left < 0.4) || ui.isVisible('pause') || ui.isVisible('cards')) return;
+    ui.show('loadout', {
+      ...swap.props, swap: true, compact: false, seconds: swap.free ? 0 : Math.round(left * 10) / 10,
+      selected: (swap.free ? arsenal.getLoadout().primary : local.loadout) || swap.props.selected, current: arsenal.getLoadout()
+    });
   }
   offs.push(bus.on('input:loadout', () => { if (active) toggleSwapList(); }));
 
@@ -645,6 +654,7 @@ function buildWorld(ctx, opts) {
     local.alive = true;
     local.spawned = true;
     local.ownDrops.clear();
+    local.ammoBank.clear();
     spec.id = null; spec.name = '';
     latch.fire = latch.rmb = latch.reload = false; latch.slot = null; latch.wheel = 0;
     vm.setVisible(true);
@@ -919,7 +929,16 @@ function buildWorld(ctx, opts) {
     const key = def ? SLOT_KEYS[def.slot] : null;
     if (!key || !isWeaponAllowed(ruleset, id)) return false;
     if (pickableWeapons(ruleset).includes(id)) local.loadout = id;
-    arsenal.setLoadout({ [key]: id });
+    if (mode === 'zombie' && local.spawned && local.alive) {
+      // 좀비 물량 막기는 언제든 바꿀 수 있는 대신 탄창이 이어진다: 내려놓는 총의 남은 탄을 기억하고, 다시 들면 그 탄 그대로 준다
+      const old = arsenal.getLoadout()[key];
+      if (old !== id) {
+        const a = old ? arsenal.getAmmo(old) : null;
+        if (a && a.kind === 'mag') local.ammoBank.set(old, { mag: a.mag, reserve: a.reserve });
+        arsenal.equipWith(id, local.ammoBank.get(id));
+        play('switch', { gain: 0.6 });
+      }
+    } else arsenal.setLoadout({ [key]: id });
     settleArsenal();
     return true;
   }
@@ -1717,9 +1736,9 @@ function buildWorld(ctx, opts) {
     // 무기 교체 안내: 대기 시간이 끝나면 치운다. 죽었거나 관전 중이면 띄우지 않는다
     if (swap && swapLeft() <= 0) closeSwap();
     // 목록이 열려 있는 동안에는 목록의 제목과 남은 시간이 대신 알려 주므로 안내를 감춘다
-    const prompt = !!swap && alive && !ui.isVisible('loadout');
-    const held = prompt ? getDef(local.loadout || arsenal.getWeapon().id) : null;
-    p.swap = prompt ? { seconds: swapLeft(), weaponName: held ? held.short || held.name : '' } : null;
+    const prompt = !!swap && swap.prompt && alive && !ui.isVisible('loadout');
+    const held = prompt ? getDef(swap.free ? arsenal.getWeapon().id : local.loadout || arsenal.getWeapon().id) : null;
+    p.swap = prompt ? { seconds: swap.free ? 0 : swapLeft(), weaponName: held ? held.short || held.name : '', note: swap.props.note || '' } : null;
     p.spectate = !alive && local.spawned ? spec.name : '';
     ui.hud.set(p);
   }
@@ -1783,6 +1802,8 @@ function buildWorld(ctx, opts) {
      * o = { seconds, weapons, ruleset, selected, round, title? } — seconds 뒤에 저절로 꺼지고, 나머지는 로드아웃 화면에 그대로 넘긴다
      */
     openSwap,
+    /** 기한 없는 교체(openSwap({ free:true }))의 HUD 안내 켜기·끄기 */
+    setSwapPrompt,
     /** 무기 교체를 끈다(라운드 시작·라운드 끝). 열려 있던 목록도 닫는다 */
     closeSwap,
     unloadMap,
@@ -1830,7 +1851,10 @@ function buildWorld(ctx, opts) {
     refillReserve: () => arsenal.refillReserve(),
     refillGrenades: () => arsenal.refillGrenades(),
     addMagAmmo: (n) => arsenal.addMagAmmo(n),
-    addReserve: (n) => arsenal.addReserve(n),
+    /** 총의 예비 탄에 n발(최대까지, id를 안 주면 든 총) → 더한 수 */
+    addReserve: (n, id) => arsenal.addReserve(n, id),
+    /** 수류탄 n개(최대까지) → 지금 개수 */
+    addGrenades: (n = 1) => arsenal.giveGrenade(n),
     /** 좀비 무리 화면(시험·HUD용) */
     get horde() { return horde; },
     /** 폭파 미션(8절): 방장 상태 { attack, state, carrier, carrierName?, actorName?, pos, site, explodeInMs, action, phase } | null, 폭탄 이벤트 하나 */

@@ -1006,6 +1006,34 @@ export function createArsenal(opts = {}) {
     return add;
   }
 
+  /**
+   * 무기 id를 제 칸(주무기·보조·근접)에 넣는다. ammo { mag, reserve }를 주면 그 탄으로(최대를 넘지 않게), 안 주면 새 탄으로 채운다.
+   * 그 칸을 들고 있었으면 새 무기를 바로 꺼낸다. 버려서 빈 칸도 다시 채운다.
+   * 좀비 물량 막기의 무기 교체가 '한 번 쓴 총은 남은 탄 그대로'를 지키려고 쓴다. → 넣었으면 true
+   */
+  function equipWith(id, ammo) {
+    const d = WEAPONS[id];
+    const entry = LOADOUT_KEYS.find(([, , ids]) => ids.includes(id));
+    if (!d || !entry) return false;
+    const slot = entry[1];
+    const old = loadout[slot];
+    const wasEmpty = emptied.has(slot);
+    emptied.delete(slot);
+    loadout[slot] = id;
+    const w = fresh(id);
+    if (ammo && d.mag != null) {
+      const left = (v, max) => (Number.isFinite(v) ? clamp(Math.floor(v), 0, max) : max);
+      w.mag = left(ammo.mag, magOf(id));
+      if (w.reserve !== Infinity) w.reserve = left(ammo.reserve, w.reserve);
+    }
+    inv[id] = w;
+    if (id !== old || wasEmpty) {
+      if (prev === old) prev = id;
+      if (cur === old && !wasEmpty) drawWeapon(id);
+    }
+    return true;
+  }
+
   function setPrimary(id) {
     if (!PRIMARY_IDS.includes(id)) return false;
     replaceSlot(1, id);
@@ -1057,6 +1085,7 @@ export function createArsenal(opts = {}) {
     refillGrenades,
     addMagAmmo,
     addReserve,
+    equipWith,
     getTime: () => time,
     dispose: () => { queue = []; },
   };

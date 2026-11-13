@@ -3,6 +3,8 @@
  * Author: Minkyu Jung
  * Purpose: 로드아웃. 무기 고르기(작은 카드 격자, 숫자키 1~9, 카운트다운)와 부활 대기 중의 compact 패널, 보조·근접 빠른 교체 줄을 보여 준다.
  *          swap이면 라운드 시작 전 대기 시간에 N으로 여닫는 무기 교체 창이다: 무기를 누르면 바로 바뀌고 닫히며, 시간이 끝나면 고르지 않고 닫힌다.
+ *          free면(좀비 물량 막기) 가진 것과 상관없이 모든 무기를 보여 주고, 보조·근접 줄은 지금 든 장비(props.current)를 고른 칸으로 그린다.
+ *          그 줄에서 고르면 'loadout:equip'에 free: true를 붙인다(계정 장비는 바꾸지 않는다).
  *          무기 이름·수치는 무기 정의(defs)에서 읽고 여기서는 표시만 한다. 칼전이면 칼 목록이 그대로 들어온다.
  */
 import { h, setText, isTextField } from './dom.js';
@@ -133,7 +135,18 @@ export function createLoadout(ctx) {
 
   // ---------- 보조·근접 빠른 교체 ----------
   const extraRows = EXTRA_SLOTS.map(([key, slot, label]) => {
-    const row = createChoiceRow({ label: `${label} 바꾸기`, onPick: (id) => ctx.emit('loadout:equip', { slot: key, id }) });
+    const row = createChoiceRow({
+      label: `${label} 바꾸기`,
+      onPick: (id) => {
+        if (p.free) {
+          p.current = { ...(p.current || {}), [key]: id };
+          ctx.emit('loadout:equip', { slot: key, id, free: true });
+          renderExtras();
+          return;
+        }
+        ctx.emit('loadout:equip', { slot: key, id });
+      }
+    });
     return { key, slot, row, el: h('div', { class: 'sk-lo-extra' }, h('span', { class: 'sk-lo-extralabel', text: label }), row.el) };
   });
   extras.append(...extraRows.map((r) => r.el));
@@ -148,12 +161,13 @@ export function createLoadout(ctx) {
     const a = ctx.account;
     let shown = false;
     for (const r of extraRows) {
-      const on = !!a && !compact && extraSlotAllowed(r.slot);
+      const on = (!!a || !!p.free) && !compact && extraSlotAllowed(r.slot);
       r.el.hidden = !on;
       if (!on) continue;
       shown = true;
-      const owned = [...ctx.weapons.values()].filter((w) => w.slot === r.slot && a.isOwned(w.id));
-      r.row.set(owned.map((w) => ({ id: w.id, label: w.short || w.name, icon: w.icon, title: w.name })), a.loadout[r.key]);
+      const list = [...ctx.weapons.values()].filter((w) => w.slot === r.slot && (p.free || a.isOwned(w.id)));
+      const sel = p.free ? (p.current && p.current[r.key]) || null : a.loadout[r.key];
+      r.row.set(list.map((w) => ({ id: w.id, label: w.short || w.name, icon: w.icon, title: w.name })), sel);
     }
     extras.hidden = !shown;
   }
@@ -225,7 +239,7 @@ export function createLoadout(ctx) {
     const dw = weapons.find((w) => w.id === def);
     const timed = Number(secs) > 0 && Number.isFinite(Number(secs));
     const touch = document.documentElement.classList.contains('pc-touch');
-    setText(foot, p.swap
+    setText(foot, p.foot ? String(p.foot) : p.swap
       ? `라운드가 시작되기 전까지 ${touch ? '안내를 다시 눌러' : 'N으로 다시 열어'} 몇 번이든 바꿀 수 있어요.`
       : dw && timed ? `시간 안에 고르지 않으면 ${dw.name}(으)로 출격해요.` : '');
   }
@@ -239,7 +253,13 @@ export function createLoadout(ctx) {
     el.setAttribute('aria-label', compact ? '다음 무기 선택' : '무기 선택');
     fullEl.hidden = compact;
     compactEl.hidden = !compact;
-    weapons = weaponRefs().map((w) => normWeapon(ctx.weapons, w));
+    // ammo: 무기 id → '탄' 칸에 대신 쓸 글자(좀비 물량 막기는 예비 3배·프리미엄도 유한이라 표의 값과 다르다)
+    weapons = weaponRefs().map((w) => {
+      const n = normWeapon(ctx.weapons, w);
+      const text = p.ammo && typeof p.ammo === 'object' ? p.ammo[n.id] : null;
+      if (text) n.summary = n.summary.map((r) => (r.label === '탄' ? { ...r, value: String(text) } : r));
+      return n;
+    });
     // 전체 화면은 seconds 생략 시 5초, compact는 생략 시 타이머 없음
     const secs = p.seconds === undefined ? (compact ? null : 5) : p.seconds;
     if (compact) {

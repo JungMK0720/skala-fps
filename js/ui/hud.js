@@ -67,7 +67,8 @@ export function calloutTone(tone) {
 /** hud.banner 입력 → { icon, title, sub, ms }. 보여 줄 글자가 없으면 null */
 /**
  * 라운드가 시작되기 전 대기 시간의 무기 교체 안내.
- * swap = { seconds, weaponName?, open? }: seconds = 시작까지 남은 초, weaponName = 지금 든 무기, open = 무기 목록이 열려 있다.
+ * swap = { seconds, weaponName?, open?, note? }: seconds = 시작까지 남은 초(0이면 기한 없음), weaponName = 지금 든 무기, open = 무기 목록이 열려 있다,
+ * note = 덧붙일 한 줄(좀비 물량 막기의 '언제든 바꿀 수 있어요' 등).
  * → { key: 'N' | '', main, sub } | null. 휴대폰(touch)은 키 대신 이 안내를 누른다
  */
 export function swapPromptSpec(swap, touch = false) {
@@ -77,7 +78,8 @@ export function swapPromptSpec(swap, touch = false) {
   const main = swap.open
     ? (touch ? '바꿀 무기를 누르세요' : '바꿀 무기를 누르세요 · N으로 닫기')
     : (touch ? '눌러서 무기 교체!' : '을 눌러 무기 교체!');
-  const sub = [name ? `지금 ${name}` : '', secs > 0 ? `${secs}초 뒤 시작` : ''].filter(Boolean).join(' · ');
+  const note = swap.note == null ? '' : String(swap.note).trim();
+  const sub = [name ? `지금 ${name}` : '', secs > 0 ? `${secs}초 뒤 시작` : '', note].filter(Boolean).join(' · ');
   return { key: touch || swap.open ? '' : 'N', main, sub };
 }
 

@@ -55,7 +55,7 @@ const DEFAULT_MAP_RULESETS = Object.freeze(['classic', 'sniper']);
 const MODE_NAME = Object.freeze({ team: '팀전', ffa: '개인전', bomb: '폭파 미션', zombie: '좀비 물량 막기' });
 const modeIn = (m) => (m === 'ffa' || m === 'bomb' || m === 'zombie' ? m : 'team');
 /** 좀비 물량 막기를 고르면 먼저 선택되는 맵 */
-const ZOMBIE_MAP = 'alley';
+const ZOMBIE_MAP = 'restarea';   // 좀비 물량 막기의 기본 맵(좀비 전용)
 /** 샷건이 여러 부위를 맞혔을 때 주장에 쓰는 부위 순서(앞이 우선, World의 내 사격과 같다) */
 const PART_ORDER = Object.freeze(['head', 'body', 'legs', 'hand', 'foot']);
 const DIFFS = ['easy', 'normal', 'hard'];
@@ -113,10 +113,14 @@ function mapsFor(maps, ruleset, mode) {
     if (maps && typeof maps.mapsForMode === 'function') return maps.mapsForMode('bomb', 'classic');
     return ((maps && maps.MAP_LIST) || []).filter((m) => !m.test && m.mission && rulesOf(m).includes('classic'));
   }
-  if (mode === 'zombie') ruleset = 'classic';   // 좀비 물량 막기는 모든 무기를 쓰는 클래식 맵에서 한다
+  // 좀비 물량 막기는 좀비 전용 맵에서만 한다(maps/index.js mapsForMode). 다른 모드의 목록에는 좀비 전용 맵이 없다
+  if (mode === 'zombie') {
+    if (maps && typeof maps.mapsForMode === 'function') return maps.mapsForMode('zombie', 'classic');
+    return ((maps && maps.MAP_LIST) || []).filter((m) => !m.test && m.zombie);
+  }
   if (maps && typeof maps.mapsForRuleset === 'function') return maps.mapsForRuleset(ruleset);
   const list = (maps && maps.MAP_LIST) || [];
-  return list.filter((m) => !m.test && rulesOf(m).includes(ruleset));
+  return list.filter((m) => !m.test && !m.zombie && rulesOf(m).includes(ruleset));
 }
 /** wanted가 이 규칙(모드)에서 고를 수 있으면 그대로, 아니면 규칙의 대표 맵, 그것도 없으면 목록의 첫 맵 */
 function validMapFor(maps, ruleset, wanted, mode) {
@@ -1170,7 +1174,7 @@ export function createPracticeSetup({ ui, maps, onStart }) {
       ffa: '개인전 · 모두가 적 · 먼저 20킬(5분) · 죽으면 3초 뒤 부활(1.5초 보호). Esc로 일시정지.',
       team: '5판 3선승 · 라운드 2분 · 나와 아군 봇은 블루 팀, 적 봇은 레드 팀이에요. Esc로 일시정지.',
       bomb: '공격은 A·B 구역에 폭탄 설치(E 3초) → 35초 뒤 폭발, 수비는 해체(E 5초) · 5판 3선승 · 라운드 1:40 · 2라운드 뒤 공수 교대. 나와 아군 봇은 블루 팀이에요.',
-      zombie: '혼자 스테이지마다 몰려오는 좀비를 막아요 · 탄은 스테이지 사이에 채워지지 않고(예비 탄 3배) 깰 때마다 강화 카드 1장(다시 뽑기 1번) · 5스테이지마다 보스. 친구와 하려면 멀티플레이에서 좀비 방(최대 4명)을 여세요.'
+      zombie: '혼자 스테이지마다 몰려오는 좀비를 막아요 · 탄은 스테이지 사이에 채워지지 않고(예비 탄 3배) 깰 때마다 강화 카드 1장(다시 뽑기 1번) · 3스테이지마다 보스 · N으로 무기를 언제든 바꾸고 좀비가 떨어뜨린 탄창을 주워요. 친구와 하려면 멀티플레이에서 좀비 방(최대 4명)을 여세요.'
     };
     let shownMode = sel.mode;
     const diff = field('봇 난이도', seg(() => [['easy', '쉬움'], ['normal', '보통'], ['hard', '어려움']], 'difficulty', '난이도'));

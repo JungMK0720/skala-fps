@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 좀비 물량 막기의 보스 10종. 5스테이지마다 무작위로 나오고(50스테이지부터 2마리, 100스테이지부터 3마리) 저마다 스킬 2~3개를 쓴다.
+ * Purpose: 좀비 물량 막기의 보스 10종. 3스테이지마다 무작위로 나오고(50스테이지가 넘으면 2마리, 100스테이지가 넘으면 3마리) 저마다 스킬 2~3개를 쓴다.
  *          스킬은 몇 가지 기본 동작(돌진·내려찍기·충격파·도약·순간이동·소환·투사체·장판·비명·방어·치유·연쇄 번개)을 값으로 조합한다.
  *          동작 구현은 director.js, 그림은 view.js. 이름·생김새는 이 게임에서 직접 지었다.
  */
@@ -36,7 +36,7 @@ export const HAZARD_KINDS = Object.freeze({ acid: 1, fire: 2, web: 3, frost: 4, 
 export const PROJECTILE_KINDS = Object.freeze({ spit: 1, acid: 2, barrel: 3, web: 4, shard: 5 });
 
 /**
- * hp = 5스테이지의 체력(bossHpMul을 곱한다), damage = 근접 피해(dmgMul을 곱한다), scale = 화면·히트박스 배율, radius = 충돌 반지름.
+ * hp = 5스테이지 기준 체력(bossHpMul을 곱한다. 첫 보스인 3스테이지는 약 0.85배), damage = 근접 피해(dmgMul을 곱한다), scale = 화면·히트박스 배율, radius = 충돌 반지름.
  * enrage = 체력이 at 아래로 내려가면 빨라지고 세지며 스킬을 더 자주 쓴다.
  */
 const BOSS_TABLE = [

@@ -3,10 +3,14 @@
  * Author: Minkyu Jung
  * Purpose: 좀비 물량 막기의 화면 쪽 진행. 방장 스냅샷(혼자면 이 탭의 시뮬레이션)을 World·HUD 띠·카드 화면에 옮기고,
  *          내 카드 효과(무기 배율·이동·관통·탄 채우기·처치 탄약·광란·탄약 제조)를 내 무기에 건다. 연습장(혼자)과 멀티(방장·손님)가 같이 쓴다.
+ *          무기는 모든 무기를 언제든 N으로 바꾼다(World 교체 창의 free 모드, 한 번 쓴 총은 남은 탄 그대로). 바닥 보급품에 닿으면 방장에게
+ *          줍기를 청하고, 방장이 확정한 'loot' 이벤트를 받으면 탄창·탄약 상자·수류탄을 내 무기에 넣는다(구급 상자는 방장이 체력을 채운다).
  */
 import { computePerks, perkSummary, cardById, TIERS } from './cards.js';
-import { HORDE, fmtClock } from './rules.js';
+import { HORDE, fmtClock, hordeAmmo } from './rules.js';
+import { WEAPONS } from '../../weapons/defs.js';
 import { SKILL_NAMES, skillKindOf } from './bosses.js';
+import { pickableWeapons } from '../modes.js';
 
 const FRENZY_MS = 4000;
 const FRENZY_MAX = 5;
@@ -26,7 +30,7 @@ export function modsFromPerks(k, frenzyStacks = 0) {
  * @param {string} o.meId
  * @param {() => string} [o.myName]
  * @param {() => string} [o.loadout]    내 주무기(스폰할 때)
- * @param {{ pick(id), reroll() }} o.actions   카드 고르기를 방장에게(혼자면 시뮬레이션에) 보낸다
+ * @param {{ pick(id), reroll(), loot?(id) }} o.actions   카드 고르기·보급품 줍기를 방장에게(혼자면 시뮬레이션에) 보낸다
  * @param {(view) => void} [o.onOver]     전멸 뒤 결과 화면을 띄울 때
  * @param {(id, spawn) => void} [o.onActorSpawn]   다른 사람이 일어났을 때(세션이 아바타를 세운다)
  * @param {(id) => void} [o.onActorDown]
@@ -49,6 +53,21 @@ export function createHordeClient(o) {
   let pickSentAt = 0;
   let cardsUiSig = '';
   let disposed = false;
+  const lootPending = new Map();   // 줍기를 청한 보급품 번호 → 보낸 시각(확정 전에는 화면에서 감춘다)
+  const lootDone = new Set();      // 효과를 넣은 'loot' 이벤트(같은 이벤트가 스냅샷마다 다시 와도 한 번만)
+  const LOOT_RESEND_MS = 900, LOOT_HIDE_MS = 1500;
+
+  /** 좀비 물량 막기의 무기 교체 창(World openSwap free): 모든 무기, 기한 없음. 스테이지 사이에만 HUD 안내를 띄운다 */
+  function swapProps() {
+    const weapons = pickableWeapons('classic');
+    // 카드의 '탄' 칸은 이 모드의 탄(예비 3배, 프리미엄 총도 탄창 2개 × 3)으로 보여 준다
+    const ammo = Object.fromEntries(weapons.map((id) => { const a = hordeAmmo(WEAPONS[id]); return [id, a ? `${a.mag}/${a.reserve}` : '']; }));
+    return {
+      free: true, weapons, ammo, ruleset: 'classic', title: '무기 교체 · 좀비 물량 막기',
+      foot: '모든 무기를 언제든 N으로 바꿀 수 있어요. 한 번 쓴 총은 남은 탄 그대로이고, 처음 드는 총은 탄을 가득 받아요.',
+      note: '모든 무기 · 언제든', prompt: phase !== 'wave'
+    };
+  }
 
   function applyPerks() {
     W('setHordePerks', {
@@ -66,6 +85,7 @@ export function createHordeClient(o) {
     myAlive = true;
     spawnedOnce = true;
     applyPerks();
+    W('openSwap', swapProps());
   }
 
   function centerFor(ev) {
@@ -90,7 +110,12 @@ export function createHordeClient(o) {
     if (!ev || typeof ev !== 'object') return;
     const H = ui && ui.hud;
     switch (ev.type) {
-      case 'phase': phase = ev.phase; stage = ev.stage | 0; centerFor(ev); if (ev.phase !== 'cards') { pickSent = null; if (ui && ui.isVisible('cards')) ui.hide('cards'); } break;
+      case 'phase':
+        phase = ev.phase; stage = ev.stage | 0; centerFor(ev);
+        if (ev.phase !== 'cards') { pickSent = null; if (ui && ui.isVisible('cards')) ui.hide('cards'); }
+        // 무기 교체 안내는 준비·카드·쉬는 시간에만(웨이브 중에도 N은 된다)
+        if (ev.phase === 'over') W('closeSwap'); else W('setSwapPrompt', ev.phase !== 'wave');
+        break;
       case 'spawn':
         if (String(ev.id) === meId) { if (!ev.keep) spawnMe(ev.spawn); }
         else if (o.onActorSpawn) o.onActorSpawn(String(ev.id), ev.spawn);
@@ -117,11 +142,66 @@ export function createHordeClient(o) {
         break;
       }
       case 'reroll': if (String(ev.id) === meId) W('sound', 'card_shuffle'); break;
+      case 'loot': onLoot(ev); break;
       case 'skill': case 'chain': case 'enrage': case 'bossSpawn': W('hordeEvent', ev); break;
       case 'over': overAt = performance.now(); break;
       case 'join': if (H && String(ev.id) !== meId) H.callout(`${ev.name || '동료'}님 합류 · 다음 스테이지부터`); break;
       case 'leave': if (H && String(ev.id) !== meId) H.callout(`${nameOf(String(ev.id)) || '동료'}님이 나갔어요`); break;
       default: break;
+    }
+  }
+
+  /** 방장이 확정한 보급품 줍기. 내가 주운 것만 내 무기에 넣는다(구급 상자 체력은 방장이 이미 채웠다) */
+  function onLoot(ev) {
+    lootPending.delete(ev.id);
+    if (String(ev.by) !== meId || lootDone.has(ev.id)) return;
+    lootDone.add(ev.id);
+    if (lootDone.size > 400) { const keep = [...lootDone].slice(-200); lootDone.clear(); for (const k of keep) lootDone.add(k); }
+    const a = world.internals && world.internals.arsenal;
+    let text = '';
+    if (ev.kind === 'mag' && a) {
+      // 든 총의 탄창 하나만큼. 든 총이 가득하거나 칼·수류탄을 들었으면 주무기, 그다음 보조무기에
+      const held = a.getAmmo();
+      const lo = a.getLoadout();
+      let n = 0;
+      for (const id of [held && held.kind === 'mag' ? held.weaponId : null, lo.primary, lo.secondary]) {
+        const am = id ? a.getAmmo(id) : null;
+        if (am && am.kind === 'mag') n = W('addReserve', am.magSize, id) || 0;
+        if (n > 0) break;
+      }
+      text = n > 0 ? `🧷 탄창 +${n}발` : '🧷 탄창 · 예비 탄이 가득해요';
+    } else if (ev.kind === 'ammo' && a) {
+      // 주무기·보조무기 예비 탄을 최대의 절반만큼
+      const lo = a.getLoadout();
+      let total = 0;
+      for (const id of [lo.primary, lo.secondary]) {
+        const am = a.getAmmo(id);
+        if (am && am.kind === 'mag' && Number.isFinite(am.reserveMax)) total += W('addReserve', Math.ceil(am.reserveMax * 0.5), id) || 0;
+      }
+      text = total > 0 ? `📦 탄약 상자 · 예비 탄 +${total}발` : '📦 탄약 상자 · 예비 탄이 가득해요';
+    } else if (ev.kind === 'nade') {
+      W('addGrenades', 1);
+      text = '💣 수류탄 +1';
+    } else if (ev.kind === 'med') {
+      text = ev.heal > 0 ? `➕ 구급 상자 · 체력 +${ev.heal}` : '➕ 구급 상자 · 체력이 가득해요';
+    }
+    W('sound', 'loot_pick');
+    if (ui && ui.hud && text) ui.hud.callout(text);
+  }
+
+  /** 닿은 보급품을 방장에게 청한다(확정 전 0.9초마다 다시). 화면은 lootTouchM, 방장은 그보다 넉넉한 lootPickM으로 잰다 */
+  function tryPickLoot(now) {
+    if (!myAlive || !last || !Array.isArray(last.loot) || !last.loot.length || phase === 'over') return;
+    if (!o.actions || typeof o.actions.loot !== 'function') return;
+    const st = W('getLocalState');
+    const pos = st && st.pos;
+    if (!pos) return;
+    for (const L of last.loot) {
+      const sent = lootPending.get(L.id);
+      if (sent && now - sent < LOOT_RESEND_MS) continue;
+      if (Math.hypot(L.pos[0] - pos[0], L.pos[2] - pos[2]) > HORDE.lootTouchM || Math.abs(L.pos[1] - pos[1]) > 1.6) continue;
+      lootPending.set(L.id, now);
+      o.actions.loot(L.id);
     }
   }
 
@@ -165,7 +245,7 @@ export function createHordeClient(o) {
     if (me && me.alive && v.phase === 'wave' && world.internals) {
       const a = world.internals.arsenal;
       const slots = [a.getAmmo(a.getLoadout().primary), a.getAmmo(a.getLoadout().secondary)];
-      if (slots.every((s) => s && s.kind === 'mag' && s.mag <= 0 && s.reserve <= 0)) warn = '탄약이 떨어졌어요 · 3번 칼로 싸우거나 카드로 탄을 채우세요';
+      if (slots.every((s) => s && s.kind === 'mag' && s.mag <= 0 && s.reserve <= 0)) warn = '탄약이 떨어졌어요 · 좀비가 떨어뜨린 탄창을 줍거나 N으로 다른 총을 드세요';
     }
     if (v.phase === 'cards' && me && me.picked && waiting.length) warn = `카드 선택 완료 · ${waiting.map((p) => p.name).join(', ')} 기다리는 중`;
     ui.update('horde', {
@@ -191,7 +271,12 @@ export function createHordeClient(o) {
     for (const ev of Array.isArray(events) ? events : []) onEvent(ev);
     phase = v.phase; stage = v.stage;
     timeBase = v.timeLeftMs; timeAt = t;
-    W('hordePush', v, t);
+    // 줍기를 청한 보급품은 방장 확정을 기다리는 동안 감춘다(1.5초 안에 확정되지 않으면 다시 보인다)
+    if (lootPending.size) {
+      const present = new Set((v.loot || []).map((L) => L.id));
+      for (const [id] of lootPending) if (!present.has(id)) lootPending.delete(id);
+    }
+    W('hordePush', lootPending.size ? { ...v, loot: (v.loot || []).filter((L) => { const s = lootPending.get(L.id); return !(s && t - s < LOOT_HIDE_MS); }) } : v, t);
     const me = v.players.find((p) => p.id === meId);
     if (me) {
       // 카드 → 능력치(바뀔 때만)
@@ -266,6 +351,7 @@ export function createHordeClient(o) {
         if (am && am.kind === 'mag' && am.magSize) W('addReserve', Math.max(1, Math.round(am.magSize * perks.ammoRegen)));
       }
     }
+    tryPickLoot(now);
     if (now - hudAt > 200) { hudAt = now; hud(now); }
     if (overAt && !overShown && now - overAt > 3200) {
       overShown = true;
@@ -305,6 +391,7 @@ export function createHordeClient(o) {
     for (const f of offs) { try { f(); } catch (e) { /* ignore */ } }
     if (offHit) offHit();
     if (ui) { ui.hide('cards'); ui.hide('horde'); }
+    W('closeSwap');
     W('setHordePerks', null);
   }
 

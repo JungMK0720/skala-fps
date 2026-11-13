@@ -45,6 +45,7 @@ import { createHordeClient, hordeScoreboard } from './horde/client.js';
 import { cardRows } from './horde/solo.js';
 import { HORDE } from './horde/rules.js';
 import { buildNavGrid } from './navgrid.js';
+import { isZombieMap } from '../maps/collision.js';
 
 export const SESSION_DEFAULTS = Object.freeze({
   maxPlayers: 6,          // Supabase Realtime(transport 'supabase') 무료 한도(3:3). 방 만들기 max는 2..이 값으로 자른다
@@ -845,11 +846,16 @@ export function createSession(options = {}) {
   }
 
   /**
-   * 이 규칙(과 모드)에서 고를 수 있는 맵 목록. 폭파 미션은 미션 칸이 있는 클래식 맵(maps.mapsForMode)만.
-   * 맵 모듈이 없으면 null(검사하지 않는다). 폭파 미션인데 미션 맵이 하나도 없으면 [](시작할 수 없다)
+   * 이 규칙(과 모드)에서 고를 수 있는 맵 목록. 폭파 미션은 미션 칸이 있는 클래식 맵(maps.mapsForMode)만, 좀비 물량 막기는 좀비 전용 맵만.
+   * 맵 모듈이 없으면 null(검사하지 않는다). 폭파 미션인데 미션 맵이 하나도 없으면 [](시작할 수 없다). 좀비 전용 맵이 없으면 null
    */
   function mapsFor(ruleset, mode) {
     const maps = ctx && ctx.maps;
+    if (mode === 'zombie' && maps) {
+      let list = typeof maps.mapsForMode === 'function' ? call(maps, 'mapsForMode', 'zombie', 'classic') : null;
+      if (!Array.isArray(list)) list = (Array.isArray(maps.MAP_LIST) ? maps.MAP_LIST : []).filter((m) => !m.test && m.zombie);
+      return list.length ? list : null;
+    }
     if (mode === 'bomb' && maps) {
       let list = typeof maps.mapsForMode === 'function' ? call(maps, 'mapsForMode', 'bomb', 'classic') : null;
       if (!Array.isArray(list)) list = (Array.isArray(maps.MAP_LIST) ? maps.MAP_LIST : []).filter((m) => !m.test && m.mission);
@@ -1535,7 +1541,10 @@ export function createSession(options = {}) {
   /** (방장) 좀비 물량 막기 시뮬레이션: 방 사람(4명까지)을 넣고 match.js와 같은 길(tick·publish)로 돌린다 */
   function hordeOpts() {
     const m = call(world, 'getMap');
-    return { world: m ? m.world : null, nav: navFor(current && current.mapData), spawns: (current && current.spawns) || (m && m.spawns) || {}, getPositions: positions };
+    const spawns = (current && current.spawns) || (m && m.spawns) || {};
+    // 좀비 전용 맵은 좀비가 좀비 문(레드 쪽 스폰 자리, 바닥 높이 포함)에서만 나온다
+    const gates = current && isZombieMap(current.mapData) && Array.isArray(spawns.charterer) ? spawns.charterer : undefined;
+    return { world: m ? m.world : null, nav: navFor(current && current.mapData), spawns, gates, getPositions: positions };
   }
   function hostCreateHorde(h) {
     const list = room.players().slice(0, ZOMBIE_MAX);
@@ -1872,6 +1881,13 @@ export function createSession(options = {}) {
       }
       return;
     }
+    // 좀비 물량 막기 보급품 줍기: { k:'zloot', mid, id } 손님 → 방장(방장이 그 사람 위치로 거리를 확인한다)
+    if (p.k === 'zloot') {
+      if (hm && hostReady() && isZombieMode(hm.mode) && p.mid === hm.mid && !banned.has(String(msg.from)) && Number.isInteger(p.id) && p.id > 0) {
+        publishReal(hm.m.claimLoot(String(msg.from), p.id));
+      }
+      return;
+    }
     if (p.k === 'prep' && msg.from === room.hostId() && typeof p.mid === 'string' && p.mid.length <= 16) {
       if (phase === 'room' && p.mid !== finishedMid) enterMatch(p.mid, cleanText(p.map, 32) || room.meta.mapId || o.mapId, p.mode, p.rs);
       return;
@@ -2070,7 +2086,7 @@ export function createSession(options = {}) {
     if (c.horde) return;
     c.horde = createHordeClient({
       world, ui, meId: me, myName: () => myName(), loadout: () => c.pick, input: ctx && ctx.input,
-      actions: { pick: (card) => sendCard(c, 'pick', card), reroll: () => sendCard(c, 'reroll') },
+      actions: { pick: (card) => sendCard(c, 'pick', card), reroll: () => sendCard(c, 'reroll'), loot: (id) => sendLoot(c, id) },
       onOver: () => { if (current === c) showResults(null); },
       onActorSpawn: (id, sp) => {
         const a = actors.get(id);
@@ -2091,6 +2107,13 @@ export function createSession(options = {}) {
     const msg = { k: 'zcard', mid: c.mid, act, ...(card ? { card: String(card) } : {}) };
     if (room.isHost()) { onControl(msg, { from: me }); return; }
     try { room.sendTo(room.hostId(), CONTROL_EVENT, msg); } catch (e) { report(e, 'zcard'); }
+  }
+  /** 바닥 보급품 줍기를 방장에게(내가 방장이면 바로). 방장이 거리를 보고 확정한다 */
+  function sendLoot(c, id) {
+    if (!room || current !== c || !(Number(id) > 0)) return;
+    const msg = { k: 'zloot', mid: c.mid, id: Number(id) | 0 };
+    if (room.isHost()) { onControl(msg, { from: me }); return; }
+    try { room.sendTo(room.hostId(), CONTROL_EVENT, msg); } catch (e) { report(e, 'zloot'); }
   }
   /** 좀비 뷰 → 세션 공용 모양(점수판·이름·원격 아바타 frame()이 읽는 players). 모두 블루 팀이다 */
   function hordeCompatView(hv) {
@@ -3056,6 +3079,7 @@ export function createSession(options = {}) {
     return weaponForSlot(remoteGear.get(id), slot, current.ruleset, vp && vp.loadout);
   }
 
+  let hordeFrameAt = 0;              // 좀비 화면 쪽 frame(dt)의 지난 프레임 시각
   function frame() {
     const c = current;
     if (disposed || phase !== 'match' || !c || !c.loaded || !sync) return;
@@ -3098,6 +3122,12 @@ export function createSession(options = {}) {
         else fireQ[w++] = f;
       }
       fireQ.length = w;
+    }
+    // 좀비 물량 막기: 화면 쪽 진행의 매 프레임 일(보급품 줍기 요청, 광란이 끝나면 연사 되돌리기, 탄약 제조, HUD 시계)
+    if (c.horde && isZombieMode(c.mode)) {
+      const dt = hordeFrameAt ? Math.min(0.1, Math.max(0, (t - hordeFrameAt) / 1000)) : 0;
+      hordeFrameAt = t;
+      c.horde.frame(dt);
     }
   }
 

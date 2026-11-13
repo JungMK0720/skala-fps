@@ -213,7 +213,8 @@ export default {
 
     // 사람이 가장 많은 경우: 개인전 8명은 스폰이 겹칠 수 있고, 팀전 4:4는 팀 스폰을 모두 쓴다
     const crowded = [];
-    for (const id of MAP_IDS) {
+    // 좀비 전용 맵(modes: ['zombie'])은 개인전·팀전을 하지 않는다(좀비 QA가 따로 본다)
+    for (const id of MAP_IDS.filter((x) => !(Array.isArray(MAPS[x].modes) && MAPS[x].modes.every((m) => m === 'zombie')))) {
       const rs = (MAPS[id].rulesets || ['classic', 'sniper'])[0];
       crowded.push({ rs, mapId: id, mode: 'ffa', bots: 7, key: `crowd/${id}/ffa` });
     }

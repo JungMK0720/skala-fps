@@ -8,23 +8,26 @@
  *
  *   const { MAPS, MAP_LIST, getMap, mapsForRuleset, mapsForMode } = await import('./maps/index.js');
  *   MAPS[id]                → 맵 데이터 (불러오기 실패 시 TEST_MAP 복제본, fallback:true)
- *   MAP_LIST                → [{ id, name, nameEn, desc, ok, fallback, rulesets, tag, mission, test? }] 메뉴용. 마지막이 테스트 맵
- *   mapsForRuleset('knife') → 그 규칙을 고를 수 있는 MAP_LIST 항목(테스트 맵 제외)
- *   mapsForMode('bomb', r)  → 그 모드로 고를 수 있는 MAP_LIST 항목. 폭파 미션은 mission이 있는 클래식 맵, 그 밖은 mapsForRuleset(r)
+ *   MAP_LIST                → [{ id, name, nameEn, desc, ok, fallback, rulesets, tag, mission, zombie, test? }] 메뉴용. 마지막이 테스트 맵
+ *   mapsForRuleset('knife') → 그 규칙을 고를 수 있는 MAP_LIST 항목(테스트 맵·좀비 전용 맵 제외)
+ *   mapsForMode('bomb', r)  → 그 모드로 고를 수 있는 MAP_LIST 항목. 폭파 미션은 mission이 있는 클래식 맵, 좀비 물량 막기는 좀비 전용 맵,
+ *                             그 밖은 mapsForRuleset(r)
  *
  * 각 맵 파일은 동적 import로 불러온다. 파일이 없거나 문법·데이터 오류가 있으면 콘솔에 경고하고
  * 빌트인 테스트 맵(작은 창고 마당)으로 대신한다 — 한 맵이 깨져도 게임 전체가 멈추지 않는다.
  * (이 모듈은 top-level await를 쓰므로 import 하는 쪽은 맵 로딩을 기다린다.)
  */
-import { DEFAULT_RULESETS, RULESET_NAMES } from './collision.js';
+import { DEFAULT_RULESETS, RULESET_NAMES, isZombieMap } from './collision.js';
 
 // 순서가 메뉴 순서이고, 규칙마다 처음 나오는 맵이 그 규칙의 기본 맵이다(칼전 rooftop, 클래식 alley, 스나전 longshot)
 // 좁은 맵(cqb·sorthub, 개활지 lot·schoolyard, 문이 열리는 karaoke·hanok)은 alley 뒤에 둔다.
 // 폭파 미션 맵은 맨 끝에 두어 규칙별 기본 맵을 바꾸지 않고, 그중 처음인 relay가 폭파 미션의 기본 맵이다
+// 좀비 물량 막기 전용 맵(restarea·subway)은 그 뒤다. 다른 모드의 목록에는 나오지 않고, 처음인 restarea가 좀비 모드의 기본 맵이다
 export const MAP_IDS = Object.freeze([
   'rooftop', 'glasshouse', 'alley', 'cqb', 'sorthub', 'lot', 'schoolyard', 'karaoke', 'hanok',
   'longshot', 'dojo', 'nexus', 'jetty', 'tankfarm', 'vlcc',
-  'relay', 'railyard', 'observatory'
+  'relay', 'railyard', 'observatory',
+  'restarea', 'subway'
 ]);
 
 const R90 = Math.PI / 2;
@@ -169,7 +172,9 @@ const KNOWN = {
   vlcc: { name: 'VLCC 갑판', nameEn: 'Tanker Deck' },
   relay: { name: '중계 기지', nameEn: 'Relay Station', rulesets: ['classic'], tag: '폭파 미션' },
   railyard: { name: '화물 조차장', nameEn: 'Freight Yard', rulesets: ['classic'], tag: '폭파 미션' },
-  observatory: { name: '사막 관측소', nameEn: 'Desert Observatory', rulesets: ['classic'], tag: '폭파 미션' }
+  observatory: { name: '사막 관측소', nameEn: 'Desert Observatory', rulesets: ['classic'], tag: '폭파 미션' },
+  restarea: { name: '고속도로 휴게소', nameEn: 'Highway Rest Stop', rulesets: ['classic'], tag: '좀비 전용' },
+  subway: { name: '지하철 환승역', nameEn: 'Transfer Station', rulesets: ['classic'], tag: '좀비 전용' }
 };
 
 function fallbackFor(id, reason) {
@@ -230,28 +235,31 @@ function listEntry(id, data, ok) {
     fallback: !ok,
     rulesets: Array.isArray(data.rulesets) && data.rulesets.length ? data.rulesets.slice() : (known.rulesets || DEFAULT_RULESETS).slice(),
     tag: typeof data.tag === 'string' ? data.tag : (known.tag || ''),
-    mission: ok && hasMissionData(data)
+    mission: ok && hasMissionData(data),
+    // 좀비 물량 막기 전용(maps/collision.js isZombieMap). 대체 맵은 늘 false
+    zombie: ok && isZombieMap(data)
   };
 }
 
 /** 메뉴용 목록 (+ 테스트 맵) */
 export const MAP_LIST = Object.freeze([
   ...MAP_IDS.map((id, i) => listEntry(id, loaded[i].data, loaded[i].ok)),
-  Object.assign(listEntry(TEST_MAP.id, TEST_MAP, true), { test: true, mission: false })
+  Object.assign(listEntry(TEST_MAP.id, TEST_MAP, true), { test: true, mission: false, zombie: false })
 ]);
 
-/** 이 규칙을 고를 수 있는 맵(MAP_LIST 항목, 테스트 맵 제외). 모르는 규칙이면 클래식 기준 */
+/** 이 규칙을 고를 수 있는 맵(MAP_LIST 항목, 테스트 맵·좀비 전용 맵 제외). 모르는 규칙이면 클래식 기준 */
 export function mapsForRuleset(id) {
   const ruleset = RULESET_NAMES.includes(id) ? id : 'classic';
-  return MAP_LIST.filter((m) => !m.test && m.rulesets.includes(ruleset));
+  return MAP_LIST.filter((m) => !m.test && !m.zombie && m.rulesets.includes(ruleset));
 }
 
 /**
  * 이 모드·규칙으로 고를 수 있는 맵(MAP_LIST 항목, 테스트 맵 제외).
- * 폭파 미션('bomb')은 늘 클래식 규칙으로 하므로 ruleset과 상관없이 mission이 있고 클래식을 고를 수 있는 맵만 준다
+ * 폭파 미션('bomb')은 늘 클래식 규칙으로 하므로 ruleset과 상관없이 mission이 있고 클래식을 고를 수 있는 맵만, 좀비 물량 막기('zombie')는 좀비 전용 맵만 준다
  */
 export function mapsForMode(mode, ruleset) {
   if (mode === 'bomb') return MAP_LIST.filter((m) => !m.test && m.mission && m.rulesets.includes('classic'));
+  if (mode === 'zombie') return MAP_LIST.filter((m) => !m.test && m.zombie);
   return mapsForRuleset(ruleset);
 }
 

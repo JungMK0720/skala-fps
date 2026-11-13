@@ -216,6 +216,8 @@ export async function install(ctx) {
   }
   /** 로드아웃 화면의 보조·근접 빠른 교체. 이미 스폰한 뒤에도 바로 적용한다. */
   function equipFromLoadout(e) {
+    // 좀비 물량 막기의 교체 창(free)은 가진 것과 상관없이 모든 무기를 쓴다: 계정 장비는 그대로 두고 손에 든 장비만 바꾼다
+    if (e && e.free) { world.setLocalLoadout(e.id); return; }
     if (e && account.equip(e.slot, e.id).ok) world.setLocalLoadout(e.id);
   }
 

@@ -124,6 +124,19 @@ const MAP_DRAW = {
     accent('M33 20 h10 v8 h-10 Z'),
   ],
   // 알 수 없는 맵: 조준선
+  // 고속도로 휴게소: 위쪽 방음벽, 가운데 편의점, 왼쪽 아래 주유소 캐노피, 오른쪽 아래 주차장, 가장자리의 좀비 문
+  restarea: () => [
+    line('M3 6 H45 M3 26 H45'),
+    fill('M17 9 h14 v7 h-14 Z'),
+    line('M6 18 h11 v6 h-11 Z M30 19 h4 v5 h-4 Z M36 19 h4 v5 h-4 Z'),
+    accent('M5 3 v2 M43 3 v2 M5 27 v2 M43 27 v2'),
+  ],
+  // 지하철 환승역: 가운데 섬식 승강장과 기둥, 위아래 선로, 양 끝 터널
+  subway: () => [
+    line('M3 9 H45 M3 23 H45'),
+    fill('M10 14 h2 v4 h-2 Z M18 14 h2 v4 h-2 Z M28 14 h2 v4 h-2 Z M36 14 h2 v4 h-2 Z'),
+    accent('M3 6 h3 v6 h-3 M45 6 h-3 v6 h3 M3 20 h3 v6 h-3 M45 20 h-3 v6 h3'),
+  ],
   _: () => [
     ring(24, 16, 8.5),
     accent('M24 3 V11 M24 21 V29 M11 16 H19 M29 16 H37'),
@@ -233,12 +246,12 @@ const FALLBACK_MAPS = [
   { id: 'nexus', name: '넥서스', nameEn: 'Nexus', desc: '' },
 ];
 
-/** mission: 폭파 미션을 할 수 있는 맵(A·B 구역이 있음). MAP_LIST 항목에 없으면 false */
+/** mission: 폭파 미션을 할 수 있는 맵(A·B 구역이 있음), zombie: 좀비 물량 막기 전용 맵. MAP_LIST 항목에 없으면 false */
 export function normMap(m) {
-  if (typeof m === 'string') return { id: m, name: m, nameEn: '', desc: '', tag: '', rulesets: null, test: false, mission: false };
+  if (typeof m === 'string') return { id: m, name: m, nameEn: '', desc: '', tag: '', rulesets: null, test: false, mission: false, zombie: false };
   return {
     id: String(m.id), name: m.name || String(m.id), nameEn: m.nameEn || '', desc: m.desc || '',
-    tag: m.tag || '', rulesets: Array.isArray(m.rulesets) ? m.rulesets : null, test: !!m.test, mission: m.mission === true,
+    tag: m.tag || '', rulesets: Array.isArray(m.rulesets) ? m.rulesets : null, test: !!m.test, mission: m.mission === true, zombie: m.zombie === true,
   };
 }
 
