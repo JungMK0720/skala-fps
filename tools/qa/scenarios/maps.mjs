@@ -11,7 +11,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { qaInit, richProfile, sleep } from '../kit.mjs';
 
-const MAP_IDS = ['rooftop', 'glasshouse', 'dojo', 'longshot', 'nexus', 'alley', 'relay', 'railyard', 'observatory', 'cqb', 'sorthub', 'lot', 'schoolyard', 'karaoke', 'hanok'];
+const MAP_IDS = ['rooftop', 'glasshouse', 'dojo', 'longshot', 'nexus', 'alley', 'relay', 'railyard', 'observatory', 'cqb', 'sorthub', 'lot', 'schoolyard', 'karaoke', 'hanok', 'restarea', 'subway'];
 const SHEET = { cols: 2, rows: 3, w: 480, h: 270 };
 const DOWN = -Math.PI / 2 + 0.002;
 
@@ -180,6 +180,23 @@ const HAND = {
     view('west-corridor', -10.5, 0, 3.6, -10.5, 1.6, -5),
     view('side-door-open', -10.1, 0, -2.5, -6, 1.2, -2.5)
   ],
+  // 좀비 전용 맵: 시작 자리, 옥상, 좀비 문 몇 곳
+  restarea: [
+    view('store-front', 0, 0, 6, 0, 2, -5),
+    view('roof', 0, 4, -9, 0, 3.6, 10),
+    view('roof-stairs', -11, 0, -2, -11, 2.6, -12),
+    view('gate-restroom', -19, 0, -5, -26, 1.4, -9),
+    view('gate-yard', 21, 0, -2, 28, 1.4, 1),
+    view('gas-station', -8, 0, 6, -20, 1.6, 8),
+    view('parking', 6, 0, 2, 20, 1.4, 12)
+  ],
+  subway: [
+    view('platform-east', 0, 0, 0, 20, 1.6, 0),
+    view('platform-west', 0, 0, 0, -20, 1.6, 0),
+    view('tunnel-ne', 22, 0, -3, 30.5, 0.4, -9),
+    view('transfer-n', 0, 0, -11.5, 0, 1.6, -16),
+    view('north-side', -6, 0, -12.5, -20, 1.6, -12.5)
+  ],
   hanok: [
     view('yard', 0, 0, 2.3, 0, 1.6, -4),
     view('yard-west', 3.4, 0, 0, -5.6, 1.5, 1.5),
@@ -328,7 +345,7 @@ function grabCell({ name, col, row, reset, W, H, cols, rows }) {
 
 export default {
   name: 'maps',
-  title: '새 맵 열다섯의 스폰, 발판, 포털, 비밀 스팟, 골목, 폭파 구역, 움직이는 지형·문 사진',
+  title: '새 맵 열일곱의 스폰, 발판, 포털, 비밀 스팟, 골목, 폭파 구역, 움직이는 지형·문, 좀비 전용 맵 사진',
   timeoutMs: 15 * 60 * 1000,
   async run(t) {
     for (const id of MAP_IDS) {

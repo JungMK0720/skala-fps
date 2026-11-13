@@ -192,7 +192,9 @@ props 없음. 계정에서 읽습니다. 닉네임 변경(같은 검사 + 저장
 ```js
 { weapons?: [id | def, ...] /*최대 11개. 생략하면 pickableWeapons(ruleset, 보유 무기)*/, ruleset? /*'classic'|'knife'|'sniper'*/,
   seconds = 5 /*0·null이면 타이머 없음*/, selected? /*지난 선택, 시간 초과 시 기본값. 없으면 계정 장비 → 첫 무기*/, round?, title?,
-  compact? /*true = 하단 작은 패널(개인전 부활 대기)*/ }
+  compact? /*true = 하단 작은 패널(개인전 부활 대기)*/,
+  free? /*true = 가진 것과 상관없이 모든 무기(좀비 물량 막기)*/, current? /*free의 지금 장비 { primary, secondary, melee }*/,
+  ammo? /*{ id: '30/180' } 카드의 '탄' 칸을 이 글자로*/, foot? /*아래 안내 글을 이 글로*/ }
 ```
 무기 def에서 읽는 필드는 이름이 조금 달라도 받습니다.
 - `name`, `icon`(또는 `emoji`), `tagline`(또는 `subtitle`, `summary`)
@@ -204,6 +206,8 @@ props 없음. 계정에서 읽습니다. 닉네임 변경(같은 검사 + 저장
 **무기 교체 창**(`swap: true`, 라운드 시작 전 대기 시간에 N으로 여닫는 창 — MODES.md 7절): 제목이 "라운드 N · 무기 교체"가 되고, 무기를 누르면 `loadout:pick { id, auto:false }`를 보내고 닫힙니다.
 N이나 Esc를 누르면 고르지 않고 닫히며 `loadout:close { reason:'key', relock }`를 보냅니다(`relock` = N으로 닫았다 → 그 키 입력으로 포인터를 다시 잠글 수 있다).
 시간이 끝나면 자동으로 고르지 않고 닫히며 `loadout:close { reason:'time', relock:false }`를 보냅니다. 여닫는 일은 `world.openSwap`이 맡습니다.
+
+**`free: true`**(좀비 물량 막기의 무기 교체 창, `swap`과 같이 씀): 계정에 없는 무기도 다 보여 주고, 아래 보조·근접 줄도 그 칸의 모든 무기를 `current`의 지금 장비를 고른 칸으로 그립니다. 그 줄에서 고르면 창을 닫지 않고 줄을 다시 그리며 `loadout:equip { slot, id, free: true }`를 보냅니다. `js/game/index.js`는 이때 계정 장비를 바꾸지 않고 `world.setLocalLoadout(id)`만 부릅니다.
 
 카드를 누르거나 숫자키 1~9를 누르면 `loadout:pick { id, auto:false }`를 보내고 닫힙니다(10번째 무기부터는 클릭). 시간이 끝나면 `{ id: selected ?? 첫 무기, auto:true }`를 보내고 닫힙니다. `update`에 `seconds`가 있으면 카운트다운을 다시 시작합니다. 숫자키는 캡처 단계에서 소비하므로 엔진의 슬롯 전환으로 넘어가지 않습니다.
 
@@ -232,7 +236,7 @@ N이나 Esc를 누르면 고르지 않고 닫히며 `loadout:close { reason:'key
 | `respawn` | `{ seconds, killer?, weaponName?, weaponId?, quick? }` → "💀 하늘에게 당했어요 · 3초 뒤 부활"(무기 칩 포함). `killer`가 없거나 나 자신이면 "💀 전사했어요". `null`이면 숨김(이때 compact 로드아웃도 닫힘). `quick: { cost, ok, touch }`(개인전 즉시 부활)이면 아래에 "[E] 즉시 부활 · 10 P"(휴대폰 "'부활' 버튼 · 10 P", 포인트가 모자라면 흐린 "즉시 부활 10 P · 포인트 부족") 줄(`quickRespawnSpec`) |
 | `protect` | `true` → 조준점 아래 "🛡 보호 중" + 체력 칸 청록 테두리 |
 | `hint` / `spectate` | 하단 안내 문구 / "👁️ 관전 중 · 이름". 빈 값이면 숨김 |
-| `swap` | `{ seconds, weaponName?, open? } \| null` — 라운드 시작 전 무기 교체 안내 "N 을 눌러 무기 교체!" + "지금 RX-4 · 4초 뒤 시작". 휴대폰은 "눌러서 무기 교체!"이고 누르면 engine/touch.js가 `input:loadout`을 낸다 |
+| `swap` | `{ seconds, weaponName?, open?, note? } \| null` — 라운드 시작 전 무기 교체 안내 "N 을 눌러 무기 교체!" + "지금 RX-4 · 4초 뒤 시작"(`seconds`가 0이면 시간 줄 없이 `note`를 붙인다: 좀비 모드 "모든 무기 · 언제든"). 휴대폰은 "눌러서 무기 교체!"이고 누르면 engine/touch.js가 `input:loadout`을 낸다 |
 | `crosshair: false` | 크로스헤어 숨김 |
 | `emote` | `{ name, icon } \| null` → 하단에 "💃 탱고 · 움직이면 취소"(아이콘이 없으면 🕺). 켜져 있는 동안(3인칭) 크로스헤어·히트마커를 숨김 |
 | `bomb` | 폭파 미션 표시(아래 표). `null`이면 모두 지움 |
@@ -361,7 +365,7 @@ ui.chat.open() / close() / isOpen() / clear() / scope() / setScope('all' | 'team
 | `room:stay` | `{}` | 자리 비움 안내의 [계속 기다리기] |
 | `room:active` | `{}` | 대기실을 누르거나 키를 쳤다(1초에 한 번까지). 세션은 방장의 것만 활동으로 센다 |
 | `loadout:pick` | `{ id, auto }` | |
-| `loadout:equip` | `{ slot, id }` | `slot`: `'secondary'` / `'melee'`. 빠른 교체 줄 |
+| `loadout:equip` | `{ slot, id, free? }` | `slot`: `'secondary'` / `'melee'`. 빠른 교체 줄. `free: true`면 계정 장비가 아니라 지금 든 장비만 바꾼다 |
 | `loadout:close` | `{ reason, relock }` | 무기 교체 창(`swap`)을 고르지 않고 닫음. `reason`: `'key'`(N·Esc) / `'time'` |
 | `chat:send` | `{ text, scope }` | 경기 채팅. `scope`: `'all'` / `'team'` |
 | `results:back` / `results:lobby` | `{}` | |

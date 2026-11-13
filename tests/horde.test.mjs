@@ -2,15 +2,16 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 좀비 물량 막기 시험. 카드 100장 이상·제안·다시 뽑기·능력치 상한, 보스 10종과 스테이지별 보스 수, 탄약 3배와 무기 배율,
- *          방장 시뮬레이션(스테이지 진행·처치·카드·전멸·스냅샷 왕복·방장 이전)을 three.js 없이 확인한다.
+ *          방장 시뮬레이션(스테이지 진행·처치·카드·전멸·스냅샷 왕복·방장 이전), 좀비 문·바닥 보급품, 무기 교체의 탄 기억,
+ *          좀비 전용 맵(검사기·모드별 맵 목록·시뮬레이션)을 three.js 없이 확인한다.
  */
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCollision } from '../js/maps/collision.js';
+import { buildCollision, isZombieMap } from '../js/maps/collision.js';
 import { buildNavGrid } from '../js/game/navgrid.js';
 import { CARDS, CARD_COUNT, TIERS, computePerks, perkMaxHp, makeOffer, encodeCards, decodeCards, cardById, cardAvailable, PERK_CAPS } from '../js/game/horde/cards.js';
 import { BOSSES, pickBosses, SKILL_KINDS } from '../js/game/horde/bosses.js';
-import { HORDE, bossCount, zombieCount, hpMul, hordeAmmo, makeRng, zombieMix } from '../js/game/horde/rules.js';
+import { HORDE, bossCount, zombieCount, hpMul, hordeAmmo, makeRng, zombieMix, LOOT_TYPES, LOOT_TABLE, BOSS_LOOT, rollLoot, lootByCode, ZOMBIE_IDS as ZOMBIE_TYPES_IDS } from '../js/game/horde/rules.js';
 import { createHorde, applyHordeSnapshot, restoreHorde, hordeSummary, zombieIdOf } from '../js/game/horde/director.js';
 import { modsFromPerks } from '../js/game/horde/client.js';
 import { zombieReward } from '../js/account/economy.js';
@@ -32,6 +33,7 @@ const ARENA = Object.freeze({
     { type: 'box', x: 12, y: 0, z: -14, w: 3, h: 2.4, d: 3, mat: 'concrete' }
   ]
 });
+const ZOMBIE_MAP_IDS = ['restarea', 'subway'];
 const col = buildCollision(ARENA);
 const nav = buildNavGrid(ARENA);
 
@@ -136,15 +138,23 @@ describe('보스 · 스테이지 규칙', () => {
     }
   });
 
-  test('5스테이지마다 보스, 50부터 2마리, 100부터 3마리', () => {
+  test('3스테이지마다 보스, 50이 넘으면 2마리, 100이 넘으면 3마리', () => {
+    assert.equal(HORDE.bossEvery, 3);
+    assert.equal(bossCount(1), 0);
+    assert.equal(bossCount(2), 0);
+    assert.equal(bossCount(3), 1);
     assert.equal(bossCount(4), 0);
-    assert.equal(bossCount(5), 1);
-    assert.equal(bossCount(45), 1);
+    assert.equal(bossCount(5), 0);
+    assert.equal(bossCount(6), 1);
+    assert.equal(bossCount(48), 1);
     assert.equal(bossCount(49), 0);
-    assert.equal(bossCount(50), 2);
-    assert.equal(bossCount(95), 2);
-    assert.equal(bossCount(100), 3);
+    assert.equal(bossCount(50), 0, '50은 3의 배수가 아니다');
+    assert.equal(bossCount(51), 2);
+    assert.equal(bossCount(99), 2);
+    assert.equal(bossCount(102), 3);
     assert.equal(bossCount(150), 3);
+    const first = (n) => { for (let s = 1; s < 400; s++) if (bossCount(s) === n) return s; return -1; };
+    assert.deepEqual([first(1), first(2), first(3)], [3, 51, 102]);
   });
 
   test('보스 고르기: 한 스테이지 안에서 겹치지 않고 바로 앞 보스를 피한다', () => {
@@ -250,20 +260,20 @@ describe('방장 시뮬레이션', () => {
   });
 
   test('좀비가 다가와 때리고, 혼자 쓰러지면 끝난다', () => {
-    const { d } = makeDirector({ startStage: 12 });
+    const { d } = makeDirector({ startStage: 13 });
     d.start();
     const ev = runUntil(d, () => d.phase === 'over', 120000);
     assert.equal(d.phase, 'over');
     assert.ok(ev.some((e) => e.type === 'down' && e.id === 'p1'));
     const over = ev.find((e) => e.type === 'over');
-    assert.equal(over.stage, 12);
+    assert.equal(over.stage, 13);
     const v = applyHordeSnapshot(JSON.parse(JSON.stringify(d.snapshot())));
     assert.equal(v.phase, 'over');
-    assert.equal(hordeSummary(v, 'p1').stage, 12);
+    assert.equal(hordeSummary(v, 'p1').stage, 13);
   });
 
-  test('보스 스테이지: 5에 1마리, 50에 2마리, 100에 3마리', () => {
-    for (const [stage, n] of [[5, 1], [50, 2], [100, 3]]) {
+  test('보스 스테이지: 3에 1마리, 51에 2마리, 102에 3마리', () => {
+    for (const [stage, n] of [[3, 1], [51, 2], [102, 3]]) {
       const { d } = makeDirector({ startStage: stage });
       d.start();
       const ev = runUntil(d, (all) => all.filter((e) => e.type === 'bossSpawn').length >= n, 20000);
@@ -274,14 +284,14 @@ describe('방장 시뮬레이션', () => {
   });
 
   test('보스가 스킬을 쓴다', () => {
-    const { d } = makeDirector({ startStage: 5 });
+    const { d } = makeDirector({ startStage: 6 });
     d.start();
     const ev = runUntil(d, (all) => all.some((e) => e.type === 'skill'), 60000);
     assert.ok(ev.some((e) => e.type === 'skill'));
   });
 
   test('관통: 같은 발로 맞힌 두 번째 좀비는 관통 카드가 없으면 거절한다', () => {
-    const { d } = makeDirector({ startStage: 3 });
+    const { d } = makeDirector({ startStage: 4 });
     d.start();
     runUntil(d, () => [...d.internals.zombies.values()].filter((Z) => Z.state !== 'rise').length >= 2, 30000);
     const zs = [...d.internals.zombies.values()].filter((Z) => Z.state !== 'dead');
@@ -330,5 +340,167 @@ describe('방장 시뮬레이션', () => {
   test('규칙 값: 최대 4인 · 탄약 3배', () => {
     assert.equal(HORDE.maxPlayers, 4);
     assert.equal(HORDE.reserveMul, 3);
+  });
+});
+
+describe('좀비 문 · 바닥 보급품', () => {
+  test('좀비 문을 주면 좀비는 그 문 둘레에서만 나온다', () => {
+    const gates = col.spawns.charterer;
+    const { d } = makeDirector({ gates, startStage: 4 });
+    d.start();
+    // 처음 보인 순간(일어나는 동작 중이라 아직 걷지 않는다)의 자리를 잰다
+    const first = new Map();
+    runUntil(d, () => first.size >= 10, 30000, () => {
+      for (const Z of d.internals.zombies.values()) if (!first.has(Z.id)) first.set(Z.id, Z.body.pos.slice());
+    });
+    assert.ok(first.size >= 10, `좀비 ${first.size}`);
+    for (const [id, p] of first) {
+      const near = Math.min(...gates.map((g) => Math.hypot(g.x - p[0], g.z - p[2])));
+      assert.ok(near < 1.7, `좀비 ${id}가 문에서 ${near.toFixed(2)} m에서 나왔다`);
+    }
+    assert.equal(d.internals.gates.length, gates.length);
+  });
+
+  test('떨어뜨리는 표: 종류는 넷 중 하나, 확률은 0~1, 보스는 셋', () => {
+    for (const [type, list] of Object.entries(LOOT_TABLE)) {
+      assert.ok(ZOMBIE_TYPES_IDS.includes(type), type);
+      for (const [kind, p] of list) { assert.ok(LOOT_TYPES[kind], `${type}:${kind}`); assert.ok(p > 0 && p < 1, `${type}:${kind} ${p}`); }
+    }
+    assert.deepEqual([...BOSS_LOOT].sort(), ['ammo', 'med', 'nade']);
+    assert.equal(rollLoot('walker', () => 0.99), null, '굴림이 크면 아무것도 없다');
+    assert.equal(rollLoot('walker', () => 0), 'mag', '앞에서부터 처음 맞은 하나');
+    assert.equal(lootByCode(LOOT_TYPES.med.code), LOOT_TYPES.med);
+    assert.equal(lootByCode(99), null);
+  });
+
+  test('보스를 쓰러뜨리면 보급품 셋이 떨어지고, 스냅샷에 실리고, 가까이 간 사람만 줍는다', () => {
+    const { d, me } = makeDirector({ startStage: 3 });
+    d.start();
+    runUntil(d, () => [...d.internals.zombies.values()].some((Z) => Z.boss && Z.state !== 'rise'), 30000);
+    const boss = [...d.internals.zombies.values()].find((Z) => Z.boss);
+    let shot = 500;
+    while (boss.state !== 'dead') d.claimHit({ attackerId: 'p1', victimId: 'z' + boss.id, weaponId: 'sr_heavy', part: 'head', dist: 10, kind: 'shot', count: 1, shotId: ++shot });
+    const drops = [...d.internals.loot.values()].filter((L) => Math.hypot(L.x - boss.body.pos[0], L.z - boss.body.pos[2]) < 2);
+    assert.deepEqual(drops.map((L) => L.kind).sort(), ['ammo', 'med', 'nade']);
+    // 스냅샷 왕복
+    const v = applyHordeSnapshot(JSON.parse(JSON.stringify(d.snapshot())));
+    for (const L of drops) assert.ok(v.loot.some((x) => x.id === L.id && x.kind === L.kind && Math.abs(x.pos[0] - L.x) < 0.02), `뷰에 ${L.kind}`);
+    assert.ok(v.loot.every((x) => x.leftMs > 0 && x.leftMs <= HORDE.lootMs));
+    // 멀리서는 못 줍는다
+    const med = drops.find((L) => L.kind === 'med');
+    me.pos = [med.x + 8, med.y, med.z];
+    assert.equal(d.claimLoot('p1', med.id)[0].reason, 'far');
+    // 다치고 가까이 가면 구급 상자가 체력을 채운다
+    const P = d.internals.players.get('p1');
+    P.hp = 40;
+    me.pos = [med.x + 1, med.y, med.z];
+    const ev = d.claimLoot('p1', med.id);
+    assert.equal(ev[0].type, 'loot');
+    assert.equal(ev[0].kind, 'med');
+    assert.equal(ev[0].by, 'p1');
+    assert.equal(ev[0].heal, LOOT_TYPES.med.heal);
+    assert.equal(P.hp, 40 + LOOT_TYPES.med.heal);
+    assert.equal(d.claimLoot('p1', med.id)[0].reason, 'gone', '두 번 주울 수 없다');
+    assert.equal(d.claimLoot('nobody', drops[0].id)[0].reason, 'dead');
+  });
+
+  test('보급품은 정해진 시간이 지나면 사라지고, 상한을 넘으면 오래된 것부터 치운다', () => {
+    const { d } = makeDirector({ startStage: 3, rules: { lootMs: 1500, maxLoot: 4 } });
+    d.start();
+    runUntil(d, () => [...d.internals.zombies.values()].some((Z) => Z.boss && Z.state !== 'rise'), 30000);
+    const boss = [...d.internals.zombies.values()].find((Z) => Z.boss);
+    let shot = 900;
+    while (boss.state !== 'dead') d.claimHit({ attackerId: 'p1', victimId: 'z' + boss.id, weaponId: 'sr_heavy', part: 'head', dist: 10, kind: 'shot', count: 1, shotId: ++shot });
+    killAll(d);
+    assert.ok(d.internals.loot.size <= 4, `상한 4, 지금 ${d.internals.loot.size}`);
+    assert.ok(d.internals.loot.size >= 3);
+    runUntil(d, () => d.internals.loot.size === 0, 4000);
+    assert.equal(d.internals.loot.size, 0, '1.5초 뒤 모두 사라진다');
+  });
+
+  test('방장 이전: 바닥 보급품의 번호와 자리를 잇는다', () => {
+    const { d, me } = makeDirector({ startStage: 3 });
+    d.start();
+    runUntil(d, () => [...d.internals.zombies.values()].some((Z) => Z.boss && Z.state !== 'rise'), 30000);
+    const boss = [...d.internals.zombies.values()].find((Z) => Z.boss);
+    let shot = 1300;
+    while (boss.state !== 'dead') d.claimHit({ attackerId: 'p1', victimId: 'z' + boss.id, weaponId: 'sr_heavy', part: 'head', dist: 10, kind: 'shot', count: 1, shotId: ++shot });
+    const snap = JSON.parse(JSON.stringify(d.snapshot()));
+    const r = restoreHorde(snap, { world: col.world, nav, spawns: col.spawns, getPositions: () => ({ p1: me.pos }), players: [{ id: 'p1', name: '하늘' }] });
+    const before = [...d.internals.loot.values()].map((L) => `${L.id}:${L.kind}`).sort();
+    const after = [...r.internals.loot.values()].map((L) => `${L.id}:${L.kind}`).sort();
+    assert.deepEqual(after, before);
+    const L = [...r.internals.loot.values()][0];
+    me.pos = [L.x, L.y, L.z];
+    assert.equal(r.claimLoot('p1', L.id)[0].type, 'loot');
+  });
+});
+
+describe('좀비 모드 무기 교체: 한 번 쓴 총은 남은 탄 그대로', () => {
+  test('equipWith: 탄을 주면 그 탄으로, 안 주면 새 탄으로 칸을 바꾸고 든 칸이면 바로 꺼낸다', () => {
+    const a = createArsenal({ primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
+    a.setMods({ reserve: HORDE.reserveMul, finiteMags: HORDE.premiumReserveMags });
+    a.resetRound({ primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
+    assert.equal(a.getWeapon().id, 'ar_std');
+    assert.ok(a.equipWith('ar_rapid'));
+    assert.equal(a.getLoadout().primary, 'ar_rapid');
+    const fresh = a.getAmmo('ar_rapid');
+    assert.equal(fresh.mag, WEAPONS.ar_rapid.mag);
+    assert.equal(fresh.reserve, hordeAmmo(WEAPONS.ar_rapid).reserve);
+    assert.ok(a.equipWith('ar_std', { mag: 7, reserve: 33 }));
+    assert.deepEqual([a.getAmmo('ar_std').mag, a.getAmmo('ar_std').reserve], [7, 33]);
+    assert.ok(a.equipWith('ar_std', { mag: 999, reserve: 99999 }));
+    assert.equal(a.getAmmo('ar_std').mag, WEAPONS.ar_std.mag, '최대를 넘지 않는다');
+    assert.equal(a.getAmmo('ar_std').reserve, hordeAmmo(WEAPONS.ar_std).reserve);
+    assert.ok(a.equipWith('ml_tanto'));
+    assert.equal(a.getLoadout().melee, 'ml_tanto');
+    assert.equal(a.equipWith('nope'), false);
+  });
+});
+
+describe('좀비 전용 맵', () => {
+  test('restarea·subway: 검사기 통과, 사람 스폰 4곳 이상, 좀비 문 4곳 이상이 사람에게서 16 m 밖', async () => {
+    const realWarn = console.warn;
+    console.warn = () => {};
+    const maps = await import('../js/maps/index.js').finally(() => { console.warn = realWarn; });
+    const { checkMap } = await import('../tools/check-maps.mjs');
+    for (const id of ZOMBIE_MAP_IDS) {
+      const data = maps.MAPS[id];
+      assert.ok(isZombieMap(data), id);
+      const r = checkMap(id, data);
+      assert.deepEqual(r.errors, [], `${id}: ${r.errors.join(' | ')}`);
+      assert.deepEqual(r.warnings, [], `${id}: ${r.warnings.join(' | ')}`);
+      assert.ok(r.horde.people >= 4 && r.horde.gates >= 4, `${id} ${JSON.stringify(r.horde)}`);
+      assert.ok(r.horde.nearest >= HORDE.spawnSafeM, `${id} 가장 가까운 문 ${r.horde.nearest} m`);
+      assert.equal(r.los, 0, `${id}: 시작 자리에서 좀비 문이 보이지 않는다`);
+      assert.deepEqual(data.modes, ['zombie']);
+      assert.equal(data.horde.gates.length, data.spawns.charterer.length);
+    }
+    assert.deepEqual(maps.mapsForMode('zombie').map((m) => m.id), ZOMBIE_MAP_IDS, '좀비 모드는 좀비 전용 맵만');
+    for (const rs of ['classic', 'knife', 'sniper']) {
+      assert.ok(!maps.mapsForRuleset(rs).some((m) => m.zombie), `${rs}: 다른 모드에는 좀비 전용 맵이 없다`);
+    }
+    assert.ok(!maps.mapsForMode('bomb').some((m) => m.zombie));
+    assert.ok(!maps.mapsForMode('team', 'classic').some((m) => m.zombie));
+    assert.ok(!isZombieMap(maps.MAPS.alley), '일반 맵은 좀비 전용이 아니다');
+  });
+
+  test('좀비 전용 맵에서 방장 시뮬레이션이 돈다: 문에서 나온 좀비가 사람에게 다가간다', async () => {
+    const realWarn = console.warn;
+    console.warn = () => {};
+    const maps = await import('../js/maps/index.js').finally(() => { console.warn = realWarn; });
+    for (const id of ZOMBIE_MAP_IDS) {
+      const data = maps.MAPS[id];
+      const c = buildCollision(data);
+      const n = buildNavGrid(data);
+      const pos = { p1: [c.spawns.owner[0].x, c.spawns.owner[0].y, c.spawns.owner[0].z] };
+      const d = createHorde({ players: [{ id: 'p1', name: 'a' }], world: c.world, nav: n, spawns: c.spawns, gates: c.spawns.charterer, seed: 5, getPositions: () => pos, rules: { prepMs: 200 } });
+      d.start();
+      runUntil(d, () => d.internals.zombies.size >= 6, 20000);
+      const dist = () => Math.min(...[...d.internals.zombies.values()].map((Z) => Math.hypot(Z.body.pos[0] - pos.p1[0], Z.body.pos[2] - pos.p1[2])));
+      const d0 = dist();
+      runUntil(d, () => false, 6000);
+      assert.ok(dist() < d0 - 3, `${id}: 좀비가 다가온다 ${d0.toFixed(1)} → ${dist().toFixed(1)} m`);
+    }
   });
 });

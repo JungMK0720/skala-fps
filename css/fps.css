@@ -2083,7 +2083,17 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
 .sk-menu-btn { grid-column: span 12; }
 .sk-menu-btn--wide { grid-column: span 6; }
 .sk-menu-btn--sub { grid-column: span 3; }
-.sk-menu-btn--zombie .sk-menu-ico { color: #9fd86b; }
+/* 좀비 물량 막기: 멀티플레이 버튼처럼 칠한 초록 버튼(글자는 어두운 색) */
+.sk-menu-btn--zombie {
+  color: var(--sk-on-accent); border-color: transparent;
+  background: linear-gradient(100deg, #9cee72, #3fbf5a 70%); box-shadow: 0 0 22px rgba(96, 220, 104, .3);
+}
+.sk-menu-btn--zombie:hover:not(:disabled) {
+  border-color: transparent; background: linear-gradient(100deg, #b6f58f, #4fd06a 70%); box-shadow: 0 0 30px rgba(96, 220, 104, .48);
+}
+.sk-menu-btn--zombie .sk-menu-ico { color: inherit; }
+.sk-menu-btn--zombie .sk-menu-sub { opacity: .85; }
+.sk-ui .sk-menu-btn--zombie:focus-visible { outline-color: #fff; }
 .sk-menu-btn.has-new { position: relative; border-color: rgba(255, 196, 77, .75); }
 .sk-menu-btn.has-new::after {
   content: ''; position: absolute; top: 7px; right: 7px; width: 9px; height: 9px; border-radius: 50%;

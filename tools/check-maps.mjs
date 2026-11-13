@@ -2,7 +2,7 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 맵 데이터 검사기(npm run check:maps). 게임과 같은 물리 코드로 스폰, 발판 궤적, 포털, 비밀 스팟, 길 찾기, 폭파 미션 구역,
- *          움직이는 지형을 시뮬레이션해 맵 제작 실수를 찾는다. 오류가 있으면 종료 코드 1. 사용법: node tools/check-maps.mjs [맵 id] [--json] [--file 경로]
+ *          움직이는 지형, 좀비 전용 맵의 좀비 문을 시뮬레이션해 맵 제작 실수를 찾는다. 오류가 있으면 종료 코드 1. 사용법: node tools/check-maps.mjs [맵 id] [--json] [--file 경로]
  */
 import { existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
@@ -13,7 +13,8 @@ import { PAD_HEIGHT_TOL, stepTriggers } from '../js/engine/triggers.js';
 import { moverBox, moverSweep, moverPeakSpeed } from '../js/engine/movers.js';
 import { SITE_IDS, normalizeMission, placeMission, siteAt, siteContains } from '../js/game/mission.js';
 import { NAV_EDGE, buildNavGrid } from '../js/game/navgrid.js';
-import { CROWD, buildCollision, missionCrowd, validateMap } from '../js/maps/collision.js';
+import { CROWD, MIN_HORDE_GATES, buildCollision, isZombieMap, missionCrowd, validateMap } from '../js/maps/collision.js';
+import { HORDE } from '../js/game/horde/rules.js';
 
 /** 새 맵 전용 요구 사항(팀 스폰 수, 개인전 스폰 수, 경고를 오류로 취급)을 적용할 id. rulesets가 있는 맵도 같다(테스트 맵 제외) */
 const NEW_MAPS = new Set(['alley', 'dojo', 'longshot', 'nexus', 'relay', 'railyard', 'observatory', 'cqb', 'sorthub', 'lot', 'schoolyard', 'karaoke', 'hanok']);
@@ -24,6 +25,7 @@ const MIN_MISSION_SPAWNS = 4;    // 폭파 미션 진영마다 스폰 수
 const MIN_SITE_NODES = 16;       // 구역 안 걷기 칸(내비 1 m 칸) 수
 const MISSION_LEAD = 10;         // 수비가 공격보다 이만큼(m) 먼저 구역에 닿아야 한다
 const MISSION_SIDES = ['attack', 'defense'];
+const GATE_MIN_DIST = HORDE.spawnSafeM;   // 좀비 문은 모든 사람 스폰에서 이만큼(m) 떨어진다(방장이 좀비를 세우는 최소 거리와 같다)
 
 const PAD_XZ_TOLERANCE = 2;      // 착지와 target의 수평 거리(m)
 const PAD_Y_TOLERANCE = 0.6;     // 착지 바닥과 target의 높이 차(m)
@@ -311,7 +313,7 @@ function isNarrowPerch(world, x, y, z) {
   return drops >= 6;
 }
 
-function checkSpawns(data, col, strict, out) {
+function checkSpawns(data, col, strict, out, zombie = false) {
   const { world, spawns } = col;
   const severe = strict ? out.errors : out.warnings;
   for (const team of [...TEAM_IDS, 'ffa']) {
@@ -329,7 +331,7 @@ function checkSpawns(data, col, strict, out) {
       }
     });
     if (strict && team !== 'ffa' && list.length < MIN_TEAM_SPAWNS) out.errors.push(`spawns.${team}: ${list.length} < ${MIN_TEAM_SPAWNS}`);
-    if (strict && team === 'ffa' && list.length < MIN_FFA_SPAWNS) out.errors.push(`spawns.ffa: ${list.length} < ${MIN_FFA_SPAWNS}`);
+    if (strict && team === 'ffa' && !zombie && list.length < MIN_FFA_SPAWNS) out.errors.push(`spawns.ffa: ${list.length} < ${MIN_FFA_SPAWNS}`);
   }
   const far = col.theme.fog[1];
   const seen = [];
@@ -375,6 +377,26 @@ function checkWalkability(data, col, out) {
     if (!pathExists(p, all)) out.errors.push(`spawns.ffa[${i}] cannot reach any other spawn on the navgrid`);
   });
   return nav;
+}
+
+/**
+ * 좀비 전용 맵(maps/collision.js isZombieMap): 사람 스폰(spawns.owner)이 4곳 이상(좀비 방 최대 인원), 좀비 문(spawns.charterer = horde.gates)이
+ * MIN_HORDE_GATES곳 이상이고, 문마다 모든 사람 스폰에서 GATE_MIN_DIST m 넘게 떨어져 있으며 내비 길로 사람 스폰에 닿는다.
+ * → { people, gates, nearest, farthest } (사람 스폰에서 가장 가까운·먼 문까지의 직선 거리 m)
+ */
+export function checkHordeMap(data, col, nav, out) {
+  const people = col.spawns.owner || [];
+  const gates = col.spawns.charterer || [];
+  if (people.length < MIN_TEAM_SPAWNS) out.errors.push(`horde: ${people.length} player spawns (spawns.owner) < ${MIN_TEAM_SPAWNS}`);
+  if (gates.length < MIN_HORDE_GATES) out.errors.push(`horde: ${gates.length} zombie gates (spawns.charterer) < ${MIN_HORDE_GATES}`);
+  let nearest = Infinity, farthest = 0;
+  gates.forEach((g, i) => {
+    const d = Math.min(...people.map((p) => Math.hypot(p.x - g.x, p.z - g.z)));
+    if (Number.isFinite(d)) { nearest = Math.min(nearest, d); farthest = Math.max(farthest, d); }
+    if (d < GATE_MIN_DIST) out.errors.push(`horde gate ${i} ${fmt(g.x, g.y, g.z)} is ${r2(d)} m from a player spawn; keep it at least ${GATE_MIN_DIST} m away`);
+    if (!people.some((p) => nav.findPath(g, p, { smooth: false }))) out.errors.push(`horde gate ${i} ${fmt(g.x, g.y, g.z)} cannot reach any player spawn on the navgrid`);
+  });
+  return { people: people.length, gates: gates.length, nearest: Number.isFinite(nearest) ? r2(nearest) : null, farthest: r2(farthest) };
 }
 
 function checkProps(data, world, out) {
@@ -626,7 +648,8 @@ export function checkMission(data, nav, out = { errors: [], warnings: [] }, col 
  */
 export function checkMap(id, data) {
   const strict = !EXEMPT_MAPS.has(id) && (NEW_MAPS.has(id) || Array.isArray(data && data.rulesets));
-  const out = { id, strict, ok: false, errors: [], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null, movers: [] };
+  const out = { id, strict, ok: false, errors: [], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null, movers: [], horde: null };
+  const zombie = isZombieMap(data);
   const v = validateMap(data);
   out.errors.push(...v.errors);
   (strict ? out.errors : out.warnings).push(...v.warnings);
@@ -641,11 +664,13 @@ export function checkMap(id, data) {
     owner: col.spawns.owner.length, charterer: col.spawns.charterer.length, ffa: col.spawns.ffa.length
   };
 
-  out.los = checkSpawns(data, col, strict, out);
-  out.counts.crowd = EXEMPT_MAPS.has(id) ? null : checkCrowd(col, out);
+  out.los = checkSpawns(data, col, strict, out, zombie);
+  // 좀비 방은 4명까지라 16인방 보조 자리가 필요 없다
+  out.counts.crowd = EXEMPT_MAPS.has(id) || zombie ? null : checkCrowd(col, out);
   const nav = checkWalkability(data, col, out);
   out.nav = { nodes: nav.info.nodes, good: nav.info.good, ms: Math.round(nav.info.buildMs) };
   out.mission = checkMission(data, nav, out, col);
+  if (zombie) out.horde = checkHordeMap(data, col, nav, out);
   out.movers = checkMovers(data, col, out);
   checkProps(data, world, out);
 
@@ -732,7 +757,7 @@ function printMission(m) {
 
 function printDetails(reports) {
   for (const r of reports) {
-    if (!r.errors.length && !r.warnings.length && !r.pads.length && !r.secrets.length && !r.mission && !r.movers.length) continue;
+    if (!r.errors.length && !r.warnings.length && !r.pads.length && !r.secrets.length && !r.mission && !r.movers.length && !r.horde) continue;
     console.log(`\n[${r.id}]${r.strict ? ' (new-map rules)' : ''}`);
     for (const p of r.pads) {
       console.log(p.landing
@@ -741,6 +766,7 @@ function printDetails(reports) {
     }
     for (const s of r.secrets) console.log(`  secret ${s.id}: ${s.via ? `via ${s.via}` : 'unreachable'}`);
     if (r.mission) printMission(r.mission);
+    if (r.horde) console.log(`  horde: 사람 스폰 ${r.horde.people} · 좀비 문 ${r.horde.gates} · 사람에서 가장 가까운 문 ${r.horde.nearest} m, 가장 먼 문 ${r.horde.farthest} m`);
     for (const m of r.movers) {
       console.log(m.door
         ? `  door ${m.id}: ${m.axis} ${m.dist > 0 ? '+' : ''}${m.dist} m, opens within ${m.door.range} m in ${m.door.open} s, closes in ${m.door.close} s once nobody has been near for ${m.door.linger} s`
@@ -784,11 +810,11 @@ async function main() {
   const args = process.argv.slice(2);
   const targets = await loadTargets(args);
   const reports = targets.map((t) => {
-    if (t.error) return { id: t.id, strict: true, ok: false, errors: [t.error], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null, movers: [] };
+    if (t.error) return { id: t.id, strict: true, ok: false, errors: [t.error], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null, movers: [], horde: null };
     try {
       return checkMap(t.id, t.data);
     } catch (err) {
-      return { id: t.id, strict: true, ok: false, errors: [`checker crashed: ${err && err.stack ? err.stack : err}`], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null, movers: [] };
+      return { id: t.id, strict: true, ok: false, errors: [`checker crashed: ${err && err.stack ? err.stack : err}`], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null, movers: [], horde: null };
     }
   });
   const ok = reports.length > 0 && reports.every((r) => !r.errors.length);

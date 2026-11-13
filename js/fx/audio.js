@@ -567,6 +567,10 @@ const DEFS = {
   card_pick: { ui: 1, dur: 0.6, prio: 8, level: 0.5, max: 2,
     r: (S) => S.tone({ f: 1046.5, f1: 1568, glide: 0.04, harm: 4, a: 0.003, d: 0.12, dur: 0.4, g: 0.4 })
       .ring({ t: 0.05, f: [3136, 4186], amp: [1, 0.5], dec: [0.15, 0.1], g: 0.2 }) },
+  // 좀비 보급품 줍기: 탄창 끼우는 딸깍 + 짧은 금속음
+  loot_pick: { ui: 1, dur: 0.35, prio: 7, level: 0.5, max: 2,
+    r: (S) => S.click(0, 0.7, 1800).noise({ t: 0.03, dur: 0.07, d: 0.02, bp: 3200, q: 2, g: 0.35 })
+      .ring({ t: 0.06, f: [2093, 3136], amp: [1, 0.45], dec: [0.08, 0.05], g: 0.28 }) },
   // 카드 다시 뽑기: 카드 섞는 소리
   card_shuffle: { ui: 1, dur: 0.5, prio: 7, level: 0.45, max: 2,
     r: (S) => { for (let i = 0; i < 7; i++) S.noise({ t: i * 0.05, dur: 0.05, d: 0.012, bp: S.r(2500, 4000), q: 2, g: 0.5 }); } }

@@ -13,16 +13,16 @@ export const HORDE = Object.freeze({
   baseHp: 100,            // 시작 최대 체력(카드로 늘어난다)
   reserveMul: 3,          // 재장전 탄창(예비 탄약)은 기존 맵의 3배. 탄창은 스테이지 사이에 채워지지 않고 이어진다
   premiumReserveMags: 2,  // 예비가 무제한인 프리미엄 총도 이 모드에서는 탄창 2개 × 배율만큼만 든다
-  prepMs: 7000,           // 첫 스테이지 시작 전 준비 시간
+  prepMs: 12000,          // 첫 스테이지 시작 전 준비 시간(무기를 고를 시간을 준다)
   breakMs: 3500,          // 카드를 다 고른 뒤 다음 스테이지까지
   cardMs: 30000,          // 카드 고르기 제한 시간(지나면 첫 카드를 받는다)
   clearHealFrac: 0.25,    // 스테이지를 깨면 최대 체력의 25%를 회복한다
   reviveHpFrac: 0.5,      // 쓰러진 사람은 다음 스테이지에 최대 체력의 50%로 일어난다
   maxAlive: 34,           // 한 번에 맵에 있는 일반 좀비 상한(보스·소환 제외). 넘으면 죽는 만큼 이어서 나온다
   maxAliveBoss: 18,       // 보스 스테이지의 일반 좀비 상한
-  bossEvery: 5,           // 5스테이지마다 보스
-  twoBossFrom: 50,        // 50스테이지부터 보스 2마리
-  threeBossFrom: 100,     // 100스테이지부터 3마리
+  bossEvery: 3,           // 3스테이지마다 보스(3, 6, 9, …)
+  twoBossFrom: 50,        // 50스테이지가 넘으면 보스 2마리(처음은 51스테이지)
+  threeBossFrom: 100,     // 100스테이지가 넘으면 3마리(처음은 102스테이지)
   simHz: 30,              // 좀비 이동·판단 고정 간격
   flowMs: 400,            // 흐름장(길찾기)을 다시 만드는 간격
   spawnSafeM: 16,         // 좀비가 나오는 자리는 살아 있는 사람에게서 이만큼 떨어져야 한다
@@ -31,8 +31,43 @@ export const HORDE = Object.freeze({
   maxSummons: 16,         // 보스가 불러낸 좀비 상한
   maxProjectiles: 40,
   maxHazards: 16,
-  gameOverMs: 6000        // 전멸 뒤 결과 화면까지
+  gameOverMs: 6000,       // 전멸 뒤 결과 화면까지
+  lootMs: 30000,          // 바닥의 보급품(탄창 등)이 사라지기까지
+  maxLoot: 24,            // 한 번에 바닥에 있는 보급품 상한(넘으면 가장 오래된 것부터 치운다)
+  lootPickM: 2.6,         // 방장이 받아 주는 줍기 거리(지연 여유 포함). 화면은 LOOT_TOUCH_M 안에 들어가면 줍는다
+  lootTouchM: 1.15        // 화면에서 줍는 거리(몸 중심과 보급품의 수평 거리)
 });
+
+/**
+ * 좀비가 쓰러지며 떨어뜨리는 보급품. 걸어서 닿으면 줍는다(방장이 확인한다).
+ * mag = 든 총의 탄창 하나만큼 예비 탄, ammo = 주무기·보조무기 예비 탄을 최대의 절반만큼, nade = 수류탄 하나, med = 체력 heal
+ */
+export const LOOT_TYPES = Object.freeze({
+  mag: Object.freeze({ id: 'mag', code: 1, name: '탄창', icon: '🧷', color: 0xd8b24a }),
+  ammo: Object.freeze({ id: 'ammo', code: 2, name: '탄약 상자', icon: '📦', color: 0x6c8a3a }),
+  nade: Object.freeze({ id: 'nade', code: 3, name: '수류탄', icon: '💣', color: 0x3c5f35 }),
+  med: Object.freeze({ id: 'med', code: 4, name: '구급 상자', icon: '➕', color: 0xeeeeea, heal: 30 })
+});
+const LOOT_BY_CODE = new Map(Object.values(LOOT_TYPES).map((l) => [l.code, l]));
+export const lootByCode = (code) => LOOT_BY_CODE.get(code | 0) || null;
+
+/** 좀비 종류별 떨어뜨리는 보급품과 확률. 앞에서부터 굴려 처음 맞은 하나만 떨어뜨린다 */
+export const LOOT_TABLE = Object.freeze({
+  walker: [['mag', 0.12], ['med', 0.02], ['nade', 0.02]],
+  runner: [['mag', 0.1], ['nade', 0.02]],
+  brute: [['ammo', 0.35], ['mag', 0.3], ['med', 0.1]],
+  spitter: [['mag', 0.14], ['med', 0.04]],
+  bomber: [['nade', 0.2]],
+  crawler: [['mag', 0.08], ['med', 0.02]]
+});
+/** 보스는 늘 탄약 상자·구급 상자·수류탄을 하나씩 떨어뜨린다 */
+export const BOSS_LOOT = Object.freeze(['ammo', 'med', 'nade']);
+
+/** 이 좀비가 떨어뜨릴 보급품 종류(없으면 null) */
+export function rollLoot(typeId, rng) {
+  for (const [kind, p] of LOOT_TABLE[typeId] || []) if (rng() < p) return kind;
+  return null;
+}
 
 /**
  * 일반 좀비. hp·damage는 1스테이지 값이고 hpMul·dmgMul을 곱한다.
@@ -109,14 +144,14 @@ export function spawnBurst(stage) {
   return clamp(1 + Math.floor(stageOf(stage) / 8), 1, 4);
 }
 
-/** 이 스테이지의 보스 수: 5스테이지마다, 50스테이지부터 2마리, 100스테이지부터 3마리 */
+/** 이 스테이지의 보스 수: 3스테이지마다, 50스테이지가 넘으면 2마리, 100스테이지가 넘으면 3마리 */
 export function bossCount(stage, rules = HORDE) {
   const s = stageOf(stage);
   if (s % rules.bossEvery !== 0) return 0;
   return s >= rules.threeBossFrom ? 3 : s >= rules.twoBossFrom ? 2 : 1;
 }
 
-/** 보스 체력 배율: 5스테이지 1배, 25스테이지 약 3.1배, 50스테이지 약 7배, 100스테이지 약 19배 */
+/** 보스 체력 배율: 3스테이지 약 0.85배, 5스테이지 1배, 25스테이지 약 3.1배, 50스테이지 약 7배, 100스테이지 약 19배 */
 export function bossHpMul(stage) {
   const s = stageOf(stage);
   return 0.6 + 0.08 * s + 0.0012 * s * s;

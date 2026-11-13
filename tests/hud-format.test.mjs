@@ -96,6 +96,10 @@ describe('swapPromptSpec: 라운드 시작 전 무기 교체 안내', () => {
   test('값이 없으면 null(안내를 치운다)', () => {
     for (const bad of [null, undefined, 0, 'x']) assert.equal(swapPromptSpec(bad), null);
   });
+  test('좀비 물량 막기(기한 없음): 남은 시간 대신 덧말을 붙인다', () => {
+    assert.deepEqual(swapPromptSpec({ seconds: 0, weaponName: 'RX-4', note: '모든 무기 · 언제든' }), { key: 'N', main: '을 눌러 무기 교체!', sub: '지금 RX-4 · 모든 무기 · 언제든' });
+    assert.equal(swapPromptSpec({ seconds: 0, note: '  ' }).sub, '');
+  });
 });
 
 describe('fullscreenHint: 전체 화면 키 잠금 안내', () => {

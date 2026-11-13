@@ -58,6 +58,8 @@ export default {
       const sheet = await host.eval(`({ max: document.querySelector('.sk-create-sheet [aria-label="최대 인원"] .sk-stepper-val').textContent, plusOff: [...document.querySelectorAll('.sk-create-sheet [aria-label="최대 인원"] .sk-btn--icon')].pop().disabled,
         rulesOff: [...document.querySelectorAll('.sk-create-sheet .sk-choice-row button, .sk-create-sheet [aria-label="규칙 선택"] button')].every((b) => b.disabled) })`);
       t.check(sheet.max === '4명' && sheet.plusOff, '좀비 방은 최대 4명(처음 값도 4명)', sheet);
+      const zmaps = await host.eval(`[...document.querySelectorAll('.sk-create-sheet .sk-mapcard-name')].map((e) => e.textContent)`);
+      t.check(zmaps.join() === '고속도로 휴게소,지하철 환승역', '좀비 방의 맵은 좀비 전용 맵 둘', zmaps);
       await host.fn(() => { const el = document.querySelector('.sk-create-sheet input'); el.focus(); el.select(); });
       await host.type('좀비 방');
       await host.clickText('.sk-create-sheet .sk-form-actions .sk-btn', '방 만들기');
@@ -116,6 +118,28 @@ export default {
         () => t.check(true, '손님이 쏜 탄이 방장 시뮬레이션의 좀비 체력을 깎는다'),
         (err) => t.check(false, '손님이 쏜 탄이 방장 시뮬레이션의 좀비 체력을 깎는다', err.message));
       await t.shot('guest-shot');
+
+      t.setSection('손님이 탄창을 주우면 방장이 확정한다');
+      t.check(await host.eval(`${DIRECTOR}.internals.gates.length === 6`), '좀비 방은 좀비 전용 맵(좀비 문 여섯)에서 한다');
+      // 손님 예비 탄을 줄여 두고(시험용) 방장 시뮬레이션에 손님 발밑 탄창 하나를 떨어뜨린다
+      await guest.eval(`__qa.arsenal.equipWith('ar_std', { mag: 12, reserve: 15 })`);
+      const lootId = await host.eval(`(() => {
+        const s = window.__skalafpsSession, d = s.match, S = d.internals.S;
+        const gid = s.state.actors[0];
+        const r = s.sync.remote(gid);
+        const gp = r && r.state && r.state.pos;
+        if (!gp) return 0;
+        const id = S.nextLoot++;
+        d.internals.loot.set(id, { id, kind: 'mag', x: gp[0] + 0.3, y: gp[1], z: gp[2], until: S.clock + 30000 });
+        return id;
+      })()`);
+      t.check(lootId > 0, '손님 발밑에 탄창을 떨어뜨린다', lootId);
+      await host.waitFor(`!${DIRECTOR}.internals.loot.has(${lootId})`, 8000, { label: '방장이 줍기를 확정' }).then(
+        () => t.check(true, '손님이 닿은 탄창을 방장이 확정해 바닥에서 치운다'),
+        (err) => t.check(false, '손님이 닿은 탄창을 방장이 확정해 바닥에서 치운다', err.message));
+      await guest.waitFor(`__qa.arsenal.getAmmo('ar_std').reserve > 15`, 6000, { label: '손님 예비 탄' }).then(
+        async () => t.check((await guest.eval(`__qa.arsenal.getAmmo('ar_std').reserve`)) === 15 + 30, '손님의 예비 탄이 탄창 하나(30발)만큼 는다'),
+        (err) => t.check(false, '손님의 예비 탄이 탄창 하나(30발)만큼 는다', err.message));
 
       t.setSection('한 사람이 쓰러지면 다음 스테이지에 일어난다');
       await host.eval(`(() => { const d = ${DIRECTOR}; const gid = window.__skalafpsSession.state.actors[0]; const P = d.internals.players.get(gid); P.hp = 1; d.internals.S.phase = 'wave'; })()`);

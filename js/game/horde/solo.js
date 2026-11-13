@@ -9,6 +9,7 @@ import { createHordeClient, hordeScoreboard } from './client.js';
 import { cardById, TIERS } from './cards.js';
 import { getDef, DEFAULT_LOADOUT } from '../../weapons/defs.js';
 import { isWeaponAllowed } from '../modes.js';
+import { isZombieMap } from '../../maps/collision.js';
 
 const PUSH_MS = 50;                       // 혼자일 때 화면에 스냅샷을 넘기는 간격(20 Hz)
 const SOLO_RULES = Object.freeze({ cardMs: 10 * 60 * 1000 });   // 혼자일 때는 카드 고르기에 시간 제한을 두지 않는다(10분)
@@ -37,13 +38,17 @@ export function startHordeSolo(o) {
   const offs = [];
   let disposed = false, paused = false, pushAt = 0, pending = [], over = null, recorded = null;
   const timeScale = Math.max(1, opts.timeScale | 0 || 1);
+  // 스폰 주무기: 이번 판에 교체 창에서 고른 것(쓰러졌다 일어날 때도 그대로) → 계정 장비 → 기본
+  let lastPick = null;
   const pick = () => {
     const lo = ctx.account && ctx.account.loadout;
-    const id = lo && lo.primary;
+    const id = lastPick || (lo && lo.primary);
     return id && getDef(id) && isWeaponAllowed('classic', id) ? id : DEFAULT_LOADOUT.primary;
   };
+  // 좀비 전용 맵은 좀비가 좀비 문(레드 쪽 스폰 자리)에서만 나온다
+  const gates = isZombieMap(info.data || map.data) && map.spawns && Array.isArray(map.spawns.charterer) ? map.spawns.charterer : undefined;
   const director = createHorde({
-    players: [{ id: me.id, name: me.name }], world: map.world, nav, spawns: map.spawns, seed: opts.seed || undefined,
+    players: [{ id: me.id, name: me.name }], world: map.world, nav, spawns: map.spawns, gates, seed: opts.seed || undefined,
     startStage: opts.startStage || 1, rules: { ...SOLO_RULES, ...(opts.hordeRules || {}) },
     getPositions: () => (world.localAlive ? { [me.id]: ctx.player.state.pos } : {})
   });
@@ -51,7 +56,8 @@ export function startHordeSolo(o) {
     world, ui, meId: me.id, myName: () => me.name, loadout: pick, solo: true, input: ctx.input,
     actions: {
       pick: (id) => queue(director.cardAction(me.id, 'pick', id), true),
-      reroll: () => queue(director.cardAction(me.id, 'reroll'), true)
+      reroll: () => queue(director.cardAction(me.id, 'reroll'), true),
+      loot: (id) => queue(director.claimLoot(me.id, id), true)
     },
     onOver: (v) => showResults(v)
   });
@@ -103,6 +109,7 @@ export function startHordeSolo(o) {
     queue(director.claimExplosion({ attackerId: x.ownerId, center: x.center, victims: (x.victims || []).map((v) => ({ id: v.id, dmg: v.dmg })) }));
   }));
   offs.push(world.on('pause', (p) => { paused = !!(p && p.paused); world.setPaused(paused); }));
+  offs.push(world.on('loadoutPick', (e) => { const def = e && getDef(e.id); if (def && def.slot === 1) lastPick = e.id; }));
   offs.push(world.on('leave', () => ctx.setScreen('menu')));
   if (ui) {
     offs.push(ui.on('results:back', () => { if (!disposed && o.onRestart) o.onRestart(); }));

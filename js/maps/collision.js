@@ -21,6 +21,19 @@ export const DECOR_TYPES = Object.freeze([
   'tree', 'bamboo', 'lantern', 'banner', 'rope', 'vent', 'crateStack'
 ]);
 export const PROP_TYPES = Object.freeze(['crate', 'barrel']);
+/** 맵의 modes 칸이 적을 수 있는 모드(ui/dom.js MODE_IDS와 같다). 안 적으면 좀비 물량 막기를 뺀 모든 모드 */
+export const MAP_MODE_NAMES = Object.freeze(['team', 'ffa', 'bomb', 'zombie']);
+/** 좀비 전용 맵이 가져야 하는 좀비 문 수(= spawns.charterer) */
+export const MIN_HORDE_GATES = 4;
+
+/**
+ * 좀비 물량 막기 전용 맵인가: modes가 'zombie' 하나뿐이고 horde.gates(좀비 문)가 있다.
+ * 이런 맵은 좀비 물량 막기에서만 고를 수 있고, 좀비는 spawns.charterer(= 좀비 문)에서만 나온다(docs/MAP_GUIDE.md 12절)
+ */
+export function isZombieMap(data) {
+  return !!(data && !data.fallback && Array.isArray(data.modes) && data.modes.length === 1 && data.modes[0] === 'zombie'
+    && data.horde && Array.isArray(data.horde.gates) && data.horde.gates.length > 0);
+}
 
 /** 보이지 않는 막이. 충돌만 있고 총알·시야는 통과한다 */
 const CLIP_MAT = 'clip';
@@ -251,6 +264,25 @@ function checkSpawns(data, size, warnings) {
   }
 }
 
+/** 좀비 문: horde.gates가 맵 안의 자리이고, spawns.charterer와 같은 자리·같은 수다(좀비는 레드 쪽 스폰 자리에서 나온다) */
+function checkHorde(data, size, warnings) {
+  const gates = data.horde && data.horde.gates;
+  if (!Array.isArray(gates) || !gates.length) { warnings.push('horde.gates must be a non-empty array'); return; }
+  if (gates.length < MIN_HORDE_GATES) warnings.push(`horde.gates: ${gates.length} < ${MIN_HORDE_GATES}`);
+  if (!(Array.isArray(data.modes) && data.modes.includes('zombie'))) warnings.push("horde: a map with zombie gates needs modes: ['zombie']");
+  const red = (data.spawns && Array.isArray(data.spawns.charterer)) ? data.spawns.charterer : [];
+  if (red.length !== gates.length) warnings.push(`horde.gates (${gates.length}) and spawns.charterer (${red.length}) must list the same places`);
+  const ids = new Set();
+  gates.forEach((g, i) => {
+    const tag = `horde.gates[${i}]`;
+    if (!g || !isNum(g.x) || !isNum(g.z)) { warnings.push(`${tag} needs x and z`); return; }
+    if (outOfBounds(size, g.x, g.z)) warnings.push(`${tag} is outside size`);
+    if (g.id != null) { if (ids.has(g.id)) warnings.push(`${tag}: id "${g.id}" is used twice`); ids.add(g.id); }
+    const r = red[i];
+    if (r && (Math.abs(+r.x - g.x) > 0.01 || Math.abs(+r.z - g.z) > 0.01)) warnings.push(`${tag} is not at spawns.charterer[${i}]`);
+  });
+}
+
 /**
  * 맵 데이터 검사. 치명적이면 errors(한도 초과 포함), 고칠 수 있으면 warnings.
  * @returns {{ ok:boolean, errors:string[], warnings:string[] }}
@@ -286,6 +318,11 @@ export function validateMap(data) {
     else for (const r of data.rulesets) if (!RULESET_NAMES.includes(r)) warnings.push(`rulesets: unknown "${r}"`);
   }
   if (data.tag !== undefined && typeof data.tag !== 'string') warnings.push('tag must be a string');
+  if (data.modes !== undefined) {
+    if (!Array.isArray(data.modes) || !data.modes.length) warnings.push('modes must be a non-empty array');
+    else for (const m of data.modes) if (!MAP_MODE_NAMES.includes(m)) warnings.push(`modes: unknown "${m}"`);
+  }
+  if (data.horde !== undefined) checkHorde(data, size, warnings);
   const ground = data.theme && (data.theme.ground ?? data.theme.floor);
   if (ground !== undefined && ground !== null && ground !== 'none' && !MATS.includes(ground)) warnings.push(`theme.ground unknown "${ground}" → asphalt`);
 

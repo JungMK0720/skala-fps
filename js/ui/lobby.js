@@ -44,7 +44,7 @@ const ffaSubText = (kills) => `모두가 적 · ${kills}킬`;
 const MODE_HINT = Object.freeze({
   team: '블루 vs 레드 섬멸전이에요. 라운드 중 부활 없이 5판 3선승으로 겨뤄요.',
   bomb: '공격 팀은 A나 B 구역에 폭탄을 설치하고, 수비 팀은 막거나 해체해요. 5판 3선승이고 2라운드 뒤 공수를 바꿔요.',
-  zombie: '최대 4명이 함께 스테이지마다 몰려오는 좀비를 막아요. 탄은 스테이지 사이에 채워지지 않고(예비 탄 3배), 깰 때마다 강화 카드를 1장씩 골라요. 5스테이지마다 보스가 나와요.',
+  zombie: '최대 4명이 함께 스테이지마다 몰려오는 좀비를 막아요. 탄은 스테이지 사이에 채워지지 않고(예비 탄 3배), 깰 때마다 강화 카드를 1장씩 골라요. 3스테이지마다 보스가 나오고, 좀비가 떨어뜨린 탄창을 주워 써요.',
 });
 /** 모드 안내 글. 개인전은 고른 목표 킬을 넣는다 */
 const modeHintText = (mode, kills) => (mode === 'ffa'
@@ -69,8 +69,15 @@ export function ruleBadge(ruleset, mode, killTarget) {
 /** 맵 목록에서 이 규칙으로 고를 수 있는 맵만 남긴다. 하나도 없으면 그대로 둔다(고를 맵이 없어 막히지 않게) */
 export function mapsForRule(maps, ruleset) {
   const id = normalizeRuleset(ruleset);
-  const valid = maps.filter((m) => (Array.isArray(m.rulesets) ? m.rulesets : DEFAULT_MAP_RULESETS).includes(id));
-  return valid.length ? valid : maps;
+  // 좀비 물량 막기 전용 맵은 다른 모드에서 고르지 않는다
+  const pool = maps.filter((m) => !(m && m.zombie === true));
+  const valid = pool.filter((m) => (Array.isArray(m.rulesets) ? m.rulesets : DEFAULT_MAP_RULESETS).includes(id));
+  return valid.length ? valid : pool.length ? pool : maps;
+}
+
+/** 좀비 물량 막기 전용 맵(MAP_LIST 항목의 zombie가 true) */
+export function zombieMaps(maps) {
+  return maps.filter((m) => !!m && m.zombie === true);
 }
 
 /** 폭파 미션을 할 수 있는 맵(MAP_LIST 항목의 mission이 true이고 클래식을 고를 수 있음). 없으면 빈 목록이고, 그때는 폭파 미션을 고를 수 없다 */
@@ -78,10 +85,12 @@ export function missionMaps(maps) {
   return maps.filter((m) => !!m && m.mission === true && (Array.isArray(m.rulesets) ? m.rulesets : DEFAULT_MAP_RULESETS).includes(BOMB_RULESET));
 }
 
-/** 모드·규칙으로 고를 수 있는 맵. 폭파 미션은 미션 맵만, 좀비 물량 막기는 클래식 맵, 나머지는 mapsForRule */
+/** 모드·규칙으로 고를 수 있는 맵. 폭파 미션은 미션 맵만, 좀비 물량 막기는 좀비 전용 맵(없으면 클래식 맵), 나머지는 mapsForRule */
 export function mapsForMode(maps, mode, ruleset) {
   const m = modeKey(mode);
-  return m === 'bomb' ? missionMaps(maps) : mapsForRule(maps, m === 'zombie' ? BOMB_RULESET : ruleset);
+  if (m === 'bomb') return missionMaps(maps);
+  if (m === 'zombie') { const z = zombieMaps(maps); return z.length ? z : mapsForRule(maps, BOMB_RULESET); }
+  return mapsForRule(maps, ruleset);
 }
 
 export function createLobby(ctx) {

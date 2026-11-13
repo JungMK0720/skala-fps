@@ -2,15 +2,20 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 좀비 물량 막기의 화면 쪽. 방장 스냅샷의 좀비·보스를 시간축으로 보간해 그리고(부위별 InstancedMesh라 수십 마리도 그리기 호출이 몇 개),
- *          투사체·장판·스킬 예고·폭발을 보여 주며, 내 사격·칼·수류탄이 맞힌 좀비를 찾는다(World가 부른다). 모형은 상자 몇 개로 직접 만들었다.
+ *          투사체·장판·스킬 예고·폭발·바닥 보급품(탄창 등)을 보여 주며, 내 사격·칼·수류탄이 맞힌 좀비를 찾는다(World가 부른다). 모형은 상자 몇 개로 직접 만들었다.
  */
 import { ZF, BOSS_CODE_BASE } from './director.js';
-import { zombieByCode, HORDE } from './rules.js';
+import { zombieByCode, HORDE, LOOT_TYPES } from './rules.js';
 import { bossByCode, SKILL_KINDS, HAZARD_KINDS, PROJECTILE_KINDS } from './bosses.js';
 
 const MAX_Z = 96;               // 한 번에 그리는 좀비 상한(보스 포함)
 const MAX_PROJ = 48;
 const MAX_HAZ = 16;
+const MAX_LOOT = HORDE.maxLoot;
+const LOOT_BLINK_MS = 5000;     // 사라지기 이만큼 전부터 깜박인다
+// 보급품 모양(가로·높이·세로 m)과 바닥 고리 색
+const LOOT_SIZE = Object.freeze({ mag: [0.3, 0.12, 0.2], ammo: [0.56, 0.32, 0.38], nade: [0.17, 0.2, 0.17], med: [0.44, 0.26, 0.3] });
+const LOOT_RING = Object.freeze({ mag: 0xffd34a, ammo: 0x9be35a, nade: 0x7ad06e, med: 0xff5c5c });
 const DELAY_MIN = 45, DELAY_MAX = 260;
 const EXTRAP_MS = 140;
 const RISE_MS = 650;
@@ -126,6 +131,13 @@ export function createHordeView(o) {
   const teleRects = decalPool(planeGeo, 4, 0xff2a2a, 0.3);
   const hazDiscs = decalPool(discGeo, MAX_HAZ, 0x7dff3a, 0.32);
   const fxRings = decalPool(ringGeo, 12, 0xffffff, 0.6);
+  // 바닥 보급품: 종류별 색 상자와 발밑 고리(밤 맵에서도 보이게 고리는 빛나는 색)
+  const lootMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const lootMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), lootMat, MAX_LOOT);
+  lootMesh.frustumCulled = false; lootMesh.count = 0; lootMesh.name = 'horde:loot'; lootMesh.visible = false; lootMesh.castShadow = true;
+  lootMesh.setColorAt(0, new THREE.Color(1, 1, 1));
+  scene.add(lootMesh);
+  const lootRings = decalPool(ringGeo, MAX_LOOT, 0xffffff, 0.6);
   const projMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0xffffff }), MAX_PROJ);
   projMesh.frustumCulled = false; projMesh.count = 0; projMesh.name = 'horde:proj'; projMesh.visible = false;
   projMesh.setColorAt(0, new THREE.Color(1, 1, 1));
@@ -137,7 +149,7 @@ export function createHordeView(o) {
   /* ---------- 상태 ---------- */
   const ents = new Map();            // 좀비 번호 → { hist: [{t, pos, yaw, f, hp}], ... }
   let lastPushAt = 0, interval = 100, delay = 120;
-  let bosses = [], projectiles = [], projAt = 0, hazards = [], hazAt = 0;
+  let bosses = [], projectiles = [], projAt = 0, hazards = [], hazAt = 0, loot = [], lootAt = 0;
   const seenFx = new Set();
   const fxAnims = [];                // { kind, pos, r, at, color }
   const rendered = [];               // 이번 프레임에 그린 좀비(사격 판정용)
@@ -152,6 +164,7 @@ export function createHordeView(o) {
     if (!active) clear();
     for (const m of Object.values(parts)) m.visible = active;
     projMesh.visible = active;
+    lootMesh.visible = active;
   }
 
   /** 방장 뷰(applyHordeSnapshot) 하나를 받은 시각 t(performance.now 기준)에 넣는다 */
@@ -189,6 +202,7 @@ export function createHordeView(o) {
     bosses = view.bosses || [];
     projectiles = view.projectiles || []; projAt = t;
     hazards = view.hazards || []; hazAt = t;
+    loot = view.loot || []; lootAt = t;
     for (const x of view.fx || []) {
       if (seenFx.has(x.id)) continue;
       seenFx.add(x.id);
@@ -412,7 +426,40 @@ export function createHordeView(o) {
     drawTelegraphs(now);
     drawProjectiles(now);
     drawHazards(now);
+    drawLoot(now);
     drawFx(now);
+  }
+
+  /** 바닥 보급품: 천천히 돌며 떠 있고, 사라지기 5초 전부터 깜박인다 */
+  function drawLoot(now) {
+    lootRings.begin();
+    let n = 0;
+    for (const L of loot) {
+      if (n >= MAX_LOOT) break;
+      const left = L.leftMs - (now - lootAt);
+      if (left <= 0) continue;
+      if (left < LOOT_BLINK_MS && Math.floor(now / 180) % 2) continue;
+      const sz = LOOT_SIZE[L.kind] || LOOT_SIZE.mag;
+      const y = L.pos[1] + 0.22 + sz[1] / 2 + 0.05 * Math.sin(now / 320 + L.id);
+      M.makeTranslation(L.pos[0], y, L.pos[2]);
+      Rm.makeRotationY(now / 650 + L.id);
+      S.makeScale(sz[0], sz[1], sz[2]);
+      M.multiply(Rm).multiply(S);
+      lootMesh.setMatrixAt(n, M);
+      lootMesh.setColorAt(n, C.setHex((LOOT_TYPES[L.kind] || LOOT_TYPES.mag).color));
+      n++;
+      const r = lootRings.take();
+      if (r) {
+        r.position.set(L.pos[0], L.pos[1] + 0.03, L.pos[2]);
+        r.scale.setScalar(0.42);
+        r.material.color.setHex(LOOT_RING[L.kind] || 0xffffff);
+        r.material.opacity = 0.45 + 0.25 * Math.sin(now / 200 + L.id);
+      }
+    }
+    lootMesh.count = n;
+    lootMesh.instanceMatrix.needsUpdate = true;
+    if (lootMesh.instanceColor) lootMesh.instanceColor.needsUpdate = true;
+    lootRings.end();
   }
 
   /** 보스 스킬 예고: 떨어질 자리 원, 돌진 길, 내려찍기·충격파 고리 */
@@ -622,7 +669,7 @@ export function createHordeView(o) {
     ents.clear();
     myHits.clear();
     rendered.length = 0;
-    bosses = []; projectiles = []; hazards = [];
+    bosses = []; projectiles = []; hazards = []; loot = [];
     fxAnims.length = 0;
     seenFx.clear();
     for (const z of zaps) { scene.remove(z.line); z.line.geometry.dispose(); }
@@ -630,16 +677,18 @@ export function createHordeView(o) {
     lastPushAt = 0;
     for (const m of Object.values(parts)) { m.count = 0; m.instanceMatrix.needsUpdate = true; }
     projMesh.count = 0;
-    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, fxRings]) { pool.begin(); pool.end(); }
+    lootMesh.count = 0;
+    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, fxRings, lootRings]) { pool.begin(); pool.end(); }
   }
 
   function dispose() {
     clear();
     for (const m of Object.values(parts)) { scene.remove(m); m.geometry.dispose(); m.dispose && m.dispose(); }
     scene.remove(projMesh); projMesh.geometry.dispose(); projMesh.material.dispose();
+    scene.remove(lootMesh); lootMesh.geometry.dispose(); lootMat.dispose();
     mat.dispose(); eyeMat.dispose(); zapMat.dispose();
     ringGeo.dispose(); discGeo.dispose(); planeGeo.dispose();
-    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, fxRings]) pool.dispose();
+    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, fxRings, lootRings]) pool.dispose();
   }
 
   return {
@@ -648,7 +697,9 @@ export function createHordeView(o) {
     get count() { return rendered.length; },
     get delay() { return delay; },
     /** 시험용: 지금 그린 좀비 { id, x, y, z, yaw, s } */
-    get rendered() { return rendered.map((z) => ({ ...z })); }
+    get rendered() { return rendered.map((z) => ({ ...z })); },
+    /** 지금 바닥에 그리는 보급품 { id, kind, pos, leftMs } (마지막으로 받은 뷰 기준) */
+    get loot() { return loot.map((L) => ({ ...L, pos: L.pos.slice() })); }
   };
 }
 

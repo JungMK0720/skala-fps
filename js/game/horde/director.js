@@ -8,21 +8,23 @@
  */
 /**
  * const d = createHorde({ players: [{ id, name }], world, nav, spawns, getPositions, seed });
- * let ev = d.start();             // 준비(7초) → 1스테이지
+ * let ev = d.start();             // 준비(12초) → 1스테이지
  * ev = d.tick(dtMs);               // 방장 루프. 안에서 30 Hz 고정 간격으로 나눠 돈다
  * ev = d.claimHit({ attackerId, victimId: 'z12', weaponId, part, dist, kind, count, shotId });
  * ev = d.claimExplosion({ attackerId, center, victims: [{ id: 'z3', dmg }] });
  * ev = d.cardAction(playerId, 'pick' | 'reroll', cardId?);
+ * ev = d.claimLoot(playerId, lootId);   // 바닥 보급품(탄창·탄약 상자·수류탄·구급 상자) 줍기. 방장이 거리를 보고 확정한다
  * const snap = d.snapshot();       // 화면(horde/client.js)이 applyHordeSnapshot으로 푼다
  *
- * 이벤트는 드문 일만 낸다(단계 전환·출격·쓰러짐·보스·카드·밀려남·느려짐·끝). 좀비 위치·체력, 사람 체력, 폭발 같은 잦은 일은
- * 스냅샷에 싣는다. 세션의 이벤트는 3초 동안 스냅샷마다 다시 실리기 때문이다(SYNC_API.md 2절).
+ * 이벤트는 드문 일만 낸다(단계 전환·출격·쓰러짐·보스·카드·밀려남·느려짐·보급품 줍기·끝). 좀비 위치·체력, 사람 체력, 폭발, 바닥 보급품
+ * 같은 잦은 일은 스냅샷에 싣는다. 세션의 이벤트는 3초 동안 스냅샷마다 다시 실리기 때문이다(SYNC_API.md 2절).
+ * 좀비 전용 맵(o.gates)이면 좀비는 그 좀비 문에서만 나온다.
  */
 import { moveCharacter, lineOfSight, getGroundY } from '../../engine/physics.js';
 import { computeDamage, getDef } from '../../weapons/defs.js';
 import {
   HORDE, ZOMBIE_TYPES, zombieByCode, zombieCount, hpMul, dmgMul, speedMul, spawnGapMs, spawnBurst, bossCount, bossHpMul,
-  zombieMix, makeRng, hashSeed, pickWeighted
+  zombieMix, makeRng, hashSeed, pickWeighted, LOOT_TYPES, lootByCode, rollLoot, BOSS_LOOT
 } from './rules.js';
 import { computePerks, perkMaxHp, makeOffer, encodeCards, decodeCards, cardById } from './cards.js';
 import { BOSSES, bossById, bossByCode, pickBosses, SKILL_KINDS, HAZARD_KINDS, PROJECTILE_KINDS } from './bosses.js';
@@ -78,12 +80,16 @@ const isZombieId = (v) => zombieIdOf(v) > 0;
  * @param {number} [o.seed]
  * @param {object} [o.rules]    HORDE 덮어쓰기(시험용: 짧은 준비·카드 시간)
  * @param {number} [o.startStage=1]  시험용: 이 스테이지부터
+ * @param {Array<{x,y,z}>} [o.gates]  좀비 문(좀비 전용 맵의 spawns.charterer, 바닥 높이 y 포함). 주면 좀비는 여기서만 나온다
  */
 export function createHorde(o = {}) {
   const R = Object.freeze({ ...HORDE, ...(o.rules || {}) });
   const world = o.world || null;
   const nav = o.nav || null;
   const spawns = o.spawns || {};
+  const gates = (Array.isArray(o.gates) ? o.gates : [])
+    .filter((g) => g && Number.isFinite(+g.x) && Number.isFinite(+g.z))
+    .map((g) => [+g.x, Number.isFinite(+g.y) ? +g.y : NaN, +g.z]);
   const getPositions = typeof o.getPositions === 'function' ? o.getPositions : () => ({});
   const seed = (num(o.seed, 0) >>> 0) || ((Math.random() * 4294967296) >>> 0) || 1;
   const rng = makeRng(hashSeed(seed, 'run'));
@@ -91,10 +97,11 @@ export function createHorde(o = {}) {
 
   const S = {
     phase: 'warmup', stage: Math.max(0, (num(o.startStage, 1) | 0) - 1), firstStage: Math.max(1, num(o.startStage, 1) | 0), clock: 0, phaseEnd: 0, startedAt: null, endedAt: null,
-    queue: [], spawnAt: 0, total: 0, killedStage: 0, nextZ: 1, nextFx: 1, nextProj: 1, nextHaz: 1,
+    queue: [], spawnAt: 0, total: 0, killedStage: 0, nextZ: 1, nextFx: 1, nextProj: 1, nextHaz: 1, nextLoot: 1,
     flowAt: -Infinity, flowOk: false, recentBosses: [], over: null, disposed: false
   };
   const zombies = new Map();          // 번호 → 좀비
+  const loot = new Map();             // 번호 → 바닥 보급품 { id, kind, x, y, z, until }
   const players = new Map();          // id → 사람
   const projectiles = [];
   const hazards = [];
@@ -299,6 +306,8 @@ export function createHorde(o = {}) {
 
   /* ------------------------------------------------------------------ 좀비 만들기 */
   function spawnCandidates() {
+    // 좀비 전용 맵: 좀비 문에서만 나온다(벽 너머·굴 속이라 사람 앞에 불쑥 생기지 않는다)
+    if (gates.length) return gates;
     const out = [];
     for (const k of ['charterer', 'ffa', 'owner']) for (const sp of Array.isArray(spawns[k]) ? spawns[k] : []) out.push([num(sp.x), Number.isFinite(sp.y) ? sp.y : NaN, num(sp.z)]);
     if (nav && typeof nav.randomPoint === 'function') {
@@ -327,6 +336,11 @@ export function createHorde(o = {}) {
       if (score > bestScore) { bestScore = score; best = c; }
     }
     const y = Number.isFinite(best[1]) ? best[1] : world ? getGroundY(world, best[0], best[2], 50) : 0;
+    // 좀비 문: 한 자리에 겹쳐 서지 않게 문 둘레 1 m 안의 같은 높이 걷기 칸으로 흩는다
+    if (gates.length && nav && typeof nav.nearestWalkable === 'function') {
+      const n = nav.nearestWalkable({ x: best[0] + (rng() - 0.5) * 2.2, y, z: best[2] + (rng() - 0.5) * 2.2 }, 1.5);
+      if (n && Math.abs(n.y - y) < 0.6) return [n.x, n.y, n.z];
+    }
     return [best[0], y, best[2]];
   }
 
@@ -436,6 +450,7 @@ export function createHorde(o = {}) {
       if (P) P.bossKills++;
       ev.push({ type: 'bossDown', z: Z.id, boss: Z.boss.id, name: Z.boss.name, by: P ? P.id : null });
     }
+    dropLoot(Z);
     const pos = Z.body.pos;
     // 폭발 좀비는 쓰러질 때도 터진다(가까이에서 쏘면 위험하다)
     if (Z.t && Z.t.explode && !Z.exploded) explodeAt(pos, Z.t.explode.radius, Z.dmg + Z.t.explode.dmg * dmgMul(S.stage), Z, ev, 'bomber');
@@ -447,6 +462,44 @@ export function createHorde(o = {}) {
         if (hyp2(O.body.pos[0] - pos[0], O.body.pos[2] - pos[2]) <= 3) hurtZombie(O, dmg, P, { chain: true, kind: 'chain' }, ev);
       }
     }
+  }
+
+  /* ------------------------------------------------------------------ 바닥 보급품 */
+  /** 쓰러진 좀비가 보급품을 떨어뜨린다(보스는 셋, 소환된 좀비는 없음). 상한을 넘으면 가장 오래된 것부터 치운다 */
+  function dropLoot(Z) {
+    if (Z.summoned) return;
+    const kinds = Z.boss ? BOSS_LOOT.slice() : [rollLoot(Z.t ? Z.t.id : '', rng)].filter(Boolean);
+    const p = Z.body.pos;
+    kinds.forEach((kind, i) => {
+      const a = kinds.length > 1 ? (i / kinds.length) * Math.PI * 2 : 0;
+      const r = kinds.length > 1 ? 1.1 : 0;
+      const x = p[0] + Math.cos(a) * r, z = p[2] + Math.sin(a) * r;
+      let y = p[1];
+      if (world) { const g = getGroundY(world, x, z, p[1] + 1.2); if (Number.isFinite(g) && g > p[1] - 3) y = g; }
+      const L = { id: S.nextLoot++, kind, x, y, z, until: S.clock + R.lootMs };
+      loot.set(L.id, L);
+    });
+    while (loot.size > R.maxLoot) loot.delete(loot.keys().next().value);
+  }
+  function expireLoot() {
+    for (const [id, L] of loot) if (L.until <= S.clock) loot.delete(id);
+  }
+  /**
+   * 사람이 보급품을 주웠다고 알린다. 방장은 그 사람이 살아 있고 보급품에서 lootPickM 안에 있을 때만 확정한다.
+   * 구급 상자는 여기서 체력을 채우고, 탄창·탄약 상자·수류탄은 주운 사람의 화면이 'loot' 이벤트를 받아 자기 무기에 넣는다.
+   */
+  function claimLoot(playerId, lootId) {
+    const P = players.get(String(playerId));
+    const L = loot.get(num(lootId) | 0);
+    if (!L) return [{ type: 'reject', reason: 'gone' }];
+    if (!P || !P.connected || !P.alive || S.phase === 'over' || S.phase === 'warmup') return [{ type: 'reject', reason: 'dead' }];
+    readPositions();
+    const pos = P.pos;
+    if (!pos || hyp2(pos[0] - L.x, pos[2] - L.z) > R.lootPickM || Math.abs(pos[1] - L.y) > 2.5) return [{ type: 'reject', reason: 'far' }];
+    loot.delete(L.id);
+    const ev = { type: 'loot', id: L.id, kind: L.kind, by: P.id };
+    if (L.kind === 'med') ev.heal = Math.round(healPlayer(P, LOOT_TYPES.med.heal));
+    return [ev];
   }
 
   function addFx(kind, p, r) {
@@ -1031,6 +1084,7 @@ export function createHorde(o = {}) {
   /* ------------------------------------------------------------------ 한 간격 */
   function stepOnce(ms, ev) {
     S.clock += ms;
+    if (loot.size) expireLoot();
     const dt = ms / 1000;
     if (S.phase === 'prep' && S.clock >= S.phaseEnd) beginStage(ev);
     else if (S.phase === 'cards' && (S.clock >= S.phaseEnd || allPicked())) endCards(ev);
@@ -1143,6 +1197,8 @@ export function createHorde(o = {}) {
     const pr = projectiles.map((q) => [q.id, q.kind, cm(q.pos[0]), cm(q.pos[1]), cm(q.pos[2]), cm(q.vel[0]), cm(q.vel[1]), cm(q.vel[2]), q.arc ? 1 : 0]);
     const hz = hazards.map((h) => [h.id, h.kind, cm(h.x), cm(h.y), cm(h.z), cm(h.r), Math.max(0, Math.round(h.until - now)), h.ms]);
     const fx = fxList.map((e) => [e.id, e.kind, cm(e.x), cm(e.y), cm(e.z), cm(e.r), Math.round(now - e.at)]);
+    // 바닥 보급품: [번호, 종류 코드, x, y, z(cm), 남은 시간(0.1초)]
+    const lt = [...loot.values()].map((L) => [L.id, LOOT_TYPES[L.kind].code, cm(L.x), cm(L.y), cm(L.z), Math.max(0, Math.round((L.until - now) / 100))]);
     let alive = 0;
     for (const Z of zombies.values()) if (Z.state !== 'dead') alive++;
     return {
@@ -1151,11 +1207,11 @@ export function createHorde(o = {}) {
       zp: PHASE_CODE[S.phase], st: S.stage, tl: S.phaseEnd ? Math.max(0, Math.round(S.phaseEnd - now)) : null,
       el: S.startedAt == null ? 0 : Math.round((S.endedAt != null ? S.endedAt : now) - S.startedAt),
       sd: seed, left: S.queue.length + alive, tot: S.total, kd: S.killedStage, rb: S.recentBosses.slice(0, 10), fs: S.firstStage,
-      p, z, kz: killers, b, pr, hz, fx, over: S.over
+      p, z, kz: killers, b, pr, hz, fx, lt, over: S.over
     };
   }
 
-  function dispose() { S.disposed = true; zombies.clear(); players.clear(); projectiles.length = 0; hazards.length = 0; }
+  function dispose() { S.disposed = true; zombies.clear(); players.clear(); loot.clear(); projectiles.length = 0; hazards.length = 0; }
 
   /** 방장 이전: 스냅샷의 단계·사람·좀비를 이어받는다(좀비 판단·보스 스킬 시간은 처음부터) */
   function restoreFrom(view) {
@@ -1176,6 +1232,11 @@ export function createHorde(o = {}) {
       P.kills = vp.kills; P.heads = vp.heads; P.bossKills = vp.bossKills; P.damage = vp.damage; P.downs = vp.downs; P.shield = vp.shield;
       P.picked = !!vp.picked;
       P.offer = vp.offer.length ? { cards: vp.offer.slice(), roll: 5, rerolls: vp.rerolls, count: vp.offer.length } : null;
+    }
+    // 바닥 보급품은 번호와 남은 시간을 그대로 잇는다(화면의 보급품이 바뀌지 않게)
+    for (const vl of view.loot || []) {
+      loot.set(vl.id, { id: vl.id, kind: vl.kind, x: vl.pos[0], y: vl.pos[1], z: vl.pos[2], until: S.clock + vl.leftMs });
+      S.nextLoot = Math.max(S.nextLoot, vl.id + 1);
     }
     const phase = view.phase;
     if (phase === 'wave') {
@@ -1206,7 +1267,7 @@ export function createHorde(o = {}) {
   if (o.restore) restoreFrom(o.restore);
 
   return {
-    start, tick, claimHit, claimExplosion, cardAction, addPlayer, removePlayer, snapshot, dispose,
+    start, tick, claimHit, claimExplosion, cardAction, claimLoot, addPlayer, removePlayer, snapshot, dispose,
     /** 세션의 방장 루프가 부르는 match.js 메서드 중 이 모드에서 할 일이 없는 것 */
     setLoadout: () => [],
     respawnNow: () => [{ type: 'reject', reason: 'not_ffa' }],
@@ -1217,7 +1278,7 @@ export function createHorde(o = {}) {
     get rules() { return R; },
     get mode() { return 'zombie'; },
     /** 시험·디버그용 내부(읽기 전용으로 쓸 것) */
-    get internals() { return { S, zombies, players, projectiles, hazards, fxList }; },
+    get internals() { return { S, zombies, players, projectiles, hazards, fxList, loot, gates }; },
     /** 이어받기(restoreHorde) 뒤 바로 다음 단계를 시작할 때 쓴다 */
     resume() {
       const ev = [];
@@ -1282,10 +1343,16 @@ export function applyHordeSnapshot(s) {
   const fx = (Array.isArray(s.fx) ? s.fx : []).filter(Array.isArray).map((r) => ({
     id: num(r[0]) | 0, kind: String(r[1] || ''), pos: [fromCm(r[2]), fromCm(r[3]), fromCm(r[4])], r: fromCm(r[5]), ago: num(r[6])
   }));
+  const loot = [];
+  for (const r of Array.isArray(s.lt) ? s.lt : []) {
+    const def = Array.isArray(r) ? lootByCode(r[1]) : null;
+    if (!def) continue;
+    loot.push({ id: num(r[0]) | 0, kind: def.id, pos: [fromCm(r[2]), fromCm(r[3]), fromCm(r[4])], leftMs: Math.max(0, num(r[5]) * 100) });
+  }
   return {
     mode: 'zombie', phase, stage: num(s.st) | 0, firstStage: Math.max(1, num(s.fs, 1) | 0), timeLeftMs: s.tl == null ? null : num(s.tl), elapsedMs: num(s.el), seed: num(s.sd) >>> 0,
     left: num(s.left) | 0, total: num(s.tot) | 0, killedStage: num(s.kd) | 0, recentBosses: Array.isArray(s.rb) ? s.rb.map(String) : [],
-    players, zombies, bosses, projectiles, hazards, fx, over: s.over && typeof s.over === 'object' ? { ...s.over } : null
+    players, zombies, bosses, projectiles, hazards, fx, loot, over: s.over && typeof s.over === 'object' ? { ...s.over } : null
   };
 }
 

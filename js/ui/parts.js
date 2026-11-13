@@ -175,7 +175,7 @@ export function normStats(st) {
 function rateSummary(d) {
   if (d.burst) return { label: '점사', value: `${d.burst.count}발` };
   if (d.fire === 'bolt') return { label: '볼트', value: `${d.bolt}초` };
-  return { label: '연사', value: d.fire === 'semi' ? `${d.fireInterval}초` : `${d.rpm}rpm` };
+  return { label: '연사', value: d.fire === 'semi' ? `${+Number(d.fireInterval).toFixed(2)}초` : `${d.rpm}rpm` };
 }
 
 /** 작은 카드에 넣을 핵심 수치 3~4개. 수치표가 없는 정의(데모 목 데이터)는 stats 앞쪽을 쓴다. */
