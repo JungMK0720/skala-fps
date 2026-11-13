@@ -196,11 +196,16 @@ await world.loadMap(mapId, { mode, ruleset });
 | `slowLocal(mul, ms)` | 비명·얼음 가시·붙잡힘: ms 동안 이동 속도 ×mul(0.2~1) |
 | `pushLocal([vx, vy, vz])` | 보스 돌진·내려찍기에 밀려남 |
 | `refillReserve()` · `refillGrenades()` · `addMagAmmo(n)` · `addReserve(n, id?)` · `addGrenades(n = 1)` | 카드·처치 보상과 바닥 보급품의 탄약. `addReserve`의 `id`를 주면 그 총에, 없으면 든 총에 넣는다 |
+| `setHordePerks({ …, nadeMulti, nadeRadiusOf(owner) })` | 다연발 투척(한 번에 더 던지는 수류탄 수, 부채꼴)과 수류탄 폭발 반경 배율(던진 사람마다. 방장 화면은 남의 수류탄도 이 배율로 잰다) |
+| `hordeDamageNumber(pos, amount, kind)` | 좀비에게 준 피해 숫자를 띄운다. `kind` = `head`(크고 노랗게) · `body` · `legs` · `melee` · `nade` |
+| `equipSidearm(id)` | (증강) 보조무기 칸을 이 무기로 바꾼다(새 탄 가득). 유탄 발사기 `gl_m32`·바주카포 `rl_b9` |
+| `openSwapList()` | 교체 창이 켜져 있으면 무기 목록을 바로 연다(무기 교체권) |
+| 발사체 무기 | `def.projectile`이 있는 총(좀비 모드)은 총알 대신 수류탄 시스템의 발사체(`kind` 'gl'·'rocket', `weapons/grenade.js PROJECTILES`)를 쏘고 `grenade` 이벤트에 `kind`·`fuse`를 싣는다. 좀비 몸에 닿으면(`horde.touching`) 바로 터지고, `explosion` 이벤트에 `kind`가 실린다 |
 | `openSwap({ free: true, weapons, ammo?, title?, foot?, note?, prompt })` | 기한 없는 무기 교체(N으로 언제든). `weapons`는 모든 무기, `ammo`는 카드의 '탄' 칸 글자(id → '30/180'), `note`는 HUD 안내 둘째 줄. `prompt`가 false면 HUD 안내만 숨기고 N은 된다 |
 | `setSwapPrompt(on)` | 기한 없는 교체의 HUD 안내를 켜고 끈다(스테이지 사이에만 켠다) |
 | 탄 기억 | 좀비 모드의 `setLocalLoadout(id)`는 내려놓는 총의 남은 탄을 `local.ammoBank`에 두고 `arsenal.equipWith(id, 기억한 탄)`으로 바꿔 든다. 처음 드는 총은 새 탄. 목숨마다(`spawnLocal`) 비운다 |
 | 이벤트 `hitClaim` | 좀비를 맞히면 `victimId: 'z<번호>'`. 멀티는 그대로 방장에게, 혼자는 director.claimHit |
-| `horde` (getter) | 좀비 무리 화면(시험·HUD용: `rendered`, `nearest`, `ray`, `loot` 등). `loot` = 지금 그리는 바닥 보급품 `[{ id, kind, pos, leftMs }]` |
+| `horde` (getter) | 좀비 무리 화면(시험·HUD용: `rendered`, `nearest`, `ray`, `loot`, `stats` 등). `loot` = 지금 그리는 바닥 보급품 `[{ id, kind, pos, leftMs }]`, `stats` = { bars, numbers, decoys, fields } |
 
 - **맞히기**: 사격은 좀비 히트박스(머리·몸·다리)와 맵 벽을 같이 레이캐스트하고 가까운 쪽을 맞힌다. 관통 카드가 있으면 같은 탄(`shotId`)이 뒤 좀비도 맞힌다. 칼·수류탄도 같은 엄폐·거리 규칙이다.
 - **붙잡힘**: 좀비 몸 둘레(0.75 m + 좀비 크기에 따라 0.1~0.3 m) 안이면 이동이 ×0.72. 각 화면이 자기 몸으로 잰다(방장에게 묻지 않는다).

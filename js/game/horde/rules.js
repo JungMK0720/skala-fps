@@ -1,7 +1,8 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 좀비 물량 막기 모드의 규칙 값(인원·시간·탄약 배율)과 일반 좀비 6종, 스테이지마다 늘어나는 수·체력·피해·속도 공식을 둔다.
+ * Purpose: 좀비 물량 막기 모드의 규칙 값(인원·시간·탄약 배율·경험치·보급품·수류탄 효과)과 일반 좀비 6종, 스테이지마다 늘어나는 수·체력·피해·속도 공식을 둔다.
+ *          스테이지는 40초씩 시간으로 넘어가고(다 잡으면 남은 2초당 경험치 1을 받고 바로 넘어간다), 팀 경험치가 차면 레벨이 올라 증강을 고른다.
  *          three.js·DOM에 의존하지 않는 순수 모듈이라 방장 시뮬레이션(director.js)과 node 시험이 그대로 쓴다.
  */
 
@@ -13,10 +14,16 @@ export const HORDE = Object.freeze({
   baseHp: 100,            // 시작 최대 체력(카드로 늘어난다)
   reserveMul: 3,          // 재장전 탄창(예비 탄약)은 기존 맵의 3배. 탄창은 스테이지 사이에 채워지지 않고 이어진다
   premiumReserveMags: 2,  // 예비가 무제한인 프리미엄 총도 이 모드에서는 탄창 2개 × 배율만큼만 든다
-  prepMs: 12000,          // 첫 스테이지 시작 전 준비 시간(무기를 고를 시간을 준다)
-  breakMs: 3500,          // 카드를 다 고른 뒤 다음 스테이지까지
-  cardMs: 30000,          // 카드 고르기 제한 시간(지나면 첫 카드를 받는다)
-  clearHealFrac: 0.25,    // 스테이지를 깨면 최대 체력의 25%를 회복한다
+  prepMs: 12000,          // 첫 스테이지 시작 전 준비 시간(무기는 이때만 고른다)
+  stageMs: 40000,         // 스테이지 하나의 시간. 지나면 다음 스테이지가 시작된다(남은 좀비는 그대로 남는다)
+  timeXpMs: 2000,         // 시간 안에 다 잡으면 남은 시간 이만큼마다 경험치 1
+  xpBase: 10,             // 1레벨 → 2레벨에 필요한 경험치
+  xpStep: 10,             // 레벨마다 필요한 경험치가 이만큼 는다(10, 20, 30, …)
+  bossXp: 20,             // 보스 처치 경험치(보물 상자는 따로 떨어진다)
+  cardMs: 20000,          // 증강 고르기 제한 시간(지나면 제안 중 하나를 무작위로 받는다)
+  pauseOnCards: false,    // true(혼자)면 고르는 동안 좀비·스테이지 시간이 멈춘다. 멀티는 멈추지 않고 고르는 사람만 무적이다
+  pickInvulnMs: 3000,     // 증강을 고른 직후 무적 시간
+  clearHealFrac: 0.25,    // 시간 안에 스테이지를 깨면 최대 체력의 25%를 회복한다
   reviveHpFrac: 0.5,      // 쓰러진 사람은 다음 스테이지에 최대 체력의 50%로 일어난다
   maxAlive: 34,           // 한 번에 맵에 있는 일반 좀비 상한(보스·소환 제외). 넘으면 죽는 만큼 이어서 나온다
   maxAliveBoss: 18,       // 보스 스테이지의 일반 좀비 상한
@@ -32,41 +39,60 @@ export const HORDE = Object.freeze({
   maxProjectiles: 40,
   maxHazards: 16,
   gameOverMs: 6000,       // 전멸 뒤 결과 화면까지
-  lootMs: 30000,          // 바닥의 보급품(탄창 등)이 사라지기까지
-  maxLoot: 24,            // 한 번에 바닥에 있는 보급품 상한(넘으면 가장 오래된 것부터 치운다)
+  lootMs: 30000,          // 바닥의 보급품(탄창 등)이 사라지기까지(보물 상자는 chestMs)
+  chestMs: 90000,         // 보스의 보물 상자가 사라지기까지
+  maxLoot: 24,            // 한 번에 바닥에 있는 보급품 상한(넘으면 가장 오래된 것부터 치운다. 보물 상자는 치우지 않는다)
   lootPickM: 2.6,         // 방장이 받아 주는 줍기 거리(지연 여유 포함). 화면은 LOOT_TOUCH_M 안에 들어가면 줍는다
-  lootTouchM: 1.15        // 화면에서 줍는 거리(몸 중심과 보급품의 수평 거리)
+  lootTouchM: 1.15,       // 화면에서 줍는 거리(몸 중심과 보급품의 수평 거리)
+  medChance: 0.05,        // 좀비가 구급 상자를 떨어뜨릴 확률(증강으로 오른다)
+  medHeal: 10,            // 구급 상자 회복량(증강으로 오른다)
+  magChance: 0.1,         // 좀비가 탄창(장전 1회분)을 떨어뜨릴 확률(증강으로 오른다)
+  fireMs: 5000,           // 화염 수류탄 불길이 타는 시간
+  fireR: 3,               // 불길 반지름(m, 폭발 반경 증강을 따라 넓어진다)
+  fireDps: 22,            // 불길 초당 피해(스테이지 체력 배율의 제곱근만큼 세진다)
+  freezeMs: 2200,         // 빙결 수류탄에 맞은 좀비가 얼어붙는 시간(보스는 절반)
+  decoyMs: 9000,          // 어그로 수류탄 분신이 버티는 시간
+  decoyPullM: 30,         // 분신이 이 거리 안의 좀비를 끌어모은다
+  maxDecoys: 6,           // 한 번에 서 있는 분신 상한(한 사람은 2개)
+  maxFields: 10           // 한 번에 타는 불길 상한
 });
 
 /**
  * 좀비가 쓰러지며 떨어뜨리는 보급품. 걸어서 닿으면 줍는다(방장이 확인한다).
- * mag = 든 총의 탄창 하나만큼 예비 탄, ammo = 주무기·보조무기 예비 탄을 최대의 절반만큼, nade = 수류탄 하나, med = 체력 heal
+ * mag = 탄창(든 총의 장전 1회분 예비 탄), med = 구급 상자(체력 HORDE.medHeal), chest = 보스의 보물 상자(주운 사람이 증강 하나를 고른다)
+ * 코드 2·3은 예전 탄약 상자·수류탄 자리라 비워 둔다.
  */
 export const LOOT_TYPES = Object.freeze({
   mag: Object.freeze({ id: 'mag', code: 1, name: '탄창', icon: '🧷', color: 0xd8b24a }),
-  ammo: Object.freeze({ id: 'ammo', code: 2, name: '탄약 상자', icon: '📦', color: 0x6c8a3a }),
-  nade: Object.freeze({ id: 'nade', code: 3, name: '수류탄', icon: '💣', color: 0x3c5f35 }),
-  med: Object.freeze({ id: 'med', code: 4, name: '구급 상자', icon: '➕', color: 0xeeeeea, heal: 30 })
+  med: Object.freeze({ id: 'med', code: 4, name: '구급 상자', icon: '➕', color: 0xeeeeea }),
+  chest: Object.freeze({ id: 'chest', code: 5, name: '보물 상자', icon: '🎁', color: 0xe0a428 })
 });
 const LOOT_BY_CODE = new Map(Object.values(LOOT_TYPES).map((l) => [l.code, l]));
 export const lootByCode = (code) => LOOT_BY_CODE.get(code | 0) || null;
 
-/** 좀비 종류별 떨어뜨리는 보급품과 확률. 앞에서부터 굴려 처음 맞은 하나만 떨어뜨린다 */
-export const LOOT_TABLE = Object.freeze({
-  walker: [['mag', 0.12], ['med', 0.02], ['nade', 0.02]],
-  runner: [['mag', 0.1], ['nade', 0.02]],
-  brute: [['ammo', 0.35], ['mag', 0.3], ['med', 0.1]],
-  spitter: [['mag', 0.14], ['med', 0.04]],
-  bomber: [['nade', 0.2]],
-  crawler: [['mag', 0.08], ['med', 0.02]]
-});
-/** 보스는 늘 탄약 상자·구급 상자·수류탄을 하나씩 떨어뜨린다 */
-export const BOSS_LOOT = Object.freeze(['ammo', 'med', 'nade']);
-
-/** 이 좀비가 떨어뜨릴 보급품 종류(없으면 null) */
-export function rollLoot(typeId, rng) {
-  for (const [kind, p] of LOOT_TABLE[typeId] || []) if (rng() < p) return kind;
+/**
+ * 일반 좀비 한 마리가 떨어뜨릴 보급품(없으면 null). 한 번 굴려 구급 상자(medP) → 탄창(magP) 순서로 본다.
+ * medP·magP를 생략하면 기본 확률(구급 상자 5%·탄창 10%). 증강으로 오른 확률을 넘긴다
+ */
+export function rollDrop(rng, medP = HORDE.medChance, magP = HORDE.magChance) {
+  const r = rng();
+  if (r < medP) return 'med';
+  if (r < medP + magP) return 'mag';
   return null;
+}
+
+/** 좀비 종류별 경험치(강한 특수 좀비일수록 많다). 보스는 HORDE.bossXp, 보스가 불러낸 좀비는 1 */
+export const ZOMBIE_XP = Object.freeze({ walker: 1, crawler: 1, runner: 2, spitter: 2, bomber: 2, brute: 4 });
+export const zombieXp = (typeId) => ZOMBIE_XP[typeId] || 1;
+
+/** 이 레벨에서 다음 레벨까지 필요한 경험치: 1레벨 10, 2레벨 20, 3레벨 30, … */
+export function xpNeed(level, rules = HORDE) {
+  return rules.xpBase + rules.xpStep * (Math.max(1, Math.floor(Number(level) || 1)) - 1);
+}
+
+/** 시간 안에 다 잡았을 때의 남은 시간 경험치(남은 2초당 1) */
+export function timeBonusXp(leftMs, rules = HORDE) {
+  return Math.max(0, Math.floor((Number(leftMs) || 0) / rules.timeXpMs));
 }
 
 /**

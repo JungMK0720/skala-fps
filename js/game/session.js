@@ -1734,7 +1734,7 @@ export function createSession(options = {}) {
       if (v && v.id != null && Number(v.dmg) > 0) victims.push({ id: String(v.id), dmg: Number(v.dmg) });
     }
     const c = vec(x.center || x.pos);
-    publishReal(hm.m.claimExplosion({ attackerId: owner, center: c ? { x: c[0], y: c[1], z: c[2] } : undefined, victims }));
+    publishReal(hm.m.claimExplosion({ attackerId: owner, center: c ? { x: c[0], y: c[1], z: c[2] } : undefined, victims, kind: x.kind || undefined }));
   }
 
   /**
@@ -2918,7 +2918,7 @@ export function createSession(options = {}) {
         break;
       case 'grenade':
         if (phase === 'match' && current && current.loaded && e.from !== me) {
-          W('actorGrenade', { id: e.from, grenadeId: e.gid, pos: e.pos, vel: e.vel, t: e.localT });
+          W('actorGrenade', { id: e.from, grenadeId: e.gid, pos: e.pos, vel: e.vel, t: e.localT, kind: e.kind, fuse: e.fuse });
         }
         // (방장) 폭파 미션: 던지는 순간 그 사람의 설치·해체를 취소한다. 터질 때(claimExplosion)는 취소하지 않는다
         if (hm && hm.mode === 'bomb' && hostReady()) publishReal(hm.m.bombIntent(String(e.from), 'cancel', { reason: 'fired' }));
@@ -3014,7 +3014,7 @@ export function createSession(options = {}) {
   });
   wOn('grenade', (g) => {
     if (!inRound() || current.phase !== 'live') return;
-    sync.sendGrenade({ pos: g.pos, vel: g.vel, t: localT(g.t) });
+    sync.sendGrenade({ pos: g.pos, vel: g.vel, t: localT(g.t), kind: g.kind === 'gl' || g.kind === 'rocket' ? g.kind : undefined, fuse: g.fuse });
   });
   // 총은 죽은 뒤에 버리므로 살아 있는지(inRound)는 보지 않는다
   wOn('weaponDrop', (d) => {

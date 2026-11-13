@@ -3,11 +3,13 @@
  * Author: Minkyu Jung
  * Purpose: 좀비 물량 막기의 화면 쪽 진행. 방장 스냅샷(혼자면 이 탭의 시뮬레이션)을 World·HUD 띠·카드 화면에 옮기고,
  *          내 카드 효과(무기 배율·이동·관통·탄 채우기·처치 탄약·광란·탄약 제조)를 내 무기에 건다. 연습장(혼자)과 멀티(방장·손님)가 같이 쓴다.
- *          무기는 모든 무기를 언제든 N으로 바꾼다(World 교체 창의 free 모드, 한 번 쓴 총은 남은 탄 그대로). 바닥 보급품에 닿으면 방장에게
- *          줍기를 청하고, 방장이 확정한 'loot' 이벤트를 받으면 탄창·탄약 상자·수류탄을 내 무기에 넣는다(구급 상자는 방장이 체력을 채운다).
+ *          무기는 1스테이지가 시작되기 전 준비 시간에만 N으로 모든 무기 중에서 고른다(World 교체 창의 free 모드). 바닥 보급품에 닿으면 방장에게
+ *          줍기를 청하고, 방장이 확정한 'loot' 이벤트를 받으면 탄창을 내 무기에 넣는다(구급 상자 체력·보물 상자 증강은 방장이 준다).
+ *          팀 레벨이 오르거나 보물 상자를 주우면 증강 제안이 오고(멀티는 고르는 동안 무적·20초 뒤 무작위), 좀비를 맞히면 피해 숫자를 띄운다.
  */
 import { computePerks, perkSummary, cardById, TIERS } from './cards.js';
 import { HORDE, fmtClock, hordeAmmo } from './rules.js';
+import { zombieHitDamage, nadeDamage } from './director.js';
 import { WEAPONS } from '../../weapons/defs.js';
 import { SKILL_NAMES, skillKindOf } from './bosses.js';
 import { pickableWeapons } from '../modes.js';
@@ -53,26 +55,44 @@ export function createHordeClient(o) {
   let pickSentAt = 0;
   let cardsUiSig = '';
   let disposed = false;
+  let myShot = { id: 0, n: 0 };    // 관통: 같은 발로 몇 번째 좀비를 맞혔나(피해 숫자 계산)
+  let swapTicket = false;          // 무기 교체권으로 연 교체 창(한 번 바꾸면 닫는다)
+  const perkCache = new Map();     // 사람 id → { sig, perks } (남의 수류탄 폭발 반경)
   const lootPending = new Map();   // 줍기를 청한 보급품 번호 → 보낸 시각(확정 전에는 화면에서 감춘다)
   const lootDone = new Set();      // 효과를 넣은 'loot' 이벤트(같은 이벤트가 스냅샷마다 다시 와도 한 번만)
   const LOOT_RESEND_MS = 900, LOOT_HIDE_MS = 1500;
 
-  /** 좀비 물량 막기의 무기 교체 창(World openSwap free): 모든 무기, 기한 없음. 스테이지 사이에만 HUD 안내를 띄운다 */
+  /** 좀비 물량 막기의 무기 고르기 창(World openSwap free): 모든 무기. 1스테이지가 시작되기 전 준비 시간에만 연다 */
   function swapProps() {
     const weapons = pickableWeapons('classic');
     // 카드의 '탄' 칸은 이 모드의 탄(예비 3배, 프리미엄 총도 탄창 2개 × 3)으로 보여 준다
     const ammo = Object.fromEntries(weapons.map((id) => { const a = hordeAmmo(WEAPONS[id]); return [id, a ? `${a.mag}/${a.reserve}` : '']; }));
     return {
-      free: true, weapons, ammo, ruleset: 'classic', title: '무기 교체 · 좀비 물량 막기',
-      foot: '모든 무기를 언제든 N으로 바꿀 수 있어요. 한 번 쓴 총은 남은 탄 그대로이고, 처음 드는 총은 탄을 가득 받아요.',
-      note: '모든 무기 · 언제든', prompt: phase !== 'wave'
+      free: true, weapons, ammo, ruleset: 'classic', title: '무기 고르기 · 좀비 물량 막기',
+      foot: '1스테이지가 시작되면 더는 바꿀 수 없어요. 이번 판 내내 쓸 무기를 고르세요.',
+      note: '시작 전에만', prompt: true
     };
+  }
+
+  /** 다른 사람의 능력치(카드가 바뀔 때만 다시 계산) */
+  function perksOf(id) {
+    if (String(id) === meId) return perks;
+    const p = last && last.players.find((x) => x.id === String(id));
+    if (!p) return null;
+    const sig = p.cards.join(',');
+    const c = perkCache.get(p.id);
+    if (c && c.sig === sig) return c.perks;
+    const k = computePerks(p.cards);
+    perkCache.set(p.id, { sig, perks: k });
+    return k;
   }
 
   function applyPerks() {
     W('setHordePerks', {
       mods: modsFromPerks(perks, frenzy.length), speed: 1 + perks.move, maxSpeed: 1 + perks.maxSpeed, jump: 1 + perks.jump,
-      pierce: perks.pierce, maxHp
+      pierce: perks.pierce, maxHp, nadeMulti: Math.round(perks.nadeMulti || 0),
+      // 수류탄 폭발 반경은 던진 사람의 증강을 따른다(방장 화면이 남의 수류탄 피해도 잰다)
+      nadeRadiusOf: (owner) => { const k = perksOf(owner); return 1 + ((k && k.nadeRadius) || 0); }
     });
   }
 
@@ -85,7 +105,11 @@ export function createHordeClient(o) {
     myAlive = true;
     spawnedOnce = true;
     applyPerks();
-    W('openSwap', swapProps());
+    // 무기는 1스테이지가 시작되기 전에만 고른다(쓰러졌다 일어날 때는 고른 무기 그대로)
+    if (phase == null || phase === 'prep') W('openSwap', swapProps());
+    // 보조무기를 바꾸는 증강(유탄 발사기·바주카포)은 쓰러졌다 일어나도 그대로다
+    const side = last ? sidearmOf(((last.players.find((p) => p.id === meId) || {}).cards) || []) : null;
+    if (side) W('equipSidearm', side);
   }
 
   function centerFor(ev) {
@@ -95,14 +119,9 @@ export function createHordeClient(o) {
       H.center('좀비 물량 막기', 2600, { sub: `${Math.round((ev.ms || 0) / 1000)}초 뒤 1스테이지 · 최대한 오래 버티세요`, tone: 'warn' });
     } else if (ev.phase === 'wave' && !ev.resumed) {
       const bosses = Array.isArray(ev.bosses) ? ev.bosses : [];
-      H.center(`스테이지 ${ev.stage}`, 2400, { sub: bosses.length ? `보스 등장 · ${bosses.map((b) => `${b.icon || ''} ${b.name}`).join(' · ')}` : `좀비 ${ev.count || 0}마리가 몰려와요`, tone: bosses.length ? 'charterer' : undefined });
+      const secs = Math.round((ev.stageMs || HORDE.stageMs) / 1000);
+      H.center(`스테이지 ${ev.stage}`, 2000, { sub: bosses.length ? `보스 등장 · ${bosses.map((b) => `${b.icon || ''} ${b.name}`).join(' · ')}` : `${secs}초 · 좀비 ${ev.count || 0}마리 · 다 잡으면 남은 시간만큼 경험치`, tone: bosses.length ? 'charterer' : undefined });
       W('sound', 'horde_wave');
-    } else if (ev.phase === 'cards') {
-      // 가운데 글자는 카드 화면 뒤로 비쳐 겹친다 → 짧은 알림만(HUD 띠가 '스테이지 클리어'를 보여 준다)
-      H.callout('스테이지 클리어! · 체력 25% 회복');
-      W('sound', 'horde_clear');
-    } else if (ev.phase === 'break') {
-      H.center(`곧 스테이지 ${(ev.stage | 0) + 1}`, 1500, { sub: '쓰러진 동료는 다음 스테이지에 일어나요' });
     }
   }
 
@@ -112,9 +131,25 @@ export function createHordeClient(o) {
     switch (ev.type) {
       case 'phase':
         phase = ev.phase; stage = ev.stage | 0; centerFor(ev);
-        if (ev.phase !== 'cards') { pickSent = null; if (ui && ui.isVisible('cards')) ui.hide('cards'); }
-        // 무기 교체 안내는 준비·카드·쉬는 시간에만(웨이브 중에도 N은 된다)
-        if (ev.phase === 'over') W('closeSwap'); else W('setSwapPrompt', ev.phase !== 'wave');
+        if (ev.phase === 'over' && ui && ui.isVisible('cards')) ui.hide('cards');
+        // 무기는 준비 시간에만 바꾼다. 1스테이지가 시작되면 교체 창을 닫는다(무기 교체권으로 연 창은 한 번 바꿀 때까지 둔다)
+        if (ev.phase === 'over' || (ev.phase !== 'prep' && !swapTicket)) { swapTicket = false; W('closeSwap'); }
+        break;
+      case 'levelUp':
+        if (H) H.banner({ icon: '⭐', title: `레벨 업! Lv ${ev.level}`, sub: (ev.ups | 0) > 1 ? `증강 ${ev.ups}개를 고르세요` : '증강 하나를 고르세요' });
+        W('sound', 'horde_clear');
+        break;
+      case 'offer':
+        if (String(ev.id) === meId) { pickSent = null; W('sound', 'card_shuffle'); }
+        break;
+      case 'clear':
+        if (H) H.callout(`스테이지 클리어! · 남은 시간 경험치 +${ev.bonus | 0} · 체력 25% 회복`);
+        break;
+      case 'timeup':
+        if (H) H.callout(`⏱ 시간 끝 · 남은 좀비 ${ev.left | 0}마리와 다음 스테이지`);
+        break;
+      case 'decoyDown':
+        if (H && String(ev.owner) === meId) H.callout('🎭 분신이 쓰러졌어요');
         break;
       case 'spawn':
         if (String(ev.id) === meId) { if (!ev.keep) spawnMe(ev.spawn); }
@@ -151,7 +186,7 @@ export function createHordeClient(o) {
     }
   }
 
-  /** 방장이 확정한 보급품 줍기. 내가 주운 것만 내 무기에 넣는다(구급 상자 체력은 방장이 이미 채웠다) */
+  /** 방장이 확정한 보급품 줍기. 내가 주운 것만 내 무기에 넣는다(구급 상자 체력·보물 상자 증강은 방장이 준다) */
   function onLoot(ev) {
     lootPending.delete(ev.id);
     if (String(ev.by) !== meId || lootDone.has(ev.id)) return;
@@ -160,30 +195,20 @@ export function createHordeClient(o) {
     const a = world.internals && world.internals.arsenal;
     let text = '';
     if (ev.kind === 'mag' && a) {
-      // 든 총의 탄창 하나만큼. 든 총이 가득하거나 칼·수류탄을 들었으면 주무기, 그다음 보조무기에
+      // 장전 1회분(탄띠 증강만큼 더). 든 총이 가득하거나 칼·수류탄을 들었으면 주무기, 그다음 보조무기에
       const held = a.getAmmo();
       const lo = a.getLoadout();
       let n = 0;
       for (const id of [held && held.kind === 'mag' ? held.weaponId : null, lo.primary, lo.secondary]) {
         const am = id ? a.getAmmo(id) : null;
-        if (am && am.kind === 'mag') n = W('addReserve', am.magSize, id) || 0;
+        if (am && am.kind === 'mag') n = W('addReserve', Math.max(1, Math.round(am.magSize * (1 + (perks.ammoMags || 0)))), id) || 0;
         if (n > 0) break;
       }
       text = n > 0 ? `🧷 탄창 +${n}발` : '🧷 탄창 · 예비 탄이 가득해요';
-    } else if (ev.kind === 'ammo' && a) {
-      // 주무기·보조무기 예비 탄을 최대의 절반만큼
-      const lo = a.getLoadout();
-      let total = 0;
-      for (const id of [lo.primary, lo.secondary]) {
-        const am = a.getAmmo(id);
-        if (am && am.kind === 'mag' && Number.isFinite(am.reserveMax)) total += W('addReserve', Math.ceil(am.reserveMax * 0.5), id) || 0;
-      }
-      text = total > 0 ? `📦 탄약 상자 · 예비 탄 +${total}발` : '📦 탄약 상자 · 예비 탄이 가득해요';
-    } else if (ev.kind === 'nade') {
-      W('addGrenades', 1);
-      text = '💣 수류탄 +1';
     } else if (ev.kind === 'med') {
       text = ev.heal > 0 ? `➕ 구급 상자 · 체력 +${ev.heal}` : '➕ 구급 상자 · 체력이 가득해요';
+    } else if (ev.kind === 'chest') {
+      text = '🎁 보물 상자! · 증강 하나를 고르세요';
     }
     W('sound', 'loot_pick');
     if (ui && ui.hud && text) ui.hud.callout(text);
@@ -205,24 +230,44 @@ export function createHordeClient(o) {
     }
   }
 
-  /** 새로 생긴 내 카드의 한 번짜리 효과(재장전 탄창·수류탄 채우기) */
+  /** 고른 카드 중 보조무기를 바꾸는 증강(나중 것이 이긴다) → 무기 id | null */
+  function sidearmOf(cards) {
+    let id = null;
+    for (const cid of cards) { const c = cardById(cid); if (c && c.instant && c.instant.side) id = c.instant.side; }
+    return id;
+  }
+
+  /** 새로 생긴 내 카드의 한 번짜리 효과(재장전 탄창·수류탄 채우기·무기 교체권·보조무기 바꾸기) */
   function applyNewCards(cards) {
+    let swapNow = false;
     for (let i = appliedCards; i < cards.length; i++) {
       const c = cardById(cards[i]);
       const inst = c && c.instant;
       if (!inst) continue;
       if (inst.refill) W('refillReserve');
       if (inst.nades) W('refillGrenades');
+      if (inst.swap) swapNow = true;
+      if (inst.side && W('equipSidearm', inst.side) && ui && ui.hud) ui.hud.callout(`${c.icon} 보조무기: ${(WEAPONS[inst.side] || {}).name || inst.side}`);
     }
     appliedCards = cards.length;
+    // 무기 교체권: 무기 목록을 한 번 연다(고르면 닫힌다. 못 골랐으면 N으로 다시 연다)
+    if (swapNow && myAlive) {
+      swapTicket = true;
+      W('openSwap', { ...swapProps(), title: '무기 교체권 · 한 번', foot: '고른 무기로 바로 바뀌어요. 새로 든 총은 탄을 가득 받아요.', note: '교체권 1회' });
+      W('openSwapList');
+    }
   }
 
   function cardProps(me) {
     const taken = me.cards;
+    const lv = last && last.xp ? last.xp.level : 1;
     return {
       stage, picked: false, rerolls: me.rerolls,
-      // 혼자 할 때는 카드 고르기에 사실상 시간 제한이 없으므로 남은 시간을 보여 주지 않는다
-      seconds: !o.solo && last && last.timeLeftMs != null ? last.timeLeftMs / 1000 : 0,
+      title: me.chest ? '🎁 보물 상자!' : `⭐ 레벨 업! Lv ${lv}`,
+      // 멀티는 고르는 동안 무적이고 20초 뒤 무작위로 정해진다. 혼자는 게임이 멈춰 있어 시간을 보여 주지 않는다
+      sub: o.solo ? '고르는 동안 게임이 멈춰 있어요' : '고르는 동안 무적이에요 · 시간이 지나면 무작위로 정해져요',
+      seconds: !o.solo ? (me.offerLeftMs || 0) / 1000 : 0,
+      more: Math.max(0, (me.picks | 0) - 1),
       cards: me.offer.map((id) => {
         const c = cardById(id);
         const t = TIERS[c.tier];
@@ -233,26 +278,30 @@ export function createHordeClient(o) {
   }
 
   function teamRows(v) {
-    return v.players.filter((p) => p.connected).map((p) => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp, alive: p.alive, me: p.id === meId, picked: v.phase === 'cards' && p.picked, shield: p.shield }));
+    return v.players.filter((p) => p.connected).map((p) => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp, alive: p.alive, me: p.id === meId, picking: p.offer.length > 0, invuln: p.invuln, shield: p.shield }));
   }
   function hud(now) {
     const v = last;
     if (!v || !ui) return;
-    const leftMs = timeBase == null ? null : Math.max(0, timeBase - (now - timeAt));
-    const waiting = v.phase === 'cards' ? v.players.filter((p) => p.connected && p.offer.length && !p.picked) : [];
+    const since = Math.max(0, now - timeAt);
+    const leftMs = timeBase == null ? null : Math.max(0, timeBase - since);
+    // 스테이지 남은 시간: 웨이브 중에만 흐른다(증강 고르기로 멈춘 혼자 판은 그대로)
+    const stageLeft = v.stageLeftMs == null ? null : Math.max(0, v.stageLeftMs - (v.phase === 'wave' ? since : 0));
+    const picking = v.players.filter((p) => p.connected && p.offer.length);
     const me = v.players.find((p) => p.id === meId);
     let warn = '';
     if (me && me.alive && v.phase === 'wave' && world.internals) {
       const a = world.internals.arsenal;
       const slots = [a.getAmmo(a.getLoadout().primary), a.getAmmo(a.getLoadout().secondary)];
-      if (slots.every((s) => s && s.kind === 'mag' && s.mag <= 0 && s.reserve <= 0)) warn = '탄약이 떨어졌어요 · 좀비가 떨어뜨린 탄창을 줍거나 N으로 다른 총을 드세요';
+      if (slots.every((s) => s && s.kind === 'mag' && s.mag <= 0 && s.reserve <= 0)) warn = '탄약이 떨어졌어요 · 좀비가 떨어뜨린 탄창을 줍거나 3번 칼로 싸우세요';
     }
-    if (v.phase === 'cards' && me && me.picked && waiting.length) warn = `카드 선택 완료 · ${waiting.map((p) => p.name).join(', ')} 기다리는 중`;
+    if (me && me.alive && me.invuln && !me.offer.length && v.phase === 'wave') warn = `🛡 무적 ${Math.max(1, Math.ceil((me.invulnMs - since) / 1000))}초`;
     ui.update('horde', {
       stage: v.stage, phase: v.phase, timeLeft: leftMs == null ? 0 : leftMs / 1000, left: v.left,
+      stageLeft: stageLeft == null ? null : stageLeft / 1000, xp: v.xp,
       bosses: v.bosses.map((b) => ({ name: b.def.name, icon: b.def.icon, hpFrac: b.hp / b.maxHp, enraged: b.enraged, skill: b.skill && b.skillPhase === 1 ? SKILL_NAMES[skillKindOf(b.skill)] || '' : '' })),
-      team: teamRows(v), elapsed: v.elapsedMs ? fmtClock(v.elapsedMs + (v.phase === 'wave' ? Math.min(1000, now - timeAt) : 0)) : '',
-      pickedText: v.phase === 'cards' ? `${v.players.filter((p) => p.connected && p.picked).length}/${v.players.filter((p) => p.connected).length}명` : '',
+      team: teamRows(v), elapsed: v.elapsedMs ? fmtClock(v.elapsedMs + (v.phase === 'wave' ? Math.min(1000, since) : 0)) : '',
+      pickedText: picking.length ? picking.map((p) => p.name).join(', ') : '',
       warn
     });
   }
@@ -313,14 +362,14 @@ export function createHordeClient(o) {
         }
       }
       myKills = me.kills;
-      // 카드 화면
-      const offered = v.phase === 'cards' && me.offer.length && !me.picked && me.connected;
+      // 증강 화면: 제안이 있으면(레벨업·보물 상자) 띄운다. 멀티는 게임이 멈추지 않으므로 단계와 상관없다
+      const offered = v.phase !== 'over' && me.offer.length && !me.picked && me.connected;
       if (offered && pickSent && me.offer.includes(pickSent) && performance.now() - pickSentAt < 1500) { /* 방장 확인 대기 */ }
       else if (offered) {
         const props = cardProps(me);
-        const sigC = JSON.stringify([props.cards.map((c) => c.id), props.rerolls]);
+        const sigC = JSON.stringify([props.cards.map((c) => c.id), props.rerolls, props.title]);
         if (!ui.isVisible('cards') || sigC !== cardsUiSig) { cardsUiSig = sigC; ui.show('cards', props); }
-        else if (!o.solo) ui.update('cards', { seconds: props.seconds, rerolls: props.rerolls });
+        else if (!o.solo) ui.update('cards', { seconds: props.seconds, rerolls: props.rerolls, more: props.more });
       } else if (ui && ui.isVisible('cards')) { ui.hide('cards'); cardsUiSig = ''; }
     }
     for (const z of v.zombies) {
@@ -359,16 +408,16 @@ export function createHordeClient(o) {
     }
   }
 
-  /** 카드 화면에서 고름(UI 이벤트) */
+  /** 증강 화면에서 고름(UI 이벤트) */
   function pick(id) {
-    if (!last || last.phase !== 'cards') return;
+    if (!last || last.phase === 'over') return;
     pickSent = String(id);
     pickSentAt = performance.now();
     if (ui && ui.isVisible('cards')) ui.hide('cards');
     if (o.actions && o.actions.pick) o.actions.pick(String(id));
   }
   function reroll() {
-    if (!last || last.phase !== 'cards') return;
+    if (!last || last.phase === 'over') return;
     if (o.actions && o.actions.reroll) o.actions.reroll();
   }
   const offs = ui ? [
@@ -380,9 +429,37 @@ export function createHordeClient(o) {
     }),
     ui.on('cards:reroll', () => reroll())
   ] : [];
+  /** 좀비 한 마리(스냅샷의 좀비 행) */
+  const zombieOf = (vid) => { const n = Number(String(vid).slice(1)) | 0; return last ? last.zombies.find((z) => z.id === n) : null; };
   const offHit = typeof world.on === 'function' ? world.on('hitClaim', (c) => {
+    if (!c || String(c.victimId)[0] !== 'z') return;
     // 좀비를 맞힌 순간의 히트마커(방장 확인 전에 보여 준다. 처치 표시는 스냅샷이 확인한다)
-    if (c && String(c.victimId)[0] === 'z') W('feedbackDamage', { amount: 0, head: c.part === 'head', kill: false, incoming: false });
+    W('feedbackDamage', { amount: 0, head: c.part === 'head', kill: false, incoming: false });
+    // 피해 숫자: 방장과 같은 공식(치명타는 방장만 굴려 빠진다). 머리는 크고 노랗게, 몸은 작게
+    const z = zombieOf(c.victimId);
+    const shot = Number(c.shotId) | 0;
+    myShot = shot && shot === myShot.id ? { id: shot, n: myShot.n + 1 } : { id: shot, n: 0 };
+    const me = last && last.players.find((p) => p.id === meId);
+    const hit = zombieHitDamage(c, perks, { boss: !!(z && z.boss), hpFrac: z ? z.hpFrac : 1 }, { myHpFrac: me ? me.hp / Math.max(1, me.maxHp) : 1, nth: myShot.n });
+    if (!hit) return;
+    const at = Array.isArray(c.point) ? c.point : z ? [z.pos[0], z.pos[1] + 1.7, z.pos[2]] : null;
+    if (at) W('hordeDamageNumber', at, Math.max(1, Math.round(hit.dmg)), hit.melee ? 'melee' : hit.part);
+  }) : null;
+  // 무기 교체권: 한 번 바꾸면 교체 창을 닫는다
+  const offPick = typeof world.on === 'function' ? world.on('loadoutPick', () => {
+    if (!swapTicket || phase === 'prep') return;
+    swapTicket = false;
+    W('closeSwap');
+  }) : null;
+  // 내 수류탄 피해 숫자(내 화면이 잰 폭발)
+  const offBlast = typeof world.on === 'function' ? world.on('explosion', (x) => {
+    if (!x || !x.local) return;
+    for (const v of Array.isArray(x.victims) ? x.victims : []) {
+      if (String(v.id)[0] !== 'z') continue;
+      const z = zombieOf(v.id);
+      if (!z) continue;
+      W('hordeDamageNumber', [z.pos[0], z.pos[1] + 1.4 * (z.boss ? z.boss.scale || 1 : 1), z.pos[2]], Math.max(1, Math.round(nadeDamage(v.dmg, perks, !!z.boss, x.kind))), 'nade');
+    }
   }) : null;
 
   function dispose() {
@@ -390,6 +467,8 @@ export function createHordeClient(o) {
     disposed = true;
     for (const f of offs) { try { f(); } catch (e) { /* ignore */ } }
     if (offHit) offHit();
+    if (offBlast) offBlast();
+    if (offPick) offPick();
     if (ui) { ui.hide('cards'); ui.hide('horde'); }
     W('closeSwap');
     W('setHordePerks', null);

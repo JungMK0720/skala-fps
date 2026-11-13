@@ -460,7 +460,7 @@ export function createSync(opts = {}) {
     if (disposed || !g) return null;
     const id = ++itemId;
     const hostT = clock.toHost(Number.isFinite(g.t) ? g.t : now());
-    const payload = encodeGrenade(id, { pos: g.pos, vel: g.vel, t: hostT });
+    const payload = encodeGrenade(id, { pos: g.pos, vel: g.vel, t: hostT, kind: g.kind, fuse: g.fuse });
     reliable.push({ ev: EV.grenade, payload, to: null, merge: false, left: o.reliableRepeat, nextAt: -Infinity, kind: 'grenade' });
     kick();
     const c = decodeGrenade(payload);

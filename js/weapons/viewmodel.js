@@ -47,7 +47,7 @@ const COLOR = {
 /** 팀별 소매 색(core TEAMS 색과 맞춤) */
 const TEAM_SLEEVE = { owner: 0x22407a, charterer: 0xb8323b };
 /** 표에 있지만 빌더가 없는 무기는 kind로 닮은 모형을 쓴다 */
-const KIND_FALLBACK = { rifle: 'ar_std', dmr: 'dm_mark', smg: 'sm_vx3', shotgun: 'sg_bx12', sniper: 'sr_bolt', pistol: 'pt_std', melee: 'ml_knife', grenade: 'gr_frag' };
+const KIND_FALLBACK = { rifle: 'ar_std', dmr: 'dm_mark', smg: 'sm_vx3', shotgun: 'sg_bx12', sniper: 'sr_bolt', pistol: 'pt_std', melee: 'ml_knife', grenade: 'gr_frag', launcher: 'sg_bx12', rocket: 'sr_heavy' };
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const num = (v, d = 0) => (Number.isFinite(v) ? v : d);

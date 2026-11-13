@@ -171,6 +171,11 @@ function buildWorld(ctx, opts) {
   // 수류탄 모형(풀)
   const nadeGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.13, 10);
   const nadeMat = new THREE.MeshLambertMaterial({ color: 0xe2b52a });
+  // 좀비 물량 막기 보조무기의 발사체: 유탄(어두운 초록)·로켓(주황, 날아가는 쪽으로 길게)
+  const projMats = { gl: new THREE.MeshLambertMaterial({ color: 0x4f6b2a }), rocket: new THREE.MeshLambertMaterial({ color: 0xff8a2a, emissive: 0x7a2a00 }) };
+  // 발사체 종류 → 그 무기의 정의(폭발 반경·최대 피해)
+  const PROJ_DEF = { gl: WEAPONS.gl_m32, rocket: WEAPONS.rl_b9 };
+  const UP_V = new THREE.Vector3(0, 1, 0);
   const nadeMeshes = [];
   function nadeMesh(i) {
     while (nadeMeshes.length <= i) {
@@ -241,8 +246,9 @@ function buildWorld(ctx, opts) {
   });
 
   // 좀비 물량 막기(game/horde): 좀비·보스 그리기와 내 사격 판정. 판정 결과는 다른 사격처럼 'hitClaim'(victimId 'z12')으로 나간다
-  const horde = createHordeView({ THREE, scene: R.scene, fx, play: (name, o) => play(name, o) });
-  const hordePerk = { speed: 1, pierce: 0, maxHp: 100 };
+  const horde = createHordeView({ THREE, scene: R.scene, camera: R.camera, fx, play: (name, o) => play(name, o) });
+  // 좀비 물량 막기 증강의 내 화면 몫. nadeMulti = 한 번에 더 던지는 수류탄 수, nadeRadiusOf(owner) = 그 사람 수류탄의 폭발 반경 배율
+  const hordePerk = { speed: 1, pierce: 0, maxHp: 100, nadeMulti: 0, nadeRadiusOf: null };
   let slowUntil = 0, slowMul = 1, grabbedNow = false;
   /** 내 이동 속도 배율: 무기(줌 포함) × 카드 × 느려짐(비명·얼음) × 좀비에게 붙잡힘 */
   function speedScaleNow() {
@@ -407,6 +413,8 @@ function buildWorld(ctx, opts) {
   }
   /** 기한 없는 교체(free)의 HUD 안내를 켜고 끈다. N은 그대로 된다 */
   function setSwapPrompt(on) { if (swap) swap.prompt = !!on; }
+  /** 교체 창이 켜져 있으면 무기 목록을 바로 연다(좀비 물량 막기 '무기 교체권') */
+  function openSwapList() { if (swap && ui && !ui.isVisible('loadout')) toggleSwapList(); }
   function closeSwap() {
     if (!swap) return;
     const listed = !!(ui && ui.isVisible('loadout'));
@@ -722,7 +730,7 @@ function buildWorld(ctx, opts) {
    */
   function setHordePerks(o) {
     if (!o) {
-      hordePerk.speed = 1; hordePerk.pierce = 0; hordePerk.maxHp = 100;
+      hordePerk.speed = 1; hordePerk.pierce = 0; hordePerk.maxHp = 100; hordePerk.nadeMulti = 0; hordePerk.nadeRadiusOf = null;
       arsenal.setMods(null);
       player.setMoveTuning(null);
       slowUntil = 0; grabbedNow = false;
@@ -732,6 +740,8 @@ function buildWorld(ctx, opts) {
     hordePerk.speed = num(o.speed, 1) > 0 ? num(o.speed, 1) : 1;
     hordePerk.pierce = Math.max(0, Math.round(num(o.pierce, 0)));
     hordePerk.maxHp = Math.max(1, Math.round(num(o.maxHp, 100)));
+    hordePerk.nadeMulti = clamp(Math.round(num(o.nadeMulti, 0)), 0, 6);
+    hordePerk.nadeRadiusOf = typeof o.nadeRadiusOf === 'function' ? o.nadeRadiusOf : null;
     player.setMoveTuning({ maxSpeed: num(o.maxSpeed, 1), jump: num(o.jump, 1) });
     player.setSpeedScale(speedScaleNow());
   }
@@ -1158,10 +1168,28 @@ function buildWorld(ctx, opts) {
    * 주장의 part는 그 사람에게 맞은 펠릿 중 가장 좋은 부위, count는 맞은 펠릿 수다(데미지 = 표값 × count, computeDamage).
    * 같은 발의 주장은 t와 shotId가 같아서 match의 연사 검사를 한 번만 받는다.
    */
+  /** 좀비 물량 막기의 유탄 발사기·바주카포: 총알 대신 수류탄 시스템의 발사체를 쏜다(모든 화면이 같은 궤적을 계산한다) */
+  function launchProjectile(ev, def) {
+    if (!nades) return;
+    const pj = def.projectile;
+    const eye = player.getEye();
+    const fwd = player.getAimDir();
+    const gid = `${local.id}#${pj.kind}${++grenadeSeq}`;
+    const g0 = nades.throwFrom({ eye, forward: fwd, speed: pj.speed, pitchUp: pj.pitchUp || 0, fuse: pj.fuse, owner: local.id, inherit: player.state.vel, inheritScale: 0.15, id: gid, offset: 0.7, kind: pj.kind });
+    const pos = r2(g0.pos), vel = r2(g0.vel);
+    nades.remove(gid);
+    nades.spawn(pos, vel, { owner: local.id, fuse: pj.fuse, id: gid, kind: pj.kind });
+    play(def.sound);
+    protectUntil = 0;
+    emit('grenade', { id: local.id, grenadeId: gid, pos, vel, fuse: pj.fuse, t: performance.now(), kind: pj.kind });
+    emit('fire', { id: local.id, weaponId: ev.weaponId, origin: r3(eye), dir: r3(fwd), hitPoint: null, hitKind: 'none', dist: 0, t: performance.now(), kind: 'shot', quickscope: false, noscope: false });
+  }
+
   function localFire(ev) {
     const st = player.state;
     const eye = player.getEye();
     const def = getDef(ev.weaponId);
+    if (def && def.projectile && mode === 'zombie') { launchProjectile(ev, def); return; }
     const fxKind = (def && def.fxKind) || 'rifle';
     const range = num(ev.maxRange, def ? def.maxRange : 300);
     const list = shotTargets(targets(), mode, local.team);   // 팀전: 아군 몸은 통과한다
@@ -1254,13 +1282,20 @@ function buildWorld(ctx, opts) {
     const st = player.state;
     const eye = player.getEye();
     const fwd = player.getAimDir();
-    const gid = `${local.id}#${++grenadeSeq}`;
-    const g0 = nades.throwFrom({ eye, forward: fwd, speed: ev.speed, pitchUp: ev.pitchUp, fuse: ev.fuse, owner: local.id, inherit: st.vel, inheritScale: 0.5, id: gid });
-    // 보낼 값(protocol.encodeGrenade의 cm 해상도)과 내가 시뮬레이션하는 값을 똑같이 → 모든 클라이언트가 같은 궤적
-    const pos = r2(g0.pos), vel = r2(g0.vel);
-    nades.remove(gid);
-    nades.spawn(pos, vel, { owner: local.id, fuse: g0.fuse, id: gid });
-    emit('grenade', { id: local.id, grenadeId: gid, pos, vel, fuse: g0.fuse, t: performance.now(), kind: ev.kind });
+    // 좀비 물량 막기 '다연발 투척' 증강: 하나만 줄고 부채꼴로 더 날아간다(가운데, 오른쪽, 왼쪽, 더 오른쪽, …)
+    const extra = mode === 'zombie' ? hordePerk.nadeMulti : 0;
+    for (let i = 0; i <= extra; i++) {
+      const ang = i === 0 ? 0 : (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 0.16;
+      const c = Math.cos(ang), s = Math.sin(ang);
+      const dir = i === 0 ? fwd : [fwd[0] * c - fwd[2] * s, fwd[1], fwd[0] * s + fwd[2] * c];
+      const gid = `${local.id}#${++grenadeSeq}`;
+      const g0 = nades.throwFrom({ eye, forward: dir, speed: ev.speed, pitchUp: ev.pitchUp, fuse: ev.fuse, owner: local.id, inherit: st.vel, inheritScale: 0.5, id: gid });
+      // 보낼 값(protocol.encodeGrenade의 cm 해상도)과 내가 시뮬레이션하는 값을 똑같이 → 모든 클라이언트가 같은 궤적
+      const pos = r2(g0.pos), vel = r2(g0.vel);
+      nades.remove(gid);
+      nades.spawn(pos, vel, { owner: local.id, fuse: g0.fuse, id: gid });
+      emit('grenade', { id: local.id, grenadeId: gid, pos, vel, fuse: g0.fuse, t: performance.now(), kind: ev.kind });
+    }
   }
 
   /* ---------- 수류탄 ---------- */
@@ -1268,19 +1303,24 @@ function buildWorld(ctx, opts) {
     if (e.type === 'bounce') { play('grenade_bounce', { pos: e.pos, gain: Math.min(1, num(e.speed, 2) / 6) }); return; }
     if (e.type !== 'explode') return;
     const c = arr3(e.pos);
-    fx.explosion(c, { radius: WEAPONS.gr_frag.explosion.radius });
-    props.explode(c, WEAPONS.gr_frag.explosion.radius);
+    // 좀비 물량 막기 '폭발 반경' 증강: 던진 사람의 배율만큼 넓게 터진다(방장 화면은 남의 수류탄도 그 사람 배율로 잰다)
+    const pdef = e.kind ? PROJ_DEF[e.kind] : null;
+    const ex = pdef ? pdef.explosion : WEAPONS.gr_frag.explosion;
+    let rk = 1;
+    if (!pdef && mode === 'zombie' && hordePerk.nadeRadiusOf) { try { rk = clamp(num(hordePerk.nadeRadiusOf(e.owner), 1), 1, 3); } catch (err) { rk = 1; } }
+    fx.explosion(c, { radius: ex.radius * rk });
+    props.explode(c, ex.radius * rk);
     play('explosion', { pos: c });
     const targets = [];
     // 앉은 사람은 판정점(다리·몸·머리)도 낮다 → height = 앉은 키 1.25 m
     if (local.spawned && local.alive) targets.push({ id: local.id, pos: player.state.pos, height: player.state.crouch ? CROUCH_H : PLAYER.HEIGHT });
     for (const a of actors.values()) if (a.alive && a.state) targets.push({ id: a.id, pos: a.state.pos, height: a.state.crouch ? CROUCH_H : PLAYER.HEIGHT });
     if (mode === 'zombie') for (const z of horde.blastTargets()) targets.push(z);   // 좀비도 같은 엄폐·거리 규칙으로 맞는다
-    const res = nades ? nades.explosionDamage(c, targets) : [];
+    const res = nades ? nades.explosionDamage(c, targets, rk > 1 || pdef ? { radius: ex.radius * rk, inner: ex.inner * rk, max: ex.max } : undefined) : [];
     const victims = [];
     for (const r of res) if (r.damage > 0) victims.push({ id: r.id, dmg: r.damage, dist: round2(r.dist) });
     if (e.owner === local.id) protectUntil = 0;   // 수류탄 피해 주장도 '먼저 공격' → 보호 끝(match 규칙과 같게)
-    emit('explosion', { ownerId: e.owner, local: e.owner === local.id, grenadeId: e.id, center: { x: c[0], y: c[1], z: c[2] }, pos: r3(c), victims });
+    emit('explosion', { ownerId: e.owner, local: e.owner === local.id, grenadeId: e.id, center: { x: c[0], y: c[1], z: c[2] }, pos: r3(c), victims, kind: e.kind || null });
   }
 
   function actorGrenade(o = {}) {
@@ -1289,7 +1329,7 @@ function buildWorld(ctx, opts) {
     const live = nades.list();
     if (live.length >= MAX_LIVE_GRENADES || live.some((g) => g.id === gid)) return null;   // 한도(프레임 하나에 수천 개를 보내도 끄떡없게) · 중복 수신
     const fuse = num(o.fuse, WEAPONS.gr_frag.fuse);
-    const g = nades.spawn(arr3(o.pos), arr3(o.vel), { owner: o.id != null ? String(o.id) : null, fuse, id: gid });
+    const g = nades.spawn(arr3(o.pos), arr3(o.vel), { owner: o.id != null ? String(o.id) : null, fuse, id: gid, kind: o.kind === 'gl' || o.kind === 'rocket' ? o.kind : null });
     // 늦게 받은 만큼 앞당기기(폭발 직전까지만)
     const lag = Number.isFinite(o.t) ? (performance.now() - o.t) / 1000 : 0;
     if (g && lag > 0.02) {
@@ -1310,7 +1350,18 @@ function buildWorld(ctx, opts) {
       const g = list[i], m = nadeMesh(i);
       m.visible = true;
       m.position.set(g.pos[0], g.pos[1], g.pos[2]);
-      if (!g.sleeping) m.rotation.set(g.age * 9, 0, g.age * 5.5);
+      if (g.kind === 'rocket') {
+        // 로켓: 날아가는 쪽으로 길게(원기둥의 y축을 속도 방향으로)
+        m.material = projMats.rocket;
+        m.scale.set(1.3, 3.2, 1.3);
+        const sp = Math.hypot(g.vel[0], g.vel[1], g.vel[2]) || 1;
+        tmpV.set(g.vel[0] / sp, g.vel[1] / sp, g.vel[2] / sp);
+        m.quaternion.setFromUnitVectors(UP_V, tmpV);
+      } else {
+        m.material = g.kind === 'gl' ? projMats.gl : nadeMat;
+        m.scale.set(g.kind === 'gl' ? 1.1 : 1, g.kind === 'gl' ? 0.8 : 1, g.kind === 'gl' ? 1.1 : 1);
+        if (!g.sleeping) m.rotation.set(g.age * 9, 0, g.age * 5.5);
+      }
     }
     for (let i = list.length; i < nadeMeshes.length; i++) nadeMeshes[i].visible = false;
   }
@@ -1611,6 +1662,9 @@ function buildWorld(ctx, opts) {
       else local.ownDrops.clear();
     }
     for (const d of drops.expire()) removeDropView(d.id);
+    if (nades && mode === 'zombie') {
+      for (const g of nades.list()) if (g.kind && horde.touching(g.pos, g.kind === 'rocket' ? 0.55 : 0.45)) nades.detonate(g.id);
+    }
     if (nades) for (const ge of nades.update(dt)) onGrenadeEvent(ge);
     if (mode === 'bomb') bombView.tick(dt);
   }
@@ -1804,6 +1858,7 @@ function buildWorld(ctx, opts) {
     openSwap,
     /** 기한 없는 교체(openSwap({ free:true }))의 HUD 안내 켜기·끄기 */
     setSwapPrompt,
+    openSwapList,
     /** 무기 교체를 끈다(라운드 시작·라운드 끝). 열려 있던 목록도 닫는다 */
     closeSwap,
     unloadMap,
@@ -1837,8 +1892,19 @@ function buildWorld(ctx, opts) {
     hordePush: (view, t) => horde.push(view, t),
     /** 방장 이벤트 중 연출이 필요한 것(skill·chain·enrage) */
     hordeEvent: (ev) => horde.event(ev),
-    /** 카드 효과(내 화면 몫): { mods, speed, maxSpeed, jump, pierce, maxHp } | null */
+    /** 증강 효과(내 화면 몫): { mods, speed, maxSpeed, jump, pierce, maxHp, nadeMulti, nadeRadiusOf(owner) } | null */
     setHordePerks,
+    /** 좀비에게 준 피해 숫자를 pos에 띄운다. kind = 'head' | 'body' | 'legs' | 'melee' | 'nade' */
+    hordeDamageNumber: (pos, amount, kind) => horde.damageNumber(pos, amount, kind),
+    /** (좀비 물량 막기 증강) 보조무기 칸을 이 무기로 바꾼다(새 탄 가득). 살아 있을 때만 → 바꿨으면 true */
+    equipSidearm(id) {
+      const def = getDef(id);
+      if (!def || def.slot !== 2 || !local.spawned || !local.alive) return false;
+      if (arsenal.getLoadout().secondary === id) return false;
+      const ok = arsenal.equipWith(id);
+      if (ok) { settleArsenal(); play('switch', { gain: 0.8 }); }
+      return ok;
+    },
     /** 비명·얼음 가시: ms 동안 이동 속도 ×mul */
     slowLocal(mul, ms) {
       const m = clamp(num(mul, 1), 0.2, 1);

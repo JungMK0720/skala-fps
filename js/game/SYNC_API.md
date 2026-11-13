@@ -112,7 +112,7 @@ net은 같은 JS 턴의 `send/sendTo`를 **프레임 1개**로 묶고, 프레임
 |---|---|---|
 | `fire` | `from, weaponId, origin, dir, hit, hitKind, kind?, t(=senderT), at` | `at` = 원격 아바타의 렌더 시간축에서 그 사격이 일어나는 로컬 시각. 아바타와 맞추려면 `at`에 재생, 소리를 빨리 내려면 즉시. `kind`는 칼 강타일 때만 `'stab'` |
 | `hitClaim` | `from, id, victimId, part, weaponId, dist(m), kind, shotT(방장 시계), count, shotId, age(ms), local?` | **방장에게만**. 중복 제거됨. 방장이 거리·연사속도·생존 등을 검증해 `sendMatch`로 확정. `count`·`shotId`를 `match.claimHit`까지 그대로 넘겨야 샷건 피해가 맞는다 |
-| `grenade` | `from, id, gid, pos, vel, t(방장 시계), localT, age` | 모두 같은 결정론 시뮬레이션(아래 참고). 폭발 데미지는 방장이 계산해 `sendMatch`로 확정 |
+| `grenade` | `from, id, gid, pos, vel, t(방장 시계), localT, age` (+ 발사체면 `kind`·`fuse`) | 모두 같은 결정론 시뮬레이션(아래 참고). 폭발 데미지는 방장이 계산해 `sendMatch`로 확정 |
 | `match` | `from, seq, snapshot\|null, events[], fresh, late?` | `snapshot`은 seq가 새로울 때만(아니면 null). `events`는 처음 보는 것만(eid 중복 제거) |
 | `loadout` | `from, loadout` | 바뀌었을 때만 |
 | `chat` | `from, text, scope` | `scope`: `'all'`·`'team'`. 팀 채팅을 보여 줄지는 세션이 보낸 사람의 팀으로 정한다 |
@@ -197,7 +197,7 @@ sync.sendMatch({
 | `g2s` 상태(merge) | `[seq, t, x,y,z, yaw,pitch, vx,vy,vz, slot, flags, hp]` flags = onGround 1, zoom 2, walking 4, alive 8, reloading 16, crouch 32, 이모트 64~512 | 57 (정지 41) | 66 |
 | `g2f` 사격 | `[weaponId, t, ox,oy,oz, dx,dy,dz, (hx,hy,hz, hitKind)]`. 칼 강타는 명중점 없이 끝에 `'stab'` 한 칸 | 65 (명중점 없음 45, 강타 58) | 74 |
 | `g2h` 히트 주장 → 방장 | `[id, victimId, part, weaponId, distCm, kind, shotT, count, shotId?]` | 57 | 66 |
-| `g2x` 수류탄 | `[id, px,py,pz, vx,vy,vz, t]` | 40 | 49 |
+| `g2x` 수류탄 | `[id, px,py,pz, vx,vy,vz, t]` (+ 좀비 물량 막기의 발사체면 끝에 `[종류 1 유탄 · 2 로켓, 신관 ms]`) | 40 | 49 |
 | `g2m` 경기(merge) | `[mseq, phase, round, sO, sC, endsAt, [[id,team,hp,alive,k,d],…], [[eid,type,…],…], rest?]` | 8인 + 이벤트 2개 362 | 371 |
 | `g2l` 로드아웃(merge) | `[id, { pick, primary, secondary, melee, round, m }]` (JSON 256B 넘으면 비운다) | 최악 117 | 126 |
 | `g2c` 채팅 | `[id, text]` | 한글 20자 57 | 66 |

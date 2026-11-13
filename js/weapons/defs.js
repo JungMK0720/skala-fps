@@ -663,6 +663,47 @@ const WEAPON_TABLE = {
     drawTime: 0.5, moveMul: 1.0,
     spread: null, recoil: null, zoom: null,
   },
+
+  // ───────────── 좀비 물량 막기 전용 보조무기(드문 증강으로만 얻는다. 상점·메뉴·봇·다른 모드에는 나오지 않는다) ─────────────
+  // 쏘면 총알 대신 발사체가 날아가 터진다(weapons/grenade.js PROJECTILES). 피해는 폭발(explosion)로만 준다.
+  gl_m32: gun({
+    id: 'gl_m32', slot: 2, kind: 'launcher', category: 'launcher', fire: 'semi', price: 0, zombieOnly: true,
+    name: 'GL-6 유탄 발사기', nameEn: 'GL-6 Grenade Launcher', short: 'GL-6', role: '폭발 보조',
+    icon: '🧨', color: '#6b8f3a', sound: 'shotgun', fxKind: 'shotgun',
+    tagline: '낮게 휘어 날아가 맞은 자리에서 터진다.',
+    desc: '좀비 물량 막기의 드문 증강으로만 얻는 보조무기다. 유탄이 처음 부딪히는 곳에서 터져 반경 4.2 m를 쓸어 낸다.',
+    bars: { power: 80, rate: 30, accuracy: 60, mobility: 80 },
+    damage: { head: 0, body: 0, legs: 0, hand: 0, foot: 0 },
+    falloff: null,
+    maxRange: 80,
+    rpm: 100, fireInterval: 0.6,
+    mag: 6, reserve: 6, reload: 3.0, reloadEmpty: 3.4,
+    drawTime: 0.6, moveMul: 0.95,
+    spread: { hip: 0.4, move: 1, air: 2, bloomPerShot: 0, bloomMax: 0, bloomDecay: 6, max: 3 },
+    recoil: { pattern: PT_MAGNUM_PATTERN, loopFrom: 1, adsMul: 1, maxPitch: 8, maxYaw: 3, recoverDelay: 0.12, recoverRate: 6, patternRecover: 8 },
+    zoom: null,
+    projectile: { kind: 'gl', speed: 24, pitchUp: 0.06, fuse: 2.2 },
+    explosion: { radius: 4.2, inner: 0.6, max: 100 },
+  }),
+  rl_b9: gun({
+    id: 'rl_b9', slot: 2, kind: 'rocket', category: 'launcher', fire: 'semi', price: 0, zombieOnly: true,
+    name: 'BZ-9 바주카포', nameEn: 'BZ-9 Bazooka', short: 'BZ-9', role: '폭발 보조',
+    icon: '🚀', color: '#8a6d3b', sound: 'sniper', fxKind: 'sniper',
+    tagline: '곧게 날아가 크게 터진다. 한 발씩.',
+    desc: '좀비 물량 막기의 드문 증강으로만 얻는 보조무기다. 로켓이 곧게 날아가 처음 닿는 곳에서 반경 5.2 m로 크게 터진다. 한 발마다 다시 넣는다.',
+    bars: { power: 100, rate: 10, accuracy: 80, mobility: 70 },
+    damage: { head: 0, body: 0, legs: 0, hand: 0, foot: 0 },
+    falloff: null,
+    maxRange: 120,
+    rpm: 50, fireInterval: 1.2,
+    mag: 1, reserve: 4, reload: 2.6, reloadEmpty: 2.6,
+    drawTime: 0.8, moveMul: 0.9,
+    spread: { hip: 0.2, move: 0.6, air: 1.5, bloomPerShot: 0, bloomMax: 0, bloomDecay: 6, max: 2 },
+    recoil: { pattern: PT_MAGNUM_PATTERN, loopFrom: 1, adsMul: 1, maxPitch: 10, maxYaw: 3, recoverDelay: 0.15, recoverRate: 5, patternRecover: 6 },
+    zoom: null,
+    projectile: { kind: 'rocket', speed: 36, pitchUp: 0, fuse: 3.0 },
+    explosion: { radius: 5.2, inner: 1.0, max: 100 },
+  }),
 };
 
 function deepFreeze(o) {

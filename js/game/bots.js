@@ -204,7 +204,7 @@ export function botLoadout(rulesetId, pick, rng = Math.random) {
     secondary: DEFAULT_LOADOUT.secondary,
     melee: rs.pickSlot === 3 ? defaultPick(rs.id) : MELEE_IDS[Math.min(MELEE_IDS.length - 1, Math.floor(rng() * MELEE_IDS.length))]
   };
-  const others = SECONDARY_IDS.filter((id) => id !== DEFAULT_LOADOUT.secondary);
+  const others = SECONDARY_IDS.filter((id) => id !== DEFAULT_LOADOUT.secondary && !getDef(id).zombieOnly);
   if (others.length && rng() < 0.25) out.secondary = others[Math.min(others.length - 1, Math.floor(rng() * others.length))];
   const key = loadoutKey(pick);
   if (key && isWeaponAllowed(rs.id, pick)) out[key] = pick;
