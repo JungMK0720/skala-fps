@@ -4,11 +4,13 @@
  * Purpose: 시나리오 25. 좀비 물량 막기(혼자). 메뉴의 초록 바로가기, 연습장 설정 시트의 모드와 좀비 전용 맵, 준비 → 1스테이지 →
  *          좀비가 좀비 문에서 나와 다가오는지, 내 사격이 좀비를 맞혀 방장 시뮬레이션에 피해가 들어가는지, N 무기 교체(모든 무기·한 번 쓴
  *          총은 남은 탄 그대로), 바닥 보급품(탄창·구급 상자) 줍기, 스테이지를 깨면 카드 3장·다시 뽑기·고른 카드 효과,
+ *          카드 입력 잠금(카드가 뜬 직후 누른 클릭·숫자 키·Space는 고르지 않고, R은 짧게 누르면 재장전·길게 누르면 다시 뽑기),
  *          3스테이지 보스 체력 막대와 스킬 예고, 전멸 뒤 결과 화면과 계정 기록을 본다.
  */
 import { LOW_QUALITY, lockPointer, openGame, richProfile, sleep, waitRun, waitTicks, clickFire } from '../kit.mjs';
 import { WEAPONS } from '../../../js/weapons/defs.js';
 import { hordeAmmo } from '../../../js/game/horde/rules.js';
+import { CARD_ARM_MS, REROLL_HOLD_MS } from '../../../js/ui/cards.js';
 
 /** 방장 시뮬레이션의 살아 있는 좀비를 모두 쓰러뜨린다(시험용: 스테이지를 빨리 깬다) */
 const KILL_ALL = `(() => {
@@ -21,6 +23,23 @@ const KILL_ALL = `(() => {
   }
   d.internals.S.queue.length = 0;
   return n;
+})()`;
+
+/** 카드 화면이 뜬 시각과 그 위에서 누른 시각(뜬 뒤 ms)을 __qa.cardLog에 남긴다. 스테이지를 깨기 전에 한 번 부른다 */
+export const CARD_LOG = `(() => {
+  const ov = document.querySelector('.sk-cards');
+  const log = __qa.cardLog = { shownAt: 0, downs: [] };
+  new MutationObserver(() => { if (!ov.hidden && !log.shownAt) log.shownAt = performance.now(); }).observe(ov, { attributes: true, attributeFilter: ['hidden'] });
+  ov.addEventListener('pointerdown', () => log.downs.push(performance.now() - log.shownAt), true);
+  return true;
+})()`;
+
+/** 카드 화면이 떠 있으면 가운데 카드의 화면 자리와 뜬 뒤 지난 ms를 JSON 글자로(아니면 false). waitFor로 기다리며 바로 받는다 */
+export const CARD_MID = `__qa.ui.isVisible('cards') && __qa.cardLog && __qa.cardLog.shownAt > 0 && (() => {
+  const c = document.querySelectorAll('.sk-cd-card')[1];
+  if (!c) return false;
+  const r = c.getBoundingClientRect();
+  return JSON.stringify({ x: r.left + r.width / 2, y: r.top + r.height / 2, since: performance.now() - __qa.cardLog.shownAt });
 })()`;
 
 const HUD = `({
@@ -202,21 +221,47 @@ export default {
     t.errorsOk('무기 교체와 보급품');
 
     t.setSection('스테이지 클리어 → 카드');
+    // 카드가 뜬 시각과 카드 위에서 누른 시각(뜬 뒤 ms)을 기록한다(입력 잠금 시험)
+    await page.eval(CARD_LOG);
     const killed = await page.eval(KILL_ALL);
     t.check(killed >= 1, '남은 좀비를 쓰러뜨린다(시험용)', killed);
-    await page.waitFor(`__qa.ui.isVisible('cards')`, 15000, { label: '카드 화면' });
-    await waitTicks(page, 5);
+    // 카드가 뜬 바로 그때의 가운데 카드 자리(커서가 놓이는 곳)를 한 번에 받는다
+    const early = JSON.parse(await page.waitFor(CARD_MID, 15000, { intervalMs: 30, label: '카드 화면' }));
+    if (early.since < 500) {
+      // 쏘던 손: 잠긴 동안 가운데 카드를 누르고(떼기는 잠금이 풀린 뒤) 무기 교체 1도 누른다. 풀린 뒤에는 점프 Space를 누른다
+      await page.mouseMove(early.x, early.y);
+      await page.mouseDown(0);
+      await page.press('Digit1');
+      await page.waitFor(`!document.querySelector('.sk-cards').classList.contains('is-arming')`, 5000, { intervalMs: 30, label: '카드 잠금 풀림' });
+      await sleep(150);
+      await page.mouseUp(0);
+      await page.press('Space');
+      await waitTicks(page, 4);
+      const held = await page.eval(`({ visible: __qa.ui.isVisible('cards'), picked: __qa.run.director.internals.players.get(__qa.world.localId).cards.length,
+        down: __qa.cardLog.downs[0], focus: document.activeElement ? String(document.activeElement.className) : '' })`);
+      t.check(typeof held.down === 'number' && held.down < CARD_ARM_MS, '가운데 카드를 잠금 중에 눌렀다(카드가 뜬 뒤 ms)', held.down);
+      t.check(held.visible && held.picked === 0, '잠긴 동안 누른 클릭(풀린 뒤 뗌)·숫자 키 1, 풀린 뒤의 Space는 카드를 고르지 않는다', held);
+      t.check(!/sk-cd-card/.test(held.focus), '눌린 카드도 포커스를 가져가지 않는다(점프 Space·Enter로 눌리지 않게)', held.focus);
+    } else t.note(`카드가 뜬 뒤 ${Math.round(early.since)} ms가 지나서야 화면을 읽어 잠금 중 누르기 시험을 건너뛴다(느린 화면)`);
+    await page.waitFor(`!document.querySelector('.sk-cards').classList.contains('is-arming')`, 5000, { label: '카드 잠금 풀림' });
     const offer = await page.eval(`({ cards: [...document.querySelectorAll('.sk-cd-card')].map((c) => c.querySelector('.sk-cd-name').textContent),
-      reroll: __qa.text('.sk-cd-reroll'), title: __qa.text('.sk-cd-title'), locked: __qa.ctx.input.locked })`);
+      reroll: __qa.text('.sk-cd-reroll'), title: __qa.text('.sk-cd-title'), sub: __qa.text('.sk-cd-sub'), wait: __qa.text('.sk-cd-wait'), locked: __qa.ctx.input.locked })`);
     t.check(offer.cards.length === 3, '카드 3장이 뜬다', offer);
-    t.check(/다시 뽑기 \(1\)/.test(offer.reroll), '다시 뽑기 1번', offer.reroll);
-    t.check(/스테이지 1 클리어/.test(offer.title) && !offer.locked, '제목과 커서', offer);
+    t.check(/다시 뽑기 \(1\)/.test(offer.reroll) && /R 길게/.test(offer.wait), '다시 뽑기 1번 · R 길게 누르기 안내', offer);
+    t.check(/스테이지 1 클리어/.test(offer.title) && /고르세요/.test(offer.sub) && !offer.locked, '제목·안내와 커서', offer);
     await t.shot('cards');
+    // R을 짧게 누르면(재장전 버릇) 다시 뽑지 않는다. 길게 누르면 다시 뽑는다
     await page.press('KeyR');
+    await sleep(REROLL_HOLD_MS + 400);
+    const tap = await page.eval(`({ cards: [...document.querySelectorAll('.sk-cd-card .sk-cd-name')].map((e) => e.textContent), reroll: __qa.text('.sk-cd-reroll') })`);
+    t.check(tap.cards.join() === offer.cards.join() && /\(1\)/.test(tap.reroll), 'R을 짧게 누르면(재장전) 다시 뽑지 않는다', tap);
+    await page.press('KeyR', { holdMs: REROLL_HOLD_MS + 700 });
     await page.waitFor(`[...document.querySelectorAll('.sk-cd-card .sk-cd-name')].map((e) => e.textContent).join() !== ${JSON.stringify(offer.cards.join())}`, 5000, { label: '다시 뽑은 카드' });
     const re = await page.eval(`({ cards: [...document.querySelectorAll('.sk-cd-card .sk-cd-name')].map((e) => e.textContent), reroll: __qa.text('.sk-cd-reroll'), off: document.querySelector('.sk-cd-reroll').disabled })`);
-    t.check(re.cards.length === 3 && re.cards.every((c) => !offer.cards.includes(c)), 'R로 다시 뽑으면 다른 카드 3장', re);
+    t.check(re.cards.length === 3 && re.cards.every((c) => !offer.cards.includes(c)), 'R을 길게 누르면 다른 카드 3장', re);
     t.check(re.off && /\(0\)/.test(re.reroll), '다시 뽑기는 한 번뿐', re);
+    // 다시 뽑은 카드도 잠깐 잠긴다 → 풀린 뒤 새로 누른 클릭으로 고른다
+    await page.waitFor(`!document.querySelector('.sk-cards').classList.contains('is-arming')`, 5000, { label: '다시 뽑은 카드 잠금 풀림' });
     const before = await page.eval(`({ mods: __qa.arsenal.getMods(), perk: { ...__qa.world.internals.hordePerk } })`);
     await page.clickText('.sk-cd-card .sk-cd-name', re.cards[1]);
     await page.waitFor(`!__qa.ui.isVisible('cards')`, 5000, { label: '카드 닫힘' });

@@ -3,12 +3,15 @@
  * Author: Minkyu Jung
  * Purpose: 시나리오 26. 좀비 물량 막기 멀티(함께 막기). 가짜 Supabase에 방장·손님 두 클라이언트를 붙여 좀비 방을 만들고(최대 4명),
  *          방장이 돌리는 좀비가 손님 화면에도 그려지는지, 손님의 사격이 방장 시뮬레이션에 피해로 들어가는지, 스테이지를 깨면 둘 다 카드를 고르고
- *          고른 카드가 방장에게 반영돼 다음 스테이지로 가는지, 한 사람이 쓰러지면 다음 스테이지에 일어나는지 본다.
+ *          고른 카드가 방장에게 반영돼 다음 스테이지로 가는지(카드가 뜬 직후 잠금 중 누른 손님의 클릭은 방장에게 가지 않는지),
+ *          한 사람이 쓰러지면 다음 스테이지에 일어나는지 본다.
  *          --relay node면 실시간 메시지를 Node 중계 서버로 보낸다(운영 설정과 같은 길).
  */
 import { startRelay } from '../../../server/relay/src/node.js';
 import { startFakeSupabase } from '../fake-supabase.mjs';
 import { LOW_QUALITY, clickFire, lockPointer, qaInit, readyGame, sleep, waitTicks } from '../kit.mjs';
+import { CARD_ARM_MS } from '../../../js/ui/cards.js';
+import { CARD_LOG, CARD_MID } from './zombie.mjs';
 
 const SIZE = { width: 640, height: 360 };
 const DIRECTOR = 'window.__skalafpsSession.match';
@@ -149,20 +152,32 @@ export default {
       t.check(await host.eval(`${DIRECTOR}.phase === 'wave'`), '한 사람만 쓰러지면 경기는 이어진다');
 
       t.setSection('스테이지 클리어 → 둘 다 카드');
+      await guest.eval(CARD_LOG);
       await host.eval(KILL_ALL);
+      const gid = await guest.eval('window.__skalafpsSession.me');
+      // 손님: 카드가 뜨자마자(잠금 중) 쏘던 손으로 가운데 카드를 눌러도 방장에게 고르기가 가지 않는다
+      const early = JSON.parse(await guest.waitFor(CARD_MID, 15000, { intervalMs: 30, label: '손님 카드' }));
+      if (early.since < 500) {
+        await guest.mouseClick(early.x, early.y);
+        await sleep(600);
+        const st = await guest.eval(`({ visible: __qa.ui.isVisible('cards'), down: __qa.cardLog.downs[0] })`);
+        const hostSaw = await host.eval(`${DIRECTOR}.internals.players.get(${JSON.stringify(gid)}).cards.length`);
+        t.check(typeof st.down === 'number' && st.down < CARD_ARM_MS, '손님이 가운데 카드를 잠금 중에 눌렀다(카드가 뜬 뒤 ms)', st.down);
+        t.check(st.visible && hostSaw === 0, '잠긴 동안 누른 손님의 클릭은 카드를 고르지 않는다(방장에게 가지 않는다)', { ...st, hostSaw });
+      } else t.note(`손님 화면이 카드가 뜬 뒤 ${Math.round(early.since)} ms가 지나서야 읽혀 잠금 중 누르기 시험을 건너뛴다`);
       await host.waitFor(`__qa.ui.isVisible('cards')`, 15000, { label: '방장 카드' });
-      await guest.waitFor(`__qa.ui.isVisible('cards')`, 15000, { label: '손님 카드' });
+      await guest.waitFor(`!document.querySelector('.sk-cards').classList.contains('is-arming')`, 5000, { label: '손님 카드 잠금 풀림' });
       const gc = await guest.eval(`[...document.querySelectorAll('.sk-cd-card .sk-cd-name')].map((e) => e.textContent)`);
       t.check(gc.length === 3, '손님에게도 카드 3장', gc);
       await t.shot('guest-cards');
       await guest.clickText('.sk-cd-card .sk-cd-name', gc[0]);
-      const gid = await guest.eval('window.__skalafpsSession.me');
       await host.waitFor(`${DIRECTOR}.internals.players.get(${JSON.stringify(gid)}).cards.length === 1`, 8000, { label: '방장에게 손님 카드 반영' }).then(
         () => t.check(true, '손님이 고른 카드가 방장 시뮬레이션에 들어간다'),
         (err) => t.check(false, '손님이 고른 카드가 방장 시뮬레이션에 들어간다', err.message));
       const hostWait = await host.eval(`__qa.text('.sk-cd-wait') || __qa.text('.sk-hz-warn') || ''`);
       t.note(`방장 화면 기다림 안내: ${hostWait}`);
       const hc = await host.eval(`[...document.querySelectorAll('.sk-cd-card .sk-cd-name')].map((e) => e.textContent)`);
+      await host.waitFor(`!document.querySelector('.sk-cards').classList.contains('is-arming')`, 5000, { label: '방장 카드 잠금 풀림' });
       await host.clickText('.sk-cd-card .sk-cd-name', hc[2]);
       await host.waitFor(`${DIRECTOR}.phase === 'wave' && ${DIRECTOR}.stage === 2`, 15000, { label: '2스테이지' });
       await guest.waitFor(`__qa.world.localAlive && __qa.text('.sk-hz-stage-n') === '2'`, 15000, { label: '손님이 2스테이지에 일어남' }).then(
