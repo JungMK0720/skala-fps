@@ -2062,6 +2062,23 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
 .sk-cd-perks { margin: 0; padding: 8px 10px; list-style: none; display: flex; flex-wrap: wrap; gap: 6px 14px; border-radius: 10px; background: rgba(6, 10, 18, .55); font-size: 12.5px; }
 .sk-cd-perks li { display: flex; gap: 5px; color: var(--sk-muted); }
 .sk-cd-perks b { color: var(--sk-text); }
+/* 카드가 뜬 직후의 잠금(ui/cards.js CARD_ARM_MS): 쏘던 클릭으로 잘못 고르지 않게 흐리게 두고 채워지는 막대를 보여 준다 */
+.sk-cd-panel:focus { outline: none; }
+.sk-cd-arm { height: 4px; margin: -6px 0 -4px; border-radius: 2px; background: rgba(255, 255, 255, .1); overflow: hidden; visibility: hidden; }
+.sk-cd-arm > i { display: block; height: 100%; background: #b6ff7a; transform: scaleX(0); transform-origin: left; }
+.sk-cards.is-arming .sk-cd-arm { visibility: visible; }
+.sk-cards.is-arming .sk-cd-arm.is-run > i { animation: sk-cd-fill var(--cd-arm-ms, 1000ms) linear forwards; }
+.sk-cards.is-arming .sk-cd-card { cursor: progress; opacity: .6; }
+.sk-cards.is-arming .sk-cd-card:hover { transform: none; box-shadow: 0 10px 26px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .06); }
+.sk-cards.is-arming .sk-cd-reroll { opacity: .6; }
+/* 다시 뽑기: R을 누르고 있는 동안 단추 아래 줄이 찬다(REROLL_HOLD_MS) */
+.sk-cd-reroll { position: relative; overflow: hidden; }
+.sk-cd-reroll::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: #b6ff7a; transform: scaleX(0); transform-origin: left; }
+.sk-cd-reroll.is-holding::after { animation: sk-cd-fill var(--cd-hold-ms, 500ms) linear forwards; }
+@keyframes sk-cd-fill { to { transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .sk-cards.is-arming .sk-cd-arm.is-run > i, .sk-cd-reroll.is-holding::after { animation: none; transform: scaleX(1); }
+}
 @media (max-width: 760px) {
   .sk-cd-grid, .sk-cd-grid.is-four { grid-template-columns: 1fr; gap: 8px; }
   .sk-cd-card { min-height: 0; flex-direction: row; flex-wrap: wrap; align-items: center; text-align: left; gap: 4px 10px; padding: 10px 12px 10px 38px; }

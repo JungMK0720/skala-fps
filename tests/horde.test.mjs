@@ -3,7 +3,7 @@
  * Author: Minkyu Jung
  * Purpose: 좀비 물량 막기 시험. 카드 100장 이상·제안·다시 뽑기·능력치 상한, 보스 10종과 스테이지별 보스 수, 탄약 3배와 무기 배율,
  *          방장 시뮬레이션(스테이지 진행·처치·카드·전멸·스냅샷 왕복·방장 이전), 좀비 문·바닥 보급품, 무기 교체의 탄 기억,
- *          좀비 전용 맵(검사기·모드별 맵 목록·시뮬레이션)을 three.js 없이 확인한다.
+ *          좀비 전용 맵(검사기·모드별 맵 목록·시뮬레이션), 카드 고르기 입력 잠금을 three.js 없이 확인한다.
  */
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,6 +17,7 @@ import { modsFromPerks } from '../js/game/horde/client.js';
 import { zombieReward } from '../js/account/economy.js';
 import { WEAPONS } from '../js/weapons/defs.js';
 import { createArsenal } from '../js/weapons/logic.js';
+import { createPickGate, CARD_ARM_MS, CARD_REARM_MS, REROLL_HOLD_MS } from '../js/ui/cards.js';
 
 /** 시험장: 가운데 벽 하나와 상자 몇 개(맵 파일에 기대지 않는다) */
 const ARENA = Object.freeze({
@@ -502,5 +503,52 @@ describe('좀비 전용 맵', () => {
       runUntil(d, () => false, 6000);
       assert.ok(dist() < d0 - 3, `${id}: 좀비가 다가온다 ${d0.toFixed(1)} → ${dist().toFixed(1)} m`);
     }
+  });
+});
+
+describe('카드 고르기 입력 잠금: 쏘던 클릭·무기 키·재장전으로 잘못 고르지 않는다', () => {
+  const clock = () => { const c = { t: 1000 }; c.now = () => c.t; return c; };
+
+  test('잠금 시간은 처음 1초, 다시 뽑은 뒤 0.4초, 다시 뽑기는 R 0.5초 누르기', () => {
+    assert.equal(CARD_ARM_MS, 1000);
+    assert.ok(CARD_REARM_MS > 0 && CARD_REARM_MS < CARD_ARM_MS);
+    assert.equal(REROLL_HOLD_MS, 500);
+  });
+
+  test('잠긴 동안의 클릭·숫자 키는 고르지 않고, 풀린 뒤 새로 누른 것만 고른다', () => {
+    const c = clock();
+    const g = createPickGate(c.now);
+    g.arm(CARD_ARM_MS);
+    assert.equal(g.armed(), false);
+    g.press(); c.t += 50;
+    assert.equal(g.clickOk(1), false, '카드가 뜨자마자 누른 클릭');
+    assert.equal(g.keyOk(false), false, '카드가 뜨자마자 누른 숫자 키(무기 교체)');
+    g.press(); c.t += CARD_ARM_MS;   // 잠금 중에 누르기 시작해 풀린 뒤에 뗐다
+    assert.equal(g.armed(), true);
+    assert.equal(g.clickOk(1), false, '잠금 중에 누르기 시작한 클릭은 풀린 뒤 떼어도 고르지 않는다');
+    assert.equal(g.keyOk(true), false, '누르고 있어 반복되는 키');
+    assert.equal(g.keyOk(false), true, '풀린 뒤 새로 누른 숫자 키');
+    g.press(); c.t += 80;
+    assert.equal(g.clickOk(1), true, '풀린 뒤 새로 누른 클릭');
+    assert.equal(g.clickOk(0), true, '풀린 뒤 키보드로 누른 단추');
+  });
+
+  test('다시 잠그면 앞서 누른 것은 무효가 되고, R은 잠금이 풀린 뒤 새로 눌러야 센다', () => {
+    const c = clock();
+    const g = createPickGate(c.now);
+    g.arm(0);
+    g.press();
+    assert.equal(g.clickOk(1), true);
+    g.arm(CARD_REARM_MS);
+    c.t += CARD_REARM_MS + 1;
+    assert.equal(g.clickOk(1), false, '다시 뽑기 전에 누른 클릭은 새 카드를 고르지 않는다');
+    g.arm(CARD_ARM_MS);
+    assert.equal(g.holdStart(), false, '잠긴 동안 누른 R(재장전)은 다시 뽑기로 세지 않는다');
+    assert.equal(g.holding(), false);
+    c.t += CARD_ARM_MS;
+    assert.equal(g.holdStart(), true);
+    assert.equal(g.holding(), true);
+    g.holdCancel();
+    assert.equal(g.holding(), false, '짧게 떼면 다시 뽑지 않는다');
   });
 });

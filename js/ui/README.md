@@ -92,6 +92,7 @@ emoteIndexAt(x, y, count = 8, deadZone = 40) → index | null   // 이모트 휠
 | `emotes` | 게임 오버레이(표시 전용) | 없음. 페이지·`pause`·`hide('hud')`가 이 화면을 닫음 | **불필요**(포인터 잠금 유지) |
 | 공지 띠(`ui.notice`) | 모든 화면 위의 띠(화면 목록에 없음, `show('…')`로 다루지 않음) | 없음. 화면을 바꿔도 남고 정한 시간이 지나면 스스로 내려감. 떠 있는 동안 경기 HUD의 윗줄이 띠 높이만큼 내려감 | **불필요**(클릭을 가로채지 않음) |
 | `chat` | 게임 오버레이(멀티플레이 경기) | 없음. 페이지·`hide('hud')`가 닫고, `pause`는 입력칸만 접음 | **불필요**(입력칸에 포커스만, 포인터 잠금 유지) |
+| `cards` | 게임 오버레이(좀비 물량 막기 카드 고르기) | 없음. 고르면 `game/horde/client.js`가 닫음. 뜬 뒤 1초(다시 뽑으면 0.4초)는 입력을 받지 않음(아래 `cards`) | 필요 |
 
 `mypage`와 `shop`은 core 화면이 아니라 메뉴 안의 UI 페이지입니다(core 화면은 `menu` 그대로). `hide('hud')`는 스코프도 0으로 만듭니다. 그래서 게임 시작은 `ui.show('hud', …)` + `ui.show('loadout', …)`, 매치 끝은 `ui.show('results', …)`만 부르면 됩니다.
 
@@ -217,6 +218,17 @@ N이나 Esc를 누르면 고르지 않고 닫히며 `loadout:close { reason:'key
 - 고르면 `loadout:pick { id, auto:false }`를 보내지만 **닫히지 않습니다**. 선택 표시 "✔ 다음 부활에 …"가 붙고, 부활 전까지 다시 고를 수 있습니다. 엔진은 다음 부활부터 적용하세요.
 - `seconds`를 생략하면 타이머가 없습니다. `seconds`를 주면 0초에 닫히며, 아직 안 골랐으면 `{ id: selected ?? 첫 무기, auto:true }`를 보냅니다.
 - 닫히는 때: `ui.hide('loadout')`, 또는 **`hud.set({ respawn: null })`로 부활 패널이 사라질 때 자동으로** 닫힙니다.
+
+### `cards` — 좀비 물량 막기 카드 고르기
+```js
+{ stage, cards: [{ id, name, icon, tier, tierName, desc, color, owned }], rerolls, seconds?, picked?, mine?, waiting?: [이름], perks?: [{ label, value }] }
+```
+카드를 누르거나 숫자 키 1~4로 고르면 `cards:pick { id }`, 다시 뽑기 단추나 **R 0.5초 누르기**로 `cards:reroll {}`를 보냅니다.
+카드는 마지막 좀비를 쏘던 순간에 뜨므로 잘못 고르지 않게 막습니다(MODES.md 13절).
+- 처음 뜨면 1초(`CARD_ARM_MS`), 다시 뽑아 카드가 바뀌면 0.4초(`CARD_REARM_MS`) 잠급니다. 그동안 카드가 흐리고 위 막대가 차며, 숫자 키는 카드가 받지 않고 게임으로 갑니다(무기 교체).
+- 잠금이 풀린 뒤 새로 누른 클릭·터치만 고릅니다. 키보드로 누른 단추(`detail` 0)는 잠금만 봅니다.
+- 첫 카드에 포커스를 주지 않고(대화 상자에 둡니다), 마우스·손가락으로 눌러도 카드·다시 뽑기 단추가 포커스를 가져가지 않습니다(`mousedown` 기본 동작을 막음). 점프 Space·Enter가 카드를 누르지 않게 하려는 것입니다.
+- 짧게 누른 R은 막지 않아 게임의 재장전이 됩니다. 시간 규칙은 `createPickGate(now)`(DOM 없음, `tests/horde.test.mjs`)에 있습니다.
 
 ### `hud` — `ui.hud.set(patch)` (= `show('hud', props)` / `update('hud', props)`, 항상 합침)
 | 키 | 의미 |
