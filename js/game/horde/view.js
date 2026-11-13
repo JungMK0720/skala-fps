@@ -2,20 +2,34 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 좀비 물량 막기의 화면 쪽. 방장 스냅샷의 좀비·보스를 시간축으로 보간해 그리고(부위별 InstancedMesh라 수십 마리도 그리기 호출이 몇 개),
- *          투사체·장판·스킬 예고·폭발·바닥 보급품(탄창 등)을 보여 주며, 내 사격·칼·수류탄이 맞힌 좀비를 찾는다(World가 부른다). 모형은 상자 몇 개로 직접 만들었다.
+ *          투사체·장판·스킬 예고·폭발·바닥 보급품(탄창·구급 상자·보물 상자)·화염 수류탄 불길·어그로 분신을 보여 주며, 다친 좀비 머리 위 체력바와
+ *          내가 준 피해 숫자(머리는 크고 노랗게, 몸은 작게)를 띄운다. 내 사격·칼·수류탄이 맞힌 좀비를 찾는다(World가 부른다). 모형은 상자 몇 개로 직접 만들었다.
  */
-import { ZF, BOSS_CODE_BASE } from './director.js';
+import { ZF, BOSS_CODE_BASE, FIELD_KINDS } from './director.js';
 import { zombieByCode, HORDE, LOOT_TYPES } from './rules.js';
 import { bossByCode, SKILL_KINDS, HAZARD_KINDS, PROJECTILE_KINDS } from './bosses.js';
 
 const MAX_Z = 96;               // 한 번에 그리는 좀비 상한(보스 포함)
 const MAX_PROJ = 48;
 const MAX_HAZ = 16;
-const MAX_LOOT = HORDE.maxLoot;
+const MAX_LOOT = HORDE.maxLoot + 4;
 const LOOT_BLINK_MS = 5000;     // 사라지기 이만큼 전부터 깜박인다
 // 보급품 모양(가로·높이·세로 m)과 바닥 고리 색
-const LOOT_SIZE = Object.freeze({ mag: [0.3, 0.12, 0.2], ammo: [0.56, 0.32, 0.38], nade: [0.17, 0.2, 0.17], med: [0.44, 0.26, 0.3] });
-const LOOT_RING = Object.freeze({ mag: 0xffd34a, ammo: 0x9be35a, nade: 0x7ad06e, med: 0xff5c5c });
+const LOOT_SIZE = Object.freeze({ mag: [0.3, 0.12, 0.2], med: [0.44, 0.26, 0.3], chest: [0.7, 0.46, 0.46] });
+const LOOT_RING = Object.freeze({ mag: 0xffd34a, med: 0xff5c5c, chest: 0xffc83a });
+const MAX_BARS = 48;            // 한 번에 그리는 체력바(다친 좀비·분신)
+const BAR_RANGE = 40;           // 이 거리 안의 다친 좀비만 체력바를 띄운다
+const MAX_NUMS = 28;            // 한 번에 떠 있는 피해 숫자
+const MAX_DECOYS = 8;
+const MAX_FIELDS = 12;
+// 피해 숫자 모양: 머리는 크고 노랗게, 몸은 작게 하양, 다리는 더 작게, 칼은 하늘색, 수류탄은 주황(scale = 화면 높이 기준 크기)
+const NUM_STYLE = Object.freeze({
+  head: { color: '#ffd23a', scale: 0.085, dur: 950, rise: 0.8 },
+  body: { color: '#ffffff', scale: 0.052, dur: 750, rise: 0.55 },
+  legs: { color: '#d4dae2', scale: 0.046, dur: 700, rise: 0.5 },
+  melee: { color: '#8ff3ff', scale: 0.064, dur: 800, rise: 0.6 },
+  nade: { color: '#ff9a3c', scale: 0.066, dur: 900, rise: 0.7 }
+});
 const DELAY_MIN = 45, DELAY_MAX = 260;
 const EXTRAP_MS = 140;
 const RISE_MS = 650;
@@ -71,6 +85,7 @@ function rayBox(ox, oy, oz, dx, dy, dz, x0, y0, z0, x1, y1, z1) {
  */
 export function createHordeView(o) {
   const { THREE, scene } = o;
+  const camera = o.camera || null;
   const fx = o.fx || null;
   const play = typeof o.play === 'function' ? o.play : () => null;
   let active = false;
@@ -138,6 +153,39 @@ export function createHordeView(o) {
   lootMesh.setColorAt(0, new THREE.Color(1, 1, 1));
   scene.add(lootMesh);
   const lootRings = decalPool(ringGeo, MAX_LOOT, 0xffffff, 0.6);
+  // 화염 수류탄 불길(바닥 원판 두 겹이 일렁인다)과 어그로 분신(푸른 반투명 사람 + 발밑 고리)
+  const fireDiscs = decalPool(discGeo, MAX_FIELDS, 0xff5a12, 0.38);
+  const fireRings = decalPool(ringGeo, MAX_FIELDS, 0xffc24a, 0.7);
+  const decoyRings = decalPool(ringGeo, MAX_DECOYS, 0x5ee8ff, 0.7);
+  const decoyMat = new THREE.MeshLambertMaterial({ color: 0x5ee8ff, emissive: 0x1a6f8a, transparent: true, opacity: 0.72, depthWrite: false });
+  const decoyBodyGeo = new THREE.CylinderGeometry(0.24, 0.2, 1.3, 10);
+  decoyBodyGeo.translate(0, 0.65, 0);
+  const decoyHeadGeo = new THREE.SphereGeometry(0.2, 12, 10);
+  decoyHeadGeo.translate(0, 1.55, 0);
+  const decoyMeshes = [];
+  for (let i = 0; i < MAX_DECOYS; i++) {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(decoyBodyGeo, decoyMat), new THREE.Mesh(decoyHeadGeo, decoyMat));
+    g.visible = false; g.name = 'horde:decoy';
+    scene.add(g);
+    decoyMeshes.push(g);
+  }
+  // 체력바: 카메라를 보는 납작한 판 두 겹(바탕·채움) InstancedMesh → 그리기 호출 두 번
+  const barGeo = new THREE.PlaneGeometry(1, 1);
+  const barBgMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.6, depthWrite: false });
+  const barFgMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false });
+  const barBg = new THREE.InstancedMesh(barGeo, barBgMat, MAX_BARS);
+  const barFg = new THREE.InstancedMesh(barGeo, barFgMat, MAX_BARS);
+  for (const m of [barBg, barFg]) {
+    m.frustumCulled = false; m.count = 0; m.name = 'horde:hpbar'; m.visible = false; m.renderOrder = 4;
+    m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(m);
+  }
+  barFg.setColorAt(0, new THREE.Color(1, 1, 1));
+  const bars = [];                   // 이번 프레임에 그릴 체력바 { x, y, z, w, frac, color }
+  const BQ = new THREE.Quaternion(), BP = new THREE.Vector3(), BS = new THREE.Vector3(), BR = new THREE.Vector3();
+  // 피해 숫자: 캔버스 글자 스프라이트(필요할 때 만들어 다시 쓴다). 화면 크기가 거리와 상관없이 같다
+  const nums = [];
   const projMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0xffffff }), MAX_PROJ);
   projMesh.frustumCulled = false; projMesh.count = 0; projMesh.name = 'horde:proj'; projMesh.visible = false;
   projMesh.setColorAt(0, new THREE.Color(1, 1, 1));
@@ -149,7 +197,7 @@ export function createHordeView(o) {
   /* ---------- 상태 ---------- */
   const ents = new Map();            // 좀비 번호 → { hist: [{t, pos, yaw, f, hp}], ... }
   let lastPushAt = 0, interval = 100, delay = 120;
-  let bosses = [], projectiles = [], projAt = 0, hazards = [], hazAt = 0, loot = [], lootAt = 0;
+  let bosses = [], projectiles = [], projAt = 0, hazards = [], hazAt = 0, loot = [], lootAt = 0, fields = [], fieldAt = 0, decoys = [], decoyAt = 0;
   const seenFx = new Set();
   const fxAnims = [];                // { kind, pos, r, at, color }
   const rendered = [];               // 이번 프레임에 그린 좀비(사격 판정용)
@@ -165,6 +213,7 @@ export function createHordeView(o) {
     for (const m of Object.values(parts)) m.visible = active;
     projMesh.visible = active;
     lootMesh.visible = active;
+    barBg.visible = barFg.visible = active;
   }
 
   /** 방장 뷰(applyHordeSnapshot) 하나를 받은 시각 t(performance.now 기준)에 넣는다 */
@@ -203,6 +252,8 @@ export function createHordeView(o) {
     projectiles = view.projectiles || []; projAt = t;
     hazards = view.hazards || []; hazAt = t;
     loot = view.loot || []; lootAt = t;
+    fields = view.fields || []; fieldAt = t;
+    decoys = view.decoys || []; decoyAt = t;
     for (const x of view.fx || []) {
       if (seenFx.has(x.id)) continue;
       seenFx.add(x.id);
@@ -230,6 +281,8 @@ export function createHordeView(o) {
       case 'blink': fxAnims.push({ kind: 'ring', pos: p, r: 1.4, at: performance.now(), dur: 380, color: 0xb36bff }); break;
       case 'chain': fxAnims.push({ kind: 'ring', pos: p, r: x.r, at: performance.now(), dur: 420, color: 0xffd36b }); if (fx && fx.explosion) fx.explosion(p, { radius: 2 }); break;
       case 'splat': if (fx && fx.impact) fx.impact(p, [0, 1, 0], 'grass'); play('acid_splash', { pos: p }); break;
+      case 'decoy': fxAnims.push({ kind: 'ring', pos: p, r: 2.2, at: performance.now(), dur: 600, color: 0x5ee8ff }); break;
+      case 'decoyEnd': fxAnims.push({ kind: 'ring', pos: p, r: 1.8, at: performance.now(), dur: 500, color: 0x9ff4ff }); break;
       default: break;
     }
   }
@@ -348,12 +401,15 @@ export function createHordeView(o) {
     const cloth = boss ? boss.accent : type ? type.cloth : 0x4d4a3e;
     const flash = now - Math.max(e.flashAt, myHits.get(e.id) || -1e9) < HIT_FLASH_MS;
     C.setHex(skin);
+    const frozen = !!(f & ZF.frozen) && !dead;
+    if (frozen) C.lerp(C2.setHex(0xbfefff), 0.7);
     if (f & ZF.slow) C.lerp(C2.setHex(0x8fdcff), 0.35);
     if (f & ZF.haste) C.lerp(C2.setHex(0xff5a3c), 0.25);
     if (f & ZF.armor) C.lerp(C2.setHex(0xb8c4d0), 0.55);
     if (flash) C.lerp(C2.setHex(0xffffff), 0.7);
     const skinC = SKC.copy(C);
     if (boss) C.setHex(skin).lerp(DARK, 0.35); else C.setHex(cloth);
+    if (frozen) C.lerp(C2.setHex(0xa8e6ff), 0.6);
     if (flash) C.lerp(C2.setHex(0xffffff), 0.6);
     const clothC = CLC.copy(C);
     if (e.low) {
@@ -394,7 +450,9 @@ export function createHordeView(o) {
     if (!active) return;
     for (const k of Object.keys(ni)) ni[k] = 0;
     rendered.length = 0;
+    bars.length = 0;
     const rt = now - delay;
+    const cam = camera ? camera.position : null;
     bossRings.begin();
     for (const [id, e] of ents) {
       // 사라진 지 오래되었거나 쓰러진 뒤 다 가라앉으면 지운다
@@ -405,6 +463,11 @@ export function createHordeView(o) {
       if (!e.deadAt) {
         const riseK = clamp((now - e.riseAt) / RISE_MS, 0, 1);
         rendered.push({ id: e.id, x: smp.pos[0], y: smp.pos[1] - (1 - riseK) * 1.7 * e.s, z: smp.pos[2], yaw: smp.yaw, s: e.s, low: e.low, boss: !!e.boss });
+        // 다친 좀비는 머리 위 체력바(보스는 화면 위 막대가 따로 있어도 같이 띄운다)
+        if (e.hp < 0.999 && riseK >= 1 && (!cam || Math.hypot(cam.x - smp.pos[0], cam.z - smp.pos[2]) < BAR_RANGE)) {
+          const top = (e.low ? 0.95 : 2.08) * e.s + (e.boss ? 0.2 : 0);
+          bars.push({ x: smp.pos[0], y: smp.pos[1] + top, z: smp.pos[2], w: (e.boss ? 1.5 : 0.78) * Math.min(1.5, e.s), frac: e.hp, color: e.boss ? 0xff3c6e : e.hp > 0.6 ? 0x6be36b : e.hp > 0.3 ? 0xffd23a : 0xff4a3a });
+        }
         if (now >= e.groanAt) { e.groanAt = now + GROAN_MIN + Math.random() * GROAN_SPREAD; play('zombie_groan', { pos: [smp.pos[0], smp.pos[1] + 1.5 * e.s, smp.pos[2]], gain: e.boss ? 1 : 0.7 }); }
         if (e.boss) {
           const r = bossRings.take();
@@ -426,8 +489,130 @@ export function createHordeView(o) {
     drawTelegraphs(now);
     drawProjectiles(now);
     drawHazards(now);
+    drawFields(now);
+    drawDecoys(now);
     drawLoot(now);
     drawFx(now);
+    drawBars();
+    drawNumbers(now);
+  }
+
+  /** 화염 수류탄 불길: 주황 원판이 일렁이고 테두리가 빛난다. 꺼지기 0.6초 전부터 흐려진다 */
+  function drawFields(now) {
+    fireDiscs.begin(); fireRings.begin();
+    const dt = now - fieldAt;
+    for (const f of fields) {
+      if (f.kind !== FIELD_KINDS.fire) continue;
+      const left = f.leftMs - dt;
+      if (left <= 0) continue;
+      const fade = Math.min(1, left / 600);
+      const d = fireDiscs.take();
+      if (d) {
+        d.position.set(f.pos[0], f.pos[1] + 0.035, f.pos[2]);
+        d.scale.setScalar(f.r * (0.94 + 0.06 * Math.sin(now / 90 + f.id)));
+        d.material.opacity = fade * (0.32 + 0.12 * Math.sin(now / 70 + f.id * 3));
+      }
+      const r = fireRings.take();
+      if (r) {
+        r.position.set(f.pos[0], f.pos[1] + 0.05, f.pos[2]);
+        r.scale.setScalar(f.r);
+        r.material.opacity = fade * (0.55 + 0.25 * Math.sin(now / 120 + f.id));
+      }
+    }
+    fireDiscs.end(); fireRings.end();
+  }
+
+  /** 어그로 분신: 푸른 반투명 사람과 발밑 고리, 머리 위 체력바 */
+  function drawDecoys(now) {
+    decoyRings.begin();
+    const dt = now - decoyAt;
+    let n = 0;
+    for (const d of decoys) {
+      if (n >= decoyMeshes.length || d.leftMs - dt <= 0) continue;
+      const g = decoyMeshes[n++];
+      g.visible = true;
+      g.position.set(d.pos[0], d.pos[1], d.pos[2]);
+      g.rotation.y = now / 900;
+      const r = decoyRings.take();
+      if (r) {
+        r.position.set(d.pos[0], d.pos[1] + 0.04, d.pos[2]);
+        r.scale.setScalar(0.9 + 0.15 * Math.sin(now / 160));
+        r.material.opacity = 0.5 + 0.25 * Math.sin(now / 140);
+      }
+      bars.push({ x: d.pos[0], y: d.pos[1] + 2.05, z: d.pos[2], w: 0.9, frac: d.hpFrac, color: 0x5ee8ff });
+    }
+    for (let i = n; i < decoyMeshes.length; i++) decoyMeshes[i].visible = false;
+    decoyRings.end();
+  }
+
+  /** 체력바: 카메라 쪽을 보게 돌리고, 채움은 왼쪽에 붙여 남은 체력만큼 늘인다 */
+  function drawBars() {
+    const n = Math.min(bars.length, MAX_BARS);
+    if (camera) BQ.copy(camera.quaternion); else BQ.identity();
+    BR.set(1, 0, 0).applyQuaternion(BQ);
+    const h = 0.085;
+    for (let i = 0; i < n; i++) {
+      const b = bars[i];
+      BP.set(b.x, b.y, b.z);
+      BS.set(b.w + 0.05, h + 0.04, 1);
+      M.compose(BP, BQ, BS);
+      barBg.setMatrixAt(i, M);
+      const fw = Math.max(0.001, b.w * clamp(b.frac, 0, 1));
+      BP.set(b.x, b.y, b.z).addScaledVector(BR, -(b.w - fw) / 2);
+      BS.set(fw, h, 1);
+      M.compose(BP, BQ, BS);
+      barFg.setMatrixAt(i, M);
+      barFg.setColorAt(i, C.setHex(b.color));
+    }
+    barBg.count = barFg.count = n;
+    barBg.instanceMatrix.needsUpdate = true;
+    barFg.instanceMatrix.needsUpdate = true;
+    if (barFg.instanceColor) barFg.instanceColor.needsUpdate = true;
+  }
+
+  /* ---------- 피해 숫자 ---------- */
+  function makeNum() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128; canvas.height = 64;
+    const tex = new THREE.CanvasTexture(canvas);
+    const sm = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, sizeAttenuation: false, fog: false });
+    const sp = new THREE.Sprite(sm);
+    sp.renderOrder = 12; sp.visible = false; sp.name = 'horde:dmg';
+    scene.add(sp);
+    return { sp, canvas, g: canvas.getContext('2d'), tex, at: -1e9, dur: 1, alive: false, x: 0, y: 0, z: 0, style: NUM_STYLE.body };
+  }
+  /** 좀비에게 준 피해 숫자 하나를 pos 위에 띄운다. kind = 'head' | 'body' | 'legs' | 'melee' | 'nade' */
+  function damageNumber(pos, amount, kind) {
+    if (!active || !pos || typeof document === 'undefined') return;
+    const v = Math.max(0, Math.round(Number(amount) || 0));
+    if (!v) return;
+    const style = NUM_STYLE[kind] || NUM_STYLE.body;
+    let n = nums.find((x) => !x.alive);
+    if (!n) n = nums.length < MAX_NUMS ? (nums.push(makeNum()), nums[nums.length - 1]) : nums.reduce((a, b) => (a.at < b.at ? a : b));
+    const g = n.g;
+    g.clearRect(0, 0, 128, 64);
+    g.font = '900 44px system-ui, -apple-system, "Segoe UI", sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineJoin = 'round'; g.lineWidth = 8; g.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+    g.strokeText(String(v), 64, 34);
+    g.fillStyle = style.color;
+    g.fillText(String(v), 64, 34);
+    n.tex.needsUpdate = true;
+    n.x = pos[0] + (Math.random() - 0.5) * 0.35; n.y = pos[1] + 0.1; n.z = pos[2] + (Math.random() - 0.5) * 0.35;
+    n.at = performance.now(); n.dur = style.dur; n.style = style; n.alive = true;
+    n.sp.visible = true;
+  }
+  function drawNumbers(now) {
+    for (const n of nums) {
+      if (!n.alive) continue;
+      const u = (now - n.at) / n.dur;
+      if (u >= 1) { n.alive = false; n.sp.visible = false; continue; }
+      const pop = u < 0.12 ? 1 + (1 - u / 0.12) * 0.45 : 1;   // 처음에 살짝 크게 튀어나온다
+      const s = n.style.scale * pop;
+      n.sp.scale.set(s * 2, s, 1);
+      n.sp.position.set(n.x, n.y + n.style.rise * (1 - (1 - u) * (1 - u)), n.z);
+      n.sp.material.opacity = u < 0.6 ? 1 : 1 - (u - 0.6) / 0.4;
+    }
   }
 
   /** 바닥 보급품: 천천히 돌며 떠 있고, 사라지기 5초 전부터 깜박인다 */
@@ -650,6 +835,17 @@ export function createHordeView(o) {
     return rendered.map((z) => ({ id: 'z' + z.id, pos: [z.x, z.y, z.z], height: (z.low ? 0.8 : 1.8) * z.s }));
   }
 
+  /** 이 점(발사체)이 좀비 몸에 닿았는가(그린 위치 기준). 유탄·로켓은 좀비에 닿으면 바로 터진다 */
+  function touching(p, r = 0.5) {
+    if (!active || !p) return false;
+    for (const z of rendered) {
+      const top = z.y + (z.low ? 0.8 : 1.85) * z.s;
+      if (p[1] < z.y - 0.1 || p[1] > top + 0.15) continue;
+      if (Math.hypot(p[0] - z.x, p[2] - z.z) < (z.low ? 0.5 : 0.32) * z.s + r) return true;
+    }
+    return false;
+  }
+
   /** 이 자리(내 발)를 좀비가 붙잡고 있는가: 좀비 몸과 겹치면 느려진다 */
   function grabbed(pos) {
     if (!active) return false;
@@ -669,7 +865,10 @@ export function createHordeView(o) {
     ents.clear();
     myHits.clear();
     rendered.length = 0;
-    bosses = []; projectiles = []; hazards = []; loot = [];
+    bosses = []; projectiles = []; hazards = []; loot = []; fields = []; decoys = [];
+    for (const n of nums) { n.alive = false; n.sp.visible = false; }
+    for (const g of decoyMeshes) g.visible = false;
+    barBg.count = barFg.count = 0;
     fxAnims.length = 0;
     seenFx.clear();
     for (const z of zaps) { scene.remove(z.line); z.line.geometry.dispose(); }
@@ -678,7 +877,7 @@ export function createHordeView(o) {
     for (const m of Object.values(parts)) { m.count = 0; m.instanceMatrix.needsUpdate = true; }
     projMesh.count = 0;
     lootMesh.count = 0;
-    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, fxRings, lootRings]) { pool.begin(); pool.end(); }
+    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, fxRings, lootRings, fireDiscs, fireRings, decoyRings]) { pool.begin(); pool.end(); }
   }
 
   function dispose() {
@@ -688,18 +887,26 @@ export function createHordeView(o) {
     scene.remove(lootMesh); lootMesh.geometry.dispose(); lootMat.dispose();
     mat.dispose(); eyeMat.dispose(); zapMat.dispose();
     ringGeo.dispose(); discGeo.dispose(); planeGeo.dispose();
-    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, fxRings, lootRings]) pool.dispose();
+    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, fxRings, lootRings, fireDiscs, fireRings, decoyRings]) pool.dispose();
+    for (const g of decoyMeshes) scene.remove(g);
+    decoyBodyGeo.dispose(); decoyHeadGeo.dispose(); decoyMat.dispose();
+    for (const m of [barBg, barFg]) scene.remove(m);
+    barGeo.dispose(); barBgMat.dispose(); barFgMat.dispose();
+    for (const n of nums) { scene.remove(n.sp); n.tex.dispose(); n.sp.material.dispose(); }
+    nums.length = 0;
   }
 
   return {
-    setActive, push, event, frame, ray, melee, blastTargets, grabbed, nearest, noteHit, clear, dispose,
+    setActive, push, event, frame, ray, melee, blastTargets, grabbed, touching, nearest, noteHit, damageNumber, clear, dispose,
     get active() { return active; },
     get count() { return rendered.length; },
     get delay() { return delay; },
     /** 시험용: 지금 그린 좀비 { id, x, y, z, yaw, s } */
     get rendered() { return rendered.map((z) => ({ ...z })); },
     /** 지금 바닥에 그리는 보급품 { id, kind, pos, leftMs } (마지막으로 받은 뷰 기준) */
-    get loot() { return loot.map((L) => ({ ...L, pos: L.pos.slice() })); }
+    get loot() { return loot.map((L) => ({ ...L, pos: L.pos.slice() })); },
+    /** 시험용: 이번 프레임 체력바 수, 떠 있는 피해 숫자 수, 분신·불길 수 */
+    get stats() { return { bars: barBg.count, numbers: nums.filter((n) => n.alive).length, decoys: decoys.length, fields: fields.length }; }
   };
 }
 

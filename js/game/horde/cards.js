@@ -1,8 +1,9 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 좀비 물량 막기의 강화 카드(150장 넘게). 스테이지를 깨면 3장(카드로 4장까지)을 제안하고 제안마다 다시 뽑기 1번을 준다.
- *          카드 목록 → 능력치 계산(상한 포함), 제안 만들기, 짧은 글자로 싣기를 맡는다. 순수 모듈이라 방장·화면·node 시험이 같이 쓴다.
+ * Purpose: 좀비 물량 막기의 증강(강화 카드, 180장 넘게). 팀 레벨이 오르거나 보스의 보물 상자를 주우면 3장(증강으로 4장까지)을 제안하고
+ *          제안마다 다시 뽑기 1번을 준다. 카드 목록 → 능력치 계산(상한 포함), 제안 만들기, 짧은 글자로 싣기를 맡는다.
+ *          순수 모듈이라 방장·화면·node 시험이 같이 쓴다. 수류탄을 키우는 증강은 모두 최대 수류탄을 1개 늘리고 가득 채운다.
  */
 import { makeRng, hashSeed, pickWeighted } from './rules.js';
 
@@ -60,7 +61,16 @@ export const PERK_BASE = Object.freeze({
   killAmmo: 0,     // C  처치마다 탄창으로 돌아오는 탄
   ammoRegen: 0,    // C  초당 예비 탄 회복(탄창 크기의 비율)
   frenzy: 0,       // C  처치마다 4초 동안 연사 +%(최대 5번 겹침)
-  thrift: 0        // C  쏴도 탄이 줄지 않을 확률
+  thrift: 0,       // C  쏴도 탄이 줄지 않을 확률
+  medDrop: 0,      // H  내가 잡은 좀비가 구급 상자를 떨어뜨릴 확률 +(기본 5%)
+  medHeal: 0,      // H  내가 주운 구급 상자 회복량 +(기본 10)
+  ammoDrop: 0,     // H  내가 잡은 좀비가 탄창을 떨어뜨릴 확률 +(기본 5%)
+  ammoMags: 0,     // C  주운 탄창 하나가 장전 몇 회분 더(기본 1회분)
+  nadeFire: 0,     // H  화염 수류탄: 터진 자리에 불길(겹칠수록 세다)
+  nadeFreeze: 0,   // H  빙결 수류탄: 맞은 좀비가 얼어붙는다(겹칠수록 오래)
+  nadeDecoy: 0,    // H  어그로 수류탄: 터진 자리에 분신(겹칠수록 단단하다)
+  nadeRadius: 0,   // HC 수류탄 폭발 반경 +%
+  nadeMulti: 0     // C  한 번에 더 던지는 수류탄 수
 });
 
 /** 능력치 상한(카드를 아무리 많이 골라도 이 이상은 오르지 않고, 다 찬 카드는 제안에서 빠진다) */
@@ -68,8 +78,10 @@ export const PERK_CAPS = Object.freeze({
   armor: 0.7, dodge: 0.4, crit: 0.6, slow: 0.5, lifesteal: 0.3, thrift: 0.45,
   fireRate: 2.5, reload: 3, mag: 4, reserve: 12, draw: 3,
   spread: 0.8, recoil: 0.8, move: 0.8, maxSpeed: 1.5, jump: 0.6,
-  nades: 6, pierce: 6, killAmmo: 8, ammoRegen: 0.25, frenzy: 0.2,
-  regen: 30, rerolls: 3, offers: 1, maxHpPct: 3, secondChance: 1
+  nades: 14, pierce: 6, killAmmo: 8, ammoRegen: 0.25, frenzy: 0.2,
+  regen: 30, rerolls: 3, offers: 1, maxHpPct: 3, secondChance: 1,
+  medDrop: 0.25, medHeal: 60, ammoDrop: 0.25, ammoMags: 5,
+  nadeFire: 3, nadeFreeze: 3, nadeDecoy: 3, nadeRadius: 1, nadeMulti: 4
 });
 
 /* ------------------------------------------------------------------ 카드 표 */
@@ -92,7 +104,7 @@ const FAMILIES = [
   { key: 'head', name: '정밀 사격', icon: '🎯', stat: 'head', vals: [0.12, 0.2, 0.32, 0.5], text: (v) => `머리 피해 +${pc(v)}` },
   { key: 'boss', name: '보스 사냥꾼', icon: '👑', stat: 'boss', vals: [0.1, 0.18, 0.28, 0.42], text: (v) => `보스에게 주는 피해 +${pc(v)}` },
   { key: 'blade', name: '칼잡이', icon: '🔪', stat: 'melee', vals: [0.2, 0.35, 0.55, 0.9], text: (v) => `칼 피해 +${pc(v)}` },
-  { key: 'demo', name: '폭파병', icon: '🧨', stat: 'nade', vals: [0.18, 0.3, 0.48, 0.75], text: (v) => `수류탄 피해 +${pc(v)}` },
+  { key: 'demo', name: '폭파병', icon: '🧨', stat: 'nade', vals: [0.18, 0.3, 0.48, 0.75], text: (v) => `수류탄 피해 +${pc(v)} · ${NADE_UP}`, nade: true },
   { key: 'trigger', name: '방아쇠', icon: '⚡', stat: 'fireRate', vals: [0.06, 0.1, 0.15, 0.22], text: (v) => `연사 속도 +${pc(v)}` },
   { key: 'hands', name: '빠른 손', icon: '🔄', stat: 'reload', vals: [0.08, 0.14, 0.22, 0.32], text: (v) => `재장전 속도 +${pc(v)}` },
   { key: 'mag', name: '탄창 확장', icon: '📦', stat: 'mag', vals: [0.12, 0.2, 0.32, 0.5], text: (v) => `최대 탄창 +${pc(v)}` },
@@ -108,6 +120,11 @@ const FAMILIES = [
   { key: 'limit', name: '가속 한계', icon: '🚀', stat: 'maxSpeed', vals: [0.08, 0.14, 0.22, 0.35], text: (v) => `최대 속도 +${pc(v)} (버니합 상한)` },
   { key: 'leap', name: '도약', icon: '🦘', stat: 'jump', vals: [0.08, 0.12, 0.18, 0.26], text: (v) => `점프 높이 +${pc(v)}` },
   { key: 'pouch', name: '수류탄 주머니', icon: '💣', stat: 'nades', vals: [1, 1, 2, 3], text: (v) => `최대 수류탄 +${v} (가득 채움)`, instant: () => ({ nades: true }) },
+  { key: 'medic', name: '구급 보급', icon: '🩹', stat: 'medDrop', vals: [0.02, 0.03, 0.05, 0.08], text: (v) => `내가 잡은 좀비가 구급 상자를 떨어뜨릴 확률 +${pc(v)} (기본 5%)` },
+  { key: 'kit', name: '구급 키트', icon: '🧪', stat: 'medHeal', vals: [5, 8, 12, 18], text: (v) => `구급 상자 회복량 +${v} (기본 10)` },
+  { key: 'supply', name: '탄약 보급', icon: '🎒', stat: 'ammoDrop', vals: [0.02, 0.03, 0.05, 0.08], text: (v) => `내가 잡은 좀비가 탄창을 떨어뜨릴 확률 +${pc(v)} (기본 10%)` },
+  { key: 'belt', name: '탄띠', icon: '🎗️', stat: 'ammoMags', vals: [0.5, 0.75, 1, 1.5], text: (v) => `주운 탄창이 장전 ${fx(v)}회분 더 (기본 1회분)` },
+  { key: 'blast', name: '폭발 반경', icon: '🌋', stat: 'nadeRadius', vals: [0.12, 0.18, 0.25, 0.35], text: (v) => `수류탄 폭발 반경 +${pc(v)} · ${NADE_UP}`, nade: true },
   { key: 'pierce', name: '관통탄', icon: '🗡️', stat: 'pierce', vals: [1, 1, 2, 3], text: (v) => `탄이 좀비 ${v}마리를 더 뚫는다(뚫을 때마다 피해 70%)`, minTier: 1 },
   { key: 'scav', name: '탄약 회수', icon: '♻️', stat: 'killAmmo', vals: [1, 1, 2, 3], text: (v) => `처치할 때마다 탄창에 탄 ${v}발 돌려받기` },
   { key: 'weak', name: '약점 포착', icon: '🔍', stat: 'crit', vals: [0.04, 0.07, 0.11, 0.16], text: (v) => `${pc(v)} 확률로 치명타(피해 ×1.5)` },
@@ -123,8 +140,12 @@ const FAMILIES = [
   { key: 'frenzy', name: '광란', icon: '🌀', stat: 'frenzy', vals: [0.03, 0.04, 0.06, 0.08], text: (v) => `처치할 때마다 4초 동안 연사 +${pc(v)} (최대 5번 겹침)` }
 ];
 
+/** 수류탄을 키우는 증강에 붙는 말(최대 수류탄 +1, 가득 채움) */
+const NADE_UP = '최대 수류탄 +1 (가득 채움)';
+
 /**
  * 한 장뿐인 특수 카드. fx = 능력치 변화(여러 개 가능), instant = 고른 순간 한 번만 일어나는 일, max = 고를 수 있는 횟수(없으면 무제한).
+ * nade: true면 수류탄 증강이라 최대 수류탄 +1과 가득 채움이 붙는다.
  */
 const SPECIALS = [
   { key: 'second', name: '두 번째 기회', icon: '🪽', tier: 'legend', max: 1, fx: { secondChance: 1 }, desc: '스테이지마다 한 번, 쓰러질 피해를 받아도 체력 30%로 버틴다', minStage: 3 },
@@ -146,11 +167,21 @@ const SPECIALS = [
   { key: 'samurai', name: '무사도', icon: '🏯', tier: 'epic', fx: { melee: 0.8, move: 0.05 }, desc: '칼 피해 +80% · 이동 속도 +5%' },
   { key: 'iron', name: '불굴', icon: '⛓️', tier: 'epic', fx: { armor: 0.12, regen: 1 }, desc: '받는 피해 −12% · 초당 회복 +1' },
   { key: 'tactical', name: '전술 재장전', icon: '🧷', tier: 'rare', fx: { reload: 0.25, mag: 0.1 }, desc: '재장전 속도 +25% · 최대 탄창 +10%' },
-  { key: 'react', name: '연쇄 반응', icon: '☢️', tier: 'epic', fx: { explosive: 0.12, nade: 0.25 }, desc: '처치 폭발 +12% · 수류탄 피해 +25%', minStage: 4 },
+  { key: 'react', name: '연쇄 반응', icon: '☢️', tier: 'epic', fx: { explosive: 0.12, nade: 0.25 }, desc: '처치 폭발 +12% · 수류탄 피해 +25%', minStage: 4, nade: true },
   { key: 'dread', name: '공포 그 자체', icon: '👹', tier: 'rare', fx: { slow: 0.12, thorns: 20 }, desc: '냉각 +12% · 가시 20' },
   { key: 'coin', name: '행운의 동전', icon: '🪙', tier: 'rare', fx: { crit: 0.08, dodge: 0.04 }, desc: '치명타 +8% · 회피 +4%' },
   { key: 'adrenaline', name: '아드레날린', icon: '💓', tier: 'legend', fx: { fireRate: 0.15, move: 0.1, lastStand: 0.2 }, desc: '연사 +15% · 이동 +10% · 체력이 낮을 때 피해 +20%', minStage: 4 },
-  { key: 'bunker', name: '벙커', icon: '🏚️', tier: 'legend', fx: { armor: 0.15, shield: 50 }, desc: '받는 피해 −15% · 스테이지마다 보호막 50', minStage: 4 }
+  { key: 'bunker', name: '벙커', icon: '🏚️', tier: 'legend', fx: { armor: 0.15, shield: 50 }, desc: '받는 피해 −15% · 스테이지마다 보호막 50', minStage: 4 },
+  // 수류탄 증강: 효과는 내 수류탄 모두에 겹쳐 붙는다(화염 + 빙결 + 분신을 함께 가질 수 있다)
+  { key: 'fireNade', name: '화염 수류탄', icon: '🔥', tier: 'epic', max: 3, fx: { nadeFire: 1 }, desc: '내 수류탄이 터진 자리에 5초 동안 불길이 남아 안의 좀비에게 계속 피해(겹칠수록 세다)', nade: true },
+  { key: 'iceNade', name: '빙결 수류탄', icon: '🧊', tier: 'epic', max: 3, fx: { nadeFreeze: 1 }, desc: '내 수류탄에 맞은 좀비가 2.2초 동안 얼어붙는다(보스는 절반 · 겹칠수록 오래)', nade: true },
+  { key: 'decoyNade', name: '어그로 수류탄', icon: '🎭', tier: 'epic', max: 3, fx: { nadeDecoy: 1 }, desc: '터진 자리에 내 최대 체력만큼 버티는 분신이 9초 동안 서서 30 m 안의 좀비를 끌어모은다', nade: true },
+  { key: 'multiNade', name: '다연발 투척', icon: '🎇', tier: 'epic', max: 4, fx: { nadeMulti: 1 }, desc: '한 번 던질 때 수류탄이 부채꼴로 1개 더 날아간다(여러 번 고르면 더 많이 · 하나만 줄어든다)', nade: true },
+  // 무기는 1스테이지 전에만 고르므로, 판 중간에 총을 바꾸는 길은 이 증강뿐이다. 아주 가끔 나온다(w = 같은 등급 안에서 나올 비율)
+  { key: 'rearm', name: '무기 교체권', icon: '🔁', tier: 'rare', w: 1.2, instant: { swap: true }, desc: '무기 목록이 열려 아무 무기로 한 번 바꿀 수 있다(새로 든 총은 탄을 가득 받는다)' },
+  // 보조무기를 폭발 무기로 바꾸는 증강(낮은 확률). 쓰러졌다 일어나도 그대로다. 나중에 고른 쪽으로 바뀐다
+  { key: 'sideGl', name: '유탄 발사기', icon: '🧨', tier: 'epic', w: 2, max: 1, instant: { side: 'gl_m32' }, desc: '보조무기가 GL-6 유탄 발사기로 바뀐다(맞은 자리에서 터지는 유탄 6발 · 예비 18발)' },
+  { key: 'sideRl', name: '바주카포', icon: '🚀', tier: 'legend', w: 5, max: 1, minStage: 3, instant: { side: 'rl_b9' }, desc: '보조무기가 BZ-9 바주카포로 바뀐다(곧게 날아가 크게 터지는 로켓 · 한 발씩 · 예비 12발)' }
 ];
 
 function build() {
@@ -164,16 +195,26 @@ function build() {
         fx: { [f.stat]: v }, desc: f.text(v), max: null, minStage: lv === 3 ? 4 : lv === 2 ? 2 : 1
       };
       if (f.instant) card.instant = f.instant(v);
+      if (f.nade) nadeUp(card);
       out.push(card);
     }
   }
   for (const s of SPECIALS) {
-    out.push({
-      id: s.key, family: s.key, name: s.name, icon: s.icon, tier: s.tier, fx: s.fx || {}, desc: s.desc,
-      max: s.max || null, minStage: s.minStage || 1, instant: s.instant || null, special: true
-    });
+    const card = {
+      id: s.key, family: s.key, name: s.name, icon: s.icon, tier: s.tier, fx: { ...(s.fx || {}) }, desc: s.desc,
+      max: s.max || null, minStage: s.minStage || 1, instant: s.instant || null, special: true, w: s.w || 1
+    };
+    if (s.nade) { nadeUp(card); card.desc = `${s.desc} · ${NADE_UP}`; }
+    out.push(card);
   }
   return out.map((c, idx) => deepFreeze({ ...c, idx, instant: c.instant || null }));
+}
+
+/** 수류탄 증강: 최대 수류탄 +1과 고른 순간 가득 채우기를 붙인다 */
+function nadeUp(card) {
+  card.fx = { ...card.fx, nades: (card.fx.nades || 0) + 1 };
+  card.instant = { ...(card.instant || {}), nades: true };
+  card.nade = true;
 }
 
 function deepFreeze(o) {
@@ -231,11 +272,12 @@ export function cardAvailable(card, taken = [], stats = null) {
 
 /**
  * 카드 제안. 같은 입력이면 늘 같은 결과다(방장이 바뀌어도 스냅샷의 제안을 그대로 쓰지만, 시험에서 재현하기 위해).
- * { seed, playerId, stage, roll(다시 뽑은 횟수), taken: 고른 카드 id들, count, exclude: 이번 제안에서 빼고 싶은 id들 }
- * → 카드 id 배열(겹치지 않는다). 보스 스테이지를 깬 제안에는 영웅 이상이 적어도 한 장 들어간다.
+ * { seed, playerId, stage, roll(다시 뽑은 횟수), round(이번 판의 몇 번째 제안), taken: 고른 카드 id들, count, exclude: 이번 제안에서 빼고 싶은 id들,
+ *   high: 보물 상자 제안이면 true → 첫 장은 영웅 이상 }
+ * → 카드 id 배열(겹치지 않는다).
  */
-export function makeOffer({ seed = 1, playerId = '', stage = 1, roll = 0, taken = [], count = 3, exclude = [] } = {}) {
-  const rng = makeRng(hashSeed(seed, playerId, stage, roll));
+export function makeOffer({ seed = 1, playerId = '', stage = 1, roll = 0, round = 0, taken = [], count = 3, exclude = [], high = false } = {}) {
+  const rng = makeRng(hashSeed(seed, playerId, stage, roll, round));
   const stats = computePerks(taken);
   const ex = new Set(exclude);
   const s = Math.max(1, stage | 0);
@@ -247,8 +289,8 @@ export function makeOffer({ seed = 1, playerId = '', stage = 1, roll = 0, taken 
   while (chosen.length < need && guard++ < 200) {
     const left = pool.filter((c) => !chosen.includes(c.id));
     if (!left.length) break;
-    // 보스를 깬 제안(5의 배수 스테이지)의 첫 장은 영웅 이상
-    const forceHigh = s % 5 === 0 && chosen.length === 0;
+    // 보물 상자 제안의 첫 장은 영웅 이상
+    const forceHigh = !!high && chosen.length === 0;
     const tw = forceHigh ? tierWeights.filter((t) => t.id === 'epic' || t.id === 'legend') : tierWeights;
     const tier = pickWeighted(tw, rng);
     let cands = left.filter((c) => c.tier === (tier && tier.id));
@@ -257,7 +299,8 @@ export function makeOffer({ seed = 1, playerId = '', stage = 1, roll = 0, taken 
     const fams = new Set(chosen.map((id) => cardById(id).family));
     const fresh = cands.filter((c) => !fams.has(c.family));
     const list = fresh.length ? fresh : cands;
-    chosen.push(list[Math.floor(rng() * list.length)].id);
+    // 같은 등급 안에서는 카드의 w(기본 1)만큼 나온다(무기 교체권은 아주 가끔)
+    chosen.push(pickWeighted(list.map((c) => ({ id: c.id, weight: c.w || 1 })), rng).id);
   }
   return chosen;
 }
@@ -296,5 +339,9 @@ export function perkSummary(stats) {
   add('이동', s.move, plus); add('최대 속도', s.maxSpeed, plus);
   add('방어', s.armor, (v) => `−${Math.round(v * 100)}%`); add('회복', s.regen, (v) => `${fx(v)}/초`);
   add('흡혈', s.lifesteal, (v) => `${Math.round(v * 100)}%`); add('관통', s.pierce, (v) => `${v}`);
+  add('수류탄', s.nades, (v) => `+${v}`); add('폭발 반경', s.nadeRadius, plus); add('한 번에 던지기', s.nadeMulti, (v) => `+${v}`);
+  add('화염', s.nadeFire, (v) => `${v}단계`); add('빙결', s.nadeFreeze, (v) => `${v}단계`); add('분신', s.nadeDecoy, (v) => `${v}단계`);
+  add('구급 상자 확률', s.medDrop, plus); add('구급 상자 회복', s.medHeal, (v) => `+${v}`);
+  add('탄창 확률', s.ammoDrop, plus); add('탄창 양', s.ammoMags, (v) => `+${fx(v)}회분`);
   return rows;
 }

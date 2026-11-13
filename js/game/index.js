@@ -159,7 +159,8 @@ export async function install(ctx) {
   const { bus, account } = ctx;
   setWorldContext(ctx);
   const ui = createUI(ctx.ui.root, { settings: ctx.settings, account, maps: ctx.maps });
-  ui.setWeapons(WEAPONS);
+  // 좀비 물량 막기 전용 무기(증강으로만 얻는 유탄 발사기·바주카포)는 상점·로드아웃·마이페이지에 보이지 않는다
+  ui.setWeapons(Object.fromEntries(Object.entries(WEAPONS).filter(([, d]) => !d.zombieOnly)));
   // 상점·마이페이지 캐릭터 초상: 게임 렌더러로 캐릭터 × 팀마다 한 번 그려 둔다(처음 보여 줄 때)
   const portraits = ctx.renderer && ctx.renderer.three ? createAvatarPortraits(ctx.renderer.three) : null;
   if (portraits) ui.setAvatarArt((id, team) => portraits.get(id, team));

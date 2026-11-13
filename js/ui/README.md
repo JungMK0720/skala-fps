@@ -221,9 +221,10 @@ N이나 Esc를 누르면 고르지 않고 닫히며 `loadout:close { reason:'key
 
 ### `cards` — 좀비 물량 막기 카드 고르기
 ```js
-{ stage, cards: [{ id, name, icon, tier, tierName, desc, color, owned }], rerolls, seconds?, picked?, mine?, waiting?: [이름], perks?: [{ label, value }] }
+{ title?, sub?, cards: [{ id, name, icon, tier, tierName, desc, color, owned }], rerolls, seconds?, more?, picked?, mine?, perks?: [{ label, value }] }
 ```
-카드를 누르거나 숫자 키 1~4로 고르면 `cards:pick { id }`, 다시 뽑기 단추나 **R 0.5초 누르기**로 `cards:reroll {}`를 보냅니다.
+카드를 누르거나 숫자 키 1~4로 **선택**한 뒤 **[확인](또는 Enter)** 을 누르면 `cards:pick { id }`를 보냅니다(선택만으로는 정해지지 않는다). 다시 뽑기 단추나 **R 0.5초 누르기**로 `cards:reroll {}`를 보냅니다.
+props에 `title`(레벨 업·보물 상자), `sub`(덧붙일 안내), `seconds`(멀티 20초), `more`(이어서 고를 수)를 줄 수 있습니다.
 카드는 마지막 좀비를 쏘던 순간에 뜨므로 잘못 고르지 않게 막습니다(MODES.md 13절).
 - 처음 뜨면 1초(`CARD_ARM_MS`), 다시 뽑아 카드가 바뀌면 0.4초(`CARD_REARM_MS`) 잠급니다. 그동안 카드가 흐리고 위 막대가 차며, 숫자 키는 카드가 받지 않고 게임으로 갑니다(무기 교체).
 - 잠금이 풀린 뒤 새로 누른 클릭·터치만 고릅니다. 키보드로 누른 단추(`detail` 0)는 잠금만 봅니다.

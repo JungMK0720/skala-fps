@@ -12,7 +12,8 @@ import { isWeaponAllowed } from '../modes.js';
 import { isZombieMap } from '../../maps/collision.js';
 
 const PUSH_MS = 50;                       // 혼자일 때 화면에 스냅샷을 넘기는 간격(20 Hz)
-const SOLO_RULES = Object.freeze({ cardMs: 10 * 60 * 1000 });   // 혼자일 때는 카드 고르기에 시간 제한을 두지 않는다(10분)
+// 혼자일 때는 증강을 고르는 동안 좀비·스테이지 시간이 멈추고, 시간 제한을 사실상 두지 않는다(10분 지나면 무작위)
+const SOLO_RULES = Object.freeze({ cardMs: 10 * 60 * 1000, pauseOnCards: true });
 
 /** 고른 카드 목록 → 결과 화면 칸 [{ id, name, icon, color, n, desc }] (같은 카드는 묶는다) */
 export function cardRows(ids) {
@@ -106,7 +107,7 @@ export function startHordeSolo(o) {
   }));
   offs.push(world.on('explosion', (x) => {
     if (!x) return;
-    queue(director.claimExplosion({ attackerId: x.ownerId, center: x.center, victims: (x.victims || []).map((v) => ({ id: v.id, dmg: v.dmg })) }));
+    queue(director.claimExplosion({ attackerId: x.ownerId, center: x.center, kind: x.kind || undefined, victims: (x.victims || []).map((v) => ({ id: v.id, dmg: v.dmg })) }));
   }));
   offs.push(world.on('pause', (p) => { paused = !!(p && p.paused); world.setPaused(paused); }));
   offs.push(world.on('loadoutPick', (e) => { const def = e && getDef(e.id); if (def && def.slot === 1) lastPick = e.id; }));

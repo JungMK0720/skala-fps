@@ -322,15 +322,24 @@ export function decodeHit(a) {
 /* ------------------------------------------------------------------ 수류탄 */
 
 /** @param {{pos, vel, t (방장 시계 ms)}} g */
+/** 수류탄 [id, pos(cm)×3, vel(cm/s)×3, t] + (발사체면) [종류 번호, 신관 ms]. 끝에 더한 칸이라 옛 형식과 호환된다 */
 export function encodeGrenade(id, g) {
   const p = vec3(g.pos), v = vec3(g.vel);
-  return [id | 0, cm(p[0]), cm(p[1]), cm(p[2]), cm(v[0]), cm(v[1]), cm(v[2]), ms(g.t)];
+  const out = [id | 0, cm(p[0]), cm(p[1]), cm(p[2]), cm(v[0]), cm(v[1]), cm(v[2]), ms(g.t)];
+  const kc = g.kind === 'gl' ? 1 : g.kind === 'rocket' ? 2 : 0;
+  if (kc) out.push(kc, Math.round(Math.max(0, Math.min(10, Number(g.fuse) || 0)) * 1000));
+  return out;
 }
 
 export function decodeGrenade(a) {
   if (!Array.isArray(a) || a.length < 8) return null;
   for (let i = 0; i < 8; i++) if (!isNum(a[i])) return null;
-  return { id: a[0] | 0, pos: [fromCm(a[1]), fromCm(a[2]), fromCm(a[3])], vel: [fromCm(a[4]), fromCm(a[5]), fromCm(a[6])], t: a[7] };
+  const out = { id: a[0] | 0, pos: [fromCm(a[1]), fromCm(a[2]), fromCm(a[3])], vel: [fromCm(a[4]), fromCm(a[5]), fromCm(a[6])], t: a[7] };
+  if (a.length >= 10 && isNum(a[8]) && isNum(a[9])) {
+    const kind = (a[8] | 0) === 1 ? 'gl' : (a[8] | 0) === 2 ? 'rocket' : null;
+    if (kind) { out.kind = kind; out.fuse = Math.max(0.05, Math.min(10, a[9] / 1000)); }
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ 경기 스냅샷 + 이벤트 */

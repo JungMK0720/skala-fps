@@ -35,6 +35,19 @@ const KILL_Y = -60;          // 이 아래로 떨어지면 그 자리에서 폭�
 
 let nextId = 1;
 
+/**
+ * 수류탄 시스템으로 나는 발사체 종류(좀비 물량 막기 전용 보조무기). kind가 없으면 손으로 던진 수류탄이다.
+ * gravity = 중력 덮어쓰기, impact = 처음 부딪히면 바로 터진다
+ */
+export const PROJECTILES = Object.freeze({
+  gl: Object.freeze({ code: 1, gravity: -9, impact: true }),       // 유탄 발사기: 낮게 휘어 날아가 맞은 자리에서 터진다
+  rocket: Object.freeze({ code: 2, gravity: 0, impact: true })     // 바주카포: 곧게 날아가 닿는 곳에서 터진다
+});
+const PROJ_BY_CODE = new Map(Object.entries(PROJECTILES).map(([k, v]) => [v.code, k]));
+/** 발사체 종류 번호 ↔ 이름(네트워크) */
+export const projectileCode = (kind) => (PROJECTILES[kind] ? PROJECTILES[kind].code : 0);
+export const projectileKind = (code) => PROJ_BY_CODE.get(code | 0) || null;
+
 const num = (v, d = 0) => (Number.isFinite(v) ? v : d);
 const P3 = (v) => { const t = toVec3(v); return { x: t.x, y: t.y, z: t.z }; };   // 내부 계산용 평범한 객체
 const out3 = (v) => vec3(v.x, v.y, v.z);
@@ -94,9 +107,9 @@ export function throwVelocity(forward, speed = G.throw.speed, pitchUp = G.throw.
 }
 
 /** 수류탄 상태 객체 하나를 만든다(순수 데이터). pos/vel은 vec3. */
-export function createGrenade({ pos, vel, fuse = G.fuse, owner = null, id } = {}) {
+export function createGrenade({ pos, vel, fuse = G.fuse, owner = null, id, kind = null } = {}) {
   return {
-    id: id ?? nextId++, owner,
+    id: id ?? nextId++, owner, kind: PROJECTILES[kind] ? kind : null,
     pos: toVec3(pos), vel: toVec3(vel),
     age: 0, fuse: num(fuse, G.fuse), acc: 0,
     exploded: false, sleeping: false, onGround: false, groundT: 0,
@@ -266,7 +279,9 @@ export function detectSweepStyle(fn) {
 export function stepGrenade(g, dt, sphereSweep, opts = {}) {
   const out = [];
   if (!g || g.exploded) return out;
-  const P = opts.physics ? { ...GRENADE_PHYSICS, ...opts.physics } : GRENADE_PHYSICS;
+  let P = opts.physics ? { ...GRENADE_PHYSICS, ...opts.physics } : GRENADE_PHYSICS;
+  const proj = g.kind ? PROJECTILES[g.kind] : null;
+  if (proj) P = { ...P, gravity: proj.gravity };
   const floorY = opts.floorY === undefined ? 0 : opts.floorY;
   const core = opts.style === 'integrator' && typeof sphereSweep === 'function';
   const step = P.step > 0 ? P.step : 1 / 120;
@@ -277,10 +292,13 @@ export function stepGrenade(g, dt, sphereSweep, opts = {}) {
     n++;
     g.age += step;
     const before = out3(g.pos);
+    const b0 = g.bounces;
     if (!g.sleeping) {
       if (core) integrateCore(g, step, sphereSweep, P, out);
       else integrateSegment(g, step, sphereSweep, P, floorY, out);
     }
+    // 발사체(유탄·로켓)는 처음 부딪히는 곳에서 터진다
+    if (proj && proj.impact && (g.bounces > b0 || g.onGround || g.sleeping)) g.age = Math.max(g.age, g.fuse);
     if (!finiteV(g.pos) || !finiteV(g.vel)) {   // 잘못된 충돌 결과로 NaN이 생기면 직전 위치에서 터뜨린다
       g.pos = before;
       g.vel = vec3(0, 0, 0);
@@ -289,7 +307,7 @@ export function stepGrenade(g, dt, sphereSweep, opts = {}) {
     if (g.pos.y < KILL_Y) g.age = Math.max(g.age, g.fuse);
     if (g.age + 1e-9 >= g.fuse) {
       g.exploded = true;
-      out.push({ type: 'explode', id: g.id, owner: g.owner, pos: out3(g.pos) });
+      out.push({ type: 'explode', id: g.id, owner: g.owner, pos: out3(g.pos), kind: g.kind });
     }
   }
   if (n >= MAX_STEPS_PER_CALL) g.acc = Math.min(g.acc, step);
@@ -388,7 +406,7 @@ export function createGrenadeSystem(cfg = {}) {
   let list = [];
 
   function spawn(pos, vel, o = {}) {
-    const g = createGrenade({ pos, vel, fuse: o.fuse, owner: o.owner ?? null, id: o.id });
+    const g = createGrenade({ pos, vel, fuse: o.fuse, owner: o.owner ?? null, id: o.id, kind: o.kind || null });
     list.push(g);
     return g;
   }
@@ -432,7 +450,9 @@ export function createGrenadeSystem(cfg = {}) {
     /** 주입받은 lineOfSight로 폭발 피해 계산 */
     explosionDamage: (center, targets, o) => explosionDamage(center, targets, lineOfSight, o),
     /** 살아 있는 수류탄 목록(렌더링용 사본: {id, owner, pos, vel, age, fuse, sleeping}) */
-    list: () => list.map((g) => ({ id: g.id, owner: g.owner, pos: out3(g.pos), vel: out3(g.vel), age: g.age, fuse: g.fuse, sleeping: g.sleeping })),
+    list: () => list.map((g) => ({ id: g.id, owner: g.owner, kind: g.kind, pos: out3(g.pos), vel: out3(g.vel), age: g.age, fuse: g.fuse, sleeping: g.sleeping })),
+    /** 이 수류탄(발사체)을 다음 진행에서 바로 터뜨린다(좀비에 닿은 로켓 등) → 찾았으면 true */
+    detonate: (id) => { const g = list.find((x) => x.id === id); if (!g || g.exploded) return false; g.age = Math.max(g.age, g.fuse); g.sleeping = false; return true; },
     get count() { return list.length; },
     /** 'segment' | 'integrator' — 실제로 쓰는 충돌 방식 */
     get sweepStyle() { return style; },

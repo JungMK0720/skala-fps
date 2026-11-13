@@ -153,7 +153,8 @@ export function secretReward(secret) {
 }
 
 /** 상점 물건 id: 무기 → 이모트 → 캐릭터. 프로필의 owned는 이 순서로 정리한다 */
-export const ITEM_IDS = Object.freeze([...WEAPON_IDS, ...EMOTE_IDS, ...AVATAR_IDS]);
+// 좀비 물량 막기 전용 무기(zombieOnly)는 사고팔거나 기본으로 받는 물건이 아니다
+export const ITEM_IDS = Object.freeze([...WEAPON_IDS.filter((id) => !getDef(id).zombieOnly), ...EMOTE_IDS, ...AVATAR_IDS]);
 
 export { isAvatarId };
 

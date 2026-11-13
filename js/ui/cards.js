@@ -1,10 +1,10 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 좀비 물량 막기의 카드 고르기 화면. 스테이지를 깨면 3장(넓은 선택이면 4장)이 뜨고 하나를 누르거나 숫자 키로 고른다.
- *          제안마다 다시 뽑기 1번(행운 카드로 더). 여럿이 하면 고른 뒤 다른 사람을 기다리는 동안 내 카드를 보여 준다.
+ * Purpose: 좀비 물량 막기의 증강 고르기 화면. 팀 레벨이 오르거나 보물 상자를 주우면 3장(넓은 선택이면 4장)이 뜬다.
+ *          카드를 누르거나 숫자 키로 '선택'한 뒤 [확인](또는 Enter)을 눌러야 정해진다(잘못 누름 방지). 제안마다 다시 뽑기 1번(행운 카드로 더).
  *          'cards:pick' { id } · 'cards:reroll' {} 이벤트를 낸다.
- *          카드는 마지막 좀비를 쏘던 손 아래에 뜬다(포인터 잠금이 풀리면 커서가 가운데 카드 위에 온다). 그래서 쏘던 클릭·무기 교체 숫자 키·
+ *          카드는 싸우던 중에 뜬다(포인터 잠금이 풀리면 커서가 가운데 카드 위에 온다). 그래서 쏘던 클릭·무기 교체 숫자 키·
  *          점프(Space)·재장전(R)으로 잘못 고르지 않게, 처음 1초는 잠그고 잠금이 풀린 뒤 새로 누른 것만 받는다. 다시 뽑기는 R을 길게 누른다.
  */
 import { h, btn, setText, num } from './dom.js';
@@ -55,16 +55,21 @@ export function createCardPicker(ctx) {
     if (!state.picked && gate.clickOk(e ? e.detail : 0)) ctx.emit('cards:reroll', {});
     else if (e) e.stopPropagation();
   }, 'sk-btn--ghost sk-cd-reroll', { onmousedown: noFocus });
+  // 확인: 선택한 카드를 정한다(카드를 누르는 것만으로는 정해지지 않는다)
+  const confirmBtn = btn('', (e) => {
+    if (state.picked || !state.sel || !gate.clickOk(e ? e.detail : 0)) { if (e) e.stopPropagation(); return; }
+    pick(state.sel);
+  }, 'sk-btn--primary sk-cd-confirm', { onmousedown: noFocus });
   const wait = h('p', { class: 'sk-cd-wait', role: 'status' });
   const perks = h('ul', { class: 'sk-cd-perks', 'aria-label': '지금까지 오른 능력치' });
   const panel = h('div', { class: 'sk-cd-panel', tabindex: '-1' },
     h('header', { class: 'sk-cd-head' }, h('div', {}, title, sub), timer),
     armBar,
     grid,
-    h('footer', { class: 'sk-cd-foot' }, rerollBtn, wait),
+    h('footer', { class: 'sk-cd-foot' }, rerollBtn, wait, confirmBtn),
     perks);
-  const el = h('section', { class: 'sk-screen sk-overlay sk-cards', hidden: true, role: 'dialog', 'aria-modal': 'true', 'aria-label': '강화 카드 고르기' }, panel);
-  const state = { picked: false, ids: [], sig: '', mine: null, p: {} };
+  const el = h('section', { class: 'sk-screen sk-overlay sk-cards', hidden: true, role: 'dialog', 'aria-modal': 'true', 'aria-label': '증강 고르기' }, panel);
+  const state = { picked: false, ids: [], sig: '', mine: null, sel: null, p: {} };
   let armTimer = 0, holdTimer = 0;
   rerollBtn.style.setProperty('--cd-hold-ms', `${REROLL_HOLD_MS}ms`);
 
@@ -81,11 +86,29 @@ export function createCardPicker(ctx) {
     return h('button', {
       type: 'button', class: `sk-cd-card sk-cd--${c.tier || 'common'}` + (state.mine === c.id ? ' is-picked' : ''), role: 'listitem',
       style: { '--cd-color': c.color || '#c9d4e0' }, disabled: state.picked, 'aria-label': `${i + 1}번 ${c.name} · ${c.tierName || ''} · ${c.desc || ''}`,
-      // 잠금이 풀린 뒤 새로 누른 클릭만 고른다(쏘던 클릭을 떼며 고르지 않게)
-      onclick: (e) => { if (gate.clickOk(e ? e.detail : 0)) pick(c.id); else if (e) e.stopPropagation(); },   // 막힌 클릭은 단추 소리도 내지 않는다
+      // 잠금이 풀린 뒤 새로 누른 클릭만 '선택'한다(쏘던 클릭을 떼며 고르지 않게). 정하는 것은 [확인]
+      onclick: (e) => { if (gate.clickOk(e ? e.detail : 0)) select(c.id); else if (e) e.stopPropagation(); },   // 막힌 클릭은 단추 소리도 내지 않는다
       // 마우스·손가락으로 눌러도 포커스를 가져가지 않는다. 쏘던 클릭이 카드에 포커스를 주면 뒤이은 점프(Space)가 그 카드를 누른다
       onmousedown: noFocus
     }, kids);
+  }
+
+  /** 카드 하나를 선택해 둔다(확인을 눌러야 정해진다) */
+  function select(id) {
+    if (state.picked || !state.ids.includes(id)) return;
+    state.sel = id;
+    const i = state.ids.indexOf(id);
+    for (let k = 0; k < grid.children.length; k++) {
+      grid.children[k].classList.toggle('is-selected', k === i);
+      grid.children[k].setAttribute('aria-pressed', k === i ? 'true' : 'false');
+    }
+    renderConfirm();
+  }
+
+  function renderConfirm() {
+    const c = state.sel && Array.isArray(state.p.cards) ? state.p.cards.find((x) => x.id === state.sel) : null;
+    setText(confirmBtn, c ? `✔ 확인 · ${c.name}` : '✔ 확인');
+    confirmBtn.disabled = !!state.picked || !c;
   }
 
   function pick(id) {
@@ -128,8 +151,8 @@ export function createCardPicker(ctx) {
 
   function renderSub() {
     const p = state.p;
-    setText(sub, p.picked ? '고른 카드는 다음 스테이지부터 적용돼요'
-      : gate.armed() ? '강화 카드 하나를 고르세요 · 숫자 키로도 고를 수 있어요'
+    setText(sub, p.picked ? '고른 증강은 바로 적용돼요'
+      : gate.armed() ? `카드를 누르고(숫자 키 1~4) [확인]을 누르세요${p.sub ? ` · ${p.sub}` : ''}`
         : '잠깐! 쏘던 클릭으로 잘못 고르지 않게 잠시 잠가 뒀어요');
   }
 
@@ -144,6 +167,7 @@ export function createCardPicker(ctx) {
       state.ids = ids;
       state.picked = !!p.picked;
       state.mine = p.mine || (p.picked ? state.mine : null);
+      state.sel = null;
       grid.replaceChildren(...cards.map(cardEl));
       grid.classList.toggle('is-four', cards.length >= 4);
       // 처음 뜬 카드는 1초, 다시 뽑아 바뀐 카드는 0.4초 잠근다
@@ -152,8 +176,9 @@ export function createCardPicker(ctx) {
         else if (before !== ids.join()) arm(CARD_REARM_MS);
       }
     }
-    setText(title, `스테이지 ${Math.max(1, num(p.stage, 1) | 0)} 클리어!`);
+    setText(title, p.title || '증강을 고르세요');
     renderSub();
+    renderConfirm();
     const secs = Math.max(0, Math.ceil(num(p.seconds, 0)));
     setText(timer, secs ? `⏳ ${secs}초` : '');
     timer.classList.toggle('is-urgent', secs > 0 && secs <= 5);
@@ -161,8 +186,8 @@ export function createCardPicker(ctx) {
     setText(rerollBtn, `🔄 다시 뽑기 (${rr})`);
     rerollBtn.disabled = !!p.picked || rr <= 0;
     if (rerollBtn.disabled) holdStop();
-    const waiting = Array.isArray(p.waiting) ? p.waiting : [];
-    setText(wait, p.picked ? (waiting.length ? `다른 생존자를 기다리는 중 · ${waiting.join(', ')}` : '곧 다음 스테이지가 시작돼요') : 'R 길게 누르기: 다시 뽑기');
+    const more = Math.max(0, num(p.more, 0) | 0);
+    setText(wait, `R 길게 누르기: 다시 뽑기${more ? ` · 이어서 ${more}개 더` : ''}`);
     const rows = Array.isArray(p.perks) ? p.perks : [];
     perks.hidden = !rows.length;
     perks.replaceChildren(...rows.map((r) => h('li', {}, h('span', { text: r.label }), h('b', { text: r.value }))));
@@ -171,14 +196,19 @@ export function createCardPicker(ctx) {
   // 누른 순간을 기록한다(잠금 중에 누르기 시작한 클릭은 잠금이 풀린 뒤 떼어도 고르지 않는다)
   ctx.listen(el, 'pointerdown', () => gate.press(), true);
 
-  // 숫자 키 1~4로 고르기, R 길게 눌러 다시 뽑기(화면이 떠 있을 때만).
+  // 숫자 키 1~4로 선택, Enter로 확인, R 길게 눌러 다시 뽑기(화면이 떠 있을 때만).
   // 잠긴 동안의 숫자 키와 짧게 누른 R은 막지 않고 게임으로 보낸다(무기 교체·재장전).
   ctx.listen(window, 'keydown', (e) => {
     if (!api.visible || e.repeat) return;
     const m = /^(?:Digit|Numpad)([1-4])$/.exec(e.code);
     if (m) {
       const id = state.ids[Number(m[1]) - 1];
-      if (id && !state.picked && gate.keyOk(e.repeat)) { e.preventDefault(); e.stopPropagation(); pick(id); }
+      if (id && !state.picked && gate.keyOk(e.repeat)) { e.preventDefault(); e.stopPropagation(); select(id); }
+      return;
+    }
+    if ((e.code === 'Enter' || e.code === 'NumpadEnter') && state.sel && !state.picked && gate.keyOk(e.repeat)) {
+      e.preventDefault(); e.stopPropagation();
+      pick(state.sel);
       return;
     }
     if (e.code === 'KeyR' && !state.picked && !rerollBtn.disabled && !gate.holding() && gate.holdStart()) {
@@ -202,7 +232,7 @@ export function createCardPicker(ctx) {
       holdStop();
       if (armTimer) { ctx.cancel(armTimer); armTimer = 0; }
       el.classList.remove('is-arming');
-      state.sig = ''; state.ids = []; state.picked = false; state.mine = null;
+      state.sig = ''; state.ids = []; state.picked = false; state.mine = null; state.sel = null;
     }
   });
   return api;
