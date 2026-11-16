@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<!--
+  Date: 06NOV2026
+  Author: Minkyu Jung
+  Purpose: SKALA 작전 개인정보처리방침. 구글 로그인 앱 게시에 필요한 공개 페이지로, 실제로 저장하는 정보(supabase/schema.sql, server/api)만 적는다.
+           스크립트 없는 정적 페이지라 CSP로 스크립트와 외부 접속을 모두 막는다.
+-->
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>SKALA 작전 개인정보처리방침</title>
+  <style>
+    body { margin: 0; background: #05080f; color: #eaf1fb; font-family: 'Pretendard', 'Noto Sans KR', 'Malgun Gothic', 'Apple SD Gothic Neo', system-ui, sans-serif; line-height: 1.7; }
+    main { max-width: 760px; margin: 0 auto; padding: 32px 20px 64px; }
+    h1 { font-size: 26px; margin: 0 0 4px; }
+    h2 { font-size: 18px; margin: 32px 0 8px; color: #8df0ff; }
+    p, li { font-size: 15px; color: #d6deeb; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 8px 0; }
+    th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.12); }
+    th { color: #9dabc2; font-weight: 700; }
+    a { color: #62e9ff; }
+    .muted { color: #9dabc2; font-size: 14px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>SKALA 작전 개인정보처리방침</h1>
+  <p class="muted">시행일: 2026년 11월 16일</p>
+
+  <p>SKALA 작전(이하 "게임")은 브라우저에서 하는 무료 멀티플레이 게임입니다. 게임은 계정 운영에 꼭 필요한 정보만 저장하며, 이름·이메일·전화번호·생년월일 같은 개인 식별 정보는 받지 않습니다.</p>
+
+  <h2>1. 저장하는 정보</h2>
+  <table>
+    <tr><th>정보</th><th>언제</th><th>왜</th></tr>
+    <tr><td>닉네임</td><td>처음 닉네임을 정할 때</td><td>멀티플레이와 순위표에 이름을 보여 주기 위해</td></tr>
+    <tr><td>기기 식별 값(무작위로 만든 값의 해시)</td><td>게임을 처음 열 때</td><td>이 기기의 닉네임과 진행 상황을 찾기 위해. 원래 값은 브라우저에만 있고 서버에는 해시만 저장합니다</td></tr>
+    <tr><td>포인트, 가진 무기·이모트·캐릭터, 장비, 전적, 찾은 비밀 장소</td><td>게임을 할 때</td><td>진행 상황 저장</td></tr>
+    <tr><td>구글·카카오 계정의 고유 번호</td><td>"계정 연결"이나 "구글로 불러오기"를 쓸 때만</td><td>다른 기기에서 같은 닉네임을 불러오기 위해. 이메일·이름·프로필 사진은 받지 않고, 로그인 제공자가 준 접근 토큰도 저장하지 않습니다</td></tr>
+    <tr><td>코인 잔액과 사용 기록, 테스트 결제 주문 기록(주문 번호, 상품, 금액, 상태, 결제 키, 결제 수단 종류)</td><td>코인 탭에서 충전·환불·사용할 때</td><td>코인 지급과 환불을 정확히 처리하기 위해</td></tr>
+    <tr><td>건의 글과 진단 정보(화면 크기, 브라우저 종류, 모드·맵 등)</td><td>건의함에 글을 보낼 때</td><td>문의에 답하고 문제를 고치기 위해</td></tr>
+    <tr><td>IP 주소의 해시값</td><td>닉네임 등록·건의 보내기 요청 때</td><td>짧은 시간에 너무 많은 요청을 막기 위해. IP 원래 값은 저장하지 않습니다</td></tr>
+  </table>
+  <p>멀티플레이 중의 위치와 채팅은 같은 방의 사람에게 실시간으로 전달만 하고 저장하지 않습니다.</p>
+
+  <h2>2. 결제</h2>
+  <p>코인 충전은 토스페이먼츠의 <strong>테스트 결제</strong>로, 실제로 돈이 청구되지 않습니다. 카드 번호 같은 결제 정보는 토스페이먼츠의 결제창이 처리하며 게임 서버는 받지도 저장하지도 않습니다.</p>
+
+  <h2>3. 브라우저에 저장하는 것</h2>
+  <p>게임은 브라우저 저장소(localStorage·sessionStorage)에 프로필 사본, 설정, 기기 식별 값, 로그인 진행 중의 일회용 값을 둡니다. 광고나 추적용 쿠키는 쓰지 않습니다.</p>
+
+  <h2>4. 함께 쓰는 서비스</h2>
+  <table>
+    <tr><th>서비스</th><th>하는 일</th></tr>
+    <tr><td>Supabase</td><td>위 1번 정보를 저장하는 데이터베이스</td></tr>
+    <tr><td>Cloudflare</td><td>멀티플레이 중계, 로그인·결제 서버. 요청 기록이 며칠 동안 남을 수 있습니다</td></tr>
+    <tr><td>GitHub Pages</td><td>게임 파일 제공</td></tr>
+    <tr><td>Google, Kakao</td><td>계정 연결을 고른 경우의 로그인</td></tr>
+    <tr><td>토스페이먼츠</td><td>테스트 결제</td></tr>
+  </table>
+  <p>이 정보를 판매하거나 광고에 쓰지 않으며, 법에 따른 요청이 아니면 다른 곳에 넘기지 않습니다.</p>
+
+  <h2>5. 보관과 삭제</h2>
+  <ul>
+    <li>정보는 삭제 요청을 받을 때까지 보관합니다.</li>
+    <li>마이페이지의 "이 기기의 데이터 초기화"는 이 브라우저에 있는 정보만 지웁니다.</li>
+    <li>서버에 있는 닉네임·진행 상황·연결 정보의 삭제를 원하면 아래 문의처로 닉네임과 함께 요청해 주세요. 확인 후 지웁니다.</li>
+    <li>구글 계정과의 연결은 <a href="https://myaccount.google.com/connections" rel="noopener noreferrer">구글 계정의 연결된 앱 설정</a>에서도 끊을 수 있습니다.</li>
+  </ul>
+
+  <h2>6. 문의</h2>
+  <p>게임 메인 메뉴의 <strong>건의하기</strong>나 <a href="https://github.com/JungMK0720/skala-fps/issues" rel="noopener noreferrer">GitHub 저장소 이슈</a>로 문의해 주세요.</p>
+
+  <h2>7. 바뀔 때</h2>
+  <p>이 방침이 바뀌면 이 페이지에 새 시행일과 함께 알립니다.</p>
+
+  <p class="muted"><a href="./">게임으로 돌아가기</a></p>
+</main>
+</body>
+</html>
