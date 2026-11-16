@@ -353,6 +353,20 @@ export default {
       await tap(page, '.sk-sheet-foot .sk-btn', '취소');
       await page.waitFor('!document.querySelector(".sk-sheet")', 3000, { label: '터치로 시트 닫힘' });
 
+      // 좀비 물량 막기 고르기 시트(같이 하기 · 혼자 하기 · 로비에서 찾기). 시험 서버는 오프라인이라 같이 하기가 꺼지고 사유 한 줄이 붙는다
+      await tap(page, '.sk-menu-btn', '좀비 물량 막기');
+      await page.waitFor('!!document.querySelector(".sk-sheet.sk-zpick")', 3000, { label: '터치로 좀비 고르기 시트' });
+      await see('zombie-pick', '.sk-zpick');
+      if (touch && wantedShot('zombie-pick')) {
+        const fit = await page.fn(() => {
+          const s = document.querySelector('.sk-zpick'), b = s.querySelector('.sk-sheet-body'), r = s.getBoundingClientRect();
+          return { body: b.scrollHeight <= b.clientHeight + 1, inView: r.top >= -1 && r.bottom <= innerHeight + 1, h: Math.round(r.height), vh: innerHeight };
+        });
+        if (!fit.body || !fit.inView) t.note(`${phone.id} zombie-pick: 오프라인 사유 줄까지 넣으면 스크롤해야 다 보인다 ${JSON.stringify(fit)}`);
+      }
+      await tap(page, '.sk-zpick .sk-sheet-head .sk-btn--icon');
+      await page.waitFor('!document.querySelector(".sk-zpick")', 3000, { label: '터치로 좀비 고르기 시트 닫힘' });
+
       await tap(page, '.sk-menu-btn--sub', '설정');
       await page.waitFor(`!document.querySelector('.sk-menu .sk-modal').hidden`, 3000, { label: '터치로 설정' });
       await see('settings', '.sk-settings');

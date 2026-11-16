@@ -66,7 +66,7 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 ### 반환값
 | 멤버 | 설명 |
 |---|---|
-| `open({ name }?) → Promise` | 로비를 띄우고 방 목록을 구독한다(처음이면 연결). 이미 방/경기 중이면 아무것도 안 한다 |
+| `open({ name, create? }?) → Promise` | 로비를 띄우고 방 목록을 구독한다(처음이면 연결). 이미 방/경기 중이면 아무것도 안 한다. `create`(방 만들기 값, 메뉴 좀비 '같이 하기'는 `{ mode: 'zombie' }`)를 주면 로비가 준비되는 대로 그 방을 만든다: 이미 로비면 바로, 연결 중이면 연결된 뒤 |
 | `leave() → Promise` | 방에서 나가 로비로(경기 중이면 이번 경기에서 빠진다) |
 | `dispose()` | 로비 구독·방(`room.leave`)·sync·타이머·화면 등록 해제. 직접 연결한 소켓은 닫는다 |
 | `on(evt, fn) → off` / `off` | `'screen' { name, mapId? }`, `'exit'`, `'error' { where, error }`, `'closed'` |
@@ -82,6 +82,7 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 ### 로비
 - `ui.show('lobby', { rooms, loading, error, joining, name, maxPlayers })`(`maxPlayers` = 이 연결로 만들 수 있는 최대 인원: 중계 16 · Supabase 6), `net.lobby.subscribe`로 실시간 갱신한다. 방에 들어가면 구독을 끈다(presence 예산). 방 항목에 `mode`('team'|'ffa')와 `ruleset`이 실린다(net 로비 presence). 목록 배지는 "칼전 · 개인전"이고, 규칙이 없는 옛 항목은 클래식으로 읽는다.
 - `lobby:create {name,mapId,max,mode,ruleset,killTarget?}` → `net.createRoom({ ..., mode, ruleset, killTarget? })`(max 2..최대 인원(중계 16 · Supabase 6), 없으면 8, mode·ruleset·개인전 목표 킬(5~20으로 자른다)은 방 메타, 맵은 `maps.mapsForRuleset(ruleset)`에 있어야 하고 아니면 그 규칙의 첫 맵, 이름이 비면 "닉네임의 방"). `lobby:join {roomId}` → `net.joinRoom`. 실패하면 `error`에 한국어 사유(`ROOM_FULL` → "방이 가득 찼어요." 등).
+- 좀비 방(`mode: 'zombie'`)은 이름을 안 주면 "닉네임의 좀비 방", 최대 인원은 4명(`ZOMBIE_MAX`와 최대 인원 중 작은 것), 맵을 안 주면 첫 좀비 전용 맵, 비밀번호를 안 주면 공개 방이다. 경기 중 동료 살리기는 `room.sendTo(방장, 'mx', { k:'zrev', mid, id: 쓰러진 사람, on: 1|0 })`(누르는 동안 0.3초마다 on, 떼면 off. 방장 자신은 바로 `director.reviveAction`), 방장은 'zloot'와 같은 조건(준비됨·좀비 경기·같은 mid·내보낸 사람 아님)에서 받는다.
 - 연결 중에 누른 방 만들기·참가는 연결되면 실행한다. 방에서 나오는 중(`leaving`: 서버 답을 기다리는 동안 로비 화면이 먼저 뜬다)에 누른 것은 다 나온 뒤에 실행한다(마지막에 누른 것 하나). 그 사이 ← 메뉴를 누르거나 연결이 끊기면 버린다.
 - `lobby:refresh`는 다시 구독(연결 실패 상태면 다시 연결), `lobby:back`은 `'exit'` + core `menu`.
 

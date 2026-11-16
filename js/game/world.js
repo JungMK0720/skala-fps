@@ -21,7 +21,7 @@ import { lerpAngle } from '../engine/interp.js';
 import { createProps } from '../engine/props.js';
 import { WEAPONS, DEG, DEFAULT_LOADOUT, getDef } from '../weapons/defs.js';
 import { createArsenal, shotDirection } from '../weapons/logic.js';
-import { createGrenadeSystem, stepGrenade, GRENADE_PHYSICS } from '../weapons/grenade.js';
+import { createGrenadeSystem, stepGrenade, GRENADE_PHYSICS, PROJECTILES } from '../weapons/grenade.js';
 import { createViewmodel } from '../weapons/viewmodel.js';
 import { createAudio } from '../fx/audio.js';
 import { createEffects } from '../fx/effects.js';
@@ -35,6 +35,7 @@ import { missionCrowd } from '../maps/collision.js';
 import { createBombView } from './bombview.js';
 import { createMultiKill, multiKillTier } from './multikill.js';
 import { createHordeView } from './horde/view.js';
+import { c4Offset, c4WorldPos } from './horde/contact.js';
 import { HORDE } from './horde/rules.js';
 
 const STEEL_MATS = new Set(['steel', 'rust', 'deck', 'tank', 'pipe', 'container_red', 'yellow', 'white', 'glass', 'metal_dark']);
@@ -55,6 +56,10 @@ const NO_DECAL = Object.freeze({ decal: false });
 const PELLET_TRACERS = 3;
 /** 동시에 시뮬레이션하는 다른 사람 수류탄 상한. 한 사람에 1개가 규칙이라 정상 경기는 닿지 않는다 */
 const MAX_LIVE_GRENADES = 32;
+/** C4(좀비 물량 막기 증강)가 좀비에 닿았다고 보는 거리(유탄과 같다) */
+const C4_TOUCH_R = 0.45;
+/** 늦게 받은 남의 C4를 앞당길 때 한 번에 진행하는 시간(초). 이만큼마다 좀비에 닿았는지 본다 */
+const C4_CATCHUP_STEP = 1 / 60;
 /** 무기 슬롯 → arsenal 로드아웃 키 */
 const SLOT_KEYS = Object.freeze({ 1: 'primary', 2: 'secondary', 3: 'melee' });
 
@@ -173,8 +178,14 @@ function buildWorld(ctx, opts) {
   const nadeMat = new THREE.MeshLambertMaterial({ color: 0xe2b52a });
   // 좀비 물량 막기 보조무기의 발사체: 유탄(어두운 초록)·로켓(주황, 날아가는 쪽으로 길게)
   const projMats = { gl: new THREE.MeshLambertMaterial({ color: 0x4f6b2a }), rocket: new THREE.MeshLambertMaterial({ color: 0xff8a2a, emissive: 0x7a2a00 }) };
-  // 발사체 종류 → 그 무기의 정의(폭발 반경·최대 피해)
+  // 발사체 종류 → 그 무기의 정의(폭발 반경·최대 피해). C4는 손으로 던진 수류탄과 같은 폭발이라 없다
   const PROJ_DEF = { gl: WEAPONS.gl_m32, rocket: WEAPONS.rl_b9 };
+  // C4 수류탄(좀비 물량 막기 증강): 어두운 국방색 작은 상자 + 위의 빨간 불(신관이 다 되어 갈수록 빨리 깜박인다)
+  const c4Geo = new THREE.BoxGeometry(0.16, 0.08, 0.11);
+  const c4Mat = new THREE.MeshLambertMaterial({ color: 0x4b5530 });
+  const ledGeo = new THREE.BoxGeometry(0.034, 0.02, 0.034);
+  const ledOn = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
+  const ledOff = new THREE.MeshBasicMaterial({ color: 0x3a0c08 });
   const UP_V = new THREE.Vector3(0, 1, 0);
   const nadeMeshes = [];
   function nadeMesh(i) {
@@ -182,6 +193,11 @@ function buildWorld(ctx, opts) {
       const m = new THREE.Mesh(nadeGeo, nadeMat);
       m.name = 'world:grenade';
       m.visible = false;
+      const led = new THREE.Mesh(ledGeo, ledOff);   // C4일 때만 보인다
+      led.position.set(0.045, 0.05, 0);
+      led.visible = false;
+      m.add(led);
+      m.userData.led = led;
       R.scene.add(m);
       nadeMeshes.push(m);
     }
@@ -207,6 +223,9 @@ function buildWorld(ctx, opts) {
   let pausedAt = 0;                               // 시뮬레이션을 멈춘 시각(ms). 멈춘 동안 부활·보호 표시 시계도 멈춘다
   const displayNow = () => (simPaused ? pausedAt : performance.now());
   let customHint = '';
+  // 좀비 물량 막기 상호작용(쓰러진 동료 살리기): HUD 안내 줄과 휴대폰 '살리기' 버튼(touch:use). horde/client.js가 setHordeInteract로 정한다
+  let hordeHint = '';
+  let hordeTouch = false;
   let pauseOpts = { leaveLabel: '나가기', note: undefined };
   let scoreboardProvider = null, scoreboardOpen = false, sbRefresh = 0;
   let clock = 0;                                  // World 시뮬레이션 시각(초, 일시정지 중 멈춤)
@@ -248,8 +267,14 @@ function buildWorld(ctx, opts) {
   // 좀비 물량 막기(game/horde): 좀비·보스 그리기와 내 사격 판정. 판정 결과는 다른 사격처럼 'hitClaim'(victimId 'z12')으로 나간다
   const horde = createHordeView({ THREE, scene: R.scene, camera: R.camera, fx, play: (name, o) => play(name, o) });
   // 좀비 물량 막기 증강의 내 화면 몫. nadeMulti = 한 번에 더 던지는 수류탄 수, nadeRadiusOf(owner) = 그 사람 수류탄의 폭발 반경 배율
-  const hordePerk = { speed: 1, pierce: 0, maxHp: 100, nadeMulti: 0, nadeRadiusOf: null };
+  // sticky = 내 수류탄이 C4(좀비에 붙는다), waveRange = 내 칼의 검기 거리(m), waveRangeOf(owner) = 그 사람의 검기 거리(남의 검기 연출)
+  const hordePerk = { speed: 1, pierce: 0, maxHp: 100, nadeMulti: 0, nadeRadiusOf: null, sticky: false, waveRange: 0, waveRangeOf: null };
   let slowUntil = 0, slowMul = 1, grabbedNow = false;
+  // 좀비에 붙은 C4: 수류탄 id → { zid(좀비 번호), x, y, z(좀비 발 기준 로컬 오프셋) }. 터지거나 판이 바뀌면 지운다
+  const c4Stuck = new Map();
+  const c4At = [0, 0, 0];
+  /** 맵 충돌의 시선(벽에 막히면 false). 칼·검기가 쓴다 */
+  const worldLos = (a, b) => (map ? lineOfSight(map.world, a, b) : true);
   /** 내 이동 속도 배율: 무기(줌 포함) × 카드 × 느려짐(비명·얼음) × 좀비에게 붙잡힘 */
   function speedScaleNow() {
     let k = arsenal.getMoveMul();
@@ -393,8 +418,9 @@ function buildWorld(ctx, opts) {
     fx.portalFlash(e.pos, p && p.color);               // 나온 자리
   }));
   offs.push(bus.on('player:secret', (e) => onSecret(e)));
-  // 재장전·꺼내기·줌 중이면 뷰모델이 알아서 무시한다. 여기서는 조작할 수 있는 상태인지만 본다
-  offs.push(bus.on('input:inspect', () => { if (active && localCanAct()) vm.play({ type: 'inspect' }); }));
+  // 재장전·꺼내기·줌 중이면 뷰모델이 알아서 무시한다. 여기서는 조작할 수 있는 상태인지만 본다.
+  // 좀비 물량 막기에서 F에 다른 일(쓰러진 동료 살리기)이 걸려 있으면 무기 살펴보기를 하지 않는다
+  offs.push(bus.on('input:inspect', () => { if (active && localCanAct() && !hordeHint) vm.play({ type: 'inspect' }); }));
 
   /* ---------- UI: 커서 · 일시정지 · 로드아웃 · 점수판 ---------- */
   /* ---------- 무기 교체(라운드가 시작되기 전 대기 시간) ----------
@@ -554,9 +580,11 @@ function buildWorld(ctx, opts) {
     props.load(built.data, built.colliders);     // 기다리지 않는다: 표시 전용이고 cannon-es는 CDN에서 온다
     if (nades) nades.dispose();
     nades = createGrenadeSystem({ world: built.world });
+    c4Stuck.clear();
     active = true;
     simPaused = false; uiPaused = false; scoreboardOpen = false;
     controls = true; customHint = '';            // 이전 모드(멀티 teardown 등)가 남긴 설정을 지운다
+    setHordeInteract(null);
     local.spawned = false; local.alive = false; local.loadout = null;
     rnd.phase = null; rnd.timeLeftMs = null; rnd.alive = null; rnd.teamSize = null; rnd.score = { owner: 0, charterer: 0 }; rnd.round = 0; rnd.ffa = null; rnd.attack = null;
     respawn = null; quick = null; protectUntil = 0;
@@ -592,6 +620,7 @@ function buildWorld(ctx, opts) {
     horde.setActive(false);
     setHordePerks(null);
     if (nades) { nades.dispose(); nades = null; }
+    c4Stuck.clear();
     for (const m of nadeMeshes) m.visible = false;
     fx.clear(false);
     fx.setSpeedAmount(0);
@@ -603,6 +632,7 @@ function buildWorld(ctx, opts) {
     closeWheel();
     local.spawned = false; local.alive = false;
     customHint = '';
+    setHordeInteract(null);                      // 휴대폰 '살리기' 버튼도 숨긴다
     rnd.phase = null; rnd.timeLeftMs = null; rnd.ffa = null;
     respawn = null; quick = null; protectUntil = 0;
     syncQuickTouch(false);
@@ -626,6 +656,7 @@ function buildWorld(ctx, opts) {
   function reset() {
     closeSwap();
     if (nades) nades.clear();
+    c4Stuck.clear();
     for (const m of nadeMeshes) m.visible = false;
     clearDrops();
     bombView.reset();
@@ -656,13 +687,17 @@ function buildWorld(ctx, opts) {
     const x = num(sp.x), z = num(sp.z);
     const y = Number.isFinite(sp.y) ? sp.y : findFloor(map.world, x, z);
     player.spawn({ x, y, z, rotY: num(sp.rotY) });
-    const lo = resolveLoadout(o.loadout);
-    arsenal.resetRound({ ...lo, draw: true });
-    local.loadout = lo[SLOT_KEYS[rulesetOf(ruleset).pickSlot]];
+    // keepArsenal(좀비 모드에서 동료가 살림): 쓰러질 때의 무기·탄·수류탄을 그대로 쓴다. 그 밖의 스폰은 목숨마다 새 장비
+    const keep = !!o.keepArsenal && local.spawned;
+    if (!keep) {
+      const lo = resolveLoadout(o.loadout);
+      arsenal.resetRound({ ...lo, draw: true });
+      local.loadout = lo[SLOT_KEYS[rulesetOf(ruleset).pickSlot]];
+    }
     local.alive = true;
     local.spawned = true;
     local.ownDrops.clear();
-    local.ammoBank.clear();
+    if (!keep) local.ammoBank.clear();
     spec.id = null; spec.name = '';
     latch.fire = latch.rmb = latch.reload = false; latch.slot = null; latch.wheel = 0;
     vm.setVisible(true);
@@ -726,11 +761,13 @@ function buildWorld(ctx, opts) {
 
   /**
    * 좀비 물량 막기 카드 효과(내 화면 몫). null이면 모두 기본값.
-   * o = { mods: arsenal.setMods 값, speed: 이동 배율, maxSpeed, jump, pierce, maxHp }
+   * o = { mods: arsenal.setMods 값, speed: 이동 배율, maxSpeed, jump, pierce, maxHp, nadeMulti, nadeRadiusOf(owner),
+   *       sticky: 내 수류탄이 C4, waveRange: 내 검기 거리(m), waveRangeOf(owner): 그 사람의 검기 거리 }
    */
   function setHordePerks(o) {
     if (!o) {
       hordePerk.speed = 1; hordePerk.pierce = 0; hordePerk.maxHp = 100; hordePerk.nadeMulti = 0; hordePerk.nadeRadiusOf = null;
+      hordePerk.sticky = false; hordePerk.waveRange = 0; hordePerk.waveRangeOf = null;
       arsenal.setMods(null);
       player.setMoveTuning(null);
       slowUntil = 0; grabbedNow = false;
@@ -742,8 +779,18 @@ function buildWorld(ctx, opts) {
     hordePerk.maxHp = Math.max(1, Math.round(num(o.maxHp, 100)));
     hordePerk.nadeMulti = clamp(Math.round(num(o.nadeMulti, 0)), 0, 6);
     hordePerk.nadeRadiusOf = typeof o.nadeRadiusOf === 'function' ? o.nadeRadiusOf : null;
+    hordePerk.sticky = !!o.sticky;
+    hordePerk.waveRange = waveRangeOk(o.waveRange);
+    hordePerk.waveRangeOf = typeof o.waveRangeOf === 'function' ? o.waveRangeOf : null;
     player.setMoveTuning({ maxSpeed: num(o.maxSpeed, 1), jump: num(o.jump, 1) });
     player.setSpeedScale(speedScaleNow());
+  }
+  /** 검기 거리(m): 숫자가 아니거나 음수면 0, 터무니없이 크면 자른다 */
+  const waveRangeOk = (v) => clamp(num(v, 0), 0, 40);
+  /** 그 사람(남)의 검기 거리. 증강이 없거나 알 수 없으면 0 */
+  function waveRangeOfActor(id) {
+    if (!hordePerk.waveRangeOf) return 0;
+    try { return waveRangeOk(hordePerk.waveRangeOf(id)); } catch (e) { return 0; }
   }
   /** 내 부활 대기 표시: { inMs, killer?, weaponName? } | null. spawnLocal이 지운다 */
   function setRespawn(o) {
@@ -779,6 +826,19 @@ function buildWorld(ctx, opts) {
     if (on === quickTouch) return;
     quickTouch = on;
     bus.emit('touch:use', { on, label: '부활' });
+  }
+
+  /**
+   * 좀비 물량 막기 상호작용 안내: o = { hint, touch } | null. hint는 HUD 안내 줄(잠금 안내 다음으로 먼저 보인다),
+   * touch가 켜지면 휴대폰 설치/해체 버튼을 '살리기'로 보인다(누르는 동안 input:use). 안내가 있는 동안 F는 무기 살펴보기를 하지 않는다.
+   * loadMap·unloadMap이 지운다
+   */
+  function setHordeInteract(o) {
+    hordeHint = o && o.hint ? String(o.hint) : '';
+    const on = !!(o && o.touch);
+    if (on === hordeTouch) return;
+    hordeTouch = on;
+    bus.emit('touch:use', { on, label: '살리기' });
   }
   /** 내 보호(무적) 표시: ms(>0) 동안 · true = 끌 때까지 · false/0 = 끔 */
   function setProtect(v) {
@@ -1261,19 +1321,49 @@ function buildWorld(ctx, opts) {
   function localMelee(ev) {
     const eye = player.getEye();
     const fwd = player.getAimDir();
+    const zombie = mode === 'zombie';
     // 좀비 모드: 사람은 모두 아군이라 좀비만 벤다(보스는 몸이 커서 사거리를 몸 크기만큼 더 본다)
-    const hit = mode === 'zombie'
-      ? horde.melee(eye, fwd, num(ev.range, 1.8), num(ev.arc, 0.6), (a, b) => lineOfSight(map.world, a, b))
+    const hit = zombie
+      ? horde.melee(eye, fwd, num(ev.range, 1.8), num(ev.arc, 0.6), worldLos)
       : meleeTrace(map.world, eye, fwd, num(ev.range, 1.8), num(ev.arc, 0.6), targets(), local.id);
-    if (!hit) return;
-    if (mode === 'zombie') horde.noteHit(hit.id);
     const def = getDef(ev.weaponId);
-    if (def) play(def.hitSound);
-    fx.slashSpark(hit.point, [-fwd[0], -fwd[1], -fwd[2]]);
-    protectUntil = 0;
-    emit('hitClaim', {
-      victimId: hit.id, part: hit.part, weaponId: ev.weaponId, dist: hit.dist, kind: ev.kind === 'stab' ? 'stab' : 'slash',
-      t: performance.now(), point: hit.point, origin: r3(eye), count: 1, shotId: ++shotSeq
+    if (hit) {
+      if (zombie) horde.noteHit(hit.id);
+      if (def) play(def.hitSound);
+      fx.slashSpark(hit.point, [-fwd[0], -fwd[1], -fwd[2]]);
+      protectUntil = 0;
+      emit('hitClaim', {
+        victimId: hit.id, part: hit.part, weaponId: ev.weaponId, dist: hit.dist, kind: ev.kind === 'stab' ? 'stab' : 'slash',
+        t: performance.now(), point: hit.point, origin: r3(eye), count: 1, shotId: ++shotSeq
+      });
+    }
+    // 좀비 물량 막기 '검기' 증강: 칼을 휘두를 때마다(빗맞아도) 초승달 검기가 날아가 지나가는 좀비를 벤다. 칼에 맞은 좀비는 건너뛴다
+    if (zombie && hordePerk.waveRange > 0) launchWave(ev, eye, fwd, hit ? hit.id : null, def);
+  }
+
+  /**
+   * 내 검기 하나. 검기마다 shotId 하나를 쓰고, 닿은 좀비마다 칼과 같은 피해의 주장(kind 'wave' | 'waveStab', dist = 날아간 거리)을 낸다.
+   * 판정은 내 화면이 그린 좀비로 하고(사격과 같다), 방장이 거리·검기 증강·한 검기 상한을 다시 본다
+   */
+  function launchWave(ev, eye, fwd, exclude, def) {
+    const kind = ev.kind === 'stab' ? 'waveStab' : 'wave';
+    const weaponId = ev.weaponId;
+    const shotId = ++shotSeq;
+    const origin = r3(eye);
+    const back = [-fwd[0], -fwd[1], -fwd[2]];
+    horde.wave({
+      origin: eye, dir: fwd, range: hordePerk.waveRange, local: true, kind, exclude, los: worldLos,
+      onHit: (h) => {
+        // 날아가는 사이에 쓰러졌으면 더 맞히지 않는다(방장도 쓰러진 사람의 주장은 받지 않는다)
+        if (!active || mode !== 'zombie' || !h || !local.spawned || !local.alive) return;
+        horde.noteHit(h.id);
+        fx.slashSpark(h.point, back);
+        if (def) play(def.hitSound, { pos: h.point, gain: 0.55 });
+        emit('hitClaim', {
+          victimId: h.id, part: 'body', weaponId, dist: round2(h.dist), kind, t: performance.now(),
+          point: r3(h.point), origin, count: 1, shotId
+        });
+      }
     });
   }
 
@@ -1284,17 +1374,19 @@ function buildWorld(ctx, opts) {
     const fwd = player.getAimDir();
     // 좀비 물량 막기 '다연발 투척' 증강: 하나만 줄고 부채꼴로 더 날아간다(가운데, 오른쪽, 왼쪽, 더 오른쪽, …)
     const extra = mode === 'zombie' ? hordePerk.nadeMulti : 0;
+    // 'C4 수류탄' 증강: 같은 궤적으로 날고 튀지만 좀비에 닿으면 붙는다(tick). 모두에게 kind 'c4'로 알려 다른 화면에서도 붙는다
+    const c4 = mode === 'zombie' && hordePerk.sticky ? 'c4' : null;
     for (let i = 0; i <= extra; i++) {
       const ang = i === 0 ? 0 : (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 0.16;
       const c = Math.cos(ang), s = Math.sin(ang);
       const dir = i === 0 ? fwd : [fwd[0] * c - fwd[2] * s, fwd[1], fwd[0] * s + fwd[2] * c];
       const gid = `${local.id}#${++grenadeSeq}`;
-      const g0 = nades.throwFrom({ eye, forward: dir, speed: ev.speed, pitchUp: ev.pitchUp, fuse: ev.fuse, owner: local.id, inherit: st.vel, inheritScale: 0.5, id: gid });
+      const g0 = nades.throwFrom({ eye, forward: dir, speed: ev.speed, pitchUp: ev.pitchUp, fuse: ev.fuse, owner: local.id, inherit: st.vel, inheritScale: 0.5, id: gid, kind: c4 });
       // 보낼 값(protocol.encodeGrenade의 cm 해상도)과 내가 시뮬레이션하는 값을 똑같이 → 모든 클라이언트가 같은 궤적
       const pos = r2(g0.pos), vel = r2(g0.vel);
       nades.remove(gid);
-      nades.spawn(pos, vel, { owner: local.id, fuse: g0.fuse, id: gid });
-      emit('grenade', { id: local.id, grenadeId: gid, pos, vel, fuse: g0.fuse, t: performance.now(), kind: ev.kind });
+      nades.spawn(pos, vel, { owner: local.id, fuse: g0.fuse, id: gid, kind: c4 });
+      emit('grenade', { id: local.id, grenadeId: gid, pos, vel, fuse: g0.fuse, t: performance.now(), kind: c4 || ev.kind });
     }
   }
 
@@ -1302,6 +1394,7 @@ function buildWorld(ctx, opts) {
   function onGrenadeEvent(e) {
     if (e.type === 'bounce') { play('grenade_bounce', { pos: e.pos, gain: Math.min(1, num(e.speed, 2) / 6) }); return; }
     if (e.type !== 'explode') return;
+    c4Stuck.delete(e.id);
     const c = arr3(e.pos);
     // 좀비 물량 막기 '폭발 반경' 증강: 던진 사람의 배율만큼 넓게 터진다(방장 화면은 남의 수류탄도 그 사람 배율로 잰다)
     const pdef = e.kind ? PROJ_DEF[e.kind] : null;
@@ -1329,27 +1422,56 @@ function buildWorld(ctx, opts) {
     const live = nades.list();
     if (live.length >= MAX_LIVE_GRENADES || live.some((g) => g.id === gid)) return null;   // 한도(프레임 하나에 수천 개를 보내도 끄떡없게) · 중복 수신
     const fuse = num(o.fuse, WEAPONS.gr_frag.fuse);
-    const g = nades.spawn(arr3(o.pos), arr3(o.vel), { owner: o.id != null ? String(o.id) : null, fuse, id: gid, kind: o.kind === 'gl' || o.kind === 'rocket' ? o.kind : null });
-    // 늦게 받은 만큼 앞당기기(폭발 직전까지만)
+    const kind = o.kind === 'gl' || o.kind === 'rocket' || o.kind === 'c4' ? o.kind : null;
+    const g = nades.spawn(arr3(o.pos), arr3(o.vel), { owner: o.id != null ? String(o.id) : null, fuse, id: gid, kind });
+    // 늦게 받은 만큼 앞당기기(폭발 직전까지만). C4는 잘게 나눠 가며 좀비에 닿았는지 본다(던진 사람 화면에서 붙은 C4가 지나쳐 날아가지 않게)
     const lag = Number.isFinite(o.t) ? (performance.now() - o.t) / 1000 : 0;
     if (g && lag > 0.02) {
       let left = Math.min(lag, Math.max(0, fuse - 0.1));
       const sweep = map && map.world ? map.world.sphereSweep : null;
+      const c4 = kind === 'c4' && mode === 'zombie';
       while (left > 1e-4) {
-        const h = Math.min(0.25, left);
+        const h = Math.min(c4 ? C4_CATCHUP_STEP : 0.25, left);
         stepGrenade(g, h, sweep, { style: nades.sweepStyle, physics: GRENADE_PHYSICS, floorY: 0 });
         left -= h;
+        if (c4 && !g.stuck) stickC4(g);
       }
     }
     return gid;
+  }
+
+  /**
+   * C4 한 개(수류탄 목록의 항목이나 시스템 안의 객체): 아직 안 붙었으면 닿은 좀비에 붙이고, 붙어 있으면 그 좀비를 따라 옮긴다.
+   * 좀비가 쓰러지거나 사라지면 떼어 내 그 자리에서 떨어진다. 신관은 그대로 가서 제시간에 터진다
+   */
+  function stickC4(g) {
+    const s = c4Stuck.get(g.id);
+    if (!g.stuck) {
+      if (s) c4Stuck.delete(g.id);
+      const z = horde.touchingZombie(g.pos, C4_TOUCH_R);
+      if (!z || !nades.stick(g.id)) return;
+      const off = c4Offset(z, g.pos[0], g.pos[1], g.pos[2], g.vel[0], g.vel[2]);
+      const rec = { zid: z.id, x: off.x, y: off.y, z: off.z };
+      c4Stuck.set(g.id, rec);
+      nades.place(g.id, c4WorldPos(z, rec, c4At));
+      play('grenade_bounce', { pos: c4At, gain: 0.45 });
+      return;
+    }
+    const z = s ? horde.zombieAt(s.zid) : null;
+    if (!z) { c4Stuck.delete(g.id); nades.unstick(g.id); return; }
+    nades.place(g.id, c4WorldPos(z, s, c4At));
   }
 
   function drawGrenades() {
     const list = nades ? nades.list() : [];
     for (let i = 0; i < list.length; i++) {
       const g = list[i], m = nadeMesh(i);
+      const led = m.userData.led;
       m.visible = true;
       m.position.set(g.pos[0], g.pos[1], g.pos[2]);
+      if (g.kind === 'c4') { drawC4(g, m, led); continue; }
+      m.geometry = nadeGeo;
+      if (led) led.visible = false;
       if (g.kind === 'rocket') {
         // 로켓: 날아가는 쪽으로 길게(원기둥의 y축을 속도 방향으로)
         m.material = projMats.rocket;
@@ -1364,6 +1486,38 @@ function buildWorld(ctx, opts) {
       }
     }
     for (let i = list.length; i < nadeMeshes.length; i++) nadeMeshes[i].visible = false;
+  }
+
+  /** 바닥에 멈춘 C4의 방향: 수류탄 번호로 정해 두어 화면마다 같고 멈춘 동안 바뀌지 않는다 */
+  function restYaw(id) {
+    const s = String(id);
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return (h % 628) / 100;
+  }
+  /** C4 모형: 날 때는 구르고, 좀비에 붙으면 납작한 면을 몸에 대고(이번 프레임 좀비 자리로 옮긴다), 바닥에 멈추면 눕는다. 빨간 불은 끝이 가까울수록 빨리 깜박인다 */
+  function drawC4(g, m, led) {
+    m.geometry = c4Geo;
+    m.material = c4Mat;
+    m.scale.set(1, 1, 1);
+    const s = g.stuck ? c4Stuck.get(g.id) : null;
+    const z = s ? horde.zombieAt(s.zid) : null;
+    if (z) {
+      c4WorldPos(z, s, c4At);
+      m.position.set(c4At[0], c4At[1], c4At[2]);
+      // 위(y)를 몸 바깥쪽으로: 붙은 자리 - 몸 중심(수평)
+      const nx = c4At[0] - z.x, nz = c4At[2] - z.z, nl = Math.hypot(nx, nz) || 1;
+      tmpV.set(nx / nl, 0, nz / nl);
+      m.quaternion.setFromUnitVectors(UP_V, tmpV);
+    } else if (g.sleeping) {
+      m.rotation.set(0, restYaw(g.id), 0);         // 멈춘 C4는 제자리에 그대로 눕는다(돌지 않는다)
+      m.position.y -= 0.03;                        // 굴러다니는 공 반지름(0.07)보다 납작해서 바닥에 붙여 눕힌다
+    } else m.rotation.set(g.age * 9, 0, g.age * 5.5);
+    if (!led) return;
+    led.visible = true;
+    const left = g.fuse - g.age;
+    const hz = left < 0.6 ? 8 : left < 1.4 ? 4 : 1.5;
+    led.material = Math.floor(left * hz * 2) % 2 === 0 ? ledOn : ledOff;
   }
 
   /* ---------- 액터(원격·봇) ---------- */
@@ -1479,6 +1633,15 @@ function buildWorld(ctx, opts) {
       play(o.kind === 'stab' ? def.heavySound : def.sound, { pos: origin });
       const av = avatars.get(String(o.id));
       if (av) av.swing(o.kind);                  // 3인칭: 든 칼을 휘두른다
+      // 좀비 물량 막기 '검기': 그 사람의 검기를 보여 준다(맞히는 판정은 그 사람 화면이 한다). 칼이 맞는 순간(windup)에 맞춰 늦게 날린다
+      const range = mode === 'zombie' ? waveRangeOfActor(String(o.id)) : 0;
+      if (range > 0) {
+        const m = def.melee[o.kind === 'stab' ? 'stab' : 'slash'] || def.melee.slash;
+        horde.wave({
+          origin, dir: d, range, local: false, kind: o.kind === 'stab' ? 'waveStab' : 'wave', los: worldLos,
+          delayMs: Math.round(clamp(num(m && m.windup, 0.1), 0, 1) * 1000)
+        });
+      }
       return;
     }
     const kind = (def && def.fxKind) || 'rifle';
@@ -1663,7 +1826,13 @@ function buildWorld(ctx, opts) {
     }
     for (const d of drops.expire()) removeDropView(d.id);
     if (nades && mode === 'zombie') {
-      for (const g of nades.list()) if (g.kind && horde.touching(g.pos, g.kind === 'rocket' ? 0.55 : 0.45)) nades.detonate(g.id);
+      for (const g of nades.list()) {
+        const pj = g.kind ? PROJECTILES[g.kind] : null;
+        if (!pj) continue;
+        // 유탄·로켓은 좀비에 닿으면 바로 터지고, C4는 닿은 좀비에 붙어 따라간다(내 것·남의 것 모두)
+        if (pj.impact) { if (horde.touching(g.pos, g.kind === 'rocket' ? 0.55 : 0.45)) nades.detonate(g.id); }
+        else if (pj.sticky) stickC4(g);
+      }
     }
     if (nades) for (const ge of nades.update(dt)) onGrenadeEvent(ge);
     if (mode === 'bomb') bombView.tick(dt);
@@ -1732,9 +1901,10 @@ function buildWorld(ctx, opts) {
     cam.rotation.y += sh.yaw;
     cam.rotation.z += sh.roll;
     audio.setListener(cam.position, cam.rotation.y, cam.rotation.x);
+    // 좀비를 먼저 그린다: 좀비에 붙은 C4를 이번 프레임 좀비 자리에 그린다. 일시정지 중에는 검기가 멈춰 있는다
+    if (mode === 'zombie') horde.frame(dt, performance.now(), simPaused);
     drawGrenades();
     if (mode === 'bomb') bombView.frame(dt);
-    if (mode === 'zombie') horde.frame(dt);
     for (const v of dropViews.values()) v.spin.rotation.y += dt * 1.4;
     // 속도 줄기: 걷기 속도부터 나타나 수평 속도 상한에서 가장 세다
     fx.setSpeedAmount(local.spawned && local.alive ? (num(player.state.speed) - PLAYER.WALK) / (MOVE.MAX_SPEED - PLAYER.WALK) : 0);
@@ -1786,7 +1956,9 @@ function buildWorld(ctx, opts) {
       p.protect = false;
     }
     p.bomb = mode === 'bomb' ? bombView.hud() : null;
-    p.hint = lockHint() || pickHint() || customHint || '';
+    p.hint = lockHint() || hordeHint || pickHint() || customHint || '';
+    // 살리기 안내는 읽기만 하는 줄이다: 휴대폰에서 이 줄을 눌러도 총 버리기(줍기 안내용 탭)가 되지 않게 ui/hud.js가 표시한다
+    p.hintInfo = !lockHint() && !!hordeHint;
     // 무기 교체 안내: 대기 시간이 끝나면 치운다. 죽었거나 관전 중이면 띄우지 않는다
     if (swap && swapLeft() <= 0) closeSwap();
     // 목록이 열려 있는 동안에는 목록의 제목과 남은 시간이 대신 알려 주므로 안내를 감춘다
@@ -1839,6 +2011,7 @@ function buildWorld(ctx, opts) {
     if (nades) nades.dispose();
     for (const m of nadeMeshes) R.scene.remove(m);
     nadeGeo.dispose(); nadeMat.dispose();
+    c4Geo.dispose(); c4Mat.dispose(); ledGeo.dispose(); ledOn.dispose(); ledOff.dispose();
     clearDrops();
     dropRingGeo.dispose(); dropRingMat.dispose(); dropRingPremium.dispose();
     avatars.setDelay(prevDelay);
@@ -1887,13 +2060,15 @@ function buildWorld(ctx, opts) {
     setActorProtect,
     /**
      * 좀비 물량 막기(WORLD_API 9절): 방장 뷰(horde/director.js applyHordeSnapshot)를 받은 시각과 함께 넣으면 좀비·보스·투사체·장판을
-     * 시간축으로 보간해 그린다. 내 사격·칼·수류탄은 이 좀비들을 맞히고 'hitClaim'(victimId 'z12')을 낸다
+     * 시간축으로 보간해 그린다. 내 사격·칼·검기·수류탄은 이 좀비들을 맞히고 'hitClaim'(victimId 'z12')을 낸다. 쓰러진 동료 표시는 나를 빼고 띄운다
      */
-    hordePush: (view, t) => horde.push(view, t),
+    hordePush: (view, t) => horde.push(view, t, local.id),
     /** 방장 이벤트 중 연출이 필요한 것(skill·chain·enrage) */
     hordeEvent: (ev) => horde.event(ev),
-    /** 증강 효과(내 화면 몫): { mods, speed, maxSpeed, jump, pierce, maxHp, nadeMulti, nadeRadiusOf(owner) } | null */
+    /** 증강 효과(내 화면 몫): { mods, speed, maxSpeed, jump, pierce, maxHp, nadeMulti, nadeRadiusOf(owner), sticky, waveRange, waveRangeOf(owner) } | null */
     setHordePerks,
+    /** 좀비 물량 막기 상호작용 안내 { hint, touch } | null — HUD 안내 줄(잠금 안내 다음 순서)과 휴대폰 '살리기' 버튼(touch:use) */
+    setHordeInteract,
     /** 좀비에게 준 피해 숫자를 pos에 띄운다. kind = 'head' | 'body' | 'legs' | 'melee' | 'nade' */
     hordeDamageNumber: (pos, amount, kind) => horde.damageNumber(pos, amount, kind),
     /** (좀비 물량 막기 증강) 보조무기 칸을 이 무기로 바꾼다(새 탄 가득). 살아 있을 때만 → 바꿨으면 true */
@@ -1971,7 +2146,7 @@ function buildWorld(ctx, opts) {
     get multiKillCount() { return multiKill.count; },
     get paused() { return uiPaused; },
     /** 디버그·테스트용 내부 객체(읽기 전용으로 쓸 것) */
-    get internals() { return { arsenal, vm, fx, audio, nades, actors, local, rnd, props, drops, bombView, horde, hordePerk }; }
+    get internals() { return { arsenal, vm, fx, audio, nades, actors, local, rnd, props, drops, bombView, horde, hordePerk, c4Stuck }; }
   };
 
   W.handle = function handle() {

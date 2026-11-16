@@ -2180,3 +2180,74 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
   .sk-fb-intro { display: none; }
   .sk-fb-text { min-height: 84px; }
 }
+
+/* ───────────── 좀비 물량 막기 고르기 시트(ui/menu.js): 같이 하기(공개 방) · 혼자 하기 · 로비에서 찾기 ─────────────
+   메뉴 버튼(.sk-menu-btn)과 같은 모양의 큰 칸 둘. 같이 하기는 메뉴의 좀비 버튼과 같은 초록이다 */
+.sk-zpick { width: min(520px, 100%); }
+.sk-zpick-opts { display: grid; gap: 10px; }
+.sk-zpick-opt {
+  display: flex; align-items: center; gap: 14px; min-width: 0; min-height: 76px; padding: 12px 16px;
+  border: 1px solid var(--sk-edge); border-radius: 10px; text-align: left; color: var(--sk-text); cursor: pointer;
+  background: rgba(14, 20, 34, .84); box-shadow: 0 8px 22px rgba(0, 0, 0, .26);
+  transition: background .12s, border-color .12s, box-shadow .12s, transform .06s;
+}
+.sk-zpick-opt:hover:not(:disabled) { border-color: rgba(96, 220, 104, .75); background: rgba(18, 34, 30, .92); box-shadow: 0 0 0 1px rgba(96, 220, 104, .3), 0 0 22px rgba(96, 220, 104, .16); }
+.sk-zpick-opt:active:not(:disabled) { transform: translateY(1px); }
+.sk-zpick-opt:disabled { cursor: not-allowed; opacity: .55; }
+.sk-zpick-opt--room { color: var(--sk-on-accent); border-color: transparent; background: linear-gradient(100deg, #9cee72, #3fbf5a 70%); box-shadow: 0 0 22px rgba(96, 220, 104, .3); }
+.sk-zpick-opt--room:hover:not(:disabled) { border-color: transparent; background: linear-gradient(100deg, #b6f58f, #4fd06a 70%); box-shadow: 0 0 30px rgba(96, 220, 104, .48); }
+.sk-zpick-opt--room.is-locked { color: var(--sk-text); border-color: var(--sk-edge); background: rgba(14, 20, 34, .84); box-shadow: none; }
+.sk-ui .sk-zpick-opt--room:focus-visible { outline-color: #fff; }
+.sk-zpick-ico { flex: none; font-size: 30px; line-height: 1; }
+.sk-zpick-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sk-zpick-label { font-size: 17px; font-weight: 800; }
+.sk-zpick-sub { font-size: 13px; line-height: 1.35; opacity: .85; }
+.sk-zpick-note { font-size: 12.5px; line-height: 1.45; color: var(--sk-warn); }
+.sk-zpick-find { align-self: center; }
+
+/* ───────────── 좀비 물량 막기 동료 살리기(ui/horde.js) ─────────────
+   살리기 막대: 크로스헤어 아래(폭파 미션 설치 막대와 같은 자리, 좀비 모드에는 폭탄이 없다). 진행은 스냅샷마다 와서 .2초씩 이어 채운다 */
+.sk-hz-revive { position: absolute; left: 50%; top: calc(50% + 34px); width: 260px; margin-left: -130px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.sk-hz-revive-t {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 900 14px/1.2 var(--sk-stencil); color: #c9ffd9; text-shadow: 0 1px 2px var(--sk-navy-900), 0 0 8px var(--sk-navy-900);
+}
+.sk-hz-revive-bar { width: 100%; height: 8px; border-radius: 4px; overflow: hidden; background: rgba(4, 7, 14, .78); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .2); }
+.sk-hz-revive-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--sk-ok), #9cee72); transform: scaleX(0); transform-origin: left; transition: transform .2s linear; }
+.sk-ui.sk-cursor .sk-hz-revive { visibility: hidden; }
+/* 쓰러진 내 화면(동료가 나를 살리는 중): 크로스헤어가 없고 아래에 관전 이름표(.sk-spec, bottom 116px)가 있으니 그 위로 올린다 */
+.sk-hz-revive.is-down { top: auto; bottom: 160px; }
+html.pc-touch .sk-hz-revive.is-down { bottom: calc(180px + env(safe-area-inset-bottom)); }
+/* 동료 줄: 쓰러진 사람의 안내는 줄 하나를 다 쓰고, 동료가 살리는 중이면 막대가 초록으로 찬다 */
+.sk-hz-mate.is-down .sk-hz-mhp { grid-column: 1 / -1; text-align: left; font-size: 11px; line-height: 1.3; color: #ffb9ad; }
+.sk-hz-mate.is-reviving { opacity: .9; }
+.sk-hz-mate.is-reviving .sk-hz-mbar > i { background: var(--sk-ok); }
+.sk-hz-mate.is-reviving .sk-hz-mhp { color: #9ff5c8; }
+@media (prefers-reduced-motion: reduce) { .sk-hz-revive-bar i { transition: none; } }
+
+/* 휴대폰: 좁은 세로 화면은 한 줄씩 작게, 높이가 낮은 가로 화면은 두 칸을 나란히(시트가 화면 높이를 넘지 않게) */
+@media (max-width: 560px) {
+  .sk-zpick-opt { min-height: 64px; padding: 10px 12px; gap: 12px; }
+  .sk-zpick-ico { font-size: 26px; }
+  .sk-zpick-label { font-size: 16px; }
+  .sk-zpick-sub { font-size: 12px; }
+}
+@media (max-height: 480px) {
+  .sk-zpick-opts { gap: 8px; }
+  .sk-zpick-opt { min-height: 56px; padding: 8px 12px; gap: 10px; }
+  .sk-zpick-ico { font-size: 24px; }
+  .sk-zpick-label { font-size: 14.5px; }
+  .sk-zpick-sub { font-size: 11.5px; }
+  .sk-zpick-note { font-size: 11.5px; }
+}
+@media (max-height: 480px) and (min-width: 561px) {
+  .sk-zpick { width: min(560px, 100%); }
+  .sk-zpick-opts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sk-zpick-opt { align-items: flex-start; min-height: 64px; }
+}
+@media (max-width: 640px), (max-height: 480px) {
+  .sk-hz-revive { width: 210px; margin-left: -105px; }
+  .sk-hz-revive.is-down { bottom: 172px; }   /* 좁은 화면의 관전 이름표는 bottom 128px */
+  .sk-hz-revive-t { font-size: 12.5px; }
+  .sk-hz-mate.is-down .sk-hz-mhp { font-size: 10.5px; }
+}

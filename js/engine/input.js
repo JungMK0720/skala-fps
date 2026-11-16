@@ -8,7 +8,7 @@
  * SKALA 작전 — 입력 (Pointer Lock · 키보드 · 마우스 · 휠)
  *
  *   const input = createInput({ element: canvas, bus, settings, touch });   // touch = 휴대폰 조작(engine/touch.js가 input.touch로 넣는다)
- *   input.state.forward / back / left / right / jump / walk / crouch / fire / aim / scoreboard / use   (boolean, 폴링용)
+ *   input.state.forward / back / left / right / jump / walk / crouch / fire / aim / scoreboard / use / interact   (boolean, 폴링용)
  *   input.consumeLook() → { dx, dy }  // 라디안 (감도·lookScale 적용됨, invertY 반영). 프레임마다 1번 호출
  *   input.requestLock() / exitLock() / isLocked()
  *   input.setLookScale(s)  // 줌 중 감도 배율 (무기 모듈)
@@ -24,15 +24,18 @@
  *   input.keyboardLocked   // 전체 화면 + Keyboard Lock이 걸려 브라우저 단축키를 게임이 받고 있는가
  *   input.canKeyboardLock  // 이 브라우저가 Keyboard Lock을 지원하는가(크로뮴 계열)
  *
- * 키는 e.code 기준(한/영 상태와 무관): WASD(+화살표) · Space · Shift · Ctrl/C(앉기) · R · E(폭탄 설치·해체) · F(무기 살펴보기) · G(들고 있는 총 버리기) · 1~4 · Tab · Esc · Enter(채팅)
+ * 키는 e.code 기준(한/영 상태와 무관): WASD(+화살표) · Space · Shift · Ctrl/C(앉기) · R · E(폭탄 설치·해체) · F(무기 살펴보기 · 좀비 멀티 동료 살리기) · G(들고 있는 총 버리기) · 1~4 · Tab · Esc · Enter(채팅)
  *   · N(라운드 시작 전 무기 교체, input:loadout) · F11(전체 화면 켜고 끄기, input:fullscreenToggle)
  * Space: input.state.jump = 누르는 동안 true(player가 착지 즉시 다시 뛰는 데 쓴다), input:jump는 누른 순간 1번.
  *        잠금을 잃거나 창 포커스를 잃으면 풀리고, 키 반복으로는 다시 켜지지 않는다.
  * E(폭파 미션 설치·해체, 개인전 부활 대기 중 즉시 부활 — 둘 다 World가 듣는다): 누르는 동안 input.state.use = true. 누른 순간 input:use{down:true}, 뗀 순간(눌려 있었을 때만) input:use{down:false}.
  *        키 반복은 무시하고, 입력이 꺼져 있으면 눌리지 않는다. 잠금·창 포커스를 잃거나 setEnabled(false)면 떼어진다(releaseAll).
  *        휴대폰은 설치/해체 버튼이 input.touch.use(down)으로 같은 상태와 이벤트를 낸다.
+ * F(무기 살펴보기 + 좀비 멀티에서 쓰러진 동료 살리기 — 살리기는 horde/client.js가 폴링한다): 누른 순간 input:inspect는 그대로 내고,
+ *        누르는 동안 input.state.interact = true. 누른 순간 input:interact{down:true}, 뗀 순간(눌려 있었을 때만) input:interact{down:false}.
+ *        E와 같이 키 반복은 무시하고, 입력이 꺼져 있으면 눌리지 않으며, 잠금·창 포커스를 잃거나 setEnabled(false)면 떼어진다(releaseAll).
  * bus 이벤트: input:lock{locked} · input:fire{down} · input:aim{active,source} · input:zoom{down}(터치 조준 버튼) · input:reload · input:inspect · input:drop · input:slot{slot}
- *            input:cycle{dir} · input:jump · input:walk{down} · input:crouch{down} · input:use{down} · input:scoreboard{open} · input:menu{reason}
+ *            input:cycle{dir} · input:jump · input:walk{down} · input:crouch{down} · input:use{down} · input:interact{down} · input:scoreboard{open} · input:menu{reason}
  *            input:key{code,down} (모든 키, 반복 제외) · input:chat (잠금 중 Enter, 휴대폰은 채팅 버튼. 멀티플레이 경기면 session이 채팅 입력칸을 연다)
  *            input:emoteWheel{open,cursor,selected,id,code,tap,cancelled?} · input:emotePick{id,code,selected} · input:emoteCancel{reason}
  *            input:loadout (N, 키 반복 제외. 무기 교체 창을 여닫는 것은 연습장·세션이 한다) · input:lockRequest (requestLock을 부른 순간, 사용자 입력 안)
@@ -92,7 +95,7 @@ function isTyping(e) {
 
 export function createInput({ element, bus, settings, touch = false } = {}) {
   const el = element || document.body;
-  const state = { forward: false, back: false, left: false, right: false, jump: false, walk: false, crouch: false, fire: false, aim: false, scoreboard: false, emoteWheel: false, use: false };
+  const state = { forward: false, back: false, left: false, right: false, jump: false, walk: false, crouch: false, fire: false, aim: false, scoreboard: false, emoteWheel: false, use: false, interact: false };
   const wheel = { open: false, x: 0, y: 0, selected: null, tap: false };
   let wheelIds = DEFAULT_EMOTE_WHEEL.slice();   // 칸 → 이모트 id (world가 계정 장비로 맞춘다)
   let emoteLock = false;
@@ -125,6 +128,12 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     if (down ? state.use || !enabled : !state.use) return;
     state.use = down;
     emit('input:use', { down });
+  }
+  /** 살리기(F 누르고 있기, 좀비 멀티). setUse와 같은 규칙: 누름은 입력이 켜져 있을 때만, 뗌은 눌려 있었을 때만 낸다 */
+  function setInteract(down) {
+    if (down ? state.interact || !enabled : !state.interact) return;
+    state.interact = down;
+    emit('input:interact', { down });
   }
 
   /* ---------- 이모트 휠 ---------- */
@@ -167,6 +176,7 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     if (state.fire) { state.fire = false; emit('input:fire', { down: false }); }
     if (state.aim) setAim(false, 'release');
     setUse(false);
+    setInteract(false);
     if (state.scoreboard) { state.scoreboard = false; emit('input:scoreboard', { open: false }); }
     lookX = lookY = 0;
   }
@@ -210,7 +220,7 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     if (code === 'ShiftLeft' || code === 'ShiftRight') { state.walk = true; emit('input:walk', { down: true }); return; }
     if (code === 'KeyR') { emit('input:reload', {}); return; }
     if (code === 'KeyE') { if (locked) e.preventDefault(); setUse(true); return; }
-    if (code === 'KeyF') { if (locked) e.preventDefault(); emit('input:inspect', {}); return; }
+    if (code === 'KeyF') { if (locked) e.preventDefault(); emit('input:inspect', {}); setInteract(true); return; }
     if (code === 'KeyG') { if (locked) e.preventDefault(); emit('input:drop', {}); return; }
     if (code === 'KeyB') { openWheel(); return; }
     if (code === 'KeyN') { if (locked) e.preventDefault(); emit('input:loadout', {}); return; }
@@ -229,6 +239,7 @@ export function createInput({ element, bus, settings, touch = false } = {}) {
     if (CROUCH_KEYS.has(code)) { crouchDown.delete(code); syncCrouch(); return; }
     if (code === 'KeyB') { closeWheel(true); return; }
     if (code === 'KeyE') { setUse(false); return; }
+    if (code === 'KeyF') { setInteract(false); return; }
     const mv = MOVE_KEYS[code];
     if (mv) { state[mv] = false; return; }
     if (code === 'Space') { state.jump = false; return; }

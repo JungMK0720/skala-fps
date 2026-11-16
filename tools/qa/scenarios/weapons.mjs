@@ -269,7 +269,8 @@ export default {
   title: '모든 무기의 사격, 재장전, 교체, 줌, 칼, 수류탄, 살펴보기, 규칙 제한',
   timeoutMs: 15 * 60 * 1000,
   async run(t) {
-    const guns = [...PRIMARY_IDS, ...SECONDARY_IDS].filter((id) => !t.filter || id.includes(t.filter));
+    // 좀비 전용 무기(유탄 발사기·바주카포, defs zombieOnly)는 장비 화면에 없고 좀비 모드 증강으로만 얻는다(zombie 시나리오가 본다)
+    const guns = [...PRIMARY_IDS, ...SECONDARY_IDS].filter((id) => !WEAPONS[id].zombieOnly && (!t.filter || id.includes(t.filter)));
     let page = await startMatch(t, 'sandbox=alley&mode=ffa&ruleset=classic&bots=1&killtarget=50');
     let count = 0;
     for (const id of guns) {

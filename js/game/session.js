@@ -760,14 +760,21 @@ export function createSession(options = {}) {
   }
 
   /* ---------------------------------------------------------------- 로비 */
+  /**
+   * 로비를 연다. opts.create(방 만들기 값, 예: 메뉴 좀비 '같이 하기'의 { mode: 'zombie' })를 주면 로비가 준비되는 대로 그 방을 만든다:
+   * 이미 로비면 바로, 연결 중이면 연결된 뒤(pendingAction)
+   */
   async function open(opts) {
     if (disposed) return api;
     const nm = accountName() || cleanText(opts && opts.name, 24);
     if (nm) playerName = nm;
     retryNickname();
-    if (phase === 'lobby') { showLobby(); return api; }
+    const create = opts && opts.create && typeof opts.create === 'object' ? { ...opts.create } : null;
+    if (phase === 'lobby') { showLobby(); if (create) createRoom(create); return api; }
+    if (phase === 'connecting' && create) { pendingAction = () => createRoom(create); return api; }
     if (phase !== 'idle' && phase !== 'closed') return api;
     phase = 'connecting';
+    if (create) pendingAction = () => createRoom(create);
     lobbyError = null; lobbyNotice = null;
     U('show', 'lobby', { rooms: lobbyRooms, loading: true, error: null, joining: null, name: playerName });
     screen('lobby');
@@ -890,10 +897,13 @@ export function createSession(options = {}) {
     const max = isZombieMode(mode) ? clampInt(p && p.max, 2, Math.min(ZOMBIE_MAX, roomLimit()), Math.min(ZOMBIE_MAX, roomLimit()))
       : clampInt(p && p.max, 2, roomLimit(), Math.min(8, roomLimit()));
     const ruleset = mode === 'bomb' || isZombieMode(mode) ? 'classic' : normalizeRuleset(p && p.ruleset);   // 폭파 미션·좀비는 클래식 고정
+    // 이름을 안 주면 '○○의 방'(좀비 방은 '○○의 좀비 방'). 좀비 방은 맵을 안 주면 첫 좀비 전용 맵이고, 비밀번호를 안 주면 공개 방이다
+    const name = cleanText(p && p.name, 24) || (isZombieMode(mode) ? `${playerName}의 좀비 방` : `${playerName}의 방`);
+    const mapId = validMapFor(ruleset, (p && p.mapId) || (isZombieMode(mode) ? '' : o.mapId), mode) || o.mapId;
     U('update', 'lobby', { error: null, loading: true });
     try {
       const r = await net.createRoom({
-        name: cleanText(p && p.name, 24) || `${playerName}의 방`, mapId: validMapFor(ruleset, (p && p.mapId) || o.mapId, mode), max,
+        name, mapId, max,
         mode, ruleset, killTarget: mode === 'ffa' ? normalizeKillTarget(p && p.killTarget) : undefined,
         password: cleanPassword(p && p.password) || undefined
       });
@@ -1888,6 +1898,15 @@ export function createSession(options = {}) {
       }
       return;
     }
+    // 좀비 물량 막기 동료 살리기: { k:'zrev', mid, id: 쓰러진 사람, on: 1|0 } 손님 → 방장. 누르는 동안 0.3초마다 on, 떼면 off.
+    // 방장이 거리·상태를 보고 3초를 센다(director.reviveAction)
+    if (p.k === 'zrev') {
+      if (hm && hostReady() && isZombieMode(hm.mode) && p.mid === hm.mid && !banned.has(String(msg.from)) && typeof p.id === 'string' && p.id && p.id.length <= 64
+        && typeof hm.m.reviveAction === 'function') {
+        publishReal(hm.m.reviveAction(String(msg.from), p.id, !!p.on));
+      }
+      return;
+    }
     if (p.k === 'prep' && msg.from === room.hostId() && typeof p.mid === 'string' && p.mid.length <= 16) {
       if (phase === 'room' && p.mid !== finishedMid) enterMatch(p.mid, cleanText(p.map, 32) || room.meta.mapId || o.mapId, p.mode, p.rs);
       return;
@@ -2086,7 +2105,7 @@ export function createSession(options = {}) {
     if (c.horde) return;
     c.horde = createHordeClient({
       world, ui, meId: me, myName: () => myName(), loadout: () => c.pick, input: ctx && ctx.input,
-      actions: { pick: (card) => sendCard(c, 'pick', card), reroll: () => sendCard(c, 'reroll'), loot: (id) => sendLoot(c, id) },
+      actions: { pick: (card) => sendCard(c, 'pick', card), reroll: () => sendCard(c, 'reroll'), loot: (id) => sendLoot(c, id), revive: (id, on) => sendRevive(c, id, on) },
       onOver: () => { if (current === c) showResults(null); },
       onActorSpawn: (id, sp) => {
         const a = actors.get(id);
@@ -2114,6 +2133,13 @@ export function createSession(options = {}) {
     const msg = { k: 'zloot', mid: c.mid, id: Number(id) | 0 };
     if (room.isHost()) { onControl(msg, { from: me }); return; }
     try { room.sendTo(room.hostId(), CONTROL_EVENT, msg); } catch (e) { report(e, 'zloot'); }
+  }
+  /** 쓰러진 동료 살리기를 방장에게(내가 방장이면 바로). 누르는 동안 on을 거듭 보내고, 떼면 off를 한 번 보낸다 */
+  function sendRevive(c, id, on) {
+    if (!room || current !== c || id == null || id === '') return;
+    const msg = { k: 'zrev', mid: c.mid, id: String(id).slice(0, 64), on: on ? 1 : 0 };
+    if (room.isHost()) { onControl(msg, { from: me }); return; }
+    try { room.sendTo(room.hostId(), CONTROL_EVENT, msg); } catch (e) { report(e, 'zrev'); }
   }
   /** 좀비 뷰 → 세션 공용 모양(점수판·이름·원격 아바타 frame()이 읽는 players). 모두 블루 팀이다 */
   function hordeCompatView(hv) {
@@ -3014,7 +3040,8 @@ export function createSession(options = {}) {
   });
   wOn('grenade', (g) => {
     if (!inRound() || current.phase !== 'live') return;
-    sync.sendGrenade({ pos: g.pos, vel: g.vel, t: localT(g.t), kind: g.kind === 'gl' || g.kind === 'rocket' ? g.kind : undefined, fuse: g.fuse });
+    // 종류: 손 수류탄(없음) · 유탄 발사기 'gl' · 바주카포 'rocket' · C4 수류탄 'c4'(좀비 모드 증강, 좀비에 붙는다)
+    sync.sendGrenade({ pos: g.pos, vel: g.vel, t: localT(g.t), kind: g.kind === 'gl' || g.kind === 'rocket' || g.kind === 'c4' ? g.kind : undefined, fuse: g.fuse });
   });
   // 총은 죽은 뒤에 버리므로 살아 있는지(inRound)는 보지 않는다
   wOn('weaponDrop', (d) => {

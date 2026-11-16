@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  PROTOCOL_VERSION, EV, PART_CODES, KIND_CODES, PHASE_CODES, TEAM_CODES, IMPACT_CODES, FLAG,
+  PROTOCOL_VERSION, EV, PART_CODES, KIND_CODES, PHASE_CODES, TEAM_CODES, IMPACT_CODES, FLAG, GRENADE_KIND_CODES,
   encodeState, encodeStateBody, decodeState, quantizeState, bodyNearlyEqual,
   encodeFire, decodeFire, encodeHit, decodeHit, encodeGrenade, decodeGrenade,
   encodeMatch, decodeMatch, encodeMatchEvent, decodeMatchEvent,
@@ -360,6 +360,133 @@ describe('경기 스냅샷·이벤트', () => {
     assert.equal({}.polluted, undefined);
     assert.deepEqual(Object.keys(m.snapshot.players), ['u']);
     assert.equal(m.snapshot.k, 1);
+  });
+});
+
+describe('좀비 물량 막기: C4 수류탄·검기 주장', () => {
+  /** C4를 더하기 전의 decodeGrenade(옛 클라이언트가 받는 모양) */
+  function oldDecodeGrenade(a) {
+    if (!Array.isArray(a) || a.length < 8) return null;
+    for (let i = 0; i < 8; i++) if (typeof a[i] !== 'number' || !Number.isFinite(a[i])) return null;
+    const out = { id: a[0] | 0, pos: [a[1] / 100, a[2] / 100, a[3] / 100], vel: [a[4] / 100, a[5] / 100, a[6] / 100], t: a[7] };
+    if (a.length >= 10 && Number.isFinite(a[8]) && Number.isFinite(a[9])) {
+      const kind = (a[8] | 0) === 1 ? 'gl' : (a[8] | 0) === 2 ? 'rocket' : null;
+      if (kind) { out.kind = kind; out.fuse = Math.max(0.05, Math.min(10, a[9] / 1000)); }
+    }
+    return out;
+  }
+  /** 검기를 더하기 전의 히트 주장 종류 표(옛 방장) */
+  const OLD_KINDS = ['shot', 'slash', 'stab', 'grenade', 'other'];
+
+  test('C4는 종류 번호 3과 신관으로 왕복한다', () => {
+    const a = encodeGrenade(7, { pos: [1, 2, 3], vel: [4, -5, 6], t: 99, kind: 'c4', fuse: 2.5 });
+    assert.equal(a.length, 10);
+    assert.equal(a[8], 3);
+    assert.equal(a[9], 2500);
+    assert.deepEqual(decodeGrenade(wire(a)), { id: 7, pos: [1, 2, 3], vel: [4, -5, 6], t: 99, kind: 'c4', fuse: 2.5 });
+    const msg = decodeMessage(EV.grenade, wire(a));
+    assert.equal(msg.type, 'grenade');
+    assert.equal(msg.data.kind, 'c4');
+    assert.equal(msg.data.fuse, 2.5);
+    // 신관은 0~10초로 자른다(받는 쪽은 0.05초 아래로 내리지 않는다)
+    assert.equal(decodeGrenade(wire(encodeGrenade(1, { pos: [0, 0, 0], vel: [0, 0, 0], t: 0, kind: 'c4', fuse: 99 }))).fuse, 10);
+    assert.equal(decodeGrenade(wire(encodeGrenade(1, { pos: [0, 0, 0], vel: [0, 0, 0], t: 0, kind: 'c4', fuse: -1 }))).fuse, 0.05);
+    assert.equal(decodeGrenade(wire(encodeGrenade(1, { pos: [0, 0, 0], vel: [0, 0, 0], t: 0, kind: 'c4' }))).fuse, 0.05);
+  });
+
+  test('종류 번호 표는 앞 순서를 유지하고 유탄·로켓·손 수류탄은 예전과 같은 모양이다', () => {
+    assert.deepEqual([...GRENADE_KIND_CODES], ['', 'gl', 'rocket', 'c4']);
+    assert.ok(Object.isFrozen(GRENADE_KIND_CODES));
+    const base = { pos: [1, 2, 3], vel: [4, 5, 6], t: 9 };
+    const gl = encodeGrenade(1, { ...base, kind: 'gl', fuse: 2.2 });
+    assert.deepEqual(gl.slice(8), [1, 2200]);
+    const rk = encodeGrenade(1, { ...base, kind: 'rocket', fuse: 3 });
+    assert.deepEqual(rk.slice(8), [2, 3000]);
+    assert.deepEqual(decodeGrenade(wire(gl)), { id: 1, pos: [1, 2, 3], vel: [4, 5, 6], t: 9, kind: 'gl', fuse: 2.2 });
+    assert.deepEqual(decodeGrenade(wire(rk)), { id: 1, pos: [1, 2, 3], vel: [4, 5, 6], t: 9, kind: 'rocket', fuse: 3 });
+    // 손으로 던진 수류탄(던지는 방식 'overhand'·'underhand'가 kind로 와도)은 앞 8칸만
+    for (const kind of [undefined, null, '', 'overhand', 'underhand', 'xyz', '__proto__', 0, 3]) {
+      const a = encodeGrenade(2, { ...base, kind, fuse: 2.5 });
+      assert.equal(a.length, 8, String(kind));
+      assert.deepEqual(decodeGrenade(wire(a)), { id: 2, pos: [1, 2, 3], vel: [4, 5, 6], t: 9 });
+    }
+    // 옛 메시지(칸 8개, 유탄 1, 로켓 2)도 그대로 읽는다
+    assert.deepEqual(decodeGrenade([3, 100, 0, 0, 0, 0, 0, 5]), { id: 3, pos: [1, 0, 0], vel: [0, 0, 0], t: 5 });
+    assert.equal(decodeGrenade([3, 100, 0, 0, 0, 0, 0, 5, 1, 2200]).kind, 'gl');
+    assert.equal(decodeGrenade([3, 100, 0, 0, 0, 0, 0, 5, 2, 3000]).kind, 'rocket');
+  });
+
+  test('모르는 종류 번호·깨진 끝 칸은 손 수류탄으로 받는다', () => {
+    const head = [1, 0, 0, 0, 0, 0, 0, 5];
+    for (const tail of [[9, 1000], [-1, 1000], [0, 1000], [4, 1000], ['c4', 1000], [3, 'x'], [3, null], [3], [NaN, 1000], [1e300, 1000]]) {
+      const d = decodeGrenade(head.concat(tail));
+      assert.ok(d, JSON.stringify(tail));
+      assert.equal(d.kind, undefined, JSON.stringify(tail));
+      assert.equal(d.fuse, undefined, JSON.stringify(tail));
+    }
+    assert.equal(decodeGrenade(head.concat([3.7, 2500])).kind, 'c4', '정수로 자른다(유탄·로켓과 같게)');
+  });
+
+  test('옛 디코더는 C4를 손 수류탄으로 받는다(앞 8칸은 그대로라 깨지지 않는다)', () => {
+    const c4 = wire(encodeGrenade(5, { pos: [1.25, 0.5, -3], vel: [6, 4, -2], t: 1234, kind: 'c4', fuse: 2.5 }));
+    const old = oldDecodeGrenade(c4);
+    assert.deepEqual(old, { id: 5, pos: [1.25, 0.5, -3], vel: [6, 4, -2], t: 1234 });
+    const now = decodeGrenade(c4);
+    assert.deepEqual({ id: now.id, pos: now.pos, vel: now.vel, t: now.t }, old, '지금 디코더와 앞 칸이 같다');
+    // 손 수류탄·유탄·로켓은 옛 디코더와 지금 디코더가 똑같이 읽는다
+    for (const kind of [undefined, 'gl', 'rocket']) {
+      const a = wire(encodeGrenade(6, { pos: [1, 2, 3], vel: [0, 1, 0], t: 8, kind, fuse: 2.2 }));
+      assert.deepEqual(decodeGrenade(a), oldDecodeGrenade(a), String(kind));
+    }
+  });
+
+  test('검기 주장 종류: wave·waveStab을 뒤에 더했고 앞 코드는 그대로다', () => {
+    assert.deepEqual(KIND_CODES.slice(0, 5), OLD_KINDS);
+    assert.equal(KIND_CODES.indexOf('wave'), 5);
+    assert.equal(KIND_CODES.indexOf('waveStab'), 6);
+    assert.equal(KIND_CODES.length, 7);
+    assert.ok(Object.isFrozen(KIND_CODES));
+    const base = { victimId: 'z12', part: 'body', weaponId: 'ml_knife', dist: 7.25, shotT: 500, count: 1 };
+    for (const [kind, n] of [['shot', 0], ['slash', 1], ['stab', 2], ['grenade', 3], ['other', 4], ['wave', 5], ['waveStab', 6]]) {
+      const a = encodeHit(4, { ...base, kind, shotId: 31 });
+      assert.equal(a[5], n, kind);
+      const d = decodeHit(wire(a));
+      assert.equal(d.kind, kind);
+      assert.equal(d.victimId, 'z12');
+      assert.equal(d.dist, 7.25);
+      assert.equal(d.shotId, 31);
+    }
+    const msg = decodeMessage(EV.hit, wire(encodeHit(9, { ...base, kind: 'waveStab', shotId: 77 })));
+    assert.equal(msg.type, 'hit');
+    assert.equal(msg.data.kind, 'waveStab');
+    assert.equal(msg.data.shotId, 77);
+    // 글자로 온 종류도 받는다(코드 표를 모르는 쪽이 보낸 것)
+    assert.equal(decodeHit([1, 'z3', 1, 'ml_knife', 725, 'wave', 5]).kind, 'wave');
+    // 옛 방장은 새 번호를 모르는 종류로 보고 기본값(shot)으로 읽는다 — 던지지 않는다
+    const a = wire(encodeHit(1, { ...base, kind: 'wave' }));
+    assert.equal(OLD_KINDS[a[5]] === undefined ? 'shot' : OLD_KINDS[a[5]], 'shot');
+  });
+
+  test('깨뜨린 C4·검기 메시지도 던지지 않는다', () => {
+    let seed = 777;
+    const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    const junk = GARBAGE.filter((g) => typeof g !== 'function' && typeof g !== 'symbol');
+    const good = [
+      [EV.grenade, encodeGrenade(1, { pos: [1, 2, 3], vel: [4, 5, 6], t: 7, kind: 'c4', fuse: 2.5 })],
+      [EV.hit, encodeHit(2, { victimId: 'z4', part: 'body', weaponId: 'ml_katana', dist: 9.5, kind: 'wave', shotT: 3, shotId: 5 })],
+      [EV.hit, encodeHit(3, { victimId: 'z5', part: 'body', weaponId: 'ml_knife', dist: 4, kind: 'waveStab', shotT: 3, shotId: 6 })]
+    ];
+    for (let i = 0; i < 1500; i++) {
+      const [name, payload] = good[Math.floor(rnd() * good.length)];
+      const a = wire(payload);
+      a[Math.floor(rnd() * (a.length + 2))] = junk[Math.floor(rnd() * junk.length)];
+      assert.doesNotThrow(() => decodeMessage(name, a));
+      const res = decodeMessage(name, a);
+      if (res && res.type === 'grenade' && res.data.kind) {
+        assert.ok(GRENADE_KIND_CODES.includes(res.data.kind));
+        assert.ok(res.data.fuse >= 0.05 && res.data.fuse <= 10);
+      }
+    }
   });
 });
 

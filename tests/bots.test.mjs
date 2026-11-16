@@ -589,6 +589,19 @@ describe('봇 무기 뽑기', () => {
     assert.equal(loadoutKey('gr_frag'), null);
     assert.equal(loadoutKey('nope'), null);
   });
+
+  test('봇 장비에는 좀비 전용 무기(zombieOnly)가 들어가지 않는다', () => {
+    const rng = mulberry(7);
+    const seen = new Set();
+    for (const ruleset of RULESET_IDS) {
+      for (let i = 0; i < 400; i++) {
+        const lo = botLoadout(ruleset, pickBotWeapon(ruleset, rng), rng);
+        for (const id of [lo.primary, lo.secondary, lo.melee]) assert.ok(!getDef(id).zombieOnly, `${ruleset} ${id}`);
+        seen.add(lo.secondary);
+      }
+    }
+    assert.ok(seen.has('pt_magnum'), '기본이 아닌 보조무기를 고르는 경우도 지나갔다');
+  });
 });
 
 describe('폭파 미션 목표(view.objective)', () => {

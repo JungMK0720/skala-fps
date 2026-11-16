@@ -117,6 +117,8 @@ html.pc-touch .sk-ui.sk-has-notice .sk-speed { margin-top: var(--sk-notice-h, 0p
 html.pc-touch .sk-swap { top: 58%; padding: 11px 18px; pointer-events: auto; touch-action: none; cursor: pointer; }
 html.pc-touch .sk-swap-main { font-size: 15.5px; }
 html.pc-touch .sk-hint { bottom: calc(92px + env(safe-area-inset-bottom)); width: max-content; max-width: 44vw; padding: 9px 14px; font-size: 13px; white-space: normal; text-align: center; pointer-events: auto; touch-action: none; cursor: pointer; }
+/* 읽기만 하는 안내(좀비 모드 살리기): 누르는 버튼이 아니다. 탭은 아래 화면(시점 돌리기)으로 간다 */
+html.pc-touch .sk-hint.is-info { pointer-events: none; cursor: default; }
 html.pc-touch .sk-spec { bottom: calc(136px + env(safe-area-inset-bottom)); font-size: 12px; }
 html.pc-touch .sk-protect { font-size: 12px; }
 /* 연속 킬: 아래는 무기 칸·안내 줄·엄지가 차지하므로 크로스헤어 위에 작게 */

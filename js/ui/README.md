@@ -358,7 +358,9 @@ ui.chat.open() / close() / isOpen() / clear() / scope() / setScope('all' | 'team
 |---|---|---|
 | `needCursor` | `true` / `false` | 커서가 필요한 화면이 생기거나 없어질 때만 발생 |
 | `menu:sandbox` | `{ name, account }` | 연습장(설정 시트) |
-| `menu:multi` | `{ name, account }` | 멀티플레이 |
+| `menu:multi` | `{ name, account }` | 멀티플레이(좀비 고르기 시트의 '로비에서 좀비 방 찾기'도 같다) |
+| `menu:zombie` | `{ name, account }` | 좀비 고르기 시트의 '혼자 하기'(연습장 설정 시트를 좀비 모드로) |
+| `menu:zombieRoom` | `{ name, account }` | 좀비 고르기 시트의 '같이 하기 · 공개 방 만들기'(로비를 열고 곧바로 공개 좀비 방을 만든다). 멀티플레이를 못 쓰면 꺼진다 |
 | `menu:mypage` / `menu:shop` | `{ name, account }` | 마이페이지 / 상점 |
 | `mypage:back` / `mypage:shop` / `shop:back` | `{}` / `{ tab? }` / `{}` | 메뉴로 돌아가기 / 마이페이지에서 상점으로(캐릭터 칸의 버튼은 `tab:'avatar'`) / 상점에서 돌아가기 |
 | `ui:sound` | `{ name }` | 효과음 요청. 버튼을 누를 때 `ui_click`, 살 때 `purchase` |

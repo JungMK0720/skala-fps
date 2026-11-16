@@ -12,6 +12,8 @@ import { EV, decodeDrop, decodeMessage, decodePick, encodeDrop, encodePick, isGa
 
 const DT = 1 / 60;
 const GUNS = [...PRIMARY_IDS, ...SECONDARY_IDS];
+/** 좀비 물량 막기 전용 발사기(zombieOnly). 증강으로만 얻고 탄약은 그 모드의 규칙을 따른다 */
+const ZOMBIE_ONLY = GUNS.filter((id) => WEAPONS[id].zombieOnly);
 const wire = (v) => JSON.parse(JSON.stringify(v));
 
 /** 탄창이 빌 때까지 쏘고 재장전한다. 예비가 없으면 멈춘다 */
@@ -35,9 +37,15 @@ describe('프리미엄 총', () => {
   });
 
   test('프리미엄은 예비가 무제한이고 나머지는 예비 2탄창이다', () => {
-    for (const id of GUNS) {
+    for (const id of GUNS.filter((x) => !WEAPONS[x].zombieOnly)) {
       const d = WEAPONS[id];
       assert.equal(d.reserve, d.premium ? Infinity : d.mag * 2, id);
+    }
+    // 좀비 전용 발사기는 프리미엄이 아니고 예비가 정해져 있다(2탄창 규칙 대신 좀비 모드의 탄약 규칙을 따른다)
+    for (const id of ZOMBIE_ONLY) {
+      const d = WEAPONS[id];
+      assert.equal(d.premium, false, id);
+      assert.ok(d.mag > 0 && Number.isFinite(d.reserve) && d.reserve > 0, id);
     }
   });
 
