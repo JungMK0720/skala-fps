@@ -54,7 +54,21 @@ export const HORDE = Object.freeze({
   decoyMs: 9000,          // 어그로 수류탄 분신이 버티는 시간
   decoyPullM: 30,         // 분신이 이 거리 안의 좀비를 끌어모은다
   maxDecoys: 6,           // 한 번에 서 있는 분신 상한(한 사람은 2개)
-  maxFields: 10           // 한 번에 타는 불길 상한
+  maxFields: 10,          // 한 번에 타는 불길 상한
+  hitInvulnMs: 100,       // 맞은 뒤 무적(0.1초). 증강 '반사 신경'(iframe, 초)만큼 늘어난다
+  knockSpeed: 4.2,        // 좀비에게 맞으면 밀려나는 수평 속도(m/s). 좀비 크기 배율(0.8~1.8)을 곱한다
+  knockUp: 2.0,           // 밀려날 때 살짝 뜨는 속도(m/s)
+  knockKeepMs: 400,       // 화면은 이보다 오래된 밀려남을 적용하지 않는다(스냅샷에 이 시간 동안 실린다)
+  reviveHoldMs: 3000,     // 동료가 F를 이만큼 누르고 있으면 쓰러진 사람이 일어난다(멀티)
+  reviveTouchM: 1.8,      // 화면이 '살리기' 안내를 띄우는 거리(쓰러진 자리와 내 발의 수평 거리)
+  reviveRangeM: 2.8,      // 방장이 받아 주는 거리(지연 여유 포함)
+  reviveHp: 10,           // 동료가 살린 사람의 체력
+  reviveInvulnMs: 2000,   // 살아난 직후 무적
+  reviveKeepMs: 900,      // 이 시간 동안 '살리는 중' 신호가 다시 오지 않으면 끊는다(화면은 0.3초마다 보낸다)
+  waveSpeed: 26,          // 검기 속도(m/s)
+  waveRadius: 0.7,        // 검기 판정 반지름(m)
+  waveMaxHits: 6,         // 검기 하나가 맞히는 좀비 상한
+  waveSlackM: 2.5         // 방장이 검기 거리를 받아 주는 여유(m)
 });
 
 /**

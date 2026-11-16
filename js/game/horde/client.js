@@ -6,16 +6,19 @@
  *          무기는 1스테이지가 시작되기 전 준비 시간에만 N으로 모든 무기 중에서 고른다(World 교체 창의 free 모드). 바닥 보급품에 닿으면 방장에게
  *          줍기를 청하고, 방장이 확정한 'loot' 이벤트를 받으면 탄창을 내 무기에 넣는다(구급 상자 체력·보물 상자 증강은 방장이 준다).
  *          팀 레벨이 오르거나 보물 상자를 주우면 증강 제안이 오고(멀티는 고르는 동안 무적·20초 뒤 무작위), 좀비를 맞히면 피해 숫자를 띄운다.
+ *          방장이 잰 밀려남(좀비에게 맞음)을 내 몸에 한 번 걸고, 멀티에서는 쓰러진 동료 옆에서 F(E·휴대폰 살리기 버튼)를 누르는 동안 방장에게 살리기를 청한다.
  */
 import { computePerks, perkSummary, cardById, TIERS } from './cards.js';
 import { HORDE, fmtClock, hordeAmmo } from './rules.js';
 import { zombieHitDamage, nadeDamage } from './director.js';
-import { WEAPONS } from '../../weapons/defs.js';
+import { WEAPONS, GRENADE_IDS } from '../../weapons/defs.js';
 import { SKILL_NAMES, skillKindOf } from './bosses.js';
 import { pickableWeapons } from '../modes.js';
 
 const FRENZY_MS = 4000;
 const FRENZY_MAX = 5;
+const REVIVE_SEND_MS = 300;      // 살리기를 누르고 있는 동안 방장에게 다시 알리는 간격(방장은 reviveKeepMs 동안 소식이 없으면 끊는다)
+const REVIVE_KEEP_M = 0.5;       // 살리던 동료는 reviveTouchM보다 이만큼 멀어져도 이어 간다(경계에서 켜졌다 꺼졌다 하지 않게)
 
 /** 카드 능력치 → 무기 배율(arsenal.setMods) */
 export function modsFromPerks(k, frenzyStacks = 0) {
@@ -32,7 +35,8 @@ export function modsFromPerks(k, frenzyStacks = 0) {
  * @param {string} o.meId
  * @param {() => string} [o.myName]
  * @param {() => string} [o.loadout]    내 주무기(스폰할 때)
- * @param {{ pick(id), reroll(), loot?(id) }} o.actions   카드 고르기·보급품 줍기를 방장에게(혼자면 시뮬레이션에) 보낸다
+ * @param {{ pick(id), reroll(), loot?(id), revive?(id, on) }} o.actions   카드 고르기·보급품 줍기·동료 살리기(멀티만)를 방장에게(혼자면 시뮬레이션에) 보낸다
+ * @param {object} [o.input]           engine/input.js(살리기: state.interact·state.use, touchMode)
  * @param {(view) => void} [o.onOver]     전멸 뒤 결과 화면을 띄울 때
  * @param {(id, spawn) => void} [o.onActorSpawn]   다른 사람이 일어났을 때(세션이 아바타를 세운다)
  * @param {(id) => void} [o.onActorDown]
@@ -61,6 +65,10 @@ export function createHordeClient(o) {
   const lootPending = new Map();   // 줍기를 청한 보급품 번호 → 보낸 시각(확정 전에는 화면에서 감춘다)
   const lootDone = new Set();      // 효과를 넣은 'loot' 이벤트(같은 이벤트가 스냅샷마다 다시 와도 한 번만)
   const LOOT_RESEND_MS = 900, LOOT_HIDE_MS = 1500;
+  let lastKnockSeq = null;         // 마지막으로 받은 밀려남 번호(같은 밀려남이 스냅샷마다 다시 와도 한 번만)
+  // 살리기(멀티만): 방장에게 'on'을 보내고 있는 동료 id와 보낸 시각, World 안내 줄에 마지막으로 넘긴 값
+  const canRevive = !o.solo && !!(o.actions && typeof o.actions.revive === 'function');
+  let reviveId = null, reviveSentAt = 0, interactSig = '';
 
   /** 좀비 물량 막기의 무기 고르기 창(World openSwap free): 모든 무기. 1스테이지가 시작되기 전 준비 시간에만 연다 */
   function swapProps() {
@@ -92,19 +100,27 @@ export function createHordeClient(o) {
       mods: modsFromPerks(perks, frenzy.length), speed: 1 + perks.move, maxSpeed: 1 + perks.maxSpeed, jump: 1 + perks.jump,
       pierce: perks.pierce, maxHp, nadeMulti: Math.round(perks.nadeMulti || 0),
       // 수류탄 폭발 반경은 던진 사람의 증강을 따른다(방장 화면이 남의 수류탄 피해도 잰다)
-      nadeRadiusOf: (owner) => { const k = perksOf(owner); return 1 + ((k && k.nadeRadius) || 0); }
+      nadeRadiusOf: (owner) => { const k = perksOf(owner); return 1 + ((k && k.nadeRadius) || 0); },
+      // C4 수류탄(좀비에 붙는다)과 검기 거리. 남의 칼질에도 검기를 그리려고 다른 사람의 검기 거리도 넘긴다
+      sticky: perks.stickyNade > 0, waveRange: perks.wave || 0,
+      waveRangeOf: (owner) => ((perksOf(owner) || {}).wave || 0)
     });
   }
 
-  function spawnMe(sp) {
+  /**
+   * 내가 나온다. revive(동료가 F로 살림)면 쓰러질 때 들고 있던 무기·탄·수류탄을 그대로 쓴다
+   * (이 모드는 탄이 스테이지 사이에 채워지지 않는다. 살리기가 탄약 보급이 되지 않게). 다음 스테이지에 일어날 때는 예전처럼 새 탄
+   */
+  function spawnMe(sp, revive = false) {
     const spawn = sp && Number.isFinite(sp.x) ? sp : null;
     if (!spawn) return;
     // 배율(예비 탄 3배·카드)을 먼저 걸어야 스폰할 때 채우는 탄이 이 모드의 양이 된다
     applyPerks();
-    W('spawnLocal', { id: meId, name: o.myName ? o.myName() : undefined, team: 'owner', spawn, loadout: o.loadout ? o.loadout() : undefined });
+    W('spawnLocal', { id: meId, name: o.myName ? o.myName() : undefined, team: 'owner', spawn, loadout: o.loadout ? o.loadout() : undefined, ...(revive ? { keepArsenal: true } : {}) });
     myAlive = true;
     spawnedOnce = true;
     applyPerks();
+    if (revive) return;
     // 무기는 1스테이지가 시작되기 전에만 고른다(쓰러졌다 일어날 때는 고른 무기 그대로)
     if (phase == null || phase === 'prep') W('openSwap', swapProps());
     // 보조무기를 바꾸는 증강(유탄 발사기·바주카포)은 쓰러졌다 일어나도 그대로다
@@ -152,13 +168,29 @@ export function createHordeClient(o) {
         if (H && String(ev.owner) === meId) H.callout('🎭 분신이 쓰러졌어요');
         break;
       case 'spawn':
-        if (String(ev.id) === meId) { if (!ev.keep) spawnMe(ev.spawn); }
+        if (String(ev.id) === meId) { if (!ev.keep) spawnMe(ev.spawn, !!ev.revive); }
         else if (o.onActorSpawn) o.onActorSpawn(String(ev.id), ev.spawn);
         break;
       case 'down':
-        if (String(ev.id) === meId) { if (myAlive) { myAlive = false; W('killLocal', {}); } if (H) H.center('쓰러졌어요', 2200, { sub: '동료가 이번 스테이지를 깨면 다음 스테이지에 일어나요', tone: 'warn' }); }
-        else { if (o.onActorDown) o.onActorDown(String(ev.id)); if (H) H.callout(`💀 ${nameOf(String(ev.id)) || '동료'} 쓰러짐`); }
+        if (String(ev.id) === meId) {
+          if (myAlive) { myAlive = false; W('killLocal', {}); }
+          // 멀티는 동료가 그 자리에서 살릴 수 있다(F 3초). 아니면 다음 스테이지에 일어난다.
+          // 방장이 쓰러진 자리를 알려 준 때만(살릴 수 있는 몸) 살리기를 말한다(옛 방장·자리를 모르는 경우는 예전 글)
+          const mine = last && last.players.find((p) => p.id === meId);
+          const sub = canRevive && mine && mine.down ? `동료가 F를 ${Math.round(HORDE.reviveHoldMs / 1000)}초 누르면 일어나요 · 아니면 다음 스테이지에` : '동료가 이번 스테이지를 깨면 다음 스테이지에 일어나요';
+          if (H) H.center('쓰러졌어요', 2200, { sub, tone: 'warn' });
+        } else { if (o.onActorDown) o.onActorDown(String(ev.id)); if (H) H.callout(`💀 ${nameOf(String(ev.id)) || '동료'} 쓰러짐`); }
         break;
+      case 'revive': {
+        // 동료가 F를 눌러 쓰러진 사람을 그 자리에서 일으켰다(멀티). 일어난 사람의 스폰은 같은 메시지의 'spawn'이 한다
+        const id = String(ev.id), by = String(ev.by);
+        const name = nameOf(id) || '동료', byName = nameOf(by) || '동료';
+        if (id === meId) { if (H) H.center('다시 일어났어요!', 1800, { sub: `${byName}님이 살렸어요 · ${Math.round(HORDE.reviveInvulnMs / 1000)}초 무적`, tone: 'warn' }); }
+        else if (by === meId) { if (H) H.callout(`🩹 ${name}님을 살렸어요`); }
+        else if (H) H.callout(`🩹 ${byName}님이 ${name}님을 살렸어요`);
+        if (o.onFeed) o.onFeed(`🩹 ${byName}님이 ${name}님을 살렸어요`);
+        break;
+      }
       case 'knock': if (String(ev.id) === meId) W('pushLocal', ev.v); break;
       case 'slow': if (String(ev.id) === meId) { W('slowLocal', 1 - (Number(ev.mul) || 0), ev.ms); if (H) H.callout('❄️ 느려졌어요'); } break;
       case 'second': if (String(ev.id) === meId && H) H.banner({ icon: '🪽', title: '두 번째 기회!', sub: '쓰러질 피해를 버텼어요' }); break;
@@ -205,6 +237,11 @@ export function createHordeClient(o) {
         if (n > 0) break;
       }
       text = n > 0 ? `🧷 탄창 +${n}발` : '🧷 탄창 · 예비 탄이 가득해요';
+      // 탄창은 수류탄도 최대까지 채운다(늘었을 때만 알린다)
+      const nade = a.getAmmo(GRENADE_IDS[0]);
+      const before = nade && nade.kind === 'count' ? nade.mag : null;
+      const after = W('refillGrenades');
+      if (before != null && Number(after) > before) text += ' · 💣 수류탄 가득';
     } else if (ev.kind === 'med') {
       text = ev.heal > 0 ? `➕ 구급 상자 · 체력 +${ev.heal}` : '➕ 구급 상자 · 체력이 가득해요';
     } else if (ev.kind === 'chest') {
@@ -228,6 +265,72 @@ export function createHordeClient(o) {
       lootPending.set(L.id, now);
       o.actions.loot(L.id);
     }
+  }
+
+  /**
+   * 살릴 수 있는 동료: 쓰러진 자리가 내 발에서 수평 reviveTouchM 안(높이 차 1.6 m 미만)인 가장 가까운 사람.
+   * 살리던 동료는 조금 더 멀어져도(REVIVE_KEEP_M) 그대로 두고, 더 가까운 사람이 와도 바꾸지 않는다
+   */
+  function reviveTarget(pos) {
+    let best = null, bestD = Infinity;
+    for (const p of last.players) {
+      if (p.id === meId || !p.connected || p.alive || !p.down || !Array.isArray(p.down.pos)) continue;
+      const d = Math.hypot(p.down.pos[0] - pos[0], p.down.pos[2] - pos[2]);
+      if (d > HORDE.reviveTouchM + (p.id === reviveId ? REVIVE_KEEP_M : 0) || Math.abs(p.down.pos[1] - pos[1]) >= 1.6) continue;
+      if (p.id === reviveId) return p;
+      if (d < bestD) { best = p; bestD = d; }
+    }
+    return best;
+  }
+
+  /** World 안내 줄(살리기)과 휴대폰 살리기 버튼. 바뀔 때만 넘긴다 */
+  function showInteract(target, holding) {
+    const touch = !!(o.input && o.input.touchMode);
+    const name = target ? target.name || '동료' : '';
+    const secs = Math.round(HORDE.reviveHoldMs / 1000);
+    // 다른 동료가 이미 살리는 중이면 그 사람 이름을 보여 준다(방장은 그 사람만 센다. 그 사람이 떼면 내가 이어서 살린다)
+    const other = target && target.down && target.down.by && target.down.by !== meId ? nameOf(target.down.by) || '동료' : '';
+    const hint = !target ? ''
+      : other ? `🩹 ${other}님이 ${name} 살리는 중`
+        : holding ? `🩹 ${name} 살리는 중…`
+          : touch ? `살리기 버튼을 ${secs}초 누르고 있으세요 · 🩹 ${name}` : `F 길게 눌러 🩹 ${name} 살리기 (${secs}초)`;
+    const sig = hint ? `${hint}|${touch ? 1 : 0}` : '';
+    if (sig === interactSig) return;
+    interactSig = sig;
+    W('setHordeInteract', hint ? { hint, touch } : null);
+  }
+
+  /** 살리기를 멈춘다: 'on'을 보내던 중이면 방장에게 'off'를 한 번 */
+  function stopRevive() {
+    if (reviveId == null) return;
+    const id = reviveId;
+    reviveId = null;
+    try { o.actions.revive(id, false); } catch (e) { console.error('[horde] revive', e); }
+  }
+
+  /**
+   * 멀티 살리기: 살아 있고 웨이브 중이고 증강을 고르지 않을 때, 쓰러진 동료 옆에서 F(E·휴대폰 살리기 버튼)를 누르고 있으면
+   * 방장에게 바로 'on'을 보내고 REVIVE_SEND_MS마다 다시 알린다. 떼거나 멀어지거나 내가 쓰러지면 'off'를 한 번 보낸다(3초는 방장이 센다)
+   */
+  function tryRevive(now) {
+    if (!canRevive) return;
+    const me = last.players.find((p) => p.id === meId);
+    // 쓰러진 동료가 있을 때만 내 위치를 읽는다(getLocalState는 매번 새 객체를 만든다)
+    const able = myAlive && !!world.localAlive && phase === 'wave' && !!me && me.alive && !me.offer.length
+      && last.players.some((p) => p.id !== meId && p.connected && !p.alive && p.down);
+    const st = able ? W('getLocalState') : null;
+    const target = st && Array.isArray(st.pos) ? reviveTarget(st.pos) : null;
+    const s = o.input && o.input.state;
+    const holding = !!(target && s && (s.interact || s.use));
+    if (reviveId != null && (!holding || target.id !== reviveId)) stopRevive();
+    if (holding) {
+      if (reviveId !== target.id) { reviveId = target.id; reviveSentAt = -Infinity; }
+      if (now - reviveSentAt >= REVIVE_SEND_MS) {
+        reviveSentAt = now;
+        try { o.actions.revive(reviveId, true); } catch (e) { console.error('[horde] revive', e); }
+      }
+    }
+    showInteract(target, holding);
   }
 
   /** 고른 카드 중 보조무기를 바꾸는 증강(나중 것이 이긴다) → 무기 id | null */
@@ -278,7 +381,20 @@ export function createHordeClient(o) {
   }
 
   function teamRows(v) {
-    return v.players.filter((p) => p.connected).map((p) => ({ id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp, alive: p.alive, me: p.id === meId, picking: p.offer.length > 0, invuln: p.invuln, shield: p.shield }));
+    return v.players.filter((p) => p.connected).map((p) => ({
+      id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp, alive: p.alive, me: p.id === meId, picking: p.offer.length > 0, invuln: p.invuln, shield: p.shield,
+      // 쓰러진 사람: 누가 살리는 중인지와 진행(0..1). 멀티에서 방장이 쓰러진 자리를 알려 준 사람만 동료가 살릴 수 있다
+      // (중간에 들어와 아직 안 나온 사람·나갔다 온 사람·옛 방장은 다음 스테이지에 일어난다)
+      down: !p.alive && p.down ? { by: p.down.by || null, progress: p.down.progress || 0 } : null, canRevive: canRevive && !p.alive && !!p.down
+    }));
+  }
+  /** 가운데 살리기 막대: 내가 동료를 살리는 중이거나, 쓰러진 나를 동료가 살리는 중이면 { text, frac } */
+  function reviveBar(v, me) {
+    if (!canRevive || !me || v.phase !== 'wave') return null;
+    // 쓰러진 나(down: true)는 관전 이름표와 겹치지 않는 자리에 그린다(ui/horde.js)
+    if (!me.alive) return me.down && me.down.by ? { text: `🩹 ${nameOf(me.down.by) || '동료'}님이 살리는 중`, frac: me.down.progress || 0, down: true } : null;
+    const t = v.players.find((p) => p.id !== meId && !p.alive && p.down && p.down.by === meId);
+    return t ? { text: `🩹 ${t.name || '동료'} 살리는 중`, frac: t.down.progress || 0, down: false } : null;
   }
   function hud(now) {
     const v = last;
@@ -296,13 +412,18 @@ export function createHordeClient(o) {
       if (slots.every((s) => s && s.kind === 'mag' && s.mag <= 0 && s.reserve <= 0)) warn = '탄약이 떨어졌어요 · 좀비가 떨어뜨린 탄창을 줍거나 3번 칼로 싸우세요';
     }
     if (me && me.alive && me.invuln && !me.offer.length && v.phase === 'wave') warn = `🛡 무적 ${Math.max(1, Math.ceil((me.invulnMs - since) / 1000))}초`;
+    const revive = reviveBar(v, me);
+    // 살리기 안내·막대가 떠 있는 동안은 아래 경고 줄을 감춘다(좁은 화면에서 안내 줄과 겹친다)
+    if (revive || interactSig) warn = '';
     ui.update('horde', {
       stage: v.stage, phase: v.phase, timeLeft: leftMs == null ? 0 : leftMs / 1000, left: v.left,
       stageLeft: stageLeft == null ? null : stageLeft / 1000, xp: v.xp,
       bosses: v.bosses.map((b) => ({ name: b.def.name, icon: b.def.icon, hpFrac: b.hp / b.maxHp, enraged: b.enraged, skill: b.skill && b.skillPhase === 1 ? SKILL_NAMES[skillKindOf(b.skill)] || '' : '' })),
       team: teamRows(v), elapsed: v.elapsedMs ? fmtClock(v.elapsedMs + (v.phase === 'wave' ? Math.min(1000, since) : 0)) : '',
       pickedText: picking.length ? picking.map((p) => p.name).join(', ') : '',
-      warn
+      // 혼자 하기의 증강 고르기 줄: 보물 상자 몫이면 '보물 상자'라고 말한다
+      pickWhy: picking.some((p) => p.chest) ? 'chest' : 'level',
+      warn, revive
     });
   }
 
@@ -335,6 +456,8 @@ export function createHordeClient(o) {
         perks = computePerks(me.cards);
         maxHp = me.maxHp;
         if (me.cards.length < appliedCards) appliedCards = 0;   // 새 판
+        // 새 최대(수류탄 +2·재장전 탄창)를 먼저 무기에 걸어야 '가득 채움'이 새 최대까지 채운다
+        applyPerks();
         applyNewCards(me.cards);
         applyPerks();
       }
@@ -342,6 +465,11 @@ export function createHordeClient(o) {
       const localAlive = !!world.localAlive;
       if (!me.alive && localAlive && spawnedOnce) { myAlive = false; W('killLocal', {}); }
       myAlive = !!me.alive;
+      // 밀려남(좀비에게 맞음): 방장이 정한 속도를 내 몸에 한 번만 건다. 늦게 온 것(knockKeepMs보다 오래된 것)은 버린다
+      if (me.knock && me.knock.seq !== lastKnockSeq) {
+        lastKnockSeq = me.knock.seq;
+        if (me.alive && localAlive && me.knock.ago <= HORDE.knockKeepMs) W('pushLocal', me.knock.v);
+      }
       if (me.alive && localAlive && me.hp !== myHp) {
         if (myHp != null && me.hp < myHp && me.hurt && me.hurt.ago < 700) {
           const lp = (W('getLocalState') || {}).pos;
@@ -401,6 +529,7 @@ export function createHordeClient(o) {
       }
     }
     tryPickLoot(now);
+    tryRevive(now);
     if (now - hudAt > 200) { hudAt = now; hud(now); }
     if (overAt && !overShown && now - overAt > 3200) {
       overShown = true;
@@ -437,10 +566,12 @@ export function createHordeClient(o) {
     W('feedbackDamage', { amount: 0, head: c.part === 'head', kill: false, incoming: false });
     // 피해 숫자: 방장과 같은 공식(치명타는 방장만 굴려 빠진다). 머리는 크고 노랗게, 몸은 작게
     const z = zombieOf(c.victimId);
+    // 검기는 한 번에 여러 마리를 맞혀도 칼과 같은 피해다(관통처럼 줄지 않는다): 관통 순서를 세지 않는다
+    const wave = c.kind === 'wave' || c.kind === 'waveStab';
     const shot = Number(c.shotId) | 0;
-    myShot = shot && shot === myShot.id ? { id: shot, n: myShot.n + 1 } : { id: shot, n: 0 };
+    if (!wave) myShot = shot && shot === myShot.id ? { id: shot, n: myShot.n + 1 } : { id: shot, n: 0 };
     const me = last && last.players.find((p) => p.id === meId);
-    const hit = zombieHitDamage(c, perks, { boss: !!(z && z.boss), hpFrac: z ? z.hpFrac : 1 }, { myHpFrac: me ? me.hp / Math.max(1, me.maxHp) : 1, nth: myShot.n });
+    const hit = zombieHitDamage(c, perks, { boss: !!(z && z.boss), hpFrac: z ? z.hpFrac : 1 }, { myHpFrac: me ? me.hp / Math.max(1, me.maxHp) : 1, nth: wave ? 0 : myShot.n });
     if (!hit) return;
     const at = Array.isArray(c.point) ? c.point : z ? [z.pos[0], z.pos[1] + 1.7, z.pos[2]] : null;
     if (at) W('hordeDamageNumber', at, Math.max(1, Math.round(hit.dmg)), hit.melee ? 'melee' : hit.part);
@@ -469,6 +600,9 @@ export function createHordeClient(o) {
     if (offHit) offHit();
     if (offBlast) offBlast();
     if (offPick) offPick();
+    if (canRevive) stopRevive();
+    interactSig = '';
+    W('setHordeInteract', null);
     if (ui) { ui.hide('cards'); ui.hide('horde'); }
     W('closeSwap');
     W('setHordePerks', null);

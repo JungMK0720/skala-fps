@@ -3,12 +3,13 @@
  * Author: Minkyu Jung
  * Purpose: 멀티 세션 연결 시험. 작은 가짜 net·world·ui·account로 방장과 멤버를 방 → 로드아웃 → 라이브 → 히트 주장 → 킬 → 결과까지 돌리고,
  *          규칙·산탄 count·방장 이전·계정 기록·로비 메타·대기실 화면, 나오는 중에 누른 방 만들기·참가, 막 열린 방의 팀 자동 배정(presence 지연),
- *          결과 화면의 포인트 줄 부호를 확인한다. Realtime 전송 자체는 시험하지 않는다.
+ *          결과 화면의 포인트 줄 부호, 메뉴의 좀비 고르기 시트와 '같이 하기'의 공개 좀비 방 바로 만들기(open({ create })), 좀비 살리기 제어 메시지(zrev)·
+ *          C4 수류탄 종류, 좀비 HUD의 살리기 표시를 확인한다. Realtime 전송 자체는 시험하지 않는다.
  */
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createSession, restoreMatch, restoreFfaMatch, preferredPick, gearMessage, readGear, weaponForSlot, matchSummary, CHAT_LIMIT
+  createSession, restoreMatch, restoreFfaMatch, preferredPick, gearMessage, readGear, weaponForSlot, matchSummary, CHAT_LIMIT, CONTROL_EVENT
 } from '../js/game/session.js';
 import { createMatch } from '../js/game/match.js';
 import { pickableWeapons } from '../js/game/modes.js';
@@ -26,6 +27,8 @@ import { createLobby, mapsForRule, ruleBadge } from '../js/ui/lobby.js';
 import { createRoom } from '../js/ui/room.js';
 import { createChat, chatPlaceholder } from '../js/ui/chat.js';
 import { createResults } from '../js/ui/results.js';
+import { createMenu } from '../js/ui/menu.js';
+import { createHordeHud } from '../js/ui/horde.js';
 import { matchReward } from '../js/account/economy.js';
 
 const MAP_LIST = Object.freeze([
@@ -239,7 +242,7 @@ function fakeUi() {
   return {
     feed,
     chat,
-    hud: { center() {} },
+    hud: { center() {}, callout() {}, banner() {} },
     killfeed: { push: (k) => feed.push(k), clear() {} },
     show(name, props) { log.push({ name, kind: 'show', props }); },
     update(name, props) { log.push({ name, kind: 'update', props }); },
@@ -279,11 +282,11 @@ function stage(t, { rules, ffaRules } = {}) {
   const env = {
     clock, hub, clients,
     client(id, name, account, extraIn = {}) {
-      const { maps = fakeMaps, ...extra } = extraIn;
-      const c = { id, world: fakeWorld(), ui: fakeUi(), account: fakeAccount(name, account), logs: [] };
+      const { maps = fakeMaps, input, ...extra } = extraIn;
+      const c = { id, world: fakeWorld(), ui: fakeUi(), account: fakeAccount(name, account), logs: [], input };
       c.session = createSession({
         world: c.world, ui: c.ui,
-        ctx: { account: c.account, maps, session: { name: '임시이름' }, flags: {}, onFrame: () => () => {} },
+        ctx: { account: c.account, maps, session: { name: '임시이름' }, flags: {}, onFrame: () => () => {}, input },
         net: fakeNet(hub, id, name), now: clock.now, log: (...a) => c.logs.push(a), setScreens: false,
         hostTickMs: 50, loadoutLeadMs: 200,
         rules: { loadoutMs: 1500, roundEndMs: 300, roundTimeMs: 60000, roundsToWin: 1, maxRounds: 1, ...rules },
@@ -1431,6 +1434,134 @@ describe('방에서 나가기', () => {
   });
 });
 
+describe('좀비 물량 막기 방', () => {
+  // 좀비 전용 맵 둘(maps.mapsForMode('zombie')가 이것만 준다)
+  const ZOMBIE_LIST = [...MAP_LIST,
+    { id: 'restarea', name: '고속도로 휴게소', rulesets: ['classic'], tag: '좀비 전용', zombie: true },
+    { id: 'subway', name: '지하철 환승역', rulesets: ['classic'], tag: '좀비 전용', zombie: true }];
+  const zombieMaps = {
+    MAP_LIST: ZOMBIE_LIST,
+    mapsForRuleset: (id) => ZOMBIE_LIST.filter((m) => !m.zombie && m.rulesets.includes(id)),
+    mapsForMode: (mode, id) => ZOMBIE_LIST.filter((m) => (mode === 'zombie' ? m.zombie : !m.zombie && m.rulesets.includes(id)))
+  };
+
+  test('메뉴의 같이 하기: open({ create: { mode: zombie } })는 연결되는 대로 공개 좀비 방(○○의 좀비 방 · 4명 · 첫 좀비 맵)을 만들어 대기실로 간다', async (t) => {
+    const env = stage(t);
+    const a = env.client('a', '하늘', {}, { maps: zombieMaps });
+    const opened = a.session.open({ create: { mode: 'zombie' } });
+    assert.equal(a.session.phase, 'connecting', '연결이 끝나기 전에 누른 것');
+    await opened;
+    await env.settle();
+    assert.equal(a.session.phase, 'room', '로비를 거쳐 바로 대기실');
+    const made = env.hub.lastCreate;
+    assert.equal(made.name, '하늘의 좀비 방');
+    assert.equal(made.mode, 'zombie');
+    assert.equal(made.ruleset, 'classic');
+    assert.equal(made.mapId, 'restarea', '첫 좀비 전용 맵');
+    assert.equal(made.max, 4, '좀비 방은 4명');
+    assert.equal(made.password, undefined, '비밀번호 없는 공개 방');
+    assert.equal(env.hub.list()[0].name, '하늘의 좀비 방', '로비 목록에 바로 보인다');
+    assert.ok(a.session.state.chat.some((l) => l.system && /좀비 물량 막기 방을 열었어요/.test(l.text)));
+    env.dispose();
+  });
+
+  test('이미 로비면 바로 만들고, 연결 중에 다시 눌러도 연결된 뒤에 만든다. 이름을 주면 그 이름이고 다른 모드의 기본 이름은 그대로', async (t) => {
+    const env = stage(t);
+    const a = env.client('a', '하늘', {}, { maps: zombieMaps });
+    await a.session.open();
+    assert.equal(a.session.phase, 'lobby');
+    await a.session.open({ create: { mode: 'zombie', name: '같이 막아요' } });
+    await env.settle();
+    assert.equal(a.session.phase, 'room');
+    assert.equal(env.hub.lastCreate.name, '같이 막아요');
+    assert.equal(env.hub.lastCreate.mapId, 'restarea');
+    a.ui.fire('room:leave', {});
+    await env.settle();
+    a.ui.fire('lobby:create', { name: '', mapId: 'jetty', mode: 'team' });
+    await env.settle();
+    assert.equal(env.hub.lastCreate.name, '하늘의 방', '다른 모드는 예전 기본 이름');
+    assert.equal(env.hub.lastCreate.mapId, 'jetty');
+    a.ui.fire('room:leave', {});
+    await env.settle();
+
+    const b = env.client('b', '구름', {}, { maps: zombieMaps });
+    const first = b.session.open();
+    const second = b.session.open({ create: { mode: 'zombie' } });
+    assert.equal(b.session.phase, 'connecting');
+    await Promise.all([first, second]);
+    await env.settle();
+    assert.equal(b.session.phase, 'room', '연결 중에 누른 같이 하기도 버리지 않는다');
+    assert.equal(env.hub.lastCreate.name, '구름의 좀비 방');
+    assert.equal(env.hub.lastCreate.mode, 'zombie');
+    env.dispose();
+  });
+
+  test('zrev: 손님이 쓰러진 동료 옆에서 F를 누르면 방장에게 on, 떼면 off. 방장은 같은 경기·글자 id만 reviveAction에 넘기고, 방장 자신은 메시지 없이 바로', async (t) => {
+    const env = stage(t);
+    const inputA = { state: { interact: false, use: false }, touchMode: false };
+    const inputB = { state: { interact: false, use: false }, touchMode: false };
+    const a = env.client('a', '하늘', {}, { hordeRules: { prepMs: 400 }, input: inputA });
+    const b = env.client('b', '구름', {}, { hordeRules: { prepMs: 400 }, input: inputB });
+    a.world.localAlive = true;
+    b.world.localAlive = true;
+    await startMatch(env, [a, b], { mode: 'zombie' });
+    await env.run(1500);
+    const m = a.session.match;
+    assert.equal(m.mode, 'zombie');
+    assert.equal(m.phase, 'wave');
+    const mid = a.session.state.matchId;
+    // 방장 시뮬레이션의 살리기를 엿본다(처음 on에만 살리기 이벤트를 돌려준다)
+    const calls = [];
+    m.reviveAction = (from, id, on) => { calls.push([from, id, on]); return on && calls.length === 1 ? [{ type: 'revive', id, by: from }] : []; };
+    // 방장(a)이 쓰러진 것으로 두고(시험용으로 시뮬레이션을 바로 고친다) 손님(b)을 그 옆에 세운다
+    const PA = m.internals.players.get('a');
+    PA.alive = false; PA.hp = 0; PA.downPos = [-20, 0, 0];
+    b.world.pos = [-19, 0, 0];
+    await env.run(300);
+    inputB.state.interact = true;
+    b.session.frame();
+    await env.run(100);
+    assert.deepEqual(calls, [['b', 'a', true]], '손님의 F → 방장 reviveAction');
+    const zrev = env.hub.sent.filter((x) => x.from === 'b' && x.event === CONTROL_EVENT && x.payload && x.payload.k === 'zrev');
+    assert.deepEqual(zrev.map((x) => x.payload), [{ k: 'zrev', mid, id: 'a', on: 1 }]);
+    assert.equal(zrev[0].to, 'a', '방장에게만 보낸다');
+    // 방장이 돌려준 살리기 이벤트는 모두에게 간다(채팅 줄)
+    await env.run(200);
+    for (const c of [a, b]) assert.ok(c.session.state.chat.some((l) => l.system && l.text === '🩹 구름님이 하늘님을 살렸어요'), `${c.id} 채팅`);
+    inputB.state.interact = false;
+    b.session.frame();
+    await env.run(100);
+    assert.deepEqual(calls.at(-1), ['b', 'a', false], '떼면 off');
+    // 다른 경기·글자가 아닌 id·빈 id·너무 긴 id는 버린다
+    const n = calls.length;
+    for (const bad of [{ k: 'zrev', mid: 'other', id: 'a', on: 1 }, { k: 'zrev', mid, id: 7, on: 1 }, { k: 'zrev', mid, id: '', on: 1 }, { k: 'zrev', mid, id: 'x'.repeat(65), on: 1 }]) {
+      b.session.room.sendTo('a', CONTROL_EVENT, bad);
+    }
+    await env.run(100);
+    assert.equal(calls.length, n);
+    // 방장 자신: 손님(b)이 쓰러지고 방장이 옆에서 E(휴대폰 살리기 버튼)를 누르면 메시지 없이 바로 넘긴다
+    PA.alive = true; PA.hp = 100; PA.downPos = null;
+    const PB = m.internals.players.get('b');
+    PB.alive = false; PB.hp = 0; PB.downPos = [-22, 0, 0];
+    a.world.pos = [-21, 0, 0];
+    await env.run(300);
+    inputA.state.use = true;
+    a.session.frame();
+    assert.deepEqual(calls.at(-1), ['a', 'b', true]);
+    assert.equal(env.hub.sent.filter((x) => x.from === 'a' && x.payload && x.payload.k === 'zrev').length, 0, '방장은 메시지를 보내지 않는다');
+    // C4 수류탄은 종류와 신관을 그대로 보내고, 모르는 종류는 손 수류탄으로 보낸다
+    a.world.fire('grenade', { pos: [-21, 1.5, 0], vel: [4, 2, 0], kind: 'c4', fuse: 2.5 });
+    a.world.fire('grenade', { pos: [-21, 1.5, 0], vel: [4, 2, 0], kind: 'nuke', fuse: 2.5 });
+    await env.run(100);
+    const nades = [...new Map(env.hub.decoded(EV.grenade, 'a').map((g) => [g.id, g])).values()];
+    assert.equal(nades.length, 2);
+    assert.equal(nades[0].kind, 'c4');
+    assert.equal(nades[0].fuse, 2.5);
+    assert.equal(nades[1].kind, undefined);
+    env.dispose();
+  });
+});
+
 describe('팀 자동 배정', () => {
   /** a가 방을 연 직후 b가 들어온다. seen: b가 들어올 때 본 a의 presence(null = 아직 명단에 없음) */
   async function joinEarly(t, seen) {
@@ -2051,6 +2182,8 @@ class FakeEl extends FakeNode {
   select() {}
   setAttribute(k, v) { this.attrs[k] = String(v); }
   getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
+  removeAttribute(k) { delete this.attrs[k]; }
+  toggleAttribute(k, on) { if (on) this.attrs[k] = ''; else delete this.attrs[k]; return !!on; }
   addEventListener(type, fn) { (this.handlers[type] = this.handlers[type] || []).push(fn); }
   removeEventListener() {}
   fire(type, e = {}) { for (const fn of this.handlers[type] || []) fn({ target: this, preventDefault() {}, stopPropagation() {}, ...e }); }
@@ -2415,5 +2548,77 @@ describe('로비·대기실 화면', () => {
     assert.deepEqual(lines, [['킬 ×1', '+5'], ['완주', '+10'], ['난이도 쉬움 ×0.7', '-4']]);
     assert.ok(!results.el.textContent.includes('+-'), results.el.textContent);
     results.dispose();
+  });
+
+  test('메뉴 좀비 물량 막기: 시트를 닫은 뒤 같이 하기·혼자 하기·로비에서 찾기를 알리고, 멀티플레이를 못 쓰면 같이 하기와 찾기를 끈다', () => {
+    globalThis.document.documentElement = new FakeEl('html');   // 메뉴의 설정·조작법 시트가 휴대폰(pc-touch)인지 본다
+    const ctx = {
+      ...uiCtx(), playerName: '하늘', setPlayerName(n) { ctx.playerName = n; },
+      account: { remoteEnabled: true, profile: { nickname: '하늘', points: 10 } }, getSettings: () => ({}), resetSettings() {}
+    };
+    const menu = createMenu(ctx);
+    menu.show({ name: '하늘' });
+    const modal = menu.el.querySelector('.sk-modal');
+    const emitted = ctx.emitted;
+    ctx.emit = (name, payload) => emitted.push({ name, payload, closed: modal.hidden });
+    const openSheet = () => { byText(menu.el, '좀비 물량 막기')[0].fire('click'); return modal.children[0]; };
+    let sheet = openSheet();
+    assert.equal(modal.hidden, false, '메뉴 버튼은 고르기 시트를 연다');
+    assert.ok(sheet.textContent.includes('🧟 좀비 물량 막기'));
+    assert.equal(emitted.length, 0, '시트를 여는 것만으로는 아무 데도 가지 않는다');
+    const opt = (text) => byText(sheet, text)[0];
+    assert.ok(opt('같이 하기 · 공개 방 만들기').textContent.includes('로비에 바로 보이는 좀비 방을 만들어요 · 최대 4명'));
+    assert.ok(opt('혼자 하기').textContent.includes('증강을 고르는 동안 게임이 멈춰요'));
+    assert.equal(opt('같이 하기').getAttribute('data-autofocus'), '', '처음 포커스는 같이 하기');
+    opt('같이 하기').fire('click');
+    assert.deepEqual(emitted.map((e) => [e.name, e.closed]), [['menu:zombieRoom', true]], '시트를 먼저 닫고 알린다');
+    sheet = openSheet();
+    opt('혼자 하기').fire('click');
+    sheet = openSheet();
+    opt('로비에서 좀비 방 찾기').fire('click');
+    assert.deepEqual(emitted.map((e) => e.name), ['menu:zombieRoom', 'menu:zombie', 'menu:multi']);
+    // 멀티플레이를 열 수 없으면(세션 실패 등) 같이 하기·찾기를 끄고 사유를 보여 준다. 혼자 하기는 그대로
+    menu.update({ multiDisabled: '멀티플레이를 열 수 없어요. 잠시 뒤 다시 시도해 주세요.' });
+    sheet = openSheet();
+    assert.equal(opt('같이 하기').disabled, true);
+    assert.ok(opt('같이 하기').textContent.includes('지금은 쓸 수 없어요'));
+    assert.equal(opt('로비에서 좀비 방 찾기').disabled, true);
+    assert.ok(!opt('혼자 하기').disabled, '혼자 하기는 언제나 된다');
+    assert.ok(sheet.textContent.includes('멀티플레이를 열 수 없어요'));
+    assert.equal(opt('같이 하기').getAttribute('data-autofocus'), null);
+    assert.equal(opt('혼자 하기').getAttribute('data-autofocus'), '', '꺼진 단추 대신 혼자 하기에 포커스');
+    menu.update({ multiDisabled: '' });
+    assert.equal(opt('같이 하기').disabled, false, '다시 쓸 수 있으면 켠다');
+    menu.dispose();
+    delete globalThis.document.documentElement;
+  });
+
+  test('좀비 HUD: 쓰러진 동료 줄은 살리는 중 NN% · 곁에서 3초 눌러 살리기(내 줄은 기다리는 말) · 다음 스테이지 부활, 살리기 막대는 값이 있을 때만', () => {
+    const hud = createHordeHud({});
+    const row = (id, name, over = {}) => ({ id, name, hp: 0, maxHp: 100, alive: false, me: false, picking: false, invuln: false, shield: 0, down: null, canRevive: true, ...over });
+    const team = [
+      row('me', '하늘', { hp: 80, alive: true, me: true }),
+      row('b', '구름', { down: { by: 'me', progress: 0.62 } }),
+      row('c', '바다', { down: { by: null, progress: 0 } })
+    ];
+    hud.show({ stage: 2, phase: 'wave', timeLeft: 0, left: 3, stageLeft: 20, xp: { level: 1, xp: 0, need: 10 }, bosses: [], team, warn: '', revive: { text: '🩹 구름 살리는 중', frac: 0.62 } });
+    const rows = () => hud.el.all((k) => k.tagName === 'LI');
+    const status = (li) => li.all((k) => k.className === 'sk-hz-mhp')[0].textContent;
+    assert.deepEqual(rows().map(status), ['80', '살리는 중 62%', '곁에서 3초 눌러 살리기']);
+    assert.ok(rows()[1].className.includes('is-reviving'), '살리는 중이면 막대가 진행을 채운다');
+    const bar = hud.el.all((k) => k.className === 'sk-hz-revive')[0];
+    assert.equal(bar.hidden, false);
+    assert.equal(bar.textContent, '🩹 구름 살리는 중');
+    assert.equal(bar.all((k) => k.tagName === 'I')[0].style.transform, 'scaleX(0.620)');
+    assert.ok(!bar.classList.contains('is-down'), '살리는 쪽 막대는 크로스헤어 아래');
+    // 쓰러진 나: 내 줄은 기다리는 말, 막대는 관전 이름표 위(is-down). 살릴 몸이 없는 사람(중간에 들어옴)은 다음 스테이지
+    hud.update({ team: [row('me', '하늘', { me: true, down: { by: null, progress: 0 } }), row('d', '노을', { down: null, canRevive: false })], revive: { text: '🩹 구름님이 살리는 중', frac: 0.3, down: true } });
+    assert.deepEqual(rows().map(status), ['동료가 살릴 수 있어요', '다음 스테이지에 부활']);
+    assert.ok(bar.classList.contains('is-down'), '쓰러진 내 막대는 관전 이름표와 겹치지 않는 자리');
+    // 혼자(canRevive false)면 예전 글, 살리기 막대는 값이 없으면 숨긴다
+    hud.update({ team: team.map((x) => ({ ...x, canRevive: false, down: x.alive ? null : { by: null, progress: 0 } })), revive: null });
+    assert.deepEqual(rows().map(status), ['80', '다음 스테이지에 부활', '다음 스테이지에 부활']);
+    assert.equal(bar.hidden, true);
+    hud.dispose();
   });
 });

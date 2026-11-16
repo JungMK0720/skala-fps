@@ -89,6 +89,9 @@ const only = (evs, type) => evs.filter((e) => e.type === type);
 const firstOf = (evs, type) => evs.find((e) => e.type === type);
 const rejectReason = (evs) => (firstOf(evs, 'reject') || {}).reason;
 const playerOf = (m, id) => m.state.players.find((p) => p.id === id);
+/** 좀비 물량 막기 전용 무기(zombieOnly: 유탄 발사기·바주카포)는 다른 모드에서 쓰지 않는다. 사람끼리의 판정 시험은 나머지 무기로 한다 */
+const ZOMBIE_ONLY = WEAPON_IDS.filter((id) => WEAPONS[id].zombieOnly);
+const pvp = (ids) => ids.filter((id) => !WEAPONS[id].zombieOnly);
 
 /* ============================================================ A. 다섯 부위 히트박스 */
 
@@ -588,7 +591,8 @@ describe('연사 검사', () => {
 
   test('실제 arsenal의 최고 속도 사격은 모든 무기에서 통과한다', () => {
     const TICK = 1 / 60;
-    for (const id of [...PRIMARY_IDS, ...SECONDARY_IDS]) {
+    // 좀비 전용 발사기는 총알 판정(claimHit)이 아니라 폭발로만 피해를 주고, 사람끼리는 쓰지 않는다(아래 '규칙' 시험)
+    for (const id of pvp([...PRIMARY_IDS, ...SECONDARY_IDS])) {
       const slot = WEAPONS[id].slot;
       const arsenal = createArsenal({
         primary: slot === 1 ? id : undefined, secondary: slot === 2 ? id : undefined, allowedSlots: [slot], rng: () => 0.5
@@ -648,19 +652,29 @@ describe('연사 검사', () => {
 /* ============================================================ 규칙(룰셋) */
 
 describe('규칙', () => {
+  const GUN_1 = pvp(PRIMARY_IDS), GUN_2 = pvp(SECONDARY_IDS);
   const FIRE_BY_RULESET = {
-    classic: { ok: [...PRIMARY_IDS, ...SECONDARY_IDS, ...MELEE_IDS], no: [] },
-    knife: { ok: [...MELEE_IDS], no: [...PRIMARY_IDS, ...SECONDARY_IDS] },
+    classic: { ok: [...GUN_1, ...GUN_2, ...MELEE_IDS], no: [] },
+    knife: { ok: [...MELEE_IDS], no: [...GUN_1, ...GUN_2] },
     sniper: {
-      ok: [...PRIMARY_IDS.filter((id) => WEAPONS[id].kind === 'sniper'), ...MELEE_IDS],
-      no: [...PRIMARY_IDS.filter((id) => WEAPONS[id].kind !== 'sniper'), ...SECONDARY_IDS]
+      ok: [...GUN_1.filter((id) => WEAPONS[id].kind === 'sniper'), ...MELEE_IDS],
+      no: [...GUN_1.filter((id) => WEAPONS[id].kind !== 'sniper'), ...GUN_2]
     }
   };
 
   for (const ruleset of RULESET_IDS) {
     test(`${ruleset}: claimHit이 무기를 거른다`, () => {
       const { ok, no } = FIRE_BY_RULESET[ruleset];
-      assert.equal(ok.length + no.length, PRIMARY_IDS.length + SECONDARY_IDS.length + MELEE_IDS.length);
+      assert.equal(ok.length + no.length, GUN_1.length + GUN_2.length + MELEE_IDS.length);
+      // 좀비 전용 무기는 어느 규칙에서도 맞힌 것으로 받지 않는다(다른 모드에서는 쏴도 피해가 없다)
+      for (const weaponId of ZOMBIE_ONLY) {
+        const m = liveDuel({ ruleset });
+        const evs = m.claimHit(claim({ weaponId, part: 'head', dist: 1, kind: 'slash' }));
+        assert.ok(rejectReason(evs), weaponId);
+        assert.equal(firstOf(evs, 'reject').weaponId, weaponId);
+        assert.equal(firstOf(evs, 'damage'), undefined, weaponId);
+        assert.equal(playerOf(m, 'b').hp, 100, weaponId);
+      }
       for (const weaponId of no) {
         const m = liveDuel({ ruleset });
         const evs = m.claimHit(claim({ weaponId, part: 'head', dist: 1, kind: 'slash' }));

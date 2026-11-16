@@ -4,10 +4,12 @@
  * Purpose: 좀비 물량 막기의 화면 쪽. 방장 스냅샷의 좀비·보스를 시간축으로 보간해 그리고(부위별 InstancedMesh라 수십 마리도 그리기 호출이 몇 개),
  *          투사체·장판·스킬 예고·폭발·바닥 보급품(탄창·구급 상자·보물 상자)·화염 수류탄 불길·어그로 분신을 보여 주며, 다친 좀비 머리 위 체력바와
  *          내가 준 피해 숫자(머리는 크고 노랗게, 몸은 작게)를 띄운다. 내 사격·칼·수류탄이 맞힌 좀비를 찾는다(World가 부른다). 모형은 상자 몇 개로 직접 만들었다.
+ *          칼의 검기(빛나는 초승달)를 날려 내 검기가 지나간 좀비를 알리고, 쓰러진 동료 자리에 고리와 벽 너머로 보이는 이름표를 띄운다.
  */
 import { ZF, BOSS_CODE_BASE, FIELD_KINDS } from './director.js';
 import { zombieByCode, HORDE, LOOT_TYPES } from './rules.js';
 import { bossByCode, SKILL_KINDS, HAZARD_KINDS, PROJECTILE_KINDS } from './bosses.js';
+import { waveHitT, waveHitPoint, losReach } from './contact.js';
 
 const MAX_Z = 96;               // 한 번에 그리는 좀비 상한(보스 포함)
 const MAX_PROJ = 48;
@@ -22,6 +24,18 @@ const BAR_RANGE = 40;           // 이 거리 안의 다친 좀비만 체력바�
 const MAX_NUMS = 28;            // 한 번에 떠 있는 피해 숫자
 const MAX_DECOYS = 8;
 const MAX_FIELDS = 12;
+const MAX_WAVES = 16;           // 한 번에 나는 검기 상한(내 것·남의 것)
+const MAX_REVIVE = 4;           // 한 번에 띄우는 쓰러진 동료 표시
+// 검기: 속도(m/s)·판정 반지름(m)·검기 하나가 맞히는 좀비 상한(rules.js HORDE)
+const WAVE_SPEED = HORDE.waveSpeed || 26;
+const WAVE_R = HORDE.waveRadius || 0.7;
+const WAVE_HITS = HORDE.waveMaxHits || 6;
+const WAVE_FADE_MS = 160;       // 끝까지 갔거나 벽에 막힌 검기가 사라지는 시간
+const WAVE_IN_M = 1.4;          // 이만큼 날아갈 때까지 커지며 또렷해진다(내 눈앞을 가리지 않게)
+const WAVE_DT_MAX = 0.1;        // 한 프레임에 검기를 움직이는 최대 시간(초). 프레임이 끊겨도 순간이동하지 않는다
+const REVIVE_HOLD_MS = HORDE.reviveHoldMs || 3000;
+const REVIVE_RING_R = 0.95;     // 쓰러진 자리 고리 반지름(m)
+const LABEL_W = 384;            // 쓰러진 동료 이름표 캔버스 폭(높이 64). 긴 닉네임과 '62%'가 한 줄에 들어가게
 // 피해 숫자 모양: 머리는 크고 노랗게, 몸은 작게 하양, 다리는 더 작게, 칼은 하늘색, 수류탄은 주황(scale = 화면 높이 기준 크기)
 const NUM_STYLE = Object.freeze({
   head: { color: '#ffd23a', scale: 0.085, dur: 950, rise: 0.8 },
@@ -78,6 +92,36 @@ function rayBox(ox, oy, oz, dx, dy, dz, x0, y0, z0, x1, y1, z1) {
     if (t0 > t1) return -1;
   }
   return t0;
+}
+
+/**
+ * 검기 모형: 앞(-z)으로 볼록한 초승달 띠. 가로 ±0.85 m, 가운데 두께 0.34 m에서 양 끝으로 0이 되고 끝이 살짝 위로 휜다(뒤에서 보면 초승달).
+ * 정점 색은 가운데 줄이 밝은 하늘색, 위아래 가장자리가 검정이라 더하기 혼합으로 그리면 가장자리가 부드럽게 사라진다
+ */
+function crescentGeometry(THREE) {
+  const N = 18, W = 0.85, TH = Math.PI / 3, H = 0.34, BOW = 0.16;
+  const rc = W / Math.sin(TH);
+  const pos = [], col = [], idx = [];
+  for (let i = 0; i <= N; i++) {
+    const u = (i / N) * 2 - 1;
+    const th = u * TH;
+    const x = rc * Math.sin(th), z = rc * (1 - Math.cos(th));   // 가운데가 가장 앞(z = 0), 끝은 뒤로 처진다
+    const taper = Math.cos((u * Math.PI) / 2);
+    const h = H * taper, yc = BOW * u * u;
+    pos.push(x, yc + h / 2, z, x, yc, z, x, yc - h / 2, z);
+    const k = 0.3 + 0.7 * taper;
+    col.push(0, 0.04, 0.06, 0.72 * k, 1 * k, 1 * k, 0, 0.04, 0.06);
+  }
+  for (let i = 0; i < N; i++) {
+    const a = i * 3, b = (i + 1) * 3;
+    idx.push(a, a + 1, b, b, a + 1, b + 1, a + 1, a + 2, b + 1, b + 1, a + 2, b + 2);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  g.computeBoundingSphere();
+  return g;
 }
 
 /**
@@ -193,6 +237,16 @@ export function createHordeView(o) {
   // 연쇄 번개 선
   const zapMat = new THREE.LineBasicMaterial({ color: 0x9ff8ff, transparent: true, opacity: 0.95 });
   const zaps = [];
+  // 검기: 빛나는 초승달(더하기 혼합, 사라질 때 흐려지게 검기마다 재질 하나). 풀로 다시 쓴다
+  const waveGeo = crescentGeometry(THREE);
+  const waves = [];
+  const candZ = new Array(MAX_Z).fill(null), candT = new Float64Array(MAX_Z);   // 이번 프레임 검기 구간에 닿은 좀비(가까운 순)
+  const WC = [0, 0, 0], WP = [0, 0, 0];                                         // 검기 벽 가림 검사의 두 점(다시 쓴다)
+  const WX = new THREE.Vector3(), WY = new THREE.Vector3(), WZ = new THREE.Vector3(), WM = new THREE.Matrix4();
+  // 쓰러진 동료: 바닥의 빨간 고리(맥박), 살리는 만큼 커지는 초록 원판, 벽 너머로도 보이는 이름표
+  const reviveRings = decalPool(ringGeo, MAX_REVIVE, 0xff3c3c, 0.7);
+  const reviveDiscs = decalPool(discGeo, MAX_REVIVE, 0x4dff7a, 0.45);
+  const reviveLabels = [];
 
   /* ---------- 상태 ---------- */
   const ents = new Map();            // 좀비 번호 → { hist: [{t, pos, yaw, f, hp}], ... }
@@ -202,6 +256,7 @@ export function createHordeView(o) {
   const fxAnims = [];                // { kind, pos, r, at, color }
   const rendered = [];               // 이번 프레임에 그린 좀비(사격 판정용)
   let myHits = new Map();            // 좀비 번호 → 마지막 피격 시각(번쩍임)
+  let downs = [], downAt = 0;        // 쓰러진 동료 { id, name, pos, progress, by } (마지막으로 받은 뷰, 나는 빼고)
 
   const M = new THREE.Matrix4(), T = new THREE.Matrix4(), Rm = new THREE.Matrix4(), S = new THREE.Matrix4(), P = new THREE.Matrix4();
   const C = new THREE.Color(), C2 = new THREE.Color(), SKC = new THREE.Color(), CLC = new THREE.Color();
@@ -216,9 +271,21 @@ export function createHordeView(o) {
     barBg.visible = barFg.visible = active;
   }
 
-  /** 방장 뷰(applyHordeSnapshot) 하나를 받은 시각 t(performance.now 기준)에 넣는다 */
-  function push(view, t = performance.now()) {
+  /** 방장 뷰(applyHordeSnapshot) 하나를 받은 시각 t(performance.now 기준)에 넣는다. meId = 내 id(내 쓰러진 자리 표시는 띄우지 않는다) */
+  function push(view, t = performance.now(), meId = null) {
     if (!active || !view) return;
+    // 쓰러진 동료(접속 중, 나는 빼고): 쓰러진 자리와 살리는 진행도
+    const me = meId == null ? null : String(meId);
+    downs = [];
+    downAt = t;
+    for (const p of Array.isArray(view.players) ? view.players : []) {
+      if (downs.length >= MAX_REVIVE) break;
+      const d = p && !p.alive && p.connected ? p.down : null;
+      if (!d || !Array.isArray(d.pos) || String(p.id) === me) continue;
+      const pos = [Number(d.pos[0]), Number(d.pos[1]), Number(d.pos[2])];
+      if (!Number.isFinite(pos[0] + pos[1] + pos[2])) continue;
+      downs.push({ id: String(p.id), name: String(p.name || ''), pos, progress: clamp(Number(d.progress) || 0, 0, 1), by: d.by == null ? null : String(d.by) });
+    }
     if (lastPushAt) interval = lerp(interval, clamp(t - lastPushAt, 16, 600), 0.2);
     lastPushAt = t;
     delay = clamp(interval * 1.45, DELAY_MIN, DELAY_MAX);
@@ -446,7 +513,8 @@ export function createHordeView(o) {
     }
   }
 
-  function frame(dt, now = performance.now()) {
+  /** 한 프레임 그리기. frozen이면 검기를 멈춰 둔다(시뮬레이션 일시정지: 멈춘 좀비를 맞히지 않게) */
+  function frame(dt, now = performance.now(), frozen = false) {
     if (!active) return;
     for (const k of Object.keys(ni)) ni[k] = 0;
     rendered.length = 0;
@@ -462,7 +530,7 @@ export function createHordeView(o) {
       drawZombie(e, smp, now, dt);
       if (!e.deadAt) {
         const riseK = clamp((now - e.riseAt) / RISE_MS, 0, 1);
-        rendered.push({ id: e.id, x: smp.pos[0], y: smp.pos[1] - (1 - riseK) * 1.7 * e.s, z: smp.pos[2], yaw: smp.yaw, s: e.s, low: e.low, boss: !!e.boss });
+        rendered.push({ id: e.id, x: smp.pos[0], y: smp.pos[1] - (1 - riseK) * 1.7 * e.s, z: smp.pos[2], yaw: smp.yaw, s: e.s, low: e.low, boss: !!e.boss, rising: riseK < 1 });
         // 다친 좀비는 머리 위 체력바(보스는 화면 위 막대가 따로 있어도 같이 띄운다)
         if (e.hp < 0.999 && riseK >= 1 && (!cam || Math.hypot(cam.x - smp.pos[0], cam.z - smp.pos[2]) < BAR_RANGE)) {
           const top = (e.low ? 0.95 : 2.08) * e.s + (e.boss ? 0.2 : 0);
@@ -486,12 +554,14 @@ export function createHordeView(o) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
+    stepWaves(dt, now, frozen);        // 이번 프레임에 그린 좀비로 판정한다(맞히면 피해 숫자가 이 프레임에 뜬다)
     drawTelegraphs(now);
     drawProjectiles(now);
     drawHazards(now);
     drawFields(now);
     drawDecoys(now);
     drawLoot(now);
+    drawRevives(now);
     drawFx(now);
     drawBars();
     drawNumbers(now);
@@ -764,6 +834,205 @@ export function createHordeView(o) {
     zapMat.opacity = zaps.length ? 0.95 : 0;
   }
 
+  /* ---------- 쓰러진 동료 표시 ---------- */
+  function makeReviveLabel() {
+    const canvas = document.createElement('canvas');
+    canvas.width = LABEL_W; canvas.height = 64;
+    const tex = new THREE.CanvasTexture(canvas);
+    if (THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+    const sm = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, sizeAttenuation: false, fog: false });
+    const sp = new THREE.Sprite(sm);
+    sp.renderOrder = 13; sp.visible = false; sp.name = 'horde:revive';
+    // 화면 높이 기준 크기(거리와 상관없이 같다). 글자가 몸 피해 숫자만 하게(작은 화면에서도 읽히게)
+    sp.scale.set(0.08 * LABEL_W / 64, 0.08, 1);
+    scene.add(sp);
+    return { sp, canvas, g: canvas.getContext('2d'), tex, text: '' };
+  }
+  /** 이름표 글자를 다시 그린다(글자가 바뀔 때만). busy = 누군가 살리는 중(초록) */
+  function paintReviveLabel(L, text, busy) {
+    const g = L.g;
+    L.text = text;
+    if (!g) return;
+    g.clearRect(0, 0, LABEL_W, 64);
+    g.font = '800 42px "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif';
+    const tw = Math.min(LABEL_W - 8, g.measureText(text).width + 30);
+    g.fillStyle = busy ? 'rgba(8, 40, 18, 0.78)' : 'rgba(44, 8, 8, 0.72)';
+    g.beginPath();
+    if (g.roundRect) g.roundRect((LABEL_W - tw) / 2, 5, tw, 54, 16); else g.rect((LABEL_W - tw) / 2, 5, tw, 54);
+    g.fill();
+    g.fillStyle = busy ? '#8dffaa' : '#ff9d9d';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(text, LABEL_W / 2, 33, LABEL_W - 24);
+    L.tex.needsUpdate = true;
+  }
+  /** 쓰러진 동료 자리: 맥박 치는 빨간 고리, 살리는 만큼 커지는 초록 원판(받은 진행도에서 이어서 늘린다), 머리 위 이름표 */
+  function drawRevives(now) {
+    reviveRings.begin(); reviveDiscs.begin();
+    const pulse = 0.5 + 0.5 * Math.sin(now / 170);
+    let n = 0;
+    for (const d of downs) {
+      const r = reviveRings.take();
+      if (r) {
+        r.position.set(d.pos[0], d.pos[1] + 0.05, d.pos[2]);
+        r.scale.setScalar(REVIVE_RING_R * (0.92 + 0.1 * pulse));
+        r.material.opacity = 0.4 + 0.45 * pulse;
+      }
+      let prog = d.progress;
+      if (d.by && prog > 0) prog = Math.min(1, prog + Math.min(0.15, Math.max(0, now - downAt) / REVIVE_HOLD_MS));
+      if (prog > 0.001) {
+        const disc = reviveDiscs.take();
+        if (disc) {
+          disc.position.set(d.pos[0], d.pos[1] + 0.04, d.pos[2]);
+          disc.scale.setScalar(REVIVE_RING_R * 0.88 * prog);
+          disc.material.opacity = 0.5;
+        }
+      }
+      if (typeof document === 'undefined') continue;
+      if (n >= reviveLabels.length) reviveLabels.push(makeReviveLabel());
+      const L = reviveLabels[n++];
+      const busy = !!d.by;
+      const text = busy ? `✚ ${d.name} ${Math.round(d.progress * 100)}%` : `✚ ${d.name}`;
+      if (L.text !== text) paintReviveLabel(L, text, busy);
+      L.sp.visible = true;
+      L.sp.position.set(d.pos[0], d.pos[1] + 1.1, d.pos[2]);
+    }
+    for (let i = n; i < reviveLabels.length; i++) reviveLabels[i].sp.visible = false;
+    reviveRings.end(); reviveDiscs.end();
+  }
+
+  /* ---------- 검기 ---------- */
+  function waveSlot() {
+    let free = null, oldest = null;
+    for (const w of waves) {
+      if (!w.on) { free = w; break; }
+      if (!oldest || w.age > oldest.age) oldest = w;
+    }
+    if (free) return free;
+    if (waves.length < MAX_WAVES) {
+      const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
+      const mesh = new THREE.Mesh(waveGeo, mat);
+      mesh.name = 'horde:wave'; mesh.visible = false; mesh.renderOrder = 5;
+      scene.add(mesh);
+      const w = { mesh, mat, on: false, local: false, stab: false, ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: -1, range: 0, stop: 0, dist: 0, wait: 0, age: 0, fade: -1, hits: 0, hit: [], exclude: -1, onHit: null, seed: 0 };
+      waves.push(w);
+      return w;
+    }
+    endWave(oldest);
+    return oldest;
+  }
+  function endWave(w) {
+    w.on = false;
+    w.onHit = null;
+    w.los = null;
+    w.hit.length = 0;
+    w.mesh.visible = false;
+  }
+
+  /**
+   * 검기 하나를 날린다. o = { origin:[x,y,z], dir:[x,y,z], range, local, kind:'wave'|'waveStab', exclude:'z12'|null, los(a,b), onHit(hit), delayMs? }
+   * HORDE.waveSpeed로 날아가 range나 벽(los가 false인 곳)에서 멈춘다. local이면 이번 프레임에 그린 좀비를 한 번씩, HORDE.waveMaxHits마리까지 맞히고
+   * onHit({ id:'z12', dist(출발점에서 날아간 거리), point, boss })를 부른다(exclude는 건너뛴다). 남의 검기(local:false)는 보이기만 한다
+   * → 날렸으면 true
+   */
+  function wave(o) {
+    if (!active || !o || !o.origin || !o.dir) return false;
+    const ox = Number(o.origin[0]), oy = Number(o.origin[1]), oz = Number(o.origin[2]);
+    let dx = Number(o.dir[0]), dy = Number(o.dir[1]), dz = Number(o.dir[2]);
+    const dl = Math.hypot(dx, dy, dz);
+    if (!Number.isFinite(ox + oy + oz) || !(dl > 1e-6)) return false;
+    dx /= dl; dy /= dl; dz /= dl;
+    const range = clamp(Number(o.range) || 0, 0, 60);
+    if (!(range > 0)) return false;
+    const w = waveSlot();
+    w.on = true;
+    w.local = !!o.local;
+    w.stab = o.kind === 'waveStab';
+    w.ox = ox; w.oy = oy; w.oz = oz; w.dx = dx; w.dy = dy; w.dz = dz;
+    w.range = range;
+    w.los = typeof o.los === 'function' ? o.los : null;
+    w.stop = w.los ? losReach(w.los, [ox, oy, oz], [dx, dy, dz], range) : range;
+    w.dist = 0; w.age = 0; w.fade = -1; w.hits = 0; w.hit.length = 0;
+    w.wait = Math.max(0, Number(o.delayMs) || 0);
+    w.exclude = o.exclude == null || o.exclude === '' ? -1 : zombieNumber(o.exclude);
+    w.onHit = w.local && typeof o.onHit === 'function' ? o.onHit : null;
+    w.seed = Math.random() * 100;
+    // 방향: 모형의 -z를 진행 방향으로, x를 수평 오른쪽으로. 찌르기는 진행 방향을 축으로 90° 돌려 세운다
+    WX.set(-dz, 0, dx);
+    if (WX.lengthSq() < 1e-8) WX.set(1, 0, 0); else WX.normalize();
+    WY.set(WX.y * dz - WX.z * dy, WX.z * dx - WX.x * dz, WX.x * dy - WX.y * dx);
+    WZ.set(-dx, -dy, -dz);
+    if (w.stab) { WX.negate(); WM.makeBasis(WY, WX, WZ); } else WM.makeBasis(WX, WY, WZ);
+    w.mesh.quaternion.setFromRotationMatrix(WM);
+    w.mesh.visible = false;
+    return true;
+  }
+
+  /** 검기 하나가 이번 프레임에 d0 → d1을 지나며 닿은 좀비(가까운 순, 상한까지)를 알린다 */
+  function waveHits(w, d0, d1) {
+    let n = 0;
+    // 수평 진행 방향(앞뒤 판정용). 거의 수직으로 휘두르면 앞뒤를 가리지 않는다
+    const hl = Math.hypot(w.dx, w.dz);
+    for (const z of rendered) {
+      if (n >= candZ.length) break;
+      if (z.id === w.exclude || w.hit.includes(z.id)) continue;
+      // 검기는 앞으로만 날아간다: 출발점보다 뒤(옆 포함)에 선 좀비는 처음 겹쳐 있어도 맞지 않는다
+      if (hl > 0.2 && ((z.x - w.ox) * w.dx + (z.z - w.oz) * w.dz) / hl <= 0) continue;
+      const t = waveHitT(w.ox, w.oy, w.oz, w.dx, w.dy, w.dz, d0, d1, z, WAVE_R);
+      if (t < 0) continue;
+      let i = n++;
+      while (i > 0 && candT[i - 1] > t) { candZ[i] = candZ[i - 1]; candT[i] = candT[i - 1]; i--; }
+      candZ[i] = z; candT[i] = t;
+    }
+    for (let i = 0; i < n; i++) {
+      const z = candZ[i];
+      candZ[i] = null;
+      if (w.hits >= WAVE_HITS || !w.onHit) continue;
+      const point = waveHitPoint(w.ox, w.oy, w.oz, w.dx, w.dy, w.dz, candT[i], z, WAVE_R);
+      // 벽 너머: 닿은 순간의 검기 중심에서 좀비 몸이 보여야 맞는다(가려졌으면 다음 프레임에 다시 본다)
+      if (w.los) {
+        const t = candT[i];
+        WC[0] = w.ox + w.dx * t; WC[1] = w.oy + w.dy * t; WC[2] = w.oz + w.dz * t;
+        WP[0] = z.x; WP[1] = point[1]; WP[2] = z.z;
+        let clear = true;
+        try { clear = !!w.los(WC, WP); } catch (e) { clear = false; }
+        if (!clear) continue;
+      }
+      w.hits++;
+      w.hit.push(z.id);
+      try { w.onHit({ id: 'z' + z.id, dist: candT[i], point, boss: !!z.boss }); } catch (e) { console.error('[horde] 검기', e); }
+    }
+  }
+
+  /** 검기를 움직이고(frozen이면 그대로) 그린다. 내 검기는 지나간 구간의 좀비를 맞힌다 */
+  function stepWaves(dt, now, frozen) {
+    const ms = Math.min(Math.max(0, Number(dt) || 0), WAVE_DT_MAX) * 1000;
+    for (const w of waves) {
+      if (!w.on) continue;
+      if (!frozen) {
+        if (w.wait > 0) w.wait -= ms;
+        else {
+          w.age += ms;
+          if (w.fade < 0) {
+            const d0 = w.dist, d1 = Math.min(w.stop, d0 + WAVE_SPEED * ms / 1000);
+            if (w.onHit && w.hits < WAVE_HITS && d1 > d0) waveHits(w, d0, d1);
+            w.dist = d1;
+            if (d1 >= w.stop - 1e-6) w.fade = 0;
+          } else w.fade += ms;
+        }
+        if (!w.on) continue;               // onHit 안에서 지웠다(clear)
+        if (w.fade >= WAVE_FADE_MS) { endWave(w); continue; }
+      }
+      const m = w.mesh;
+      if (w.wait > 0) { m.visible = false; continue; }
+      m.visible = true;
+      m.position.set(w.ox + w.dx * w.dist, w.oy + w.dy * w.dist, w.oz + w.dz * w.dist);
+      const grow = clamp(w.dist / WAVE_IN_M, 0, 1);
+      m.scale.setScalar((w.stab ? 0.8 : 1) * (0.55 + 0.45 * grow) * (1 + 0.2 * clamp(w.dist / w.range, 0, 1)));
+      const out = w.fade < 0 ? 1 : clamp(1 - w.fade / WAVE_FADE_MS, 0, 1);
+      w.mat.opacity = (0.12 + 0.83 * grow) * out * (0.88 + 0.12 * Math.sin(now / 23 + w.seed));
+    }
+  }
+
   /* ---------- 판정(내 화면 기준, World가 부른다) ---------- */
   /**
    * 레이에 맞은 좀비들(가까운 순, 최대 n개). maxDist는 벽·사람에 막힌 거리.
@@ -846,6 +1115,35 @@ export function createHordeView(o) {
     return false;
   }
 
+  /**
+   * touching과 같은 판정으로, 닿은 좀비 중 가장 가까운 것(C4가 붙을 좀비)
+   * → { id(번호), x, y, z, yaw, s, low, boss } | null
+   */
+  function touchingZombie(p, r = 0.5) {
+    if (!active || !p) return null;
+    let best = null, bestD = Infinity;
+    for (const z of rendered) {
+      // 땅에서 솟아오르는 중인 좀비는 몸이 바닥 아래에 있어 붙이지 않는다(C4가 바닥 밑으로 들어간다)
+      if (z.rising) continue;
+      const top = z.y + (z.low ? 0.8 : 1.85) * z.s;
+      if (p[1] < z.y - 0.1 || p[1] > top + 0.15) continue;
+      const d = Math.hypot(p[0] - z.x, p[2] - z.z);
+      if (d < (z.low ? 0.5 : 0.32) * z.s + r && d < bestD) { bestD = d; best = z; }
+    }
+    return best ? { id: best.id, x: best.x, y: best.y, z: best.z, yaw: best.yaw, s: best.s, low: best.low, boss: best.boss } : null;
+  }
+
+  /**
+   * 이번 프레임에 그린(살아 있는) 좀비 하나 — id는 번호나 'z12'. 쓰러졌거나 사라졌으면 null.
+   * 돌려주는 객체는 이번 프레임 목록 그대로라 읽기만 한다 → { id, x, y, z, yaw, s, low, boss } | null
+   */
+  function zombieAt(id) {
+    if (!active || id == null) return null;
+    const n = typeof id === 'number' ? id | 0 : zombieNumber(id);
+    for (const z of rendered) if (z.id === n) return z;
+    return null;
+  }
+
   /** 이 자리(내 발)를 좀비가 붙잡고 있는가: 좀비 몸과 겹치면 느려진다 */
   function grabbed(pos) {
     if (!active) return false;
@@ -865,9 +1163,11 @@ export function createHordeView(o) {
     ents.clear();
     myHits.clear();
     rendered.length = 0;
-    bosses = []; projectiles = []; hazards = []; loot = []; fields = []; decoys = [];
+    bosses = []; projectiles = []; hazards = []; loot = []; fields = []; decoys = []; downs = [];
     for (const n of nums) { n.alive = false; n.sp.visible = false; }
     for (const g of decoyMeshes) g.visible = false;
+    for (const w of waves) endWave(w);
+    for (const L of reviveLabels) L.sp.visible = false;
     barBg.count = barFg.count = 0;
     fxAnims.length = 0;
     seenFx.clear();
@@ -877,7 +1177,7 @@ export function createHordeView(o) {
     for (const m of Object.values(parts)) { m.count = 0; m.instanceMatrix.needsUpdate = true; }
     projMesh.count = 0;
     lootMesh.count = 0;
-    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, fxRings, lootRings, fireDiscs, fireRings, decoyRings]) { pool.begin(); pool.end(); }
+    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, fxRings, lootRings, fireDiscs, fireRings, decoyRings, reviveRings, reviveDiscs]) { pool.begin(); pool.end(); }
   }
 
   function dispose() {
@@ -887,17 +1187,22 @@ export function createHordeView(o) {
     scene.remove(lootMesh); lootMesh.geometry.dispose(); lootMat.dispose();
     mat.dispose(); eyeMat.dispose(); zapMat.dispose();
     ringGeo.dispose(); discGeo.dispose(); planeGeo.dispose();
-    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, fxRings, lootRings, fireDiscs, fireRings, decoyRings]) pool.dispose();
+    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, fxRings, lootRings, fireDiscs, fireRings, decoyRings, reviveRings, reviveDiscs]) pool.dispose();
     for (const g of decoyMeshes) scene.remove(g);
     decoyBodyGeo.dispose(); decoyHeadGeo.dispose(); decoyMat.dispose();
     for (const m of [barBg, barFg]) scene.remove(m);
     barGeo.dispose(); barBgMat.dispose(); barFgMat.dispose();
     for (const n of nums) { scene.remove(n.sp); n.tex.dispose(); n.sp.material.dispose(); }
     nums.length = 0;
+    for (const w of waves) { scene.remove(w.mesh); w.mat.dispose(); }
+    waves.length = 0;
+    waveGeo.dispose();
+    for (const L of reviveLabels) { scene.remove(L.sp); L.tex.dispose(); L.sp.material.dispose(); }
+    reviveLabels.length = 0;
   }
 
   return {
-    setActive, push, event, frame, ray, melee, blastTargets, grabbed, touching, nearest, noteHit, damageNumber, clear, dispose,
+    setActive, push, event, frame, ray, melee, blastTargets, grabbed, touching, touchingZombie, zombieAt, wave, nearest, noteHit, damageNumber, clear, dispose,
     get active() { return active; },
     get count() { return rendered.length; },
     get delay() { return delay; },
@@ -905,8 +1210,12 @@ export function createHordeView(o) {
     get rendered() { return rendered.map((z) => ({ ...z })); },
     /** 지금 바닥에 그리는 보급품 { id, kind, pos, leftMs } (마지막으로 받은 뷰 기준) */
     get loot() { return loot.map((L) => ({ ...L, pos: L.pos.slice() })); },
-    /** 시험용: 이번 프레임 체력바 수, 떠 있는 피해 숫자 수, 분신·불길 수 */
-    get stats() { return { bars: barBg.count, numbers: nums.filter((n) => n.alive).length, decoys: decoys.length, fields: fields.length }; }
+    /** 지금 띄우는 쓰러진 동료 { id, name, pos, progress, by } (마지막으로 받은 뷰 기준, 나는 빼고) */
+    get downs() { return downs.map((d) => ({ ...d, pos: d.pos.slice() })); },
+    /** 시험용: 이번 프레임 체력바 수, 떠 있는 피해 숫자 수, 분신·불길 수, 날고 있는 검기 수, 쓰러진 동료 표시 수 */
+    get stats() {
+      return { bars: barBg.count, numbers: nums.filter((n) => n.alive).length, decoys: decoys.length, fields: fields.length, waves: waves.filter((w) => w.on).length, downs: downs.length };
+    }
   };
 }
 

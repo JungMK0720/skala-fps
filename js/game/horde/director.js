@@ -2,9 +2,10 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 좀비 물량 막기의 방장 시뮬레이션. 스테이지 진행(준비 → 40초 스테이지가 이어짐. 시간 안에 다 잡으면 남은 2초당 경험치 1을 받고
- *          바로 다음 스테이지), 팀 경험치·레벨업, 증강 제안·선택(혼자면 고르는 동안 좀비·시간이 멈추고, 멀티는 고르는 사람만 무적 · 20초 안에
- *          안 고르면 무작위 · 고른 뒤 3초 무적), 좀비 생성·길찾기·공격, 보스 스킬, 투사체·장판,
- *          피해 확정, 바닥 보급품(구급 상자·탄창·보스의 보물 상자), 수류탄 증강(불길·빙결·분신), 스냅샷과 방장 이전 복원을 맡는다.
+ *          바로 다음 스테이지), 팀 경험치·레벨업, 증강 제안·선택(혼자면 고르는 동안 좀비·시간이 멈추고, 멀티는 고르는 사람만 무적이고 좀비도 노리지 않는다 ·
+ *          20초 안에 안 고르면 무작위 · 고른 뒤 3초 무적), 좀비 생성·길찾기·공격, 보스 스킬, 투사체·장판,
+ *          피해 확정(맞은 뒤 0.1초 무적 · 밀려남), 검기 판정, 쓰러진 동료 살리기(멀티 · F 3초), 바닥 보급품(구급 상자·탄창·보스의 보물 상자),
+ *          수류탄 증강(불길·빙결·분신), 스냅샷과 방장 이전 복원을 맡는다.
  *          연습장(혼자)과 멀티 방장이 같은 코드를 돈다.
  *          match.js와 같은 모양(start·tick·claimHit·claimExplosion·addPlayer·removePlayer·snapshot)이라 세션의 방장 루프를 그대로 쓴다.
  *          three.js·DOM에 의존하지 않는다.
@@ -17,10 +18,12 @@
  * ev = d.claimExplosion({ attackerId, center, victims: [{ id: 'z3', dmg }] });
  * ev = d.cardAction(playerId, 'pick' | 'reroll', cardId?);
  * ev = d.claimLoot(playerId, lootId);   // 바닥 보급품(탄창·구급 상자·보물 상자) 줍기. 방장이 거리를 보고 확정한다
+ * ev = d.reviveAction(playerId, targetId, on);   // (멀티) 쓰러진 동료 살리기. 화면이 F를 누르는 동안 0.3초마다 보내고, 떼면 on = false
  * const snap = d.snapshot();       // 화면(horde/client.js)이 applyHordeSnapshot으로 푼다
  *
- * 이벤트는 드문 일만 낸다(단계 전환·출격·쓰러짐·보스·카드·레벨업·스테이지 클리어·밀려남·느려짐·보급품 줍기·끝). 좀비 위치·체력, 사람 체력,
- * 경험치, 폭발, 바닥 보급품, 불길·분신 같은 잦은 일은 스냅샷에 싣는다. 세션의 이벤트는 3초 동안 스냅샷마다 다시 실리기 때문이다(SYNC_API.md 2절).
+ * 이벤트는 드문 일만 낸다(단계 전환·출격·쓰러짐·동료가 살림·보스·카드·레벨업·스테이지 클리어·밀려남·느려짐·보급품 줍기·끝). 좀비 위치·체력, 사람 체력,
+ * 경험치, 폭발, 바닥 보급품, 불길·분신, 좀비에게 맞아 밀려남, 쓰러진 자리와 살리는 진행 같은 잦은 일은 스냅샷에 싣는다.
+ * 세션의 이벤트는 3초 동안 스냅샷마다 다시 실리기 때문이다(SYNC_API.md 2절).
  * 좀비 전용 맵(o.gates)이면 좀비는 그 좀비 문에서만 나온다.
  */
 import { moveCharacter, lineOfSight, getGroundY } from '../../engine/physics.js';
@@ -109,7 +112,8 @@ export function createHorde(o = {}) {
     // 스테이지 시간(stageEnd = 끝나는 시각). 증강을 고르는 동안은 시계(clock)가 멈추므로 남은 시간도 그대로다
     stageEnd: 0, cardsLeft: 0, offerRound: 0,
     // 팀 경험치: level 1에서 시작, xp = 이번 레벨에서 모은 양, xpTotal = 판 전체
-    level: 1, xp: 0, xpTotal: 0
+    level: 1, xp: 0, xpTotal: 0,
+    tickAt: 0                         // 마지막 tick()이 시작한 시각(살리기 신호 끊김을 잰다)
   };
   const zombies = new Map();          // 번호 → 좀비
   const loot = new Map();             // 번호 → 바닥 보급품 { id, kind, x, y, z, until }
@@ -120,6 +124,8 @@ export function createHorde(o = {}) {
   const hazards = [];
   const fxList = [];                  // { id, kind, x, y, z, r, at }
   const shotCounts = new Map();       // 사수 → { shotId, n } (관통 순서)
+  const waveCounts = new Map();       // 사수 → Map(검기 shotId → 맞힌 수). 최근 검기 몇 개만 기억한다
+  const revives = new Map();          // 쓰러진 사람 id → { by: 살리는 사람 id, ms: 누른 시간, seen: 마지막 신호 시각 } (멀티)
   let acc = 0;
 
   /* ------------------------------------------------------------------ 사람 */
@@ -132,6 +138,9 @@ export function createHorde(o = {}) {
       offer: null, picked: false, secondUsed: false, regenAcc: 0, hurtAt: -Infinity, hurtFrom: null, pos: null,
       picks: 0, chestPicks: 0,        // 고를 증강 수(레벨업은 모두, 보물 상자는 주운 사람), 그중 보물 상자 몫
       offerUntil: 0, invulnUntil: 0,  // 이 제안의 마감 시각(멀티), 증강을 고른 뒤 무적이 끝나는 시각
+      hitUntil: 0,                    // 맞은 뒤 무적이 끝나는 시각(HORDE.hitInvulnMs + 증강 '반사 신경')
+      knockSeq: 0, knockAt: -Infinity, knockV: null,   // 좀비에게 맞아 밀려남: 번호, 시각, 속도 [x, y, z](m/s). 스냅샷에 knockKeepMs 동안 싣는다
+      downPos: null, downAt: 0,       // 쓰러진 자리 [x, y, z]와 시각(멀티에서 동료가 여기서 살린다)
       joinedStage: S.stage
     };
     return P;
@@ -175,6 +184,9 @@ export function createHorde(o = {}) {
     P.spawned = true;
     P.hp = Math.max(1, Math.round(P.maxHp * hpFrac));
     P.hurtFrom = null;
+    P.hitUntil = 0;
+    P.downPos = null;
+    revives.delete(P.id);
     const sp = playerSpawn(i);
     P.pos = [sp.x, num(sp.y), sp.z];
     ev.push({ type: 'spawn', id: P.id, spawn: sp, hp: P.hp, maxHp: P.maxHp });
@@ -229,7 +241,7 @@ export function createHorde(o = {}) {
     if (bosses.length) ev.push({ type: 'boss', stage: S.stage, bosses });
   }
 
-  /** 스테이지가 넘어갈 때: 쓰러진 사람은 일어나고(체력 50%), 산 사람은 휴식·보호막 증강을 받는다 */
+  /** 스테이지가 넘어갈 때: 쓰러진 사람은 일어나고(체력 50%), 산 사람은 휴식·보호막 증강을 받는다. 하던 살리기는 모두 끝난다 */
   function nextStage(ev) {
     let i = 0;
     for (const P of players.values()) {
@@ -239,6 +251,7 @@ export function createHorde(o = {}) {
       P.shield = Math.max(P.shield, Math.round(P.perks.shield || 0));
       i++;
     }
+    revives.clear();
     beginStage(ev);
   }
 
@@ -286,13 +299,17 @@ export function createHorde(o = {}) {
     };
     P.picked = false;
     P.offerUntil = S.clock + R.cardMs;
+    S.flowAt = -Infinity;            // 고르는 사람은 좀비가 노리지 않으므로 길찾기를 바로 다시
   }
 
   /** 제안 중 하나를 무작위로(시간이 다 됐을 때) */
   const randomCard = (P) => P.offer.cards[Math.floor(rng() * P.offer.cards.length)];
 
-  /** 증강을 고르는 중이거나 고른 직후라 무적인가 */
+  /** 증강을 고르는 중이거나 고른 직후라 무적인가(동료가 살려 일어난 직후도) */
   const invulnerable = (P) => !!(P && (P.offer || S.clock < P.invulnUntil));
+
+  /** 좀비가 노릴 수 있는가: 살아 있고 자리를 알며, 증강을 고르는 중이 아니다(멀티에서 고르는 사람은 좀비가 쫓지 않는다). 분신도 같은 검사를 쓴다 */
+  const targetable = (T) => !!(T && T.alive && T.pos && !T.offer);
 
   /** 고를 증강이 남은 사람이 있는가 */
   function anyOffers() {
@@ -357,6 +374,7 @@ export function createHorde(o = {}) {
     zombies.clear();
     projectiles.length = 0;
     hazards.length = 0;
+    revives.clear();
     setPhase('over', R.gameOverMs, ev, { ...S.over });
     ev.push({ type: 'over', ...S.over });
   }
@@ -377,6 +395,7 @@ export function createHorde(o = {}) {
     } else if (P.maxHp > beforeMax) P.hp = Math.min(P.maxHp, P.hp + (P.maxHp - beforeMax));
     P.picked = true;
     P.offer = null;
+    S.flowAt = -Infinity;            // 다 고른 사람을 좀비가 다시 노린다
     ev.push({ type: 'card', id: P.id, card: c.id, auto: !!auto });
     return true;
   }
@@ -497,11 +516,17 @@ export function createHorde(o = {}) {
   }
 
   /* ------------------------------------------------------------------ 피해 */
-  /** 사람이 맞음. from = 좀비(없으면 장판 등). melee면 가시가 되돌려 준다 */
+  /**
+   * 사람이 맞음. from = 좀비(없으면 장판 등). opt = { melee, at: 맞은 쪽 자리, knock: 밀려남 배율 }.
+   * melee면 가시가 되돌려 준다. 맞으면(피하지 않았으면) 잠깐 무적이고, knock이 있으면 맞은 쪽 반대로 밀려난다(보호막이 막아도)
+   */
   function hurtPlayer(P, amount, from, ev, opt = {}) {
     if (!P || !P.alive || !(amount > 0) || S.phase !== 'wave') return 0;
-    if (invulnerable(P)) return 0;    // 증강을 고르는 중(멀티)이거나 고른 직후 3초
+    if (invulnerable(P)) return 0;    // 증강을 고르는 중(멀티)이거나 고른 직후 3초, 동료가 살려 일어난 직후 2초
+    if (S.clock < P.hitUntil) return 0;   // 맞은 뒤 무적(여러 마리에게 한꺼번에 맞아도 한 번만 들어간다)
     if (P.perks.dodge > 0 && rng() < P.perks.dodge) return 0;
+    P.hitUntil = S.clock + R.hitInvulnMs + 1000 * Math.max(0, P.perks.iframe || 0);
+    if (opt.knock > 0 && !(P.perks.noKnock > 0)) pushPlayer(P, from && from.body ? from.body.pos : opt.at, opt.knock);
     let dmg = amount * (1 - clamp(P.perks.armor || 0, 0, 0.75));
     if (P.shield > 0) { const a = Math.min(P.shield, dmg); P.shield -= a; dmg -= a; }
     dmg = Math.round(dmg);
@@ -516,6 +541,22 @@ export function createHorde(o = {}) {
     if (opt.melee && from && P.perks.thorns > 0 && from.state !== 'dead') hurtZombie(from, P.perks.thorns, P, { kind: 'thorns' }, ev);
     if (P.hp <= 0) downPlayer(P, ev);
     return dmg;
+  }
+
+  /**
+   * 맞아 밀려남: src(때린 좀비의 발·폭발 자리)에서 사람 쪽 수평 방향으로 knockSpeed × k, 살짝 위로 knockUp.
+   * 스냅샷 줄에 knockKeepMs 동안 실리고, 그 사람의 화면이 번호(knockSeq)가 바뀔 때 한 번 자기 몸을 민다
+   */
+  function pushPlayer(P, src, k) {
+    let dx = 0, dz = 0;
+    if (P.pos && src) { dx = P.pos[0] - num(src[0]); dz = P.pos[2] - num(src[2]); }
+    const l = hyp2(dx, dz);
+    if (l > 0.05) { dx /= l; dz /= l; }
+    else { const a = rng() * Math.PI * 2; dx = Math.sin(a); dz = Math.cos(a); }   // 거의 같은 자리면 방향을 굴린다
+    const sp = R.knockSpeed * k;
+    P.knockSeq++;
+    P.knockAt = S.clock;
+    P.knockV = [dx * sp, R.knockUp * Math.min(1, k), dz * sp];
   }
 
   /** 좀비가 노린 표적(사람 또는 분신)이 맞음 */
@@ -538,8 +579,86 @@ export function createHorde(o = {}) {
     P.alive = false;
     P.hp = 0;
     P.downs++;
+    // 쓰러진 자리(멀티에서 동료가 여기서 살린다). 이 사람이 하던 살리기는 끊긴다.
+    // 뛰다가·떨어지다가 쓰러졌으면 발 위치가 공중이라, 보급품·분신처럼 바로 아래 바닥으로 내린다(표시가 뜨지 않고 바닥에서 살릴 수 있게)
+    P.downPos = P.pos ? P.pos.slice() : null;
+    if (world && P.downPos) {
+      const g = getGroundY(world, P.downPos[0], P.downPos[2], P.downPos[1] + 0.2);
+      if (Number.isFinite(g) && g <= P.downPos[1] + 0.05 && g > P.downPos[1] - 3) P.downPos[1] = g;
+    }
+    P.downAt = S.clock;
+    dropRevivesBy(P.id);
     ev.push({ type: 'down', id: P.id, stage: S.stage });
     if (!aliveList().length) gameOver(ev, 'wiped');
+  }
+
+  /* ------------------------------------------------------------------ 동료 살리기(멀티) */
+  /** 이 사람이 하던 살리기를 끊는다 */
+  function dropRevivesBy(id) {
+    for (const [tid, rv] of [...revives]) if (rv.by === id) revives.delete(tid);
+  }
+
+  /** helper가 쓰러진 downed를 지금 살릴 수 있는가 → 안 되면 거절 이유, 되면 null */
+  function reviveProblem(helper, downed) {
+    if (S.phase !== 'wave') return 'not_wave';
+    if (R.pauseOnCards) return 'solo';                       // 혼자 하기에는 살리기가 없다
+    if (!helper || !helper.connected || !helper.alive) return 'dead';
+    if (helper.offer) return 'picking';
+    if (!downed || downed === helper || !downed.connected) return 'no_target';
+    if (downed.alive || !downed.spawned || !downed.downPos) return 'not_down';
+    const a = helper.pos, b = downed.downPos;
+    if (!a || hyp2(a[0] - b[0], a[2] - b[2]) > R.reviveRangeM || Math.abs(a[1] - b[1]) > 2.5) return 'far';
+    return null;
+  }
+
+  /**
+   * 살리기 신호. on이면 시작하거나(처음) 이어 간다(같은 사람이 다시 보내면 마지막 신호 시각만 새로), 아니면 이 사람이 하던 살리기를 끊는다.
+   * 한 사람은 한 명만 살리고(다른 사람으로 옮기면 앞의 것은 끊긴다), 다른 사람이 살리는 중인 사람은 'busy'로 거절한다. 시작할 때 이벤트는 없다
+   */
+  function reviveAction(playerId, targetId, on) {
+    const helper = players.get(String(playerId));
+    if (!on) { if (helper) dropRevivesBy(helper.id); return []; }
+    const downed = players.get(String(targetId));
+    readPositions();
+    const why = reviveProblem(helper, downed);
+    if (why) return [{ type: 'reject', reason: why }];
+    const cur = revives.get(downed.id);
+    if (cur && cur.by === helper.id) { cur.seen = S.clock; return []; }
+    if (cur && S.clock - cur.seen <= R.reviveKeepMs) return [{ type: 'reject', reason: 'busy' }];
+    dropRevivesBy(helper.id);
+    revives.set(downed.id, { by: helper.id, ms: 0, seen: S.clock });
+    return [];
+  }
+
+  /**
+   * 웨이브 한 간격: 살리는 중인 것을 이어 가고, 조건이 깨졌거나 신호가 끊긴 것은 버린다. reviveHoldMs가 차면 일어난다.
+   * 신호는 tick() 사이에만 들어오므로 끊김은 이번 tick이 시작한 시각으로 잰다(숨은 탭에서 방장 루프가 1초에 한 번 돌아도 살릴 수 있게)
+   */
+  function stepRevives(ms, ev) {
+    for (const [tid, rv] of [...revives]) {
+      const downed = players.get(tid);
+      const helper = players.get(rv.by);
+      if (reviveProblem(helper, downed) || S.tickAt - rv.seen > R.reviveKeepMs) { revives.delete(tid); continue; }
+      rv.ms += ms;
+      if (rv.ms >= R.reviveHoldMs) { revives.delete(tid); revivePlayer(downed, helper, ev); }
+    }
+  }
+
+  /** 동료가 살렸다: 쓰러진 자리에서 체력 reviveHp로 일어나 reviveInvulnMs 동안 무적. 살린 사람 쪽을 본다 */
+  function revivePlayer(P, helper, ev) {
+    const at = P.downPos;
+    P.alive = true;
+    P.hp = Math.max(1, Math.min(P.maxHp, Math.round(R.reviveHp)));
+    P.hitUntil = 0;
+    P.invulnUntil = Math.max(P.invulnUntil, S.clock + R.reviveInvulnMs);
+    P.hurtFrom = null;
+    P.pos = at.slice();
+    P.downPos = null;
+    const face = helper.pos || at;
+    const r2 = (v) => Math.round(v * 100) / 100;
+    const spawn = { x: r2(at[0]), y: r2(at[1]), z: r2(at[2]), rotY: Math.round(Math.atan2(-(face[0] - at[0]), -(face[2] - at[2])) * 1000) / 1000 };
+    ev.push({ type: 'spawn', id: P.id, spawn, hp: P.hp, maxHp: P.maxHp, revive: true, by: helper.id });
+    ev.push({ type: 'revive', id: P.id, by: helper.id });
   }
 
   /** 좀비가 맞음. P = 공격한 사람(없으면 null), info = { head, crit, kind } */
@@ -648,7 +767,7 @@ export function createHorde(o = {}) {
       const d = Math.hypot(T.pos[0] - p[0], (T.pos[1] + 1) - (p[1] + 0.6), T.pos[2] - p[2]);
       if (d > radius) continue;
       if (world && !lineOfSight(world, [p[0], p[1] + 0.8, p[2]], [T.pos[0], T.pos[1] + 1.2, T.pos[2]])) continue;
-      hurtTarget(T, dmg * (1 - 0.6 * (d / radius)), null, ev, { at: [p[0], p[1] + 1, p[2]] });
+      hurtTarget(T, dmg * (1 - 0.6 * (d / radius)), null, ev, { at: [p[0], p[1] + 1, p[2]], knock: 1.5 });
     }
   }
 
@@ -722,12 +841,19 @@ export function createHorde(o = {}) {
     if (!def || def.explosion) return [{ type: 'reject', reason: 'bad_weapon' }];
     const dist = Math.max(0, num(c.dist));
     const melee = !!def.melee;
-    const reach = melee ? Math.max(def.melee.slash.range, def.melee.stab.range) + MELEE_SLACK + (Z.boss ? 1.2 : 0) : def.maxRange * RANGE_SLACK;
-    if (dist > reach) return [{ type: 'reject', reason: 'out_of_range' }];
     const k = P.perks;
+    const shot = num(c.shotId, 0) | 0;
+    if (c.kind === 'wave' || c.kind === 'waveStab') {
+      // 검기(증강): 칼을 휘두를 때 날아간 검기가 맞힌 좀비. 칼이고 검기 증강이 있어야 하며, 검기 거리 + 여유 안, 검기 하나에 waveMaxHits마리까지
+      if (!melee || !(k.wave > 0)) return [{ type: 'reject', reason: 'no_wave' }];
+      if (dist > k.wave + R.waveSlackM + (Z.boss ? 1.2 : 0)) return [{ type: 'reject', reason: 'out_of_range' }];
+      if (!countWave(P.id, shot)) return [{ type: 'reject', reason: 'wave_cap' }];
+    } else {
+      const reach = melee ? Math.max(def.melee.slash.range, def.melee.stab.range) + MELEE_SLACK + (Z.boss ? 1.2 : 0) : def.maxRange * RANGE_SLACK;
+      if (dist > reach) return [{ type: 'reject', reason: 'out_of_range' }];
+    }
     // 관통: 같은 발로 여러 좀비를 맞히면 맞은 순서대로 70%씩 줄어든다(산탄은 펠릿이 나뉘어 맞으므로 줄이지 않는다)
     let nth = 0;
-    const shot = num(c.shotId, 0) | 0;
     if (shot > 0 && (def.pellets || 1) === 1 && !melee) {
       const last = shotCounts.get(P.id);
       nth = last && last.shotId === shot ? last.n + 1 : 0;
@@ -746,10 +872,22 @@ export function createHorde(o = {}) {
     return ev;
   }
 
+  /** 검기 하나(사수·shotId)가 맞힌 수를 센다. waveMaxHits를 넘으면 false. 사수마다 최근 검기 8개만 기억한다 */
+  function countWave(id, shot) {
+    let m = waveCounts.get(id);
+    if (!m) { m = new Map(); waveCounts.set(id, m); }
+    const n = m.get(shot) || 0;
+    if (n >= R.waveMaxHits) return false;
+    m.delete(shot);
+    m.set(shot, n + 1);
+    while (m.size > 8) m.delete(m.keys().next().value);
+    return true;
+  }
+
   /**
    * 수류탄·발사체 폭발. victims = 폭발 반경 안의 좀비와 피해(던진 사람의 폭발 반경 증강을 반영해 화면이 잰다).
-   * kind = 'gl'(유탄 발사기) | 'rocket'(바주카포) | 없음(손으로 던진 수류탄).
-   * 손으로 던진 수류탄에만 수류탄 증강이 붙는다: 화염(터진 자리에 불길) · 빙결(맞은 좀비가 얼어붙음) · 어그로(분신). center가 있어야 한다
+   * kind = 'gl'(유탄 발사기) | 'rocket'(바주카포) | 'c4'(C4 증강으로 붙는 손 수류탄) | 없음(손으로 던진 수류탄).
+   * 손으로 던진 수류탄(C4 포함)에만 수류탄 증강이 붙는다: 화염(터진 자리에 불길) · 빙결(맞은 좀비가 얼어붙음) · 어그로(분신). center가 있어야 한다
    */
   function claimExplosion(c = {}) {
     if (S.phase !== 'wave') return [];
@@ -782,8 +920,8 @@ export function createHorde(o = {}) {
     if (!nav || typeof nav.flowField !== 'function') { S.flowOk = false; return; }
     if (S.clock - S.flowAt < R.flowMs) return;
     S.flowAt = S.clock;
-    // 분신이 서 있으면 좀비는 분신으로 몰려간다(어그로)
-    const from = decoys.size ? [...decoys.values()].filter((D) => D.alive) : aliveList();
+    // 분신이 서 있으면 좀비는 분신으로 몰려간다(어그로). 증강을 고르는 사람(멀티)은 좀비가 쫓지 않는다
+    const from = decoys.size ? [...decoys.values()].filter((D) => D.alive) : aliveList().filter(targetable);
     const src = from.map((T) => T.pos).filter(Boolean).map((p) => ({ x: p[0], y: p[1], z: p[2] }));
     S.flowOk = src.length ? !!nav.flowField(src, 260) : false;
   }
@@ -811,11 +949,16 @@ export function createHorde(o = {}) {
   }
   const nb = [];
 
+  /** 노릴 표적: 가까운 분신 → 가까운 사람. 증강을 고르는 사람은 고르지 않고, 노리던 사람이 고르기 시작하면 바로 다른 표적을 찾는다(없으면 null) */
   function chooseTarget(Z) {
-    if (S.clock < Z.targetAt && Z.target) {
-      const T = targetById(Z.target);
-      if (T && T.alive && T.pos) return T;
+    const prevId = Z.target;
+    if (S.clock < Z.targetAt && prevId) {
+      const T = targetById(prevId);
+      if (targetable(T)) return T;
     }
+    // 노리던 표적을 더는 노릴 수 없어(고르기 시작·쓰러짐·분신이 사라짐) 억지로 바꾸는가. 그때는 다가간 기록을 새로 시작한다
+    // (예전 표적 옆에서 싸우던 좀비가 막힌 것으로 잘못 보여 먼 좀비 문으로 다시 나오지 않게)
+    const forced = prevId != null && !targetable(targetById(prevId));
     Z.targetAt = S.clock + TARGET_MS;
     let best = null, bd = Infinity;
     // 분신(어그로 수류탄)이 decoyPullM 안에 있으면 사람보다 먼저 노린다
@@ -824,13 +967,15 @@ export function createHorde(o = {}) {
       const d = hyp2(D.pos[0] - Z.body.pos[0], D.pos[2] - Z.body.pos[2]) + Math.abs(D.pos[1] - Z.body.pos[1]) * 2;
       if (d < R.decoyPullM && d < bd) { bd = d; best = D; }
     }
-    if (best) { Z.target = best.id; return best; }
-    for (const P of aliveList()) {
-      if (!P.pos) continue;
-      const d = hyp2(P.pos[0] - Z.body.pos[0], P.pos[2] - Z.body.pos[2]) + Math.abs(P.pos[1] - Z.body.pos[1]) * 2;
-      if (d < bd) { bd = d; best = P; }
+    if (!best) {
+      for (const P of aliveList()) {
+        if (!targetable(P)) continue;
+        const d = hyp2(P.pos[0] - Z.body.pos[0], P.pos[2] - Z.body.pos[2]) + Math.abs(P.pos[1] - Z.body.pos[1]) * 2;
+        if (d < bd) { bd = d; best = P; }
+      }
     }
     Z.target = best ? best.id : null;
+    if (forced && Z.target !== prevId) { Z.bestDist = Infinity; Z.progressAt = S.clock; }
     return best;
   }
 
@@ -917,7 +1062,14 @@ export function createHorde(o = {}) {
     const speedK = Z.slowMul * Z.hasteMul * (rage ? rage.speed : 1);
     if (Z.skill) { stepSkill(Z, T, dt, ev); return; }
     if (Z.boss && T && trySkill(Z, T, ev)) return;
-    if (!T || !T.pos) { Z.body.vel[0] = Z.body.vel[2] = 0; if (world) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius }); return; }
+    if (!T || !T.pos) {
+      // 노릴 사람이 없다(모두 증강을 고르는 중 등): 제자리에 선다. 막힌 것이 아니므로 다가간 기록을 새로 두고, 휘두르던 공격은 거둔다
+      Z.body.vel[0] = Z.body.vel[2] = 0;
+      Z.progressAt = S.clock; Z.bestDist = Infinity;
+      if (Z.state === 'wind') { Z.state = 'move'; Z.windRanged = false; }
+      if (world) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius });
+      return;
+    }
     const p = Z.body.pos;
     const dx = T.pos[0] - p[0], dz = T.pos[2] - p[2], dy = T.pos[1] - p[1];
     const d = hyp2(dx, dz);
@@ -931,7 +1083,8 @@ export function createHorde(o = {}) {
       Z.attackReady = now + Z.attackMs * (rage ? rage.cd : 1);
       if (Z.t && Z.t.explode) { killSelfExplode(Z, ev); return; }
       if (Z.windRanged) { Z.windRanged = false; shootSpit(Z, T); return; }
-      if (d <= reach * 1.3 && Math.abs(dy) < 1.8) hurtTarget(T, Z.dmg * (rage ? rage.dmg : 1), Z, ev, { melee: true });
+      // 맞으면 좀비 반대쪽으로 밀려난다(큰 좀비일수록 멀리)
+      if (d <= reach * 1.3 && Math.abs(dy) < 1.8) hurtTarget(T, Z.dmg * (rage ? rage.dmg : 1), Z, ev, { melee: true, knock: clamp(Z.scale, 0.8, 1.8) });
       return;
     }
     // 스피터: 거리를 두고 침을 뱉는다(분신에게는 다가가 할퀸다)
@@ -1022,7 +1175,7 @@ export function createHorde(o = {}) {
       if (expired && !hitPlayer && !hitWorld) continue;
       const at = pr.pos;
       if (hitPlayer && pr.dmg > 0) {
-        hurtPlayer(hitPlayer, pr.dmg, null, ev, { at: [p0[0], p0[1], p0[2]] });
+        hurtPlayer(hitPlayer, pr.dmg, null, ev, { at: [p0[0], p0[1], p0[2]], knock: 0.6 });
         if (pr.slow) ev.push({ type: 'slow', id: hitPlayer.id, mul: pr.slow.mul, ms: pr.slow.ms });
       }
       if (pr.blast) explodeAt(at, pr.blast.r, pr.blast.dmg * dmgMul(S.stage), null, ev, 'barrel');
@@ -1174,7 +1327,8 @@ export function createHorde(o = {}) {
         case 'scream': {
           addFx('scream', p, s.radius);
           for (const P of aliveList()) {
-            if (P.pos && hyp2(P.pos[0] - p[0], P.pos[2] - p[2]) <= s.radius) ev.push({ type: 'slow', id: P.id, mul: s.slow, ms: s.ms });
+            // 무적(증강을 고르는 중·고른 직후·살아난 직후)인 사람은 느려지지 않는다
+            if (P.pos && !invulnerable(P) && hyp2(P.pos[0] - p[0], P.pos[2] - p[2]) <= s.radius) ev.push({ type: 'slow', id: P.id, mul: s.slow, ms: s.ms });
           }
           for (const O of zombies.values()) {
             if (O.state === 'dead' || O === Z) continue;
@@ -1202,7 +1356,7 @@ export function createHorde(o = {}) {
           for (let j = 0; j < s.jumps; j++) {
             let best = null, bd = j === 0 ? s.range : 9;
             for (const P of aliveList()) {
-              if (!P.pos || hit.has(P.id)) continue;
+              if (!P.pos || hit.has(P.id) || invulnerable(P)) continue;   // 무적인 사람에게는 번개가 튀지 않는다
               const d = Math.hypot(P.pos[0] - cur[0], P.pos[1] + 1 - cur[1], P.pos[2] - cur[2]);
               if (d < bd && (!world || lineOfSight(world, cur, [P.pos[0], P.pos[1] + 1.2, P.pos[2]]))) { bd = d; best = P; }
             }
@@ -1283,8 +1437,9 @@ export function createHorde(o = {}) {
     }
   }
 
+  /** 보스 스킬의 밀치기(이벤트). 무적이거나 '부동자세' 증강이 있으면 밀지 않는다 */
   function knock(P, from, power, ev) {
-    if (!P.pos || !(power > 0)) return;
+    if (!P.pos || !(power > 0) || invulnerable(P) || P.perks.noKnock > 0) return;
     const dx = P.pos[0] - from[0], dz = P.pos[2] - from[2], l = hyp2(dx, dz) || 1;
     ev.push({ type: 'knock', id: P.id, v: [Math.round((dx / l) * power * 100) / 100, 4, Math.round((dz / l) * power * 100) / 100] });
   }
@@ -1312,6 +1467,7 @@ export function createHorde(o = {}) {
     }
     if (S.phase !== 'wave') return;
     readPositions();
+    if (revives.size) stepRevives(ms, ev);
     updateFlow();
     spawnTick(ev);
     rebuildGrid();
@@ -1340,6 +1496,7 @@ export function createHorde(o = {}) {
     const ev = [];
     const d = num(dtMs, 0);
     if (!(d > 0)) return ev;
+    S.tickAt = S.clock;                // 이번 tick이 시작한 시각(살리기 신호 끊김을 잰다)
     acc += Math.min(d, 2000);
     let n = 0;
     while (acc >= STEP_MS && n < 90) { acc -= STEP_MS; stepOnce(STEP_MS, ev); n++; }
@@ -1372,6 +1529,10 @@ export function createHorde(o = {}) {
     const ev = [{ type: 'leave', id: P.id }];
     if (P.alive) { P.alive = false; }
     P.offer = null; P.picks = 0; P.chestPicks = 0;
+    // 나간 사람은 쓰러진 몸도 없다(다시 들어오면 다음 스테이지에 나온다). 이 사람이 하던 살리기, 이 사람을 살리던 것도 끝
+    P.downPos = null;
+    revives.delete(P.id);
+    dropRevivesBy(P.id);
     for (const D of [...decoys.values()]) if (D.owner === P.id) removeDecoy(D, null, 'leave');
     if (S.phase === 'cards' && !anyOffers() && connected().length) endCards(ev);
     if (!connected().length) gameOver(ev, 'left');
@@ -1383,18 +1544,26 @@ export function createHorde(o = {}) {
   function snapshot() {
     const now = S.clock;
     const p = [];
+    const pids = [...players.keys()];
     for (const P of players.values()) {
       const hurt = P.hurtFrom && now - P.hurtAt < HURT_KEEP_MS ? [cm(P.hurtFrom[0]), cm(P.hurtFrom[2]), Math.round(now - P.hurtAt)] : 0;
+      // 밀려남: [번호, 속도 x, y, z(cm/s), 지난 ms] (knockKeepMs 동안만) · 쓰러진 자리: [x, y, z(cm), 살리기 진행(0~1000), 살리는 사람 번호(p 순서, 없으면 -1)]
+      const kn = P.knockV && now - P.knockAt < R.knockKeepMs ? [P.knockSeq, cm(P.knockV[0]), cm(P.knockV[1]), cm(P.knockV[2]), Math.round(now - P.knockAt)] : 0;
+      // 쓰러진 자리는 살릴 수 있는 웨이브 동안만 싣는다(전멸 화면에 표시가 남지 않게)
+      const rv = !P.alive && P.downPos ? revives.get(P.id) : null;
+      const dn = !P.alive && P.downPos && S.phase === 'wave'
+        ? [cm(P.downPos[0]), cm(P.downPos[1]), cm(P.downPos[2]), rv ? Math.round(clamp(rv.ms / R.reviveHoldMs, 0, 1) * 1000) : 0, rv ? pids.indexOf(rv.by) : -1]
+        : 0;
       p.push([
         P.id, P.name, Math.round(P.hp), P.maxHp, P.alive ? 1 : 0, P.kills, P.connected ? 1 : 0, encodeCards(P.cards),
         P.offer ? encodeCards(P.offer.cards) : '', P.offer ? P.offer.rerolls : 0, P.picked ? 1 : 0, P.downs, Math.round(P.damage),
         Math.round(P.shield), P.heads, P.bossKills, hurt, P.spawned ? 1 : 0, P.picks, P.offer && P.offer.chest ? 1 : 0,
-        P.offer && !R.pauseOnCards ? Math.max(0, Math.round(P.offerUntil - now)) : 0, invulnerable(P) ? Math.max(1, Math.round((P.offer ? 0 : P.invulnUntil - now))) : 0
+        P.offer && !R.pauseOnCards ? Math.max(0, Math.round(P.offerUntil - now)) : 0, invulnerable(P) ? Math.max(1, Math.round((P.offer ? 0 : P.invulnUntil - now))) : 0,
+        kn, dn
       ]);
     }
     const z = [];
     const killers = [];
-    const pids = [...players.keys()];
     for (const Z of zombies.values()) {
       let f = 0;
       if (Z.state === 'dead') f |= ZF.dead;
@@ -1440,7 +1609,7 @@ export function createHorde(o = {}) {
     };
   }
 
-  function dispose() { S.disposed = true; zombies.clear(); players.clear(); loot.clear(); decoys.clear(); fields.length = 0; projectiles.length = 0; hazards.length = 0; }
+  function dispose() { S.disposed = true; zombies.clear(); players.clear(); loot.clear(); decoys.clear(); revives.clear(); fields.length = 0; projectiles.length = 0; hazards.length = 0; }
 
   /** 방장 이전: 스냅샷의 단계·사람·좀비를 이어받는다(좀비 판단·보스 스킬 시간은 처음부터) */
   function restoreFrom(view) {
@@ -1468,6 +1637,10 @@ export function createHorde(o = {}) {
       if (P.offer && P.picks < 1) P.picks = 1;
       P.offerUntil = S.clock + Math.max(5000, vp.offerLeftMs || R.cardMs);
       P.invulnUntil = vp.invuln ? S.clock + Math.min(R.pickInvulnMs, vp.invulnMs || R.pickInvulnMs) : 0;
+      P.hitUntil = 0;
+      // 쓰러진 자리는 잇는다(동료가 그 자리에서 살린다. 하던 살리기는 처음부터). 아직 화면에 실리는 밀려남은 같은 번호로 이어 싣는다
+      P.downPos = !P.alive && P.connected && vp.down ? vp.down.pos.slice() : null;
+      if (vp.knock && vp.knock.ago < R.knockKeepMs) { P.knockSeq = vp.knock.seq | 0; P.knockV = vp.knock.v.slice(); P.knockAt = S.clock - vp.knock.ago; }
     }
     // 바닥 보급품은 번호와 남은 시간을 그대로 잇는다(화면의 보급품이 바뀌지 않게)
     for (const vl of view.loot || []) {
@@ -1503,7 +1676,7 @@ export function createHorde(o = {}) {
   if (o.restore) restoreFrom(o.restore);
 
   return {
-    start, tick, claimHit, claimExplosion, cardAction, claimLoot, addPlayer, removePlayer, snapshot, dispose,
+    start, tick, claimHit, claimExplosion, cardAction, claimLoot, reviveAction, addPlayer, removePlayer, snapshot, dispose,
     /** 세션의 방장 루프가 부르는 match.js 메서드 중 이 모드에서 할 일이 없는 것 */
     setLoadout: () => [],
     respawnNow: () => [{ type: 'reject', reason: 'not_ffa' }],
@@ -1514,7 +1687,7 @@ export function createHorde(o = {}) {
     get rules() { return R; },
     get mode() { return 'zombie'; },
     /** 시험·디버그용 내부(읽기 전용으로 쓸 것) */
-    get internals() { return { S, zombies, players, projectiles, hazards, fxList, loot, gates, decoys, fields, addXp: (n) => { const ev = []; addXp(n, ev); maybeCards(ev); return ev; } }; },
+    get internals() { return { S, zombies, players, projectiles, hazards, fxList, loot, gates, decoys, fields, revives, addXp: (n) => { const ev = []; addXp(n, ev); maybeCards(ev); return ev; } }; },
     /** 이어받기(restoreHorde) 뒤 바로 다음 단계를 시작할 때 쓴다 */
     resume() {
       const ev = [];
@@ -1535,14 +1708,21 @@ export function applyHordeSnapshot(s) {
   if (!s || typeof s !== 'object' || s.v !== HORDE_SNAPSHOT_VERSION || !Array.isArray(s.p) || !Array.isArray(s.z)) return null;
   const phase = HORDE_PHASES[s.zp | 0] || 'warmup';
   const players = [];
+  // 살리는 사람 번호는 p 줄의 순서다(틀린 줄을 건너뛰어도 어긋나지 않게 원래 줄로 찾는다)
+  const rowIds = s.p.map((r) => (Array.isArray(r) ? String(r[0]) : null));
   for (const r of s.p) {
     if (!Array.isArray(r) || r.length < 12) continue;
     const hurt = Array.isArray(r[16]) ? { x: fromCm(r[16][0]), z: fromCm(r[16][1]), ago: num(r[16][2]) } : null;
+    const kn = Array.isArray(r[22]) ? r[22] : null;
+    const dn = Array.isArray(r[23]) ? r[23] : null;
+    const by = dn ? num(dn[4], -1) | 0 : -1;
     players.push({
       id: String(r[0]), name: String(r[1] || ''), hp: num(r[2]), maxHp: Math.max(1, num(r[3], 100)), alive: !!r[4], kills: num(r[5]) | 0,
       connected: !!r[6], cards: decodeCards(r[7]), offer: decodeCards(r[8]), rerolls: num(r[9]) | 0, picked: !!r[10], downs: num(r[11]) | 0,
       damage: num(r[12]) | 0, shield: num(r[13]) | 0, heads: num(r[14]) | 0, bossKills: num(r[15]) | 0, hurt, spawned: r[17] === undefined ? true : !!r[17],
-      picks: num(r[18]) | 0, chest: !!r[19], offerLeftMs: num(r[20]) | 0, invuln: num(r[21]) > 0, invulnMs: num(r[21]) | 0
+      picks: num(r[18]) | 0, chest: !!r[19], offerLeftMs: num(r[20]) | 0, invuln: num(r[21]) > 0, invulnMs: num(r[21]) | 0,
+      knock: kn ? { seq: num(kn[0]) | 0, v: [fromCm(kn[1]), fromCm(kn[2]), fromCm(kn[3])], ago: num(kn[4]) } : null,
+      down: dn ? { pos: [fromCm(dn[0]), fromCm(dn[1]), fromCm(dn[2])], progress: clamp(num(dn[3]) / 1000, 0, 1), by: by >= 0 && rowIds[by] ? rowIds[by] : null } : null
     });
   }
   const zombies = [];
@@ -1633,6 +1813,7 @@ export function nadeDamage(dmg, k, boss = false, kind = null) {
 /**
  * 좀비 한 발의 피해(치명타·좀비 방어 버프 빼고). 방장 판정(claimHit)과 화면의 피해 숫자가 같은 공식을 쓴다.
  * c = { weaponId, part, dist, kind, count }, k = 쏜 사람의 능력치(computePerks), z = { boss, hpFrac }, o = { myHpFrac, nth(관통 순서) }
+ * kind: 'stab'·'waveStab'(찌르기의 검기)은 찌르기 피해, 'slash'·'wave'(베기의 검기)는 베기 피해. 검기도 칼 피해라 칼 증강이 붙는다
  * → { dmg, head, melee, part } | null(쓸 수 없는 무기)
  */
 export function zombieHitDamage(c = {}, k = {}, z = {}, o = {}) {
@@ -1644,7 +1825,8 @@ export function zombieHitDamage(c = {}, k = {}, z = {}, o = {}) {
   else if (part === 'foot') part = 'legs';
   const dist = Math.max(0, num(c.dist));
   const count = clamp(num(c.count, 1) | 0, 1, Math.max(1, def.pellets || 1));
-  let base = computeDamage(def.id, part, dist, c.kind === 'stab' ? 'stab' : 'slash', count);
+  const stab = c.kind === 'stab' || c.kind === 'waveStab';
+  let base = computeDamage(def.id, part, dist, stab ? 'stab' : 'slash', count);
   // 보스 머리는 몸 피해의 2.2배까지만(라이플 머리 110이 보스를 몇 초 만에 녹이지 않게)
   if (z.boss && part === 'head' && !melee) base = Math.min(base, computeDamage(def.id, 'body', dist, undefined, count) * 2.2);
   let mul = 1 + (k.dmg || 0);

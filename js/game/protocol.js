@@ -14,7 +14,7 @@
  *   g2s 상태(merge)   [seq, t, x,y,z, yaw,pitch, vx,vy,vz, slot, flags, hp]
  *   g2f 사격 연출     [weaponId, t, ox,oy,oz, dx,dy,dz, (hx,hy,hz, hitKind)]
  *   g2h 히트 주장     [id, victimId, part, weaponId, distCm, kind, shotT, count, shotId?]   → sendTo(방장)
- *   g2x 수류탄        [id, px,py,pz, vx,vy,vz, t]
+ *   g2x 수류탄        [id, px,py,pz, vx,vy,vz, t, (종류 번호, 신관 ms)]   종류 1 유탄 · 2 로켓 · 3 C4(좀비 물량 막기). 손으로 던진 수류탄은 앞 8칸만
  *   g2m 경기(merge)   [mseq, phase, round, scoreOwner, scoreCharterer, endsAt, players, events, rest?]
  *   g2l 로드아웃(merge) [id, {...}]
  *   g2c 채팅          [id, text, scope?]   scope 1 = 팀 채팅(보내는 쪽이 받는 사람을 팀원으로 정해 보낸다), 없으면 전체
@@ -59,7 +59,10 @@ export const EMOTE_MASK = 15 << EMOTE_SHIFT;
 
 /** 코드 표 — 알려진 문자열은 작은 정수로, 모르는 문자열은 그대로(디코더는 둘 다 받는다) */
 export const PART_CODES = Object.freeze(['head', 'body', 'legs', 'hand', 'foot']);   // 앞 순서는 바꾸지 않고 뒤에만 더한다
-export const KIND_CODES = Object.freeze(['shot', 'slash', 'stab', 'grenade', 'other']);
+/** 히트 주장 종류. wave·waveStab = 좀비 물량 막기 '검기'(베기·찌르기에서 나간 것). 앞 순서는 바꾸지 않고 뒤에만 더한다 */
+export const KIND_CODES = Object.freeze(['shot', 'slash', 'stab', 'grenade', 'other', 'wave', 'waveStab']);
+/** 수류탄 메시지의 종류 번호(g2x 9번째 칸). 0 = 손으로 던진 수류탄(칸 없음). 앞 순서는 바꾸지 않고 뒤에만 더한다 */
+export const GRENADE_KIND_CODES = Object.freeze(['', 'gl', 'rocket', 'c4']);
 export const PHASE_CODES = Object.freeze(['lobby', 'warmup', 'loadout', 'live', 'roundEnd', 'matchEnd']);
 export const TEAM_CODES = Object.freeze(['owner', 'charterer']);
 export const IMPACT_CODES = Object.freeze(['none', 'world', 'player']);
@@ -321,22 +324,23 @@ export function decodeHit(a) {
 
 /* ------------------------------------------------------------------ 수류탄 */
 
-/** @param {{pos, vel, t (방장 시계 ms)}} g */
-/** 수류탄 [id, pos(cm)×3, vel(cm/s)×3, t] + (발사체면) [종류 번호, 신관 ms]. 끝에 더한 칸이라 옛 형식과 호환된다 */
+/** @param {{pos, vel, t (방장 시계 ms), kind?: 'gl'|'rocket'|'c4', fuse?: 초}} g */
+/** 수류탄 [id, pos(cm)×3, vel(cm/s)×3, t] + (유탄·로켓·C4면) [종류 번호, 신관 ms]. 끝에 더한 칸이라 옛 형식과 호환된다 */
 export function encodeGrenade(id, g) {
   const p = vec3(g.pos), v = vec3(g.vel);
   const out = [id | 0, cm(p[0]), cm(p[1]), cm(p[2]), cm(v[0]), cm(v[1]), cm(v[2]), ms(g.t)];
-  const kc = g.kind === 'gl' ? 1 : g.kind === 'rocket' ? 2 : 0;
-  if (kc) out.push(kc, Math.round(Math.max(0, Math.min(10, Number(g.fuse) || 0)) * 1000));
+  const kc = g.kind ? GRENADE_KIND_CODES.indexOf(g.kind) : 0;
+  if (kc > 0) out.push(kc, Math.round(Math.max(0, Math.min(10, Number(g.fuse) || 0)) * 1000));
   return out;
 }
 
+/** → { id, pos, vel, t, kind?, fuse? } | null. 모르는 종류 번호는 손으로 던진 수류탄으로 받는다(새 종류를 모르는 옛 클라이언트도 같다) */
 export function decodeGrenade(a) {
   if (!Array.isArray(a) || a.length < 8) return null;
   for (let i = 0; i < 8; i++) if (!isNum(a[i])) return null;
   const out = { id: a[0] | 0, pos: [fromCm(a[1]), fromCm(a[2]), fromCm(a[3])], vel: [fromCm(a[4]), fromCm(a[5]), fromCm(a[6])], t: a[7] };
   if (a.length >= 10 && isNum(a[8]) && isNum(a[9])) {
-    const kind = (a[8] | 0) === 1 ? 'gl' : (a[8] | 0) === 2 ? 'rocket' : null;
+    const kind = GRENADE_KIND_CODES[a[8] | 0] || null;
     if (kind) { out.kind = kind; out.fuse = Math.max(0.05, Math.min(10, a[9] / 1000)); }
   }
   return out;

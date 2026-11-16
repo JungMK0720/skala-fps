@@ -3,10 +3,11 @@
  * Author: Minkyu Jung
  * Purpose: 메인 메뉴. 플레이어 카드(닉네임·포인트·마이페이지)와 멀티플레이(가장 큰 버튼), 연습장, 좀비 물량 막기, 상점, 설정, 조작법, 건의하기 버튼을 보여 준다.
  *          닉네임 입력은 없다. 처음 정하는 곳은 닉네임 게이트, 바꾸는 곳은 마이페이지다.
+ *          좀비 물량 막기는 작은 시트에서 '같이 하기'(공개 좀비 방을 바로 만든다)와 '혼자 하기'(좀비 모드를 고른 연습장 시트) 중에 고른다.
  *          건의하기: 이 기기에서 보낸 적이 있으면 5분에 한 번까지 내 건의를 읽어, 운영자의 새 답이 있으면 버튼에 표시를 켠다(ui/feedback.js).
  */
 import { h, btn, setText } from './dom.js';
-import { makeScreen, createModal, pointsBadge } from './parts.js';
+import { makeScreen, createModal, pointsBadge, sheet } from './parts.js';
 import { menuBackdrop, uiIcon } from './icons.js';
 import { createSettingsPanel } from './settings.js';
 import { createControlsPanel } from './controls.js';
@@ -19,6 +20,8 @@ const FEEDBACK_SUB = '운영자에게 바로';
 const FEEDBACK_NEW = '새 답이 왔어요';
 const REPLY_CHECK_MS = 5 * 60 * 1000;
 const NO_SERVER_NOTE = '온라인 서버가 설정되지 않아 멀티플레이를 쓸 수 없어요. 연습장과 상점은 그대로 쓸 수 있어요.';
+const ZOMBIE_ROOM_SUB = '로비에 바로 보이는 좀비 방을 만들어요 · 최대 4명';
+const ZOMBIE_SOLO_SUB = '증강을 고르는 동안 게임이 멈춰요';
 
 function menuBtn(icon, label, sub, onClick, cls = '') {
   const subEl = h('span', { class: 'sk-menu-sub', text: sub });
@@ -39,6 +42,41 @@ export function createMenu(ctx) {
 
   const start = (action) => ctx.emit(action, { name: ctx.playerName, account: !!ctx.account });
 
+  // ---------- 좀비 물량 막기 고르기: 같이 하기(공개 방) · 혼자 하기 · 로비에서 찾기 ----------
+  /** 시트를 먼저 닫고(포커스가 메뉴로 돌아온 뒤) 알린다 */
+  const pickZombie = (action) => () => { modal.close(); start(action); };
+  function zombieOpt(icon, label, sub, action, cls = '') {
+    const subEl = h('span', { class: 'sk-zpick-sub', text: sub });
+    const el = h('button', { type: 'button', class: 'sk-zpick-opt' + (cls ? ' ' + cls : ''), onclick: pickZombie(action) },
+      h('span', { class: 'sk-zpick-ico', text: icon, 'aria-hidden': 'true' }),
+      h('span', { class: 'sk-zpick-txt' },
+        h('span', { class: 'sk-zpick-label', text: label }),
+        subEl));
+    return { el, subEl };
+  }
+  const zombieRoom = zombieOpt('👥', '같이 하기 · 공개 방 만들기', ZOMBIE_ROOM_SUB, 'menu:zombieRoom', 'sk-zpick-opt--room');
+  const zombieSolo = zombieOpt('🧍', '혼자 하기', ZOMBIE_SOLO_SUB, 'menu:zombie');
+  const zombieFind = btn('로비에서 좀비 방 찾기', pickZombie('menu:multi'), 'sk-btn--sm sk-btn--ghost sk-zpick-find');
+  const zombieNote = h('p', { class: 'sk-zpick-note', role: 'status', hidden: true });
+  const zombieSheet = sheet({
+    title: '🧟 좀비 물량 막기',
+    onClose: () => modal.close(),
+    cls: 'sk-zpick',
+    body: [h('div', { class: 'sk-zpick-opts' }, zombieRoom.el, zombieSolo.el), zombieNote, zombieFind],
+  });
+  /** 멀티플레이를 못 쓰면 '같이 하기'와 '로비에서 찾기'를 끄고 사유를 보여 준다(혼자 하기는 언제나 된다) */
+  function syncZombieSheet(block) {
+    zombieRoom.el.disabled = !!block;
+    zombieRoom.el.classList.toggle('is-locked', !!block);
+    setText(zombieRoom.subEl, block ? '지금은 쓸 수 없어요' : ZOMBIE_ROOM_SUB);
+    zombieFind.disabled = !!block;
+    setText(zombieNote, typeof block === 'string' ? block : '');
+    zombieNote.hidden = !zombieNote.textContent;
+    // 시트를 열면 쓸 수 있는 첫 칸에 포커스(꺼진 단추는 포커스를 받지 못한다)
+    zombieRoom.el.toggleAttribute('data-autofocus', !block);
+    zombieSolo.el.toggleAttribute('data-autofocus', !!block);
+  }
+
   // ---------- 플레이어 카드 ----------
   const nameText = h('strong', { class: 'sk-name-text' });
   const points = pointsBadge('sk-points--big');
@@ -47,8 +85,8 @@ export function createMenu(ctx) {
   // ---------- 버튼 ----------
   const multiBtn = menuBtn('globe', '멀티플레이', MULTI_SUB, () => start('menu:multi'), 'sk-menu-btn--main');
   const sandboxBtn = menuBtn('target', '연습장', '맵과 모드, 봇을 골라 연습해요', () => start('menu:sandbox'), 'sk-menu-btn--wide');
-  // 연습장 설정 시트를 좀비 모드로 연다(친구와 하려면 멀티플레이의 좀비 방). 글에 '연습장'을 넣지 않는다(QA가 글로 버튼을 찾는다)
-  const zombieBtn = menuBtn('skull', '좀비 물량 막기', '스테이지마다 몰려오는 좀비를 버텨요', () => start('menu:zombie'), 'sk-menu-btn--wide sk-menu-btn--zombie');
+  // 같이 하기(공개 좀비 방) · 혼자 하기(좀비 모드를 고른 연습장 시트)를 고르는 시트를 연다. 글에 '연습장'을 넣지 않는다(QA가 글로 버튼을 찾는다)
+  const zombieBtn = menuBtn('skull', '좀비 물량 막기', '스테이지마다 몰려오는 좀비를 버텨요', () => modal.open(zombieSheet), 'sk-menu-btn--wide sk-menu-btn--zombie');
   const shopBtn = menuBtn('bag', '상점', '포인트로 장비 사기', () => start('menu:shop'), 'sk-menu-btn--sub');
   const settingsBtn = menuBtn('gear', '설정', '감도·줌·볼륨', () => {
     settingsPanel.refresh();
@@ -120,6 +158,7 @@ export function createMenu(ctx) {
     setText(multiBtn.subEl, block ? '지금은 쓸 수 없어요' : MULTI_SUB);
     setText(multiNote, typeof block === 'string' ? block : '');
     multiNote.hidden = !multiNote.textContent;
+    syncZombieSheet(block);
   }
 
   return makeScreen(el, { render, onHide: () => modal.close() });

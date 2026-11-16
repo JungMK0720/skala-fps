@@ -36,12 +36,13 @@ const KILL_Y = -60;          // 이 아래로 떨어지면 그 자리에서 폭�
 let nextId = 1;
 
 /**
- * 수류탄 시스템으로 나는 발사체 종류(좀비 물량 막기 전용 보조무기). kind가 없으면 손으로 던진 수류탄이다.
- * gravity = 중력 덮어쓰기, impact = 처음 부딪히면 바로 터진다
+ * 수류탄 시스템으로 나는 발사체 종류(좀비 물량 막기 전용). kind가 없으면 손으로 던진 수류탄이다.
+ * gravity = 중력 덮어쓰기(없으면 수류탄 중력), impact = 처음 부딪히면 바로 터진다, sticky = 좀비에 닿으면 붙는다(붙이기는 World가 stick으로 한다)
  */
 export const PROJECTILES = Object.freeze({
   gl: Object.freeze({ code: 1, gravity: -9, impact: true }),       // 유탄 발사기: 낮게 휘어 날아가 맞은 자리에서 터진다
-  rocket: Object.freeze({ code: 2, gravity: 0, impact: true })     // 바주카포: 곧게 날아가 닿는 곳에서 터진다
+  rocket: Object.freeze({ code: 2, gravity: 0, impact: true }),    // 바주카포: 곧게 날아가 닿는 곳에서 터진다
+  c4: Object.freeze({ code: 3, impact: false, sticky: true })      // C4 수류탄(증강): 손으로 던진 수류탄처럼 날고 튀며 신관이 다 되면 터진다
 });
 const PROJ_BY_CODE = new Map(Object.entries(PROJECTILES).map(([k, v]) => [v.code, k]));
 /** 발사체 종류 번호 ↔ 이름(네트워크) */
@@ -106,13 +107,13 @@ export function throwVelocity(forward, speed = G.throw.speed, pitchUp = G.throw.
   return out3(v);
 }
 
-/** 수류탄 상태 객체 하나를 만든다(순수 데이터). pos/vel은 vec3. */
+/** 수류탄 상태 객체 하나를 만든다(순수 데이터). pos/vel은 vec3. stuck = 무언가에 붙어 물리가 멈춘 상태(C4, 신관은 계속 간다) */
 export function createGrenade({ pos, vel, fuse = G.fuse, owner = null, id, kind = null } = {}) {
   return {
     id: id ?? nextId++, owner, kind: PROJECTILES[kind] ? kind : null,
     pos: toVec3(pos), vel: toVec3(vel),
     age: 0, fuse: num(fuse, G.fuse), acc: 0,
-    exploded: false, sleeping: false, onGround: false, groundT: 0,
+    exploded: false, sleeping: false, onGround: false, groundT: 0, stuck: false,
     bounces: 0, lastNormal: vec3(0, 1, 0),
   };
 }
@@ -281,7 +282,8 @@ export function stepGrenade(g, dt, sphereSweep, opts = {}) {
   if (!g || g.exploded) return out;
   let P = opts.physics ? { ...GRENADE_PHYSICS, ...opts.physics } : GRENADE_PHYSICS;
   const proj = g.kind ? PROJECTILES[g.kind] : null;
-  if (proj) P = { ...P, gravity: proj.gravity };
+  // 중력을 따로 정한 발사체만 덮어쓴다(C4는 손으로 던진 수류탄의 중력 그대로)
+  if (proj && Number.isFinite(proj.gravity)) P = { ...P, gravity: proj.gravity };
   const floorY = opts.floorY === undefined ? 0 : opts.floorY;
   const core = opts.style === 'integrator' && typeof sphereSweep === 'function';
   const step = P.step > 0 ? P.step : 1 / 120;
@@ -443,16 +445,51 @@ export function createGrenadeSystem(cfg = {}) {
     return events;
   }
 
+  /** 아직 터지지 않은 수류탄 하나 */
+  const live = (id) => { const g = list.find((x) => x.id === id); return g && !g.exploded ? g : null; };
+
+  /** (C4) 그 자리에 붙인다: 속도 0, 물리 멈춤. 신관은 계속 가서 제시간에 터진다 → 찾았으면 true */
+  function stick(id) {
+    const g = live(id);
+    if (!g) return false;
+    g.vel = vec3(0, 0, 0);
+    g.sleeping = true;
+    g.stuck = true;
+    return true;
+  }
+  /** 위치를 옮긴다(붙은 C4가 좀비를 따라갈 때). 잘못된 좌표면 그대로 두고 false */
+  function place(id, pos) {
+    const g = live(id);
+    const p = g ? readV(pos) : null;
+    if (!p) return false;
+    g.pos = out3(p);
+    return true;
+  }
+  /** 떼어 낸다: 속도 0에서 다시 물리를 받아 떨어진다(붙어 있던 좀비가 쓰러졌을 때) → 찾았으면 true */
+  function unstick(id) {
+    const g = live(id);
+    if (!g) return false;
+    g.stuck = false;
+    g.sleeping = false;
+    g.onGround = false;
+    g.groundT = 0;
+    g.vel = vec3(0, 0, 0);
+    return true;
+  }
+
   return {
     spawn,
     throwFrom,
     update,
     /** 주입받은 lineOfSight로 폭발 피해 계산 */
     explosionDamage: (center, targets, o) => explosionDamage(center, targets, lineOfSight, o),
-    /** 살아 있는 수류탄 목록(렌더링용 사본: {id, owner, pos, vel, age, fuse, sleeping}) */
-    list: () => list.map((g) => ({ id: g.id, owner: g.owner, kind: g.kind, pos: out3(g.pos), vel: out3(g.vel), age: g.age, fuse: g.fuse, sleeping: g.sleeping })),
+    /** 살아 있는 수류탄 목록(렌더링용 사본: {id, owner, kind, pos, vel, age, fuse, sleeping, stuck}) */
+    list: () => list.map((g) => ({ id: g.id, owner: g.owner, kind: g.kind, pos: out3(g.pos), vel: out3(g.vel), age: g.age, fuse: g.fuse, sleeping: g.sleeping, stuck: !!g.stuck })),
     /** 이 수류탄(발사체)을 다음 진행에서 바로 터뜨린다(좀비에 닿은 로켓 등) → 찾았으면 true */
     detonate: (id) => { const g = list.find((x) => x.id === id); if (!g || g.exploded) return false; g.age = Math.max(g.age, g.fuse); g.sleeping = false; return true; },
+    stick,
+    place,
+    unstick,
     get count() { return list.length; },
     /** 'segment' | 'integrator' — 실제로 쓰는 충돌 방식 */
     get sweepStyle() { return style; },

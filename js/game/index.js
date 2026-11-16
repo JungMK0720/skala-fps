@@ -11,6 +11,7 @@
  *   - World: createWorld({ ctx, ui }). 연습장과 멀티가 같은 것을 쓴다(./WORLD_API.md).
  *   - 연습장: core 'sandbox' 화면을 practice.js로 바꿔 등록한다(?sandbox=<mapId>도 그대로 동작).
  *   - 멀티: 멀티플레이를 처음 누를 때 ./session.js를 불러 createSession({ ctx, ui, world, settings, bus })를 만든다.
+ *     메뉴 좀비 물량 막기의 '같이 하기'도 같은 길로 로비를 열고, 로비가 준비되면 곧바로 공개 좀비 방을 만든다(open({ create })).
  *   - 전체 공지: 부팅 때 ../net/notice.js를 불러 운영자 공지를 받고 ui.notice로 화면 맨 위에 띄운다(중계 서버를 쓸 때만).
  */
 import { createUI } from '../ui/index.js';
@@ -82,13 +83,14 @@ function createMultiFlow({ ctx, ui, world, bus }) {
     return sessionP;
   }
 
-  async function open() {
+  /** opts는 세션 open에 그대로 간다. opts.create = 로비가 준비되면 바로 만들 방(메뉴 좀비 '같이 하기'는 { mode: 'zombie' }) */
+  async function open(opts) {
     // 오프라인 때 정한 닉네임을 서버에 다시 등록한다. 거절되면 게이트가 다시 열리므로 입장을 멈춘다.
     const claim = await ctx.account.retryNickname();
     if (!claim.ok) return;
     try {
       const s = await load();
-      if (s && typeof s.open === 'function') await s.open({ name: ctx.session.name });
+      if (s && typeof s.open === 'function') await s.open({ name: ctx.session.name, ...opts });
       else await ctx.setScreen('lobby');
     } catch (err) {
       console.warn('[game] 멀티플레이를 열 수 없어요', err);
@@ -232,6 +234,8 @@ export async function install(ctx) {
     bus.on('screen:unavailable', (e) => toast.notify(`${SCREEN_LABEL[e && e.name] || (e && e.name) || ''} 화면은 아직 준비 중이에요.`)),
     ui.on('menu:sandbox', () => openPracticeSetup()),
     ui.on('menu:zombie', () => openPracticeSetup({ mode: 'zombie' })),
+    // 메뉴 좀비 '같이 하기': 로비를 열고 곧바로 공개 좀비 방을 만들어 대기실로 간다
+    ui.on('menu:zombieRoom', () => multi.open({ create: { mode: 'zombie' } })),
     ui.on('menu:multi', () => multi.open()),
     ui.on('menu:mypage', () => ui.show('mypage')),
     ui.on('menu:shop', () => openShop('menu')),

@@ -734,6 +734,8 @@ export function createHud(ctx) {
       for (const t of TEAM_KEYS) sides[t].el.classList.toggle('is-mine', t === st.team);
     }
     if ('hint' in p) setLine(hintEl, p.hint);
+    // 정보만 주는 안내(좀비 모드 살리기): 휴대폰에서 눌러도 아무 일이 없게 탭을 아래로 흘린다(css/touch.css)
+    if ('hintInfo' in p) hintEl.classList.toggle('is-info', !!p.hintInfo);
     if ('swap' in p) applySwap(p.swap);
     if ('spectate' in p) setLine(specEl, p.spectate ? `👁️ 관전 중 · ${p.spectate}` : '');
     if ('crosshair' in p) xhair.hidden = p.crosshair === false;

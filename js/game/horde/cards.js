@@ -3,7 +3,7 @@
  * Author: Minkyu Jung
  * Purpose: 좀비 물량 막기의 증강(강화 카드, 180장 넘게). 팀 레벨이 오르거나 보스의 보물 상자를 주우면 3장(증강으로 4장까지)을 제안하고
  *          제안마다 다시 뽑기 1번을 준다. 카드 목록 → 능력치 계산(상한 포함), 제안 만들기, 짧은 글자로 싣기를 맡는다.
- *          순수 모듈이라 방장·화면·node 시험이 같이 쓴다. 수류탄을 키우는 증강은 모두 최대 수류탄을 1개 늘리고 가득 채운다.
+ *          순수 모듈이라 방장·화면·node 시험이 같이 쓴다. 수류탄을 키우는 증강은 모두 최대 수류탄을 2개 늘리고 가득 채운다.
  */
 import { makeRng, hashSeed, pickWeighted } from './rules.js';
 
@@ -70,7 +70,11 @@ export const PERK_BASE = Object.freeze({
   nadeFreeze: 0,   // H  빙결 수류탄: 맞은 좀비가 얼어붙는다(겹칠수록 오래)
   nadeDecoy: 0,    // H  어그로 수류탄: 터진 자리에 분신(겹칠수록 단단하다)
   nadeRadius: 0,   // HC 수류탄 폭발 반경 +%
-  nadeMulti: 0     // C  한 번에 더 던지는 수류탄 수
+  nadeMulti: 0,    // C  한 번에 더 던지는 수류탄 수
+  iframe: 0,       // H  맞은 뒤 무적 시간 +초
+  noKnock: 0,      // H  1이면 맞아도 밀려나지 않는다(보스의 밀치기도)
+  stickyNade: 0,   // C  1이면 내 수류탄이 좀비에 닿으면 붙는 C4가 된다
+  wave: 0          // HC 칼을 휘두르면 검기가 이 거리(m)까지 날아간다
 });
 
 /** 능력치 상한(카드를 아무리 많이 골라도 이 이상은 오르지 않고, 다 찬 카드는 제안에서 빠진다) */
@@ -81,7 +85,8 @@ export const PERK_CAPS = Object.freeze({
   nades: 14, pierce: 6, killAmmo: 8, ammoRegen: 0.25, frenzy: 0.2,
   regen: 30, rerolls: 3, offers: 1, maxHpPct: 3, secondChance: 1,
   medDrop: 0.25, medHeal: 60, ammoDrop: 0.25, ammoMags: 5,
-  nadeFire: 3, nadeFreeze: 3, nadeDecoy: 3, nadeRadius: 1, nadeMulti: 4
+  nadeFire: 3, nadeFreeze: 3, nadeDecoy: 3, nadeRadius: 1, nadeMulti: 4,
+  iframe: 0.4, noKnock: 1, stickyNade: 1, wave: 18
 });
 
 /* ------------------------------------------------------------------ 카드 표 */
@@ -119,7 +124,7 @@ const FAMILIES = [
   { key: 'sprint', name: '질주', icon: '👟', stat: 'move', vals: [0.05, 0.08, 0.12, 0.18], text: (v) => `이동 속도 +${pc(v)}` },
   { key: 'limit', name: '가속 한계', icon: '🚀', stat: 'maxSpeed', vals: [0.08, 0.14, 0.22, 0.35], text: (v) => `최대 속도 +${pc(v)} (버니합 상한)` },
   { key: 'leap', name: '도약', icon: '🦘', stat: 'jump', vals: [0.08, 0.12, 0.18, 0.26], text: (v) => `점프 높이 +${pc(v)}` },
-  { key: 'pouch', name: '수류탄 주머니', icon: '💣', stat: 'nades', vals: [1, 1, 2, 3], text: (v) => `최대 수류탄 +${v} (가득 채움)`, instant: () => ({ nades: true }) },
+  { key: 'pouch', name: '수류탄 주머니', icon: '💣', stat: 'nades', vals: [2, 2, 3, 4], text: (v) => `최대 수류탄 +${v} (가득 채움)`, instant: () => ({ nades: true }) },
   { key: 'medic', name: '구급 보급', icon: '🩹', stat: 'medDrop', vals: [0.02, 0.03, 0.05, 0.08], text: (v) => `내가 잡은 좀비가 구급 상자를 떨어뜨릴 확률 +${pc(v)} (기본 5%)` },
   { key: 'kit', name: '구급 키트', icon: '🧪', stat: 'medHeal', vals: [5, 8, 12, 18], text: (v) => `구급 상자 회복량 +${v} (기본 10)` },
   { key: 'supply', name: '탄약 보급', icon: '🎒', stat: 'ammoDrop', vals: [0.02, 0.03, 0.05, 0.08], text: (v) => `내가 잡은 좀비가 탄창을 떨어뜨릴 확률 +${pc(v)} (기본 10%)` },
@@ -140,12 +145,14 @@ const FAMILIES = [
   { key: 'frenzy', name: '광란', icon: '🌀', stat: 'frenzy', vals: [0.03, 0.04, 0.06, 0.08], text: (v) => `처치할 때마다 4초 동안 연사 +${pc(v)} (최대 5번 겹침)` }
 ];
 
-/** 수류탄을 키우는 증강에 붙는 말(최대 수류탄 +1, 가득 채움) */
-const NADE_UP = '최대 수류탄 +1 (가득 채움)';
+/** 수류탄을 키우는 증강에 붙는 말(최대 수류탄 +2, 가득 채움) */
+const NADE_UP = '최대 수류탄 +2 (가득 채움)';
+/** 수류탄 증강 하나가 늘리는 최대 수류탄 수 */
+const NADE_UP_N = 2;
 
 /**
  * 한 장뿐인 특수 카드. fx = 능력치 변화(여러 개 가능), instant = 고른 순간 한 번만 일어나는 일, max = 고를 수 있는 횟수(없으면 무제한).
- * nade: true면 수류탄 증강이라 최대 수류탄 +1과 가득 채움이 붙는다.
+ * nade: true면 수류탄 증강이라 최대 수류탄 +2와 가득 채움이 붙는다.
  */
 const SPECIALS = [
   { key: 'second', name: '두 번째 기회', icon: '🪽', tier: 'legend', max: 1, fx: { secondChance: 1 }, desc: '스테이지마다 한 번, 쓰러질 피해를 받아도 체력 30%로 버틴다', minStage: 3 },
@@ -184,35 +191,56 @@ const SPECIALS = [
   { key: 'sideRl', name: '바주카포', icon: '🚀', tier: 'legend', w: 5, max: 1, minStage: 3, instant: { side: 'rl_b9' }, desc: '보조무기가 BZ-9 바주카포로 바뀐다(곧게 날아가 크게 터지는 로켓 · 한 발씩 · 예비 12발)' }
 ];
 
-function build() {
+/**
+ * 나중에 더한 카드. 전송 번호(idx)는 카드 순서라서, 이미 있는 카드의 번호가 바뀌지 않게 모든 묶음·특수 카드 뒤에 붙인다.
+ * vals가 있으면 묶음(FAMILIES와 같은 모양), 없으면 특수 카드(SPECIALS와 같은 모양)다. 새 카드는 이 목록 끝에만 더한다.
+ */
+const ADDED = [
+  { key: 'reflex', name: '반사 신경', icon: '✨', stat: 'iframe', vals: [0.1, 0.15, 0.2, 0.25], text: (v) => `맞은 뒤 무적 시간 +${fx(v)}초 (기본 0.1초)` },
+  { key: 'wave', name: '검기', icon: '🌙', stat: 'wave', vals: [6, 8, 10, 13], minTier: 1, text: (v) => `칼을 휘두를 때마다 검기가 ${v} m 날아가 닿는 좀비에게 칼과 같은 피해 (겹치면 더 멀리)` },
+  { key: 'anchor', name: '부동자세', icon: '⚓', tier: 'epic', max: 1, fx: { noKnock: 1 }, desc: '맞아도 밀려나지 않는다(보스의 밀치기·내려찍기도)' },
+  { key: 'c4', name: 'C4 수류탄', icon: '🧲', tier: 'epic', max: 1, fx: { stickyNade: 1 }, nade: true, desc: '내 수류탄이 C4로 바뀐다. 좀비에 닿으면 그 몸에 붙어 따라가다 터진다' }
+];
+
+/** 묶음 하나 → 카드 네 장(I 일반 · II 희귀 · III 영웅 · IV 전설, minTier가 있으면 그 등급부터) */
+function familyCards(f) {
   const out = [];
-  for (const f of FAMILIES) {
-    for (let lv = 0; lv < 4; lv++) {
-      const v = f.vals[lv];
-      const tier = TIER_OF_LEVEL[Math.max(lv, f.minTier || 0)];
-      const card = {
-        id: `${f.key}${lv + 1}`, family: f.key, name: `${f.name} ${ROMAN[lv]}`, icon: f.icon, tier,
-        fx: { [f.stat]: v }, desc: f.text(v), max: null, minStage: lv === 3 ? 4 : lv === 2 ? 2 : 1
-      };
-      if (f.instant) card.instant = f.instant(v);
-      if (f.nade) nadeUp(card);
-      out.push(card);
-    }
-  }
-  for (const s of SPECIALS) {
+  for (let lv = 0; lv < 4; lv++) {
+    const v = f.vals[lv];
+    const tier = TIER_OF_LEVEL[Math.max(lv, f.minTier || 0)];
     const card = {
-      id: s.key, family: s.key, name: s.name, icon: s.icon, tier: s.tier, fx: { ...(s.fx || {}) }, desc: s.desc,
-      max: s.max || null, minStage: s.minStage || 1, instant: s.instant || null, special: true, w: s.w || 1
+      id: `${f.key}${lv + 1}`, family: f.key, name: `${f.name} ${ROMAN[lv]}`, icon: f.icon, tier,
+      fx: { [f.stat]: v }, desc: f.text(v), max: null, minStage: lv === 3 ? 4 : lv === 2 ? 2 : 1
     };
-    if (s.nade) { nadeUp(card); card.desc = `${s.desc} · ${NADE_UP}`; }
+    if (f.instant) card.instant = f.instant(v);
+    if (f.nade) nadeUp(card);
     out.push(card);
   }
+  return out;
+}
+
+/** 특수 카드 한 장 */
+function specialCard(s) {
+  const card = {
+    id: s.key, family: s.key, name: s.name, icon: s.icon, tier: s.tier, fx: { ...(s.fx || {}) }, desc: s.desc,
+    max: s.max || null, minStage: s.minStage || 1, instant: s.instant || null, special: true, w: s.w || 1
+  };
+  if (s.nade) { nadeUp(card); card.desc = `${s.desc} · ${NADE_UP}`; }
+  return card;
+}
+
+function build() {
+  const out = [];
+  for (const f of FAMILIES) out.push(...familyCards(f));
+  for (const s of SPECIALS) out.push(specialCard(s));
+  // 나중에 더한 카드는 맨 뒤(이미 있는 카드의 번호를 그대로 둔다)
+  for (const a of ADDED) { if (a.vals) out.push(...familyCards(a)); else out.push(specialCard(a)); }
   return out.map((c, idx) => deepFreeze({ ...c, idx, instant: c.instant || null }));
 }
 
-/** 수류탄 증강: 최대 수류탄 +1과 고른 순간 가득 채우기를 붙인다 */
+/** 수류탄 증강: 최대 수류탄 +2와 고른 순간 가득 채우기를 붙인다 */
 function nadeUp(card) {
-  card.fx = { ...card.fx, nades: (card.fx.nades || 0) + 1 };
+  card.fx = { ...card.fx, nades: (card.fx.nades || 0) + NADE_UP_N };
   card.instant = { ...(card.instant || {}), nades: true };
   card.nade = true;
 }
@@ -343,5 +371,7 @@ export function perkSummary(stats) {
   add('화염', s.nadeFire, (v) => `${v}단계`); add('빙결', s.nadeFreeze, (v) => `${v}단계`); add('분신', s.nadeDecoy, (v) => `${v}단계`);
   add('구급 상자 확률', s.medDrop, plus); add('구급 상자 회복', s.medHeal, (v) => `+${v}`);
   add('탄창 확률', s.ammoDrop, plus); add('탄창 양', s.ammoMags, (v) => `+${fx(v)}회분`);
+  add('맞은 뒤 무적', s.iframe, (v) => `+${fx(v)}초`); add('밀려남', s.noKnock, () => '없음');
+  add('C4', s.stickyNade, () => '붙음'); add('검기', s.wave, (v) => `${fx(v)} m`);
   return rows;
 }

@@ -47,6 +47,8 @@ const GUN_IDS = Object.keys(TABLE);
 const SNIPER_IDS = ['sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy'];
 const RIFLE_IDS = ['ar_std', 'ar_rapid', 'ar_line', 'ar_burst'];
 const ALL_IDS = [...GUN_IDS, ...Object.keys(MELEE_TABLE), 'gr_frag'];
+/** 좀비 물량 막기 전용 보조무기(docs/MODES.md, zombieOnly). 증강으로만 얻고 상점·로드아웃·봇·다른 모드에는 나오지 않는다 */
+const ZOMBIE_ONLY_IDS = ['gl_m32', 'rl_b9'];
 
 /* ---------- 도우미 ---------- */
 const DT = 1 / 60;
@@ -72,10 +74,13 @@ const lerp = (a, b, t) => a + (b - a) * t;
 /* ---------- 표 ---------- */
 describe('무기 표(DESIGN 3.2)', () => {
   test('17종 + 수류탄이 빠짐없이 있고 슬롯별 목록이 맞다', () => {
-    assert.deepEqual([...WEAPON_IDS].sort(), [...ALL_IDS].sort());
-    assert.equal(WEAPON_IDS.length, 18);
+    // 좀비 전용 보조무기 2종은 따로 센다(아래 시험)
+    assert.deepEqual([...WEAPON_IDS].sort(), [...ALL_IDS, ...ZOMBIE_ONLY_IDS].sort());
+    assert.equal(WEAPON_IDS.length, 18 + ZOMBIE_ONLY_IDS.length);
+    assert.deepEqual(WEAPON_IDS.filter((id) => !WEAPONS[id].zombieOnly).sort(), [...ALL_IDS].sort());
     assert.deepEqual([...PRIMARY_IDS].sort(), [...RIFLE_IDS, 'dm_mark', 'sm_vx3', 'sg_bx12', ...SNIPER_IDS].sort());
-    assert.deepEqual([...SECONDARY_IDS].sort(), ['pt_magnum', 'pt_std']);
+    assert.deepEqual(SECONDARY_IDS.filter((id) => !WEAPONS[id].zombieOnly).sort(), ['pt_magnum', 'pt_std']);
+    assert.deepEqual([...SECONDARY_IDS].sort(), ['gl_m32', 'pt_magnum', 'pt_std', 'rl_b9']);
     assert.deepEqual([...MELEE_IDS].sort(), ['ml_gurkha', 'ml_katana', 'ml_knife', 'ml_tanto']);
     assert.deepEqual([...GRENADE_IDS], ['gr_frag']);
     for (const id of PRIMARY_IDS) assert.equal(WEAPONS[id].slot, 1, id);
@@ -83,6 +88,25 @@ describe('무기 표(DESIGN 3.2)', () => {
     for (const id of MELEE_IDS) assert.equal(WEAPONS[id].slot, 3, id);
     assert.equal(WEAPONS.gr_frag.slot, 4);
     assert.deepEqual({ ...DEFAULT_LOADOUT }, { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
+  });
+
+  test('좀비 전용 보조무기는 폭발로만 피해를 주는 발사기이고 상점 값이 없으며 고르는 목록에 없다', () => {
+    for (const id of ALL_IDS) assert.ok(!WEAPONS[id].zombieOnly, id);
+    const projectile = { gl_m32: 'gl', rl_b9: 'rocket' };
+    for (const id of ZOMBIE_ONLY_IDS) {
+      const d = WEAPONS[id];
+      assert.equal(d.zombieOnly, true, id);
+      assert.equal(d.slot, 2, id);
+      assert.equal(d.category, 'launcher', id);
+      assert.equal(d.price, 0, id);
+      assert.equal(d.premium, false, id);
+      assert.equal(d.projectile.kind, projectile[id], id);
+      assert.ok(d.explosion && d.explosion.max > 0, id);
+      assert.deepEqual({ ...d.damage }, { head: 0, body: 0, legs: 0, hand: 0, foot: 0 }, `${id}: 총알 피해는 없다`);
+    }
+    for (const r of RULESET_IDS) {
+      for (const id of ZOMBIE_ONLY_IDS) assert.ok(!pickableWeapons(r).includes(id), `${r} ${id}`);
+    }
   });
 
   for (const [id, t] of Object.entries(TABLE)) {

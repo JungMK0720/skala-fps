@@ -32,6 +32,9 @@ const FREE_EMOTES = EMOTES.filter((e) => e.price === 0).map((e) => e.id);
 const PAID_EMOTES = EMOTES.filter((e) => e.price > 0).map((e) => e.id);
 const FREE_AVATARS = AVATARS.filter((a) => a.price === 0).map((a) => a.id);
 const PAID_AVATARS = AVATARS.filter((a) => a.price > 0).map((a) => a.id);
+/** 좀비 물량 막기 전용 무기(zombieOnly, 증강으로만 얻는다)는 가격이 0이어도 상점 물건이 아니다. 상점 무기는 나머지다 */
+const ZOMBIE_ONLY = WEAPON_IDS.filter((id) => getDef(id).zombieOnly);
+const SHOP_WEAPONS = WEAPON_IDS.filter((id) => !getDef(id).zombieOnly);
 
 const CONFIG = Object.freeze({ url: 'https://proj.supabase.co', anonKey: 'sb_publishable_test' });
 const VALID_TOKEN = 'a'.repeat(64);
@@ -235,7 +238,8 @@ describe('economy', () => {
 
   test('시작 포인트와 기본 지급', () => {
     assert.equal(START_POINTS, 500);
-    assert.deepEqual(defaultOwned(), [...WEAPON_IDS.filter((id) => getDef(id).price === 0), ...FREE_EMOTES, ...FREE_AVATARS]);
+    assert.deepEqual(defaultOwned(), [...SHOP_WEAPONS.filter((id) => getDef(id).price === 0), ...FREE_EMOTES, ...FREE_AVATARS]);
+    for (const id of ZOMBIE_ONLY) assert.ok(!defaultOwned().includes(id), `${id}는 좀비 전용이라 기본 지급이 아니다`);
     assert.ok(defaultOwned().includes(DEFAULT_LOADOUT.primary));
     assert.equal(priceOf('sr_heavy'), getDef('sr_heavy').price);
     assert.equal(priceOf('nope'), null);
@@ -268,7 +272,8 @@ describe('economy', () => {
   });
 
   test('물건 id는 무기 → 이모트 → 캐릭터 순서이고 겹치지 않는다', () => {
-    assert.deepEqual([...ITEM_IDS], [...WEAPON_IDS, ...EMOTE_IDS, ...AVATAR_IDS]);
+    assert.deepEqual([...ITEM_IDS], [...SHOP_WEAPONS, ...EMOTE_IDS, ...AVATAR_IDS]);
+    for (const id of ZOMBIE_ONLY) assert.ok(!ITEM_IDS.includes(id), `${id}는 좀비 전용이라 상점 물건이 아니다`);
     assert.equal(new Set(ITEM_IDS).size, ITEM_IDS.length);
     assert.ok(ITEM_IDS.length <= 64, '서버 fps_owned_ok는 64개까지 받는다');
     for (const id of AVATAR_IDS) assert.ok(!getDef(id) && !EMOTE_IDS.includes(id), id);
@@ -984,10 +989,20 @@ describe('createAccount 상점과 장비', () => {
 
   test('isOwned: 기본 지급 무기만 처음부터 가진다', (t) => {
     const { account } = makeAccount(t);
-    for (const id of WEAPON_IDS) assert.equal(account.isOwned(id), getDef(id).price === 0, id);
+    for (const id of WEAPON_IDS) assert.equal(account.isOwned(id), getDef(id).price === 0 && !getDef(id).zombieOnly, id);
     for (const e of EMOTES) assert.equal(account.isOwned(e.id), e.price === 0, e.id);
     for (const a of AVATARS) assert.equal(account.isOwned(a.id), a.price === 0, a.id);
     assert.equal(account.isOwned('no_such'), false);
+    // 좀비 전용 무기는 사려 해도 가지게 되지 않고(포인트도 그대로) 계정 장비에 넣을 수 없다
+    for (const id of ZOMBIE_ONLY) {
+      const key = ['', 'primary', 'secondary', 'melee'][getDef(id).slot];
+      account.buy(id);
+      assert.equal(account.isOwned(id), false, id);
+      assert.ok(!account.profile.owned.includes(id), id);
+      assert.equal(account.profile.points, START_POINTS, id);
+      assert.deepEqual(account.equip(key, id), { ok: false, reason: 'unowned' }, id);
+      assert.notEqual(account.loadout[key], id, id);
+    }
   });
 
   test('캐릭터 구매 열기: 오프라인은 바로 열고, 서버를 쓰면 fps_features 답을 기다린다', async (t) => {
@@ -1891,9 +1906,12 @@ describe('supabase/schema.sql', () => {
     assert.ok(m, 'fps_item_price 정의');
     const listed = Object.fromEntries([...m[0].matchAll(/when '([A-Za-z0-9_]+)' then (\d+)/g)].map((x) => [x[1], Number(x[2])]));
     assert.deepEqual(listed, Object.fromEntries([
-      ...WEAPON_IDS.map((id) => [id, getDef(id).price]), ...EMOTES.map((e) => [e.id, e.price]), ...AVATARS.map((a) => [a.id, a.price])
+      ...SHOP_WEAPONS.map((id) => [id, getDef(id).price]), ...EMOTES.map((e) => [e.id, e.price]), ...AVATARS.map((a) => [a.id, a.price])
     ]));
-    assert.equal(Object.keys(listed).length, WEAPON_IDS.length + EMOTE_IDS.length + AVATAR_IDS.length);
+    assert.equal(Object.keys(listed).length, SHOP_WEAPONS.length + EMOTE_IDS.length + AVATAR_IDS.length);
+    assert.deepEqual(Object.keys(listed).sort(), [...ITEM_IDS].sort(), '서버 가격표의 물건 = 클라이언트 상점 물건');
+    // 좀비 전용 무기는 가격표에 없다: 서버가 모르는 id(null)라 사거나 가진 것으로 저장되지 않는다
+    for (const id of ZOMBIE_ONLY) assert.ok(!m[0].includes(`'${id}'`), id);
   });
 
   test('fps_features는 캐릭터 구매와 건의함을 연다(클라이언트가 읽는 모양 { ok:true, avatars:true, feedback:true })', () => {

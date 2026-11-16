@@ -190,13 +190,17 @@ await world.loadMap(mapId, { mode, ruleset });
 | 메서드 / 이벤트 | 설명 |
 |---|---|
 | `setMode('zombie')` / `loadMap(mapId, { mode: 'zombie' })` | 모두 블루 팀(`team: 'owner'`) 화면 + 좀비 무리. 상단 팀 점수는 숨긴다. `world.mode === 'zombie'` |
-| `hordePush(view, t)` | 방장 뷰(`applyHordeSnapshot` 결과)를 받은 시각과 함께 넣는다. 좀비·보스·투사체·장판을 시간축으로 보간해 그린다 |
+| `hordePush(view, t)` | 방장 뷰(`applyHordeSnapshot` 결과)를 받은 시각과 함께 넣는다. 좀비·보스·투사체·장판을 시간축으로 보간해 그린다. 쓰러진 동료 표시(빨간 고리·초록 진행 원판·벽 너머 이름표)는 World가 내 id를 넘겨 나를 뺀다(`horde.push(view, t, local.id)`) |
 | `hordeEvent(ev)` | 연출이 필요한 방장 이벤트(skill·chain·enrage) |
 | `setHordePerks(o \| null)` | 카드 효과의 내 화면 몫 `{ mods, speed, maxSpeed, jump, pierce, maxHp }`. `mods`는 `arsenal.setMods`(탄창·연사·재장전·탄퍼짐·반동·예비 배율 등). null이면 기본값 |
 | `slowLocal(mul, ms)` | 비명·얼음 가시·붙잡힘: ms 동안 이동 속도 ×mul(0.2~1) |
-| `pushLocal([vx, vy, vz])` | 보스 돌진·내려찍기에 밀려남 |
+| `pushLocal([vx, vy, vz])` | 보스 돌진·내려찍기에 밀려남, 좀비에게 맞아 밀려남(스냅샷 사람 행의 `knock`, 번호가 바뀔 때 한 번) |
 | `refillReserve()` · `refillGrenades()` · `addMagAmmo(n)` · `addReserve(n, id?)` · `addGrenades(n = 1)` | 카드·처치 보상과 바닥 보급품의 탄약. `addReserve`의 `id`를 주면 그 총에, 없으면 든 총에 넣는다 |
 | `setHordePerks({ …, nadeMulti, nadeRadiusOf(owner) })` | 다연발 투척(한 번에 더 던지는 수류탄 수, 부채꼴)과 수류탄 폭발 반경 배율(던진 사람마다. 방장 화면은 남의 수류탄도 이 배율로 잰다) |
+| `setHordePerks({ …, sticky, waveRange, waveRangeOf(owner) })` | `sticky` = 내 손 수류탄이 C4(아래 'C4'), `waveRange` = 내 칼의 검기 거리(m, 0이면 없음), `waveRangeOf(owner)` = 그 사람의 검기 거리(남의 칼질에 검기를 그린다). null이면 끈다 |
+| `setHordeInteract({ hint, touch } \| null)` | 좀비 멀티 동료 살리기 안내. `hint`는 HUD 안내 줄(잠금 안내 다음 순서), `touch`가 바뀌면 bus `touch:use { on, label: '살리기' }`(휴대폰 설치/해체 버튼). 안내가 있는 동안 F는 무기 살펴보기를 하지 않는다. `loadMap`·`unloadMap`이 지운다 |
+| C4 | `sticky`면 손 수류탄을 `kind: 'c4'`로 던지고 `grenade` 이벤트에 `kind: 'c4'`·`fuse`를 싣는다(`actorGrenade`도 받는다). 내 것·남의 것 모두 좀비에 닿으면(`horde.touchingZombie`) `nades.stick`으로 붙여 그 좀비를 따라 옮기고, 좀비가 사라지면 `unstick`으로 떨어뜨린다. 터지는 것은 신관대로, 폭발은 손 수류탄과 같다(`explosion` 이벤트 `kind: 'c4'`) |
+| 검기 | `waveRange`가 있으면 칼을 휘두를 때마다(빗맞아도) `horde.wave({ local: true })`를 날리고, 닿은 좀비마다 `hitClaim`(`kind: 'wave'`·`'waveStab'`, `part: 'body'`, `dist` = 날아간 거리, 검기마다 새 `shotId`)을 낸다. 남의 칼질(`actorFire`)은 windup만큼 늦게 보이기만 하는 검기를 날린다 |
 | `hordeDamageNumber(pos, amount, kind)` | 좀비에게 준 피해 숫자를 띄운다. `kind` = `head`(크고 노랗게) · `body` · `legs` · `melee` · `nade` |
 | `equipSidearm(id)` | (증강) 보조무기 칸을 이 무기로 바꾼다(새 탄 가득). 유탄 발사기 `gl_m32`·바주카포 `rl_b9` |
 | `openSwapList()` | 교체 창이 켜져 있으면 무기 목록을 바로 연다(무기 교체권) |
@@ -205,7 +209,7 @@ await world.loadMap(mapId, { mode, ruleset });
 | `setSwapPrompt(on)` | 기한 없는 교체의 HUD 안내를 켜고 끈다(스테이지 사이에만 켠다) |
 | 탄 기억 | 좀비 모드의 `setLocalLoadout(id)`는 내려놓는 총의 남은 탄을 `local.ammoBank`에 두고 `arsenal.equipWith(id, 기억한 탄)`으로 바꿔 든다. 처음 드는 총은 새 탄. 목숨마다(`spawnLocal`) 비운다 |
 | 이벤트 `hitClaim` | 좀비를 맞히면 `victimId: 'z<번호>'`. 멀티는 그대로 방장에게, 혼자는 director.claimHit |
-| `horde` (getter) | 좀비 무리 화면(시험·HUD용: `rendered`, `nearest`, `ray`, `loot`, `stats` 등). `loot` = 지금 그리는 바닥 보급품 `[{ id, kind, pos, leftMs }]`, `stats` = { bars, numbers, decoys, fields } |
+| `horde` (getter) | 좀비 무리 화면(시험·HUD용: `rendered`, `nearest`, `ray`, `loot`, `downs`, `stats` 등). `loot` = 지금 그리는 바닥 보급품 `[{ id, kind, pos, leftMs }]`, `downs` = 쓰러진 동료 표시 `[{ id, name, pos, progress, by }]`, `stats` = { bars, numbers, decoys, fields, waves, downs }. `touchingZombie(p, r)`·`zombieAt(id)`(이번 프레임에 그린 살아 있는 좀비), `wave(o)`(검기), `frame(dt, now, frozen)`(frozen이면 검기가 멈춘다) |
 
 - **맞히기**: 사격은 좀비 히트박스(머리·몸·다리)와 맵 벽을 같이 레이캐스트하고 가까운 쪽을 맞힌다. 관통 카드가 있으면 같은 탄(`shotId`)이 뒤 좀비도 맞힌다. 칼·수류탄도 같은 엄폐·거리 규칙이다.
 - **붙잡힘**: 좀비 몸 둘레(0.75 m + 좀비 크기에 따라 0.1~0.3 m) 안이면 이동이 ×0.72. 각 화면이 자기 몸으로 잰다(방장에게 묻지 않는다).
