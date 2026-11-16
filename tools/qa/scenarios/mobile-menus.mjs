@@ -390,9 +390,9 @@ export default {
       t.check((await scrollOf(page, '.sk-mypage'))[1] > 0, `${phone.id}: 마이페이지를 손으로 밀 수 있다`);
       await see('mypage-mid');
       await tap(page, '.sk-my-resetbtn');
-      await page.waitFor(`!document.querySelector('.sk-mypage .sk-confirm').hidden`, 3000, { label: '확인 상자' });
+      await page.waitFor(`!document.querySelector('.sk-mypage .sk-my-resetbox').hidden`, 3000, { label: '확인 상자' });
       await see('mypage-reset', '.sk-mypage');
-      await tap(page, '.sk-mypage .sk-confirm .sk-btn', '취소');
+      await tap(page, '.sk-mypage .sk-my-resetbox .sk-btn', '취소');
 
       t.setSection(`${phone.id}: 상점`);
       await tap(page, '.sk-mypage .sk-my-panelhead .sk-btn--sm');

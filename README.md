@@ -98,6 +98,8 @@ npm run serve
 
 **건의함**: 메인 메뉴와 일시정지의 **건의하기**에서 플레이어가 운영자에게 버그·제안·밸런스 의견을 바로 보냅니다. 운영자만 Supabase 대시보드에서 읽고, 답을 달면 보낸 사람의 건의함에 보입니다. 설계와 운영 방법은 [docs/FEEDBACK.md](docs/FEEDBACK.md)에 있습니다.
 
+**로그인 연결·테스트 결제**: [server/api](server/api/README.md)의 Cloudflare Worker(무료 플랜)가 구글·카카오 로그인(OAuth 2.0 인가 코드 + PKCE, ID 토큰 검증)으로 다른 기기에서도 같은 닉네임을 쓰게 하고, 토스페이먼츠 **테스트 결제**로 코인을 충전해 꾸미기를 사게 합니다(실제로 돈이 나가지 않고 사업자등록이 필요 없습니다). `js/config.js`의 `api.url`이 비어 있으면 꺼져 있습니다.
+
 **전체 공지**: 운영자가 운영자 패널(`dev/notice.html`)에서 보낸 공지가 게임 화면을 열어 둔 모든 사람의 화면 맨 위에 뜹니다. 받는 화면이 서명을 확인하므로 운영자 열쇠가 없으면 보낼 수 없습니다. 사용법과 열쇠 관리는 [docs/NOTICE.md](docs/NOTICE.md)에 있습니다.
 
 ## 개발
@@ -113,6 +115,7 @@ npm run check
 | [docs/DESIGN.md](docs/DESIGN.md) | 모듈 사이의 약속. 무기 표, 맵 형식, 계정 API |
 | [docs/DEBUGGING.md](docs/DEBUGGING.md) | 디버그 패널(F3), 히트박스(F4), 충돌체(F6), URL 플래그 |
 | [docs/SECURITY.md](docs/SECURITY.md) | 보안·치트 대비: 무엇을 어디서 검사하는지, 남은 한계, 권위 서버로 가는 길 |
+| [server/api/README.md](server/api/README.md) | 로그인 연결·테스트 결제 API: 흐름, 구글·카카오·토스 설정, 배포, 문제 해결 |
 | [docs/BALANCE.md](docs/BALANCE.md) | 무기 밸런스 수치와 근거 |
 | [docs/MAP_GUIDE.md](docs/MAP_GUIDE.md) | 맵 만드는 법 |
 | [docs/NOTICE.md](docs/NOTICE.md) | 전체 공지: 운영자 패널 사용법, 열쇠 만들기·바꾸기, 동작 원리 |

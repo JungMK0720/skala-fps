@@ -188,6 +188,7 @@ export async function install(ctx) {
   function showMenu() {
     ui.show('menu', { name: ctx.session.name });
     gate.sync();
+    takeAccountNotice();   // 돌아온 결제·로그인 결과가 남아 있으면 지금 보여 준다
   }
   function onScreenChange(e) {
     if (!e || e.to !== 'menu') return;
@@ -217,6 +218,21 @@ export async function install(ctx) {
     ui.refreshAccount();
     gate.sync();
   }
+  /**
+   * 로그인·테스트 결제를 마치고 돌아온 결과(account.online). 짧게 알리고 결과를 볼 화면(상점 코인 탭·마이페이지)을 연다.
+   * 메뉴가 아니면(부팅 중·경기 중) 가져가지 않고 남겨 두었다가 메뉴로 올 때(showMenu) 보여 준다.
+   * 닉네임 게이트가 떠 있으면 게이트가 결과를 보여 주므로 화면을 바꾸지 않는다.
+   */
+  function takeAccountNotice() {
+    const online = account && account.online;
+    if (!online || typeof online.takeNotice !== 'function' || ctx.screen !== 'menu') return;
+    const n = online.takeNotice();
+    if (!n || !n.text) return;
+    toast.notify(n.text, 7000);
+    if (ui.isVisible('nickname')) return;
+    if (n.open === 'shop') openShop('menu', n.tab || null);
+    else if (n.open === 'mypage') ui.show('mypage');
+  }
   /** 로드아웃 화면의 보조·근접 빠른 교체. 이미 스폰한 뒤에도 바로 적용한다. */
   function equipFromLoadout(e) {
     // 좀비 물량 막기의 교체 창(free)은 가진 것과 상관없이 모든 무기를 쓴다: 계정 장비는 그대로 두고 손에 든 장비만 바꾼다
@@ -228,6 +244,7 @@ export async function install(ctx) {
     bus.on('screen:change', onScreenChange),
     bus.on('account:change', onAccountChange),
     bus.on('account:nickname-conflict', (e) => gate.onConflict(e)),
+    bus.on('account:notice', takeAccountNotice),
     bus.on('app:error', (e) => toast.notify((e && e.message) || '오류가 났어요')),
     bus.on('fullscreen:denied', (e) => { if (e && e.notify) toast.notify('이 브라우저 화면에서는 전체 화면을 켤 수 없어요. 앉은 채 앞으로 갈 때는 C 키를 쓰세요.'); }),
     bus.on('map:error', (e) => toast.notify(`맵을 불러오지 못했어요: ${(e && (e.message || e.id)) || ''}`)),

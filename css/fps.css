@@ -1292,6 +1292,29 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
   background: rgba(199, 50, 106, .95); box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
 }
 
+/* 로그인 연결·코인(account.online): 게이트의 불러오기, 마이페이지 계정 연결 칸, 상점 코인 탭과 코인으로 사기 */
+.sk-nick-login { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--sk-line); }
+.sk-nick-or { font-size: 12.5px; font-weight: 700; color: var(--sk-muted); }
+.sk-nick-loginnote, .sk-my-linknote, .sk-coin-note { min-height: 0; }
+.sk-login-btn { flex: 1 1 0; }
+.sk-my-link { display: flex; flex-direction: column; gap: 10px; }
+.sk-my-linkstate { font-size: 13px; line-height: 1.55; color: var(--sk-muted); }
+.sk-my-logout { align-self: flex-start; }
+.sk-coin-balance { color: var(--sk-cyan-hi); font-variant-numeric: tabular-nums; }
+.sk-coin-test { display: inline-block; margin-left: 4px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; vertical-align: middle; color: #2b1d00; background: var(--sk-warn); }
+.sk-coin-box .sk-av-boxtext { display: flex; flex-direction: column; gap: 6px; max-width: 760px; }
+.sk-coin-buy { width: 100%; }
+.sk-coin-ordersbox { flex-direction: column; align-items: stretch; }
+.sk-coin-ordershead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sk-coin-orders { display: flex; flex-direction: column; gap: 6px; }
+.sk-coin-order { display: grid; grid-template-columns: minmax(90px, 1fr) auto auto auto auto; align-items: center; gap: 6px 12px; padding: 8px 10px; border-radius: 8px; background: var(--sk-well); font-size: 13px; }
+.sk-coin-order-amount { font-variant-numeric: tabular-nums; color: var(--sk-muted); }
+.sk-coin-order-status { font-weight: 800; color: var(--sk-ok); }
+.sk-coin-order.is-canceled .sk-coin-order-status, .sk-coin-order.is-failed .sk-coin-order-status { color: var(--sk-dim); }
+.sk-coin-order.is-canceling .sk-coin-order-status { color: var(--sk-warn); }
+.sk-coin-order-date { font-size: 12px; color: var(--sk-dim); }
+@media (max-width: 640px) { .sk-coin-order { grid-template-columns: 1fr auto; } }
+
 /* 전체 공지 띠(js/ui/notice.js): 어느 화면 위에나 뜨고 클릭을 가로채지 않는다 */
 .sk-notice {
   position: absolute; left: 50%; top: max(8px, env(safe-area-inset-top)); z-index: 60;

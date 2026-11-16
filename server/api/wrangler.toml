@@ -1,0 +1,27 @@
+# Date: 06NOV2026
+# Author: Minkyu Jung
+# Purpose: 로그인 연결·테스트 결제 API Worker(skala-api) 설정. 무료 플랜으로 돈다(Durable Object 없음).
+#          비밀 값(Supabase 비밀 키, 토스 키, 구글·카카오 client id·secret, 로그인 표 서명 값)은 wrangler secret put으로 넣는다(README.md 3절).
+#          배포(wrangler deploy)는 소유자가 정한다.
+name = "skala-api"
+main = "src/worker.js"
+compatibility_date = "2026-11-01"
+
+[dev]
+ip = "127.0.0.1"
+port = 8789   # 중계 서버(8788)·권위 서버 시제품(8787)과 겹치지 않게
+
+[observability]
+enabled = true
+
+# 대사: 결과를 모르는 결제(승인·환불 응답을 못 받은 주문)를 10분마다 토스 기록에 맞춘다(src/pay.js reconcile)
+[triggers]
+crons = ["*/10 * * * *"]
+
+[vars]
+# 브라우저 Origin 허용 목록(중계 서버와 같은 규칙, ':*'는 모든 포트). 게임 주소를 도메인으로 옮기면 여기에 더한다
+ALLOWED_ORIGINS = "https://jungmk0720.github.io,http://localhost:*,http://127.0.0.1:*"
+SUPABASE_URL = "https://tvsoacvbjvggqdgnzijc.supabase.co"
+# 한 사람이 24시간에 마칠 수 있는 테스트 결제 수, 환불할 수 있는 날 수
+PAY_DAILY_LIMIT = "3"
+REFUND_DAYS = "7"

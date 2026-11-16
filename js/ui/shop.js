@@ -6,9 +6,11 @@
  *          카드는 다시 만들지 않고 고쳐서 키보드 포커스를 잃지 않는다.
  *          캐릭터 탭: 초상(ui.setAvatarArt로 받은 그림, 없으면 아이콘)·구매·장착. 초상은 탭을 처음 열 때 그린다.
  *          서버가 캐릭터를 모르면(account.avatarShop) 구매 버튼을 끄고 안내한다. props.tab은 show로 열 때만 따른다.
+ *          코인 탭(account.online, 서버가 켜져 있을 때만): 잔액, 테스트 결제 충전 상품, 구매 내역과 환불. 이모트·캐릭터 카드에는 "코인으로 사기"가 붙는다.
  */
 import { h, btn, fmtPoints, setText } from './dom.js';
 import { avatarArtEl, barMeters, makeScreen, normWeapon, pointsBadge } from './parts.js';
+import { onlineState, orderStatusText, paintNote } from './online.js';
 import { PREMIUM_PRICE } from '../weapons/defs.js';
 import { EMOTES, EMOTE_WHEEL, TEAMS, TEAM_IDS } from '../core/consts.js';
 import { AVATARS, DEFAULT_AVATAR } from '../core/avatar-defs.js';
@@ -18,6 +20,10 @@ const TAB_LABELS = { rifle: '라이플', sniper: '저격', smg: 'SMG·샷건', p
 export const EMOTE_TAB = 'emote';
 /** 캐릭터 탭 id */
 export const AVATAR_TAB = 'avatar';
+/** 코인(테스트 결제) 탭 id. 서버(account.online)가 켜져 있을 때만 보인다 */
+export const COIN_TAB = 'coins';
+const won = (n) => `${Number(n || 0).toLocaleString('ko-KR')}원`;
+const count = (n) => Number(n || 0).toLocaleString('ko-KR');
 /** 캐릭터 구매가 닫혀 있을 때 안내(account.avatarShop) */
 const CLOSED_NOTE = '캐릭터 구매는 서버 업데이트 뒤에 열려요. 기본 캐릭터와 이미 가진 캐릭터는 지금도 입을 수 있어요.';
 const CHECKING_NOTE = '캐릭터 구매를 열 수 있는지 서버에 확인하고 있어요.';
@@ -59,6 +65,121 @@ export function createShop(ctx) {
   }, true);
 
   const say = (text) => setText(note, text);
+
+  // ---------- 코인 (account.online) ----------
+  const registered = () => !!ctx.account && ctx.account.remoteEnabled && ctx.account.hasNickname() && !ctx.account.nicknamePending;
+  const coinAvailable = (s) => !!s && s.status === 'ready' && (s.pay.enabled || s.coinsEnabled);
+  const coinPriceFor = (id) => {
+    const online = ctx.account && ctx.account.online;
+    return online && typeof online.coinPrice === 'function' ? online.coinPrice(id) : null;
+  };
+
+  /** 이모트·캐릭터 카드의 "코인으로 사기" 버튼 */
+  function coinButton(getCard) {
+    return h('button', { type: 'button', class: 'sk-btn sk-btn--ghost sk-coin-buy', hidden: true, onclick: () => buyWithCoins(getCard()) });
+  }
+
+  function paintCoinButton(card, owned) {
+    const s = onlineState(ctx);
+    const price = coinPriceFor(card.id);
+    const show = !owned && price != null && !!s && s.status === 'ready' && s.coinsEnabled && registered();
+    card.coinBtn.hidden = !show;
+    if (!show) return;
+    const short = s.coins == null ? price : Math.max(0, price - s.coins);
+    setText(card.coinBtn, `코인 ${count(price)}개로 사기`);
+    card.coinBtn.disabled = !!s.busy || short > 0;
+    card.coinBtn.title = short > 0 ? `코인이 ${count(short)}개 모자라요` : '';
+  }
+
+  async function buyWithCoins(card) {
+    const name = (card.e || card.a || {}).name || '';
+    const r = await ctx.account.online.buyWithCoins(card.id);
+    if (r.ok) {
+      ctx.emit('ui:sound', { name: 'purchase' });
+      say(`${name}을(를) 코인 ${count(r.spent)}개로 샀어요. 남은 코인 ${count(r.coins)}개.`);
+    } else {
+      const s = onlineState(ctx);
+      say((s && s.message && s.message.text) || '코인으로 사지 못했어요.');
+    }
+    paintAll();
+  }
+
+  const coinBalance = h('b', { class: 'sk-coin-balance' });
+  const coinTest = h('span', { class: 'sk-coin-test', text: '테스트 결제' });
+  const coinDesc = h('p', { class: 'sk-lo-tagline sk-coin-desc' });
+  const coinNote = h('p', { class: 'sk-nick-status sk-coin-note', role: 'status', hidden: true });
+  const coinBox = h('section', { class: 'sk-av-box sk-steel sk-coin-box', 'aria-label': '내 코인' },
+    h('div', { class: 'sk-av-boxtext' },
+      h('h3', { class: 'sk-shop-name' }, '내 코인 · ', coinBalance, ' ', coinTest),
+      coinDesc, coinNote));
+  const ordersList = h('div', { class: 'sk-coin-orders' });
+  const ordersBox = h('section', { class: 'sk-av-box sk-steel sk-coin-ordersbox', 'aria-label': '구매 내역' },
+    h('div', { class: 'sk-coin-ordershead' },
+      h('h3', { class: 'sk-shop-name', text: '구매 내역' }),
+      btn('새로 고침', () => ctx.account.online.refresh(), 'sk-btn--sm sk-btn--ghost')),
+    ordersList);
+  const productCards = new Map();   // 상품 id → { el, action }
+  let productKey = '';
+  let ordersKey = '';
+
+  function buildProductCard(p) {
+    const action = h('button', { type: 'button', class: 'sk-btn sk-btn--primary sk-shop-action', text: '충전하기',
+      onclick: () => ctx.account.online.buyCoins(p.id) });
+    const el = h('article', { class: 'sk-shop-card sk-steel sk-coin-card', 'aria-label': p.name },
+      h('header', { class: 'sk-shop-head' },
+        h('span', { class: 'sk-lo-ico', text: '🪙', 'aria-hidden': 'true' }),
+        h('div', { class: 'sk-shop-names' },
+          h('h3', { class: 'sk-shop-name', text: p.name }),
+          h('p', { class: 'sk-lo-tagline', text: `코인 ${count(p.coins)}개 · 실제로 돈이 나가지 않는 테스트 결제` })),
+        h('span', { class: 'sk-shop-state', text: won(p.amount) })),
+      h('footer', { class: 'sk-shop-foot' }, action));
+    return { el, action };
+  }
+
+  function orderRow(o, s) {
+    const at = o.at ? new Date(o.at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+    return h('div', { class: `sk-coin-order is-${String(o.status).toLowerCase()}` },
+      h('span', { class: 'sk-coin-order-name', text: `코인 ${count(o.coins)}개` }),
+      h('span', { class: 'sk-coin-order-amount', text: won(o.amount) }),
+      h('span', { class: 'sk-coin-order-status', text: orderStatusText(o.status) }),
+      h('span', { class: 'sk-coin-order-date', text: at }),
+      o.refundable ? btn('환불', () => ctx.account.online.refund(o.orderId), 'sk-btn--sm sk-btn--ghost sk-coin-refund',
+        { title: `코인 ${count(o.coins)}개를 빼고 테스트 결제를 취소해요. ${s.pay.refundDays}일 안, 그 코인을 쓰지 않았을 때만 돼요.` }) : null);
+  }
+
+  function paintCoins() {
+    const s = onlineState(ctx);
+    const tab = tabs.find((t) => t.id === COIN_TAB);
+    if (tab) tab.el.hidden = !coinAvailable(s);
+    if (!s || s.status !== 'ready') return;
+    setText(coinBalance, s.coins == null ? '—' : `${count(s.coins)}개`);
+    coinTest.hidden = !s.pay.test;
+    let desc;
+    if (!registered()) desc = '닉네임이 서버에 등록된 뒤에 코인을 쓸 수 있어요.';
+    else if (!s.pay.enabled) desc = '지금은 충전을 열지 않았어요. 가진 코인으로 이모트·캐릭터는 살 수 있어요.';
+    else desc = `토스페이먼츠 테스트 결제로 코인을 충전하고, 이모트·캐릭터 탭에서 코인으로 꾸미기를 살 수 있어요(무기는 팔지 않아요). `
+      + `테스트 결제라 실제로 돈이 나가지 않아요. 24시간에 ${s.pay.dailyLimit}번까지 충전할 수 있고, 코인을 쓰지 않은 주문은 ${s.pay.refundDays}일 안에 환불돼요.`;
+    setText(coinDesc, desc);
+    paintNote(coinNote, s, { kinds: ['pay', 'refund', 'coins'] });
+
+    const pk = s.pay.products.map((p) => `${p.id}:${p.coins}:${p.amount}`).join('|');
+    if (pk !== productKey) {
+      productKey = pk;
+      productCards.clear();
+      for (const p of s.pay.products) productCards.set(p.id, buildProductCard(p));
+      if (tabId === COIN_TAB) showTab(COIN_TAB);
+    }
+    for (const c of productCards.values()) {
+      setText(c.action, s.busy === 'pay' ? '여는 중…' : '충전하기');
+      c.action.disabled = !!s.busy || !s.pay.enabled || !registered();
+    }
+    const ok = s.orders.map((o) => `${o.orderId}:${o.status}:${o.refundable}`).join('|');
+    if (ok !== ordersKey) {
+      ordersKey = ok;
+      ordersList.replaceChildren(...(s.orders.length ? s.orders.map((o) => orderRow(o, s)) : [h('p', { class: 'sk-set-hint', text: '아직 구매 내역이 없어요.' })]));
+    }
+    for (const b of ordersList.querySelectorAll('button')) b.disabled = !!s.busy;
+  }
 
   // ---------- 무기 카드 ----------
   function buildCard(def) {
@@ -147,6 +268,7 @@ export function createShop(ctx) {
     const state = h('span', { class: 'sk-shop-state' });
     const need = h('p', { class: 'sk-shop-need' });
     const action = h('button', { type: 'button', class: 'sk-btn sk-shop-action', onclick: () => actEmote(card) });
+    const coinBtn = coinButton(() => card);
     const preview = h('button', { type: 'button', class: 'sk-btn sk-btn--ghost sk-emo-preview', text: '▶ 듣기', title: `${e.name} 미리 듣기`,
       onclick: () => { ctx.emit('shop:preview', { id: e.id }); say(`${e.name} 미리 듣는 중…`); } });
     const articleEl = h('article', { class: 'sk-shop-card sk-steel sk-emo-card', 'aria-label': e.name },
@@ -157,8 +279,8 @@ export function createShop(ctx) {
             e.price ? null : h('span', { class: 'sk-emo-free', text: '기본' })),
           e.desc ? h('p', { class: 'sk-lo-tagline', text: e.desc }) : null),
         state),
-      h('footer', { class: 'sk-shop-foot' }, need, h('div', { class: 'sk-emo-actions' }, preview, action)));
-    const card = { id: e.id, e, el: articleEl, state, need, action, preview };
+      h('footer', { class: 'sk-shop-foot' }, need, h('div', { class: 'sk-emo-actions' }, preview, action), coinBtn));
+    const card = { id: e.id, e, el: articleEl, state, need, action, preview, coinBtn };
     return card;
   }
 
@@ -177,6 +299,7 @@ export function createShop(ctx) {
     card.action.disabled = here || short > 0;
     card.action.classList.toggle('sk-btn--primary', !here && !short);
     card.action.classList.toggle('sk-btn--ghost', here);
+    paintCoinButton(card, owned);
   }
 
   function paintChips(wheel) {
@@ -238,6 +361,7 @@ export function createShop(ctx) {
     const state = h('span', { class: 'sk-shop-state' });
     const need = h('p', { class: 'sk-shop-need' });
     const action = h('button', { type: 'button', class: 'sk-btn sk-shop-action', onclick: () => actAvatar(card) });
+    const coinBtn = coinButton(() => card);
     const articleEl = h('article', { class: 'sk-shop-card sk-steel sk-av-card', 'aria-label': a.name, 'data-avatar': a.id },
       art.el,
       h('div', { class: 'sk-av-body' },
@@ -247,8 +371,8 @@ export function createShop(ctx) {
               a.price ? null : h('span', { class: 'sk-emo-free', text: '기본' })),
             h('p', { class: 'sk-lo-tagline', text: a.desc })),
           state),
-        h('footer', { class: 'sk-shop-foot' }, need, action)));
-    const card = { id: a.id, a, art, el: articleEl, state, need, action };
+        h('footer', { class: 'sk-shop-foot' }, need, action, coinBtn)));
+    const card = { id: a.id, a, art, el: articleEl, state, need, action, coinBtn };
     return card;
   }
 
@@ -269,6 +393,7 @@ export function createShop(ctx) {
     card.action.disabled = equipped || closed || short > 0;
     card.action.classList.toggle('sk-btn--primary', !owned && !closed && !short);
     card.action.classList.toggle('sk-btn--ghost', equipped);
+    paintCoinButton(card, owned);
     if (drawArt) card.art.paint(ctx.avatarArt, artTeam);
   }
 
@@ -317,6 +442,7 @@ export function createShop(ctx) {
     paintChips(wheel);
     for (const card of emoCards.values()) paintEmoteCard(card, wheel);
     paintAvatars();
+    paintCoins();
   }
 
   // ---------- 탭 ----------
@@ -330,6 +456,7 @@ export function createShop(ctx) {
     }
     if (id === EMOTE_TAB) grid.replaceChildren(wheelBox, ...[...emoCards.values()].map((c) => c.el));
     else if (id === AVATAR_TAB) grid.replaceChildren(avBox, ...[...avCards.values()].map((c) => c.el));
+    else if (id === COIN_TAB) grid.replaceChildren(coinBox, ...[...productCards.values()].map((c) => c.el), ordersBox);
     else grid.replaceChildren(...[...cards.values()].filter((c) => c.category === id).map((c) => c.el));
     grid.classList.toggle('sk-shop-grid--av', id === AVATAR_TAB);
     grid.scrollTop = 0;
@@ -337,8 +464,9 @@ export function createShop(ctx) {
   }
 
   function moveTab(step) {
-    const i = tabs.findIndex((t) => t.id === tabId);
-    const next = tabs[(i + step + tabs.length) % tabs.length];
+    const shown = tabs.filter((t) => !t.el.hidden);
+    const i = shown.findIndex((t) => t.id === tabId);
+    const next = shown[(i + step + shown.length) % shown.length];
     if (!next) return;
     showTab(next.id);
     next.el.focus();
@@ -364,8 +492,8 @@ export function createShop(ctx) {
     const cats = [...new Set(defs.map((d) => d.category || 'etc'))];
     const known = Object.keys(TAB_LABELS).filter((c) => cats.includes(c));
     const rest = cats.filter((c) => !known.includes(c));
-    const label = (id) => (id === EMOTE_TAB ? '이모트' : id === AVATAR_TAB ? '캐릭터' : TAB_LABELS[id] || id);
-    tabs = [...known, ...rest, EMOTE_TAB, AVATAR_TAB].map((id) => {
+    const label = (id) => (id === EMOTE_TAB ? '이모트' : id === AVATAR_TAB ? '캐릭터' : id === COIN_TAB ? '코인' : TAB_LABELS[id] || id);
+    tabs = [...known, ...rest, EMOTE_TAB, AVATAR_TAB, COIN_TAB].map((id) => {
       const tabEl = h('button', { type: 'button', class: 'sk-tab', role: 'tab', 'data-tab': id, onclick: () => showTab(id), text: label(id) });
       return { id, el: tabEl };
     });
@@ -381,8 +509,9 @@ export function createShop(ctx) {
     // props의 tab은 show로 열 때만 따른다. update(계정이 바뀔 때마다)에서 따르면 보던 탭으로 되돌아가고,
     // 카드를 다시 붙이느라 누른 버튼의 포커스와 스크롤을 잃는다
     const want = fresh && p && p.tab;
-    if (want && tabs.some((t) => t.id === want)) showTab(want);
-    else if (tabs.length && !tabs.some((t) => t.id === tabId)) showTab(tabs[0].id);
+    const coinsOn = coinAvailable(onlineState(ctx));
+    if (want && tabs.some((t) => t.id === want) && (want !== COIN_TAB || coinsOn)) showTab(want);
+    else if (tabs.length && (!tabs.some((t) => t.id === tabId) || (tabId === COIN_TAB && !coinsOn))) showTab(tabs[0].id);
     paintAll();
   }
 

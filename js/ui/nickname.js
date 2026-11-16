@@ -3,9 +3,11 @@
  * Author: Minkyu Jung
  * Purpose: 닉네임 입력칸(0.4초 디바운스 실시간 검사)과 첫 실행 게이트. 게이트는 닉네임이 없으면 닫을 수 없고, 메뉴 위에 뜨는 UI 오버레이다.
  *          입력칸은 마이페이지의 닉네임 변경도 같이 쓴다. 규칙과 결과 모양은 docs/DESIGN.md 7절, js/account/index.js.
+ *          게이트 아래에는 다른 기기에서 쓰던 닉네임을 구글·카카오 로그인으로 불러오는 버튼이 있다(account.online, 서버가 켜져 있을 때만).
  */
 import { h, setText } from './dom.js';
 import { makeScreen } from './parts.js';
+import { createProviderRow, onlineState, paintNote } from './online.js';
 import { NICKNAME_MAX, NICKNAME_MIN, cleanNickname } from '../account/nickname.js';
 
 export const NICKNAME_CHECK_DELAY_MS = 400;
@@ -157,12 +159,26 @@ export function createNicknameGate(ctx) {
   });
   const form = h('form', { class: 'sk-nick-form', novalidate: true, onsubmit: (e) => { e.preventDefault(); field.submit(); } },
     field.el, submitBtn);
+  // 다른 기기에서 쓰던 닉네임을 구글·카카오 로그인으로 불러온다(account.online, 서버가 켜져 있을 때만)
+  const loginRow = createProviderRow('sk-row sk-nick-loginrow', (id) => ctx.account.online.startLogin(id));
+  const loginNote = h('p', { class: 'sk-nick-status sk-nick-loginnote', role: 'status', hidden: true });
+  const loginBox = h('div', { class: 'sk-nick-login', hidden: true },
+    h('p', { class: 'sk-nick-or', text: '다른 기기에서 쓰던 닉네임이 있나요?' }), loginRow.el, loginNote);
   const el = h('section', { class: 'sk-screen sk-nick', hidden: true, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'sk-nick-title' },
     h('div', { class: 'sk-nick-card sk-steel' },
       h('div', { class: 'sk-hazard', 'aria-hidden': 'true' }),
       h('div', { class: 'sk-nick-body' },
         h('p', { class: 'sk-nick-kicker', text: 'SKALA 작전' }),
-        titleEl, leadEl, explain, form)));
+        titleEl, leadEl, explain, form, loginBox)));
+
+  function renderLogin() {
+    const s = onlineState(ctx);
+    const on = !!s && s.status === 'ready' && s.providers.length > 0;
+    loginBox.hidden = !on;
+    if (!on) return;
+    loginRow.paint(s.providers.map((p) => ({ id: p.id, label: `${p.name}로 불러오기` })), { disabled: !!s.busy });
+    paintNote(loginNote, s, { kinds: ['login', 'logout'] });
+  }
 
   // 배경을 눌러도 입력칸의 포커스를 뺏기지 않는다(닫히지 않는 화면이다)
   el.addEventListener('pointerdown', (e) => { if (e.target === el) e.preventDefault(); });
@@ -191,6 +207,7 @@ export function createNicknameGate(ctx) {
     setText(leadEl, text
       ? '멀티플레이에서 다른 플레이어에게 보이는 이름이에요.'
       : '게임에서 쓸 이름이에요. 정한 뒤에도 마이페이지에서 언제든 바꿀 수 있어요.');
+    renderLogin();
     if (first) field.reset(ctx.account.nicknameConflict || '');
   }
 

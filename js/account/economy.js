@@ -171,6 +171,19 @@ export function priceOf(id) {
   return e ? Math.max(0, Number(e.price) || 0) : null;
 }
 
+/** 포인트 가격 몇 분의 1이 코인 가격인가(올림). supabase/schema.sql fps_coin_price와 같다 */
+export const COIN_DIVISOR = 10;
+
+/**
+ * 코인 가격(테스트 결제로 충전한 코인, server/api). 꾸미기(이모트·캐릭터) 중 포인트 가격이 있는 것만 팔고 무기는 팔지 않는다(돈으로 강해지지 않게).
+ * 코인으로 살 수 없으면 null. 서버(fps_coin_price)가 정본이고 이 값은 화면 표시용이다.
+ */
+export function coinPriceOf(id) {
+  if (!isEmoteId(id) && !isAvatarId(id)) return null;
+  const price = priceOf(id);
+  return price > 0 ? Math.ceil(price / COIN_DIVISOR) : null;
+}
+
 /** 기본 지급 무기·이모트·캐릭터(price === 0) */
 export function defaultOwned() {
   return ITEM_IDS.filter((id) => priceOf(id) === 0);
