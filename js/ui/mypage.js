@@ -2,11 +2,13 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 마이페이지. 닉네임 변경, 포인트, 전적, 장비 3칸, 캐릭터(초상·가진 캐릭터 고르기), 찾은 비밀 스팟, 이 기기의 데이터 초기화(두 번 확인)를 보여 준다.
+ *          계정 연결 칸(account.online): 구글·카카오 계정 잇기, 다른 닉네임에 연결된 계정으로 이 기기를 바꿀지 묻기, 이 기기에서 로그아웃(두 번 확인).
  *          이벤트: mypage:back, mypage:shop { tab? }. 계정이 바뀌면 index.js가 다시 그린다.
  */
 import { h, btn, setText, fmtPlayTime } from './dom.js';
 import { avatarArtEl, createChoiceRow, makeScreen, pointsBadge } from './parts.js';
 import { createNicknameField } from './nickname.js';
+import { createProviderRow, onlineState, paintNote, providerLabel } from './online.js';
 import { TEAM_IDS } from '../core/consts.js';
 import { AVATARS, DEFAULT_AVATAR, avatarById } from '../core/avatar-defs.js';
 
@@ -155,7 +157,7 @@ export function createMyPage(ctx) {
     account().resetLocal();
     back();
   }, 'sk-btn--danger');
-  const resetBox = h('div', { class: 'sk-confirm', hidden: true, role: 'alertdialog', 'aria-label': '데이터 초기화 확인' },
+  const resetBox = h('div', { class: 'sk-confirm sk-my-resetbox', hidden: true, role: 'alertdialog', 'aria-label': '데이터 초기화 확인' },
     resetText, h('div', { class: 'sk-row' }, resetYes, resetCancel));
   const resetBtn = btn('이 기기의 데이터 초기화', openReset, 'sk-btn--danger sk-my-resetbtn');
 
@@ -172,6 +174,68 @@ export function createMyPage(ctx) {
     resetBox.hidden = true;
     resetBtn.hidden = false;
     if (refocus) resetBtn.focus({ preventScroll: true });
+  }
+
+  // ---------- 계정 연결 (account.online) ----------
+  const online = () => account().online;
+  const linkState = h('p', { class: 'sk-my-linkstate' });
+  const linkRow = createProviderRow('sk-row sk-my-linkrow', (id) => online().startLogin(id));
+  const linkNote = h('p', { class: 'sk-nick-status sk-my-linknote', role: 'status', hidden: true });
+  const switchText = h('p', { class: 'sk-confirm-text' });
+  const switchYes = btn('바꾸기', () => online().confirmSwitch(), 'sk-btn--primary');
+  const switchNo = btn('그대로 두기', () => online().cancelSwitch(), 'sk-btn--ghost');
+  const switchBox = h('div', { class: 'sk-confirm sk-my-switch', hidden: true, role: 'alertdialog', 'aria-label': '이 기기의 닉네임 바꾸기' },
+    switchText, h('div', { class: 'sk-row' }, switchYes, switchNo));
+  const logoutText = h('p', { class: 'sk-confirm-text', text: '이 기기에서 로그아웃해요. 이 닉네임은 서버에 그대로 있고, 연결한 계정으로 다시 로그인하면 이어서 할 수 있어요.' });
+  const logoutNo = btn('취소', () => closeLogout(true), 'sk-btn--ghost');
+  const logoutYes = btn('네, 로그아웃', () => { closeLogout(false); online().logout(); }, 'sk-btn--danger');
+  const logoutBox = h('div', { class: 'sk-confirm', hidden: true, role: 'alertdialog', 'aria-label': '로그아웃 확인' },
+    logoutText, h('div', { class: 'sk-row' }, logoutYes, logoutNo));
+  const logoutBtn = btn('이 기기에서 로그아웃', openLogout, 'sk-btn--danger sk-btn--sm sk-my-logout');
+  const linkPanel = h('section', { class: 'sk-panel sk-steel sk-my-link', hidden: true },
+    h('h2', { class: 'sk-panel-title', text: '계정 연결' }), linkState, linkRow.el, switchBox, logoutBtn, logoutBox, linkNote);
+
+  function openLogout() {
+    logoutBox.hidden = false;
+    logoutBtn.hidden = true;
+    logoutNo.focus({ preventScroll: true });
+  }
+
+  function closeLogout(refocus) {
+    logoutBox.hidden = true;
+    renderLink();
+    if (refocus && !logoutBtn.hidden) logoutBtn.focus({ preventScroll: true });
+  }
+
+  function renderLink() {
+    const a = account();
+    const s = onlineState(ctx);
+    if (!s || s.status === 'off') { linkPanel.hidden = true; return; }
+    linkPanel.hidden = false;
+    const registered = a.hasNickname() && !a.nicknamePending && a.remoteEnabled;
+    const names = s.linked.map((id) => providerLabel(s, id)).join(', ');
+    let text;
+    if (s.status === 'checking') text = '계정 연결을 확인하고 있어요.';
+    else if (s.status === 'error') text = '계정 서버에 연결하지 못했어요. 잠시 뒤 다시 열어 주세요.';
+    else if (!registered) text = '닉네임이 서버에 등록되면 계정을 연결할 수 있어요.';
+    else if (s.linked.length) text = `${names} 계정과 연결됐어요. 다른 기기나 브라우저에서 로그인하면 이 닉네임과 포인트를 그대로 써요.`;
+    else text = '아직 연결한 계정이 없어요. 연결하면 다른 기기나 브라우저에서도 이 닉네임과 포인트를 쓸 수 있어요. 이메일 같은 개인정보는 받지 않아요.';
+    setText(linkState, text);
+    const ready = s.status === 'ready' && registered;
+    linkRow.paint(ready ? s.providers.filter((p) => !s.linked.includes(p.id)).map((p) => ({ id: p.id, label: `${p.name} 계정 연결` })) : [], { disabled: !!s.busy });
+    // 다른 닉네임에 연결된 계정으로 로그인했다: 이 기기를 바꿀지 묻는다
+    const sw = s.pending && s.pending.kind === 'switch' ? s.pending : null;
+    switchBox.hidden = !sw;
+    if (sw) {
+      const keep = s.linked.length ? '연결한 계정으로 다시 로그인하면 돌아와요' : '연결한 계정이 없어 이 기기에서는 다시 찾을 수 없어요';
+      setText(switchText, `이 ${sw.providerName} 계정은 '${sw.name}' 닉네임에 연결돼 있어요. 이 기기를 '${sw.name}'(으)로 바꿀까요? 지금 닉네임 '${a.profile.nickname}'은(는) ${keep}.`);
+      setText(switchYes, `'${sw.name}'(으)로 바꾸기`);
+      switchYes.disabled = switchNo.disabled = !!s.busy;
+    }
+    logoutBtn.hidden = !ready || !s.linked.length || !logoutBox.hidden;
+    logoutBtn.disabled = !!s.busy;
+    if (!ready || !s.linked.length) logoutBox.hidden = true;
+    paintNote(linkNote, s, { kinds: ['login', 'logout'] });
   }
 
   // ---------- 화면 ----------
@@ -201,6 +265,7 @@ export function createMyPage(ctx) {
             h('div', { class: 'sk-my-avnow' }, avArt.el, h('div', { class: 'sk-my-avtext' }, avName, avDesc)),
             avRow.el)),
         h('div', { class: 'sk-my-col' },
+          linkPanel,
           h('section', { class: 'sk-panel sk-steel' },
             h('h2', { class: 'sk-panel-title', text: '전적' }), statGrid),
           h('section', { class: 'sk-panel sk-steel' }, secretsTitle, secretsBox),
@@ -211,7 +276,8 @@ export function createMyPage(ctx) {
   ctx.listen(window, 'keydown', (e) => {
     if (e.key !== 'Escape' || !screen.visible || el.inert) return;
     e.preventDefault();
-    if (resetBox.hidden) back();
+    if (!logoutBox.hidden) closeLogout(true);
+    else if (resetBox.hidden) back();
     else closeReset(true);
   }, true);
 
@@ -225,6 +291,7 @@ export function createMyPage(ctx) {
     renderEquip();
     renderAvatar();
     renderSecrets(profile.secrets);
+    renderLink();
     // 저장이 끝난 뒤나 입력 중에는 건드리지 않는다. 다른 탭이나 서버가 닉네임을 바꿨을 때만 따라간다.
     if (first || (field.state === 'same' && field.value() !== profile.nickname)) field.reset(profile.nickname);
   }
@@ -232,7 +299,7 @@ export function createMyPage(ctx) {
   const screen = makeScreen(el, {
     render,
     onShow: () => backBtn.focus({ preventScroll: true }),
-    onHide: () => { field.stop(); closeReset(false); },
+    onHide: () => { field.stop(); closeReset(false); logoutBox.hidden = true; },
     onDispose: () => field.dispose(),
   });
   return screen;

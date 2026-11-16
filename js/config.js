@@ -9,6 +9,8 @@
  *          계정(닉네임·포인트)은 어느 쪽이든 Supabase를 쓴다.
  *          notice.key는 전체 공지(js/net/notice.js)의 서명을 확인하는 공개 열쇠다. 공개해도 되는 값이고, 짝이 되는 비밀 열쇠는 운영자만 가진다
  *          (tools/make-notice-key.mjs, docs/NOTICE.md). 비우면 공지 기능이 꺼진다. 공지는 transport가 'relay'일 때만 오간다.
+ *          api.url은 로그인 연결·테스트 결제 API(server/api Worker) 주소다. 비우면 구글·카카오 로그인과 코인 탭이 보이지 않는다.
+ *          채우면 index.html CSP의 connect-src에도 같은 https 주소를 더한다(server/api/README.md). 비밀 키는 여기가 아니라 Worker secret에 둔다.
  */
 window.SKALA_CONFIG = {
   supabase: {
@@ -17,5 +19,6 @@ window.SKALA_CONFIG = {
   },
   transport: 'relay',
   relay: { url: 'https://skala-relay.skala-fps.workers.dev', hz: 20 },
-  notice: { key: 'BNK5OrvWuP8gFyH0iyGnJUpzQceucA1qDLnpzzJMRoN1x4xwJyR2OSWMGiBZZ1yg4K12I9Pg6xeoQyAqvS1tsko' }
+  notice: { key: 'BNK5OrvWuP8gFyH0iyGnJUpzQceucA1qDLnpzzJMRoN1x4xwJyR2OSWMGiBZZ1yg4K12I9Pg6xeoQyAqvS1tsko' },
+  api: { url: '' }
 };

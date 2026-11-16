@@ -254,5 +254,13 @@ export function createStore({ storage } = {}) {
     return sessionToken;
   }
 
-  return { load, save, clear, token };
+  /** 이 기기의 토큰을 바꾼다(로그인으로 다른 계정을 불러올 때, 로그아웃할 때). 형식이 틀리면 바꾸지 않고 false */
+  function setToken(next) {
+    if (!TOKEN_RE.test(next || '')) return false;
+    sessionToken = next;
+    write(TOKEN_KEY, next);
+    return true;
+  }
+
+  return { load, save, clear, token, setToken };
 }

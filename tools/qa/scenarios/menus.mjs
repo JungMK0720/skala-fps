@@ -74,7 +74,8 @@ export default {
     await page.click('.sk-mypage .sk-my-panelhead .sk-btn--sm');
     await page.waitFor('__qa.ui.isVisible("shop") && !__qa.ui.isVisible("mypage")', 3000, { label: '상점' });
     t.check((await textOf(page, '.sk-shop .sk-points-val')) === '500 P', '상점 포인트');
-    const tabs = await page.eval(`[...document.querySelectorAll('.sk-shop .sk-tab')].map((b) => b.textContent)`);
+    // 코인 탭은 로그인·결제 API(SKALA_CONFIG.api.url)가 있을 때만 보인다. 이 시험은 API가 없으므로 보이는 탭은 일곱이다
+    const tabs = await page.eval(`[...document.querySelectorAll('.sk-shop .sk-tab')].filter((b) => !b.hidden).map((b) => b.textContent)`);
     t.check(tabs.join() === '라이플,저격,SMG·샷건,권총,근접,이모트,캐릭터', '탭 7개(무기 5 + 이모트 + 캐릭터)', tabs);
     const rapid = `.sk-shop-card[aria-label="RX-9 스톰"]`;
     t.check(await page.eval(`document.querySelector('${rapid} .sk-shop-action').disabled`), '비싼 무기는 살 수 없다');
@@ -139,11 +140,11 @@ export default {
     await page.click('.sk-player-mypage');
     await page.waitFor('__qa.ui.isVisible("mypage")', 3000, { label: '마이페이지' });
     await page.click('.sk-my-resetbtn');
-    await page.waitFor(`!document.querySelector('.sk-mypage .sk-confirm').hidden`, 2000, { label: '확인 상자' });
-    await page.clickText('.sk-mypage .sk-confirm .sk-btn', '취소');
+    await page.waitFor(`!document.querySelector('.sk-mypage .sk-my-resetbox').hidden`, 2000, { label: '확인 상자' });
+    await page.clickText('.sk-mypage .sk-my-resetbox .sk-btn', '취소');
     t.check((await page.eval('__qa.profile().points')) === 1234, '취소하면 그대로다');
     await page.click('.sk-my-resetbtn');
-    await page.clickText('.sk-mypage .sk-confirm .sk-btn', '네, 지워요');
+    await page.clickText('.sk-mypage .sk-my-resetbox .sk-btn', '네, 지워요');
     await page.waitFor('__qa.ui.isVisible("menu") && __qa.ui.isVisible("nickname")', 3000, { label: '초기화하면 메뉴와 게이트' });
     const wiped = await page.eval('__qa.profile()');
     t.check(wiped.nickname === '' && wiped.points === 500 && wiped.stats.kills === 0 && Object.keys(wiped.secrets).length === 0, '프로필이 처음으로 돌아간다', wiped);

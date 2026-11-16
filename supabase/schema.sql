@@ -7,6 +7,8 @@
 --          한도를 넘는 만큼은 버린다. 닉네임 등록은 같은 IP에서 한 시간에 60번까지다. 경기 판정은 방장 브라우저가 한다(js/game/anticheat.js).
 --          멀티 채널(skalafps:lobby, skalafps:room:<id>)은 Realtime Broadcast·Presence만 쓰므로 테이블이 필요 없다.
 --          건의함(fps_feedback)은 등록된 닉네임만 fps_send_feedback으로 보내고, 소유자만 대시보드에서 읽는다(docs/FEEDBACK.md).
+--          로그인 연결·테스트 결제(fps_tokens·fps_identities·fps_orders·fps_coin_ledger)는 fps_api_* 함수로만 바뀐다. 이 함수는
+--          server/api Worker가 Supabase 비밀 키로만 부르고 브라우저(공개 키)는 부를 수 없다(server/api/README.md).
 
 create schema if not exists extensions;
 create extension if not exists pgcrypto with schema extensions;
@@ -50,6 +52,18 @@ create table if not exists public.fps_rate (
 alter table public.fps_rate enable row level security;
 revoke all on public.fps_rate from public, anon, authenticated;
 
+-- 로그인으로 더한 기기 토큰(2026-11-16). 구글·카카오로 로그인한 기기는 새 토큰을 여기 받아 같은 행을 쓴다.
+-- 처음 닉네임을 등록한 기기의 토큰은 그대로 fps_players.token_hash에 있다. 로그아웃한 토큰은 지우지 않고 revoked_at을 찍는다.
+create table if not exists public.fps_tokens (
+  token_hash text primary key,
+  player_id bigint not null references public.fps_players(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  revoked_at timestamptz
+);
+create index if not exists fps_tokens_player_idx on public.fps_tokens (player_id, created_at desc);
+alter table public.fps_tokens enable row level security;
+revoke all on public.fps_tokens from public, anon, authenticated;
+
 -- ───────────── 내부 함수 (외부 호출 불가) ─────────────
 -- 공백 목록을 직접 적어 Postgres 로캘과 상관없이 JS의 \s와 같게 동작시킨다. 안 보이는 글자는 정규식의 \u로 적어 붙여 넣기에 망가지지 않게 한다.
 create or replace function public.fps_clean_name(p_name text) returns text
@@ -74,6 +88,14 @@ $$;
 create or replace function public.fps_token_hash(p_token text) returns text
 language sql immutable set search_path = public, extensions as $$
   select case when p_token ~ '^[0-9a-f]{64}$' then encode(digest(p_token, 'sha256'), 'hex') end
+$$;
+
+-- 토큰 해시 → 행 id. 처음 기기 토큰(fps_players)과 로그인으로 더한 기기 토큰(fps_tokens, 로그아웃하지 않은 것)을 함께 본다. 없으면 null.
+create or replace function public.fps_player_id(p_hash text) returns bigint
+language sql stable set search_path = public, extensions as $$
+  select coalesce(
+    (select p.id from public.fps_players p where p.token_hash = p_hash),
+    (select t.player_id from public.fps_tokens t where t.token_hash = p_hash and t.revoked_at is null))
 $$;
 
 -- 짧은 문자열로만 이루어진 JSON 배열인가. 배열이 아니면 길이 함수가 오류를 내므로 단계를 나눈다.
@@ -149,12 +171,14 @@ begin
 end $$;
 
 -- 동시에 같은 이름을 잡으면 name_key 유일 제약이 한쪽을 막고, 그 쪽은 NAME_TAKEN을 받는다.
+-- 이미 행이 있는 토큰(로그인으로 더한 기기 토큰 포함)이면 그 행의 이름만 바꾼다.
 create or replace function public.fps_claim_nickname(p_token text, p_name text) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 declare
   v_hash text := public.fps_token_hash(p_token);
   v_name text := public.fps_clean_name(p_name);
   v_err text := public.fps_name_error(p_name);
+  v_id bigint;
 begin
   if v_hash is null then return jsonb_build_object('ok', false, 'error', 'TOKEN_INVALID'); end if;
   if v_err is not null then return jsonb_build_object('ok', false, 'error', v_err); end if;
@@ -162,11 +186,16 @@ begin
   if not public.fps_rate_ok('claim', 60, interval '1 hour') then
     return jsonb_build_object('ok', false, 'error', 'RATE_LIMITED');
   end if;
+  v_id := public.fps_player_id(v_hash);
   begin
-    insert into public.fps_players (token_hash, name, name_key)
-    values (v_hash, v_name, lower(v_name))
-    on conflict (token_hash) do update
-      set name = excluded.name, name_key = excluded.name_key, updated_at = now();
+    if v_id is not null then
+      update public.fps_players set name = v_name, name_key = lower(v_name), updated_at = now() where id = v_id;
+    else
+      insert into public.fps_players (token_hash, name, name_key)
+      values (v_hash, v_name, lower(v_name))
+      on conflict (token_hash) do update
+        set name = excluded.name, name_key = excluded.name_key, updated_at = now();
+    end if;
   exception when unique_violation then
     return jsonb_build_object('ok', false, 'error', 'NAME_TAKEN');
   end;
@@ -180,7 +209,7 @@ declare
   v public.fps_players%rowtype;
 begin
   if v_hash is null then return jsonb_build_object('ok', false, 'error', 'TOKEN_INVALID'); end if;
-  select * into v from public.fps_players where token_hash = v_hash;
+  select * into v from public.fps_players where id = public.fps_player_id(v_hash);
   if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
   return jsonb_build_object('ok', true, 'profile', jsonb_build_object(
     'name', v.name,
@@ -242,7 +271,7 @@ begin
      or octet_length(p_secrets::text) > 32768 then
     return jsonb_build_object('ok', false, 'error', 'PROFILE_TOO_LARGE');
   end if;
-  select * into v from public.fps_players where token_hash = v_hash for update;
+  select * into v from public.fps_players where id = public.fps_player_id(v_hash) for update;
   if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
 
   -- 통 채우기: 마지막으로 채운 뒤 지난 시간만큼
@@ -401,7 +430,7 @@ begin
     return jsonb_build_object('ok', false, 'error', 'FEEDBACK_INVALID');
   end if;
   -- 같은 사람의 요청을 줄 세워 한도를 정확히 센다
-  select * into v from public.fps_players where token_hash = v_hash for update;
+  select * into v from public.fps_players where id = public.fps_player_id(v_hash) for update;
   if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
   if v.feedback_blocked then return jsonb_build_object('ok', false, 'error', 'FEEDBACK_BLOCKED'); end if;
   if exists (select 1 from public.fps_feedback f
@@ -442,8 +471,8 @@ declare
   v_id bigint;
 begin
   if v_hash is null then return jsonb_build_object('ok', false, 'error', 'TOKEN_INVALID'); end if;
-  select p.id into v_id from public.fps_players p where p.token_hash = v_hash;
-  if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
+  v_id := public.fps_player_id(v_hash);
+  if v_id is null then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
   return jsonb_build_object('ok', true, 'items', coalesce((
     select jsonb_agg(jsonb_build_object(
              'id', f.id, 'kind', f.kind, 'body', f.body, 'status', f.status, 'reply', f.reply,
@@ -476,6 +505,459 @@ language sql stable security definer set search_path = public, extensions as $$
   ) t
 $$;
 
+-- ───────────── 로그인 연결 · 테스트 결제 (2026-11-16) ─────────────
+-- 아래 fps_api_* 함수는 브라우저가 부르지 못한다. server/api(Cloudflare Worker)가 Supabase 비밀 키(service_role)로만 부른다.
+-- Worker가 구글·카카오의 ID 토큰을 검증한 뒤 (제공자, 고유 id)를 넘기므로, 여기서는 그 값으로 계정을 잇거나 기기 토큰을 더한다.
+-- 코인은 서버만 바꾸는 잔액이다. fps_save_profile은 코인을 건드리지 않으므로 충전한 코인이 클라이언트 저장에 덮이지 않는다.
+-- 충전·환불·사용은 fps_coin_ledger에 한 줄씩 남는다. 주문(fps_orders) 상태는 아래 길로만 바뀐다.
+--   READY(주문 만듦) → CONFIRMING(토스 인증을 받아 승인 요청 중) → DONE(코인 넣음) → CANCELING(환불 요청 중) → CANCELED
+--   READY·CONFIRMING → FAILED(결제 실패·취소) 또는 EXPIRED(한 시간 지남). 토스 기록이 DONE이면 FAILED·EXPIRED도 DONE으로 바로잡는다.
+-- 돈은 Worker가 승인 API를 부를 때만 움직인다. 그래서 승인 결과를 모르는 주문은 CONFIRMING·CANCELING뿐이고, Worker의 대사가 토스에 물어 정리한다.
+
+-- 외부 계정 연결. 한 외부 계정은 한 사람에게만, 한 사람은 제공자마다 계정 하나만 잇는다
+create table if not exists public.fps_identities (
+  provider text not null check (provider in ('google', 'kakao')),
+  subject text not null check (char_length(subject) between 1 and 255),
+  player_id bigint not null references public.fps_players(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (provider, subject),
+  unique (player_id, provider)
+);
+alter table public.fps_identities enable row level security;
+revoke all on public.fps_identities from public, anon, authenticated;
+
+-- 한 번 쓴 로그인 표(Worker가 서명한 ticket의 jti). 같은 표로 두 번 로그인하거나 잇지 못한다
+create table if not exists public.fps_auth_used (
+  jti text primary key check (jti ~ '^[0-9a-f]{32}$'),
+  used_at timestamptz not null default now()
+);
+alter table public.fps_auth_used enable row level security;
+revoke all on public.fps_auth_used from public, anon, authenticated;
+
+-- 코인 잔액. 테스트 결제로 충전하고 꾸미기(이모트·캐릭터)를 산다
+alter table public.fps_players add column if not exists coins int not null default 0 check (coins between 0 and 10000000);
+
+-- 주문 하나 = 결제 한 번. order_id는 Worker가 만든 무작위 값이고 토스 orderId로 그대로 쓴다(6~64자, 영문·숫자·_)
+create table if not exists public.fps_orders (
+  order_id text primary key check (order_id ~ '^skala_[0-9a-f]{32}$'),
+  player_id bigint not null references public.fps_players(id) on delete restrict,
+  product text not null check (char_length(product) between 1 and 32),
+  coins int not null check (coins between 1 and 100000),
+  amount int not null check (amount between 100 and 1000000),
+  status text not null default 'READY' check (status in ('READY', 'CONFIRMING', 'DONE', 'FAILED', 'EXPIRED', 'CANCELING', 'CANCELED')),
+  payment_key text unique check (payment_key is null or char_length(payment_key) between 1 and 200),
+  method text check (method is null or char_length(method) <= 40),
+  fail_code text check (fail_code is null or char_length(fail_code) <= 80),
+  return_url text not null check (char_length(return_url) between 1 and 512),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  done_at timestamptz,
+  canceled_at timestamptz
+);
+create index if not exists fps_orders_player_idx on public.fps_orders (player_id, created_at desc);
+create index if not exists fps_orders_open_idx on public.fps_orders (status, updated_at) where status in ('READY', 'CONFIRMING', 'CANCELING');
+alter table public.fps_orders enable row level security;
+revoke all on public.fps_orders from public, anon, authenticated;
+
+-- 코인 원장. 잔액이 바뀔 때마다 한 줄(바뀐 양, 바뀐 뒤 잔액, 까닭)을 넣고 고치거나 지우지 않는다
+create table if not exists public.fps_coin_ledger (
+  id bigint generated always as identity primary key,
+  player_id bigint not null references public.fps_players(id) on delete restrict,
+  delta int not null check (delta <> 0),
+  balance int not null check (balance >= 0),
+  reason text not null check (reason in ('purchase', 'refund', 'refund_undo', 'spend')),
+  order_id text references public.fps_orders(order_id) on delete restrict,
+  item text check (item is null or char_length(item) <= 32),
+  created_at timestamptz not null default now()
+);
+create index if not exists fps_coin_ledger_player_idx on public.fps_coin_ledger (player_id, id desc);
+-- 같은 주문으로 코인을 두 번 넣지 않는다(승인 응답이 두 번 오거나 웹훅·대사가 겹쳐도)
+create unique index if not exists fps_coin_ledger_purchase_once on public.fps_coin_ledger (order_id) where reason = 'purchase';
+alter table public.fps_coin_ledger enable row level security;
+revoke all on public.fps_coin_ledger from public, anon, authenticated;
+revoke all on sequence public.fps_coin_ledger_id_seq from public, anon, authenticated;
+
+-- 코인으로 살 수 있는 물건의 값: 꾸미기(캐릭터 av_*·이모트) 중 포인트 가격이 있는 것만, 포인트 가격의 10분의 1(올림).
+-- 무기는 코인으로 팔지 않는다(돈으로 강해지지 않게). js/account/economy.js의 coinPriceOf와 같아야 한다(tests/api-sql.test.mjs).
+create or replace function public.fps_coin_price(p_id text) returns int
+language sql immutable set search_path = public, extensions as $$
+  select case
+    when left(p_id, 3) = 'av_'
+      or p_id in ('takeL', 'veggie', 'sideToSide', 'crissCross', 'tango', 'salute', 'wave', 'cheer', 'creamCheese', 'fromYou', 'selfie')
+      then nullif(ceil(coalesce(public.fps_item_price(p_id), 0) / 10.0)::int, 0)
+  end
+$$;
+
+-- 로그인 표를 한 번만 쓰게 한다. 처음이면 true, 이미 쓴 표면 false
+create or replace function public.fps_ticket_once(p_jti text) returns boolean
+language plpgsql volatile set search_path = public, extensions as $$
+begin
+  if p_jti is null or p_jti !~ '^[0-9a-f]{32}$' then return false; end if;
+  insert into public.fps_auth_used (jti) values (p_jti);
+  return true;
+exception when unique_violation then
+  return false;
+end $$;
+
+-- Worker가 이 절을 실행한 서버인지 확인한다(없으면 404라 Worker가 로그인·결제를 닫는다)
+create or replace function public.fps_api_ping() returns jsonb
+language sql stable security definer set search_path = public, extensions as $$
+  select jsonb_build_object('ok', true, 'v', 1)
+$$;
+
+-- 이 기기의 사람: 이름, 코인, 이은 제공자, 최근 주문 10개(결제하지 않은 주문은 뺀다). refundable = 지금 환불할 수 있다
+create or replace function public.fps_api_me(p_token text, p_refund_days int) returns jsonb
+language plpgsql stable security definer set search_path = public, extensions as $$
+declare
+  v_hash text := public.fps_token_hash(p_token);
+  v public.fps_players%rowtype;
+begin
+  if v_hash is null then return jsonb_build_object('ok', false, 'error', 'TOKEN_INVALID'); end if;
+  select * into v from public.fps_players where id = public.fps_player_id(v_hash);
+  if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
+  return jsonb_build_object('ok', true, 'name', v.name, 'coins', v.coins,
+    'providers', coalesce((select jsonb_agg(i.provider order by i.provider) from public.fps_identities i where i.player_id = v.id), '[]'::jsonb),
+    'orders', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'orderId', o.order_id, 'product', o.product, 'coins', o.coins, 'amount', o.amount, 'status', o.status,
+               'at', (extract(epoch from o.created_at) * 1000)::bigint,
+               'refundable', coalesce(o.status = 'DONE' and v.coins >= o.coins
+                 and o.done_at > now() - make_interval(days => greatest(coalesce(p_refund_days, 7), 0)), false)
+             ) order by o.created_at desc)
+      from (
+        select * from public.fps_orders
+        where player_id = v.id and status in ('DONE', 'CANCELING', 'CANCELED', 'FAILED')
+        order by created_at desc
+        limit 10
+      ) o
+    ), '[]'::jsonb));
+end $$;
+
+-- 이 외부 계정에 이은 사람의 이름. 없으면 name이 null
+create or replace function public.fps_api_identity_owner(p_provider text, p_subject text) returns jsonb
+language sql stable security definer set search_path = public, extensions as $$
+  select jsonb_build_object('ok', true, 'name', (
+    select p.name from public.fps_identities i join public.fps_players p on p.id = i.player_id
+    where i.provider = p_provider and i.subject = p_subject))
+$$;
+
+-- 이 기기의 사람에게 외부 계정을 잇는다. 결과 { ok, name, already? }
+-- 코드: TOKEN_INVALID, IDENTITY_INVALID, NOT_FOUND(이 기기는 닉네임을 아직 서버에 등록하지 않았다), IDENTITY_TAKEN(다른 사람에게 이어져 있다, name),
+--       PROVIDER_LINKED(이 사람은 같은 제공자의 다른 계정을 이미 이었다), TICKET_USED
+create or replace function public.fps_api_link(p_token text, p_provider text, p_subject text, p_jti text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v_hash text := public.fps_token_hash(p_token);
+  v public.fps_players%rowtype;
+  v_owner bigint;
+begin
+  if v_hash is null then return jsonb_build_object('ok', false, 'error', 'TOKEN_INVALID'); end if;
+  if p_provider is null or p_provider not in ('google', 'kakao') or p_subject is null or char_length(p_subject) not between 1 and 255 then
+    return jsonb_build_object('ok', false, 'error', 'IDENTITY_INVALID');
+  end if;
+  select * into v from public.fps_players where id = public.fps_player_id(v_hash) for update;
+  if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
+  select i.player_id into v_owner from public.fps_identities i where i.provider = p_provider and i.subject = p_subject;
+  if found then
+    if v_owner = v.id then return jsonb_build_object('ok', true, 'name', v.name, 'already', true); end if;
+    return jsonb_build_object('ok', false, 'error', 'IDENTITY_TAKEN', 'name', (select p.name from public.fps_players p where p.id = v_owner));
+  end if;
+  if exists (select 1 from public.fps_identities i where i.player_id = v.id and i.provider = p_provider) then
+    return jsonb_build_object('ok', false, 'error', 'PROVIDER_LINKED');
+  end if;
+  if not public.fps_ticket_once(p_jti) then return jsonb_build_object('ok', false, 'error', 'TICKET_USED'); end if;
+  insert into public.fps_identities (provider, subject, player_id) values (p_provider, p_subject, v.id);
+  return jsonb_build_object('ok', true, 'name', v.name);
+exception when unique_violation then
+  return jsonb_build_object('ok', false, 'error', 'IDENTITY_TAKEN');
+end $$;
+
+-- 외부 계정에 이은 사람으로 이 기기에 로그인한다: 기기가 새로 만든 토큰(p_new_token)을 그 사람의 토큰으로 더한다.
+-- 한 사람의 로그인 기기 토큰은 최근 10개까지 쓰고, 넘으면 오래된 것부터 로그아웃시킨다. 코드: TOKEN_INVALID, NOT_LINKED, TOKEN_TAKEN, TICKET_USED
+create or replace function public.fps_api_login(p_provider text, p_subject text, p_new_token text, p_jti text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v_hash text := public.fps_token_hash(p_new_token);
+  v public.fps_players%rowtype;
+begin
+  if v_hash is null then return jsonb_build_object('ok', false, 'error', 'TOKEN_INVALID'); end if;
+  select p.* into v from public.fps_identities i join public.fps_players p on p.id = i.player_id
+   where i.provider = p_provider and i.subject = p_subject
+   for update of p;
+  if not found then return jsonb_build_object('ok', false, 'error', 'NOT_LINKED'); end if;
+  if public.fps_player_id(v_hash) is not null or exists (select 1 from public.fps_tokens t where t.token_hash = v_hash) then
+    return jsonb_build_object('ok', false, 'error', 'TOKEN_TAKEN');
+  end if;
+  if not public.fps_ticket_once(p_jti) then return jsonb_build_object('ok', false, 'error', 'TICKET_USED'); end if;
+  insert into public.fps_tokens (token_hash, player_id) values (v_hash, v.id);
+  update public.fps_tokens set revoked_at = now()
+   where player_id = v.id and revoked_at is null
+     and token_hash not in (select t.token_hash from public.fps_tokens t where t.player_id = v.id and t.revoked_at is null
+                            order by t.created_at desc limit 10);
+  return jsonb_build_object('ok', true, 'name', v.name);
+end $$;
+
+-- 이 기기에서 로그아웃한다. 로그인으로 더한 토큰은 revoked_at을 찍고, 처음 기기 토큰은 쓸 수 없는 값으로 바꾼다.
+-- 처음 기기 토큰인데 이은 외부 계정이 없으면 이 행을 다시 찾을 길이 없어 거절한다(NOT_LINKED). 이미 없는 토큰은 할 일이 없어 ok다
+create or replace function public.fps_api_logout(p_token text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v_hash text := public.fps_token_hash(p_token);
+  v_id bigint;
+begin
+  if v_hash is null then return jsonb_build_object('ok', false, 'error', 'TOKEN_INVALID'); end if;
+  update public.fps_tokens set revoked_at = now() where token_hash = v_hash and revoked_at is null returning player_id into v_id;
+  if found then return jsonb_build_object('ok', true); end if;
+  select p.id into v_id from public.fps_players p where p.token_hash = v_hash for update;
+  if not found then return jsonb_build_object('ok', true, 'already', true); end if;
+  if not exists (select 1 from public.fps_identities i where i.player_id = v_id) then
+    return jsonb_build_object('ok', false, 'error', 'NOT_LINKED');
+  end if;
+  update public.fps_players set token_hash = 'revoked:' || v_id || ':' || encode(gen_random_bytes(16), 'hex'), updated_at = now() where id = v_id;
+  return jsonb_build_object('ok', true);
+end $$;
+
+-- 테스트 결제 주문을 만든다. 상품·코인·금액은 Worker의 상품표가 정하고, 여기서는 사람과 한도를 확인한다.
+-- 한도: 24시간에 결제를 마친 주문 p_daily_limit개, 10분에 주문 10개. 한 시간 넘게 결제하지 않은 주문은 EXPIRED로 바꾼다.
+-- 코드: TOKEN_INVALID, ORDER_INVALID, NOT_FOUND, DAILY_LIMIT, RATE_LIMITED, ORDER_DUPLICATE
+create or replace function public.fps_api_create_order(p_token text, p_order_id text, p_product text, p_coins int, p_amount int,
+  p_return_url text, p_daily_limit int) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v_hash text := public.fps_token_hash(p_token);
+  v public.fps_players%rowtype;
+  v_limit int := greatest(coalesce(p_daily_limit, 3), 0);
+  v_count int;
+begin
+  if v_hash is null then return jsonb_build_object('ok', false, 'error', 'TOKEN_INVALID'); end if;
+  if p_order_id is null or p_order_id !~ '^skala_[0-9a-f]{32}$' or p_product is null or p_coins is null or p_amount is null or p_return_url is null then
+    return jsonb_build_object('ok', false, 'error', 'ORDER_INVALID');
+  end if;
+  select * into v from public.fps_players where id = public.fps_player_id(v_hash) for update;
+  if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
+  update public.fps_orders set status = 'EXPIRED', fail_code = 'EXPIRED', updated_at = now()
+   where player_id = v.id and status = 'READY' and created_at < now() - interval '1 hour';
+  select count(*) into v_count from public.fps_orders
+   where player_id = v.id and status in ('CONFIRMING', 'DONE', 'CANCELING') and created_at > now() - interval '1 day';
+  if v_count >= v_limit then return jsonb_build_object('ok', false, 'error', 'DAILY_LIMIT', 'limit', v_limit); end if;
+  select count(*) into v_count from public.fps_orders where player_id = v.id and created_at > now() - interval '10 minutes';
+  if v_count >= 10 then return jsonb_build_object('ok', false, 'error', 'RATE_LIMITED'); end if;
+  insert into public.fps_orders (order_id, player_id, product, coins, amount, return_url)
+  values (p_order_id, v.id, p_product, p_coins, p_amount, p_return_url);
+  return jsonb_build_object('ok', true, 'orderId', p_order_id, 'name', v.name);
+exception
+  when check_violation then return jsonb_build_object('ok', false, 'error', 'ORDER_INVALID');
+  when unique_violation then return jsonb_build_object('ok', false, 'error', 'ORDER_DUPLICATE');
+end $$;
+
+-- 주문 하나(결제 페이지·승인용). ageSec = 만든 뒤 지난 초
+create or replace function public.fps_api_order(p_order_id text) returns jsonb
+language sql stable security definer set search_path = public, extensions as $$
+  select coalesce((
+    select jsonb_build_object('ok', true, 'order', jsonb_build_object(
+      'orderId', o.order_id, 'product', o.product, 'coins', o.coins, 'amount', o.amount, 'status', o.status,
+      'paymentKey', o.payment_key, 'returnUrl', o.return_url, 'name', p.name,
+      'ageSec', floor(extract(epoch from now() - o.created_at))::int))
+    from public.fps_orders o join public.fps_players p on p.id = o.player_id
+    where o.order_id = p_order_id), jsonb_build_object('ok', false, 'error', 'NOT_FOUND'))
+$$;
+
+-- 토스가 인증을 마치고 돌려보낸 값(successUrl)을 주문과 맞춰 본다. 금액이 다르면 승인하지 않는다(AMOUNT_MISMATCH).
+-- READY → CONFIRMING(paymentKey 기록). 같은 paymentKey로 다시 오면(새로 고침) 그대로 ok.
+-- 코드: NOT_FOUND, AMOUNT_MISMATCH, ORDER_EXPIRED, ORDER_STATE, PAYMENT_KEY_TAKEN
+create or replace function public.fps_api_mark_confirming(p_order_id text, p_payment_key text, p_amount int) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v public.fps_orders%rowtype;
+begin
+  select * into v from public.fps_orders where order_id = p_order_id for update;
+  if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
+  if p_amount is null or v.amount <> p_amount then return jsonb_build_object('ok', false, 'error', 'AMOUNT_MISMATCH'); end if;
+  if p_payment_key is null or char_length(p_payment_key) not between 1 and 200 then
+    return jsonb_build_object('ok', false, 'error', 'ORDER_STATE', 'status', v.status);
+  end if;
+  if v.status = 'READY' then
+    if v.created_at < now() - interval '1 hour' then
+      update public.fps_orders set status = 'EXPIRED', fail_code = 'EXPIRED', updated_at = now() where order_id = v.order_id;
+      return jsonb_build_object('ok', false, 'error', 'ORDER_EXPIRED');
+    end if;
+    update public.fps_orders set status = 'CONFIRMING', payment_key = p_payment_key, updated_at = now() where order_id = v.order_id;
+    return jsonb_build_object('ok', true, 'status', 'CONFIRMING');
+  end if;
+  if v.payment_key = p_payment_key and v.status in ('CONFIRMING', 'DONE') then
+    return jsonb_build_object('ok', true, 'status', v.status);
+  end if;
+  return jsonb_build_object('ok', false, 'error', 'ORDER_STATE', 'status', v.status);
+exception when unique_violation then
+  return jsonb_build_object('ok', false, 'error', 'PAYMENT_KEY_TAKEN');
+end $$;
+
+-- 토스 승인(DONE)을 확인한 뒤 코인을 넣는다. 한 주문에 한 번만 넣는다(이미 넣었으면 ok, already).
+-- 토스가 DONE이라고 하면 FAILED·EXPIRED로 적은 주문도 DONE으로 바로잡는다(돈이 움직였으므로). 코드: NOT_FOUND, AMOUNT_MISMATCH, ORDER_STATE
+create or replace function public.fps_api_complete_order(p_order_id text, p_payment_key text, p_amount int, p_method text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v public.fps_orders%rowtype;
+  v_coins int;
+begin
+  select * into v from public.fps_orders where order_id = p_order_id for update;
+  if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
+  if p_amount is null or v.amount <> p_amount then return jsonb_build_object('ok', false, 'error', 'AMOUNT_MISMATCH'); end if;
+  if p_payment_key is null or (v.payment_key is not null and v.payment_key <> p_payment_key) then
+    return jsonb_build_object('ok', false, 'error', 'ORDER_STATE', 'status', v.status);
+  end if;
+  if v.status in ('DONE', 'CANCELING', 'CANCELED') then
+    return jsonb_build_object('ok', true, 'already', true, 'status', v.status,
+      'coins', (select p.coins from public.fps_players p where p.id = v.player_id));
+  end if;
+  update public.fps_players set coins = coins + v.coins, updated_at = now() where id = v.player_id returning coins into v_coins;
+  insert into public.fps_coin_ledger (player_id, delta, balance, reason, order_id) values (v.player_id, v.coins, v_coins, 'purchase', v.order_id);
+  update public.fps_orders set status = 'DONE', payment_key = p_payment_key, method = left(p_method, 40), fail_code = null,
+         done_at = now(), updated_at = now()
+   where order_id = v.order_id;
+  return jsonb_build_object('ok', true, 'status', 'DONE', 'coins', v_coins, 'added', v.coins);
+exception when unique_violation then
+  return jsonb_build_object('ok', false, 'error', 'ORDER_STATE');
+end $$;
+
+-- 결제 실패·취소·만료를 적는다. READY·CONFIRMING만 바꾸고 DONE 이후는 그대로 둔다(changed:false)
+create or replace function public.fps_api_fail_order(p_order_id text, p_code text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  update public.fps_orders
+     set status = case when p_code = 'EXPIRED' then 'EXPIRED' else 'FAILED' end,
+         fail_code = left(coalesce(p_code, 'UNKNOWN'), 80), updated_at = now()
+   where order_id = p_order_id and status in ('READY', 'CONFIRMING');
+  return jsonb_build_object('ok', true, 'changed', found);
+end $$;
+
+-- 사람이 요청한 환불의 첫 단계: 코인을 먼저 빼고 CANCELING으로 바꾼다(그 사이에 그 코인을 쓰지 못하게). 토스 취소 결과는 fps_api_end_cancel이 적는다.
+-- 조건: 내 주문, DONE, 결제한 지 p_refund_days일 이내, 그 코인을 아직 쓰지 않았다(잔액 ≥ 주문 코인).
+-- 코드: TOKEN_INVALID, NOT_FOUND, ORDER_STATE, REFUND_EXPIRED, COINS_SPENT
+create or replace function public.fps_api_begin_cancel(p_token text, p_order_id text, p_refund_days int) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v_hash text := public.fps_token_hash(p_token);
+  v_id bigint;
+  v public.fps_orders%rowtype;
+  v_coins int;
+begin
+  if v_hash is null then return jsonb_build_object('ok', false, 'error', 'TOKEN_INVALID'); end if;
+  v_id := public.fps_player_id(v_hash);
+  select * into v from public.fps_orders where order_id = p_order_id for update;
+  if not found or v_id is null or v.player_id <> v_id then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
+  if v.status <> 'DONE' then return jsonb_build_object('ok', false, 'error', 'ORDER_STATE', 'status', v.status); end if;
+  if v.done_at is null or v.done_at < now() - make_interval(days => greatest(coalesce(p_refund_days, 7), 0)) then
+    return jsonb_build_object('ok', false, 'error', 'REFUND_EXPIRED');
+  end if;
+  select p.coins into v_coins from public.fps_players p where p.id = v_id for update;
+  if v_coins < v.coins then return jsonb_build_object('ok', false, 'error', 'COINS_SPENT', 'coins', v_coins); end if;
+  update public.fps_players set coins = coins - v.coins, updated_at = now() where id = v_id returning coins into v_coins;
+  insert into public.fps_coin_ledger (player_id, delta, balance, reason, order_id) values (v_id, -v.coins, v_coins, 'refund', v.order_id);
+  update public.fps_orders set status = 'CANCELING', updated_at = now() where order_id = v.order_id;
+  return jsonb_build_object('ok', true, 'paymentKey', v.payment_key, 'amount', v.amount, 'coins', v_coins);
+end $$;
+
+-- 환불의 둘째 단계. p_ok = 토스가 취소를 마쳤다 → CANCELED. 아니면 뺀 코인을 돌려놓고 DONE으로 되돌린다
+create or replace function public.fps_api_end_cancel(p_order_id text, p_ok boolean) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v public.fps_orders%rowtype;
+  v_coins int;
+begin
+  select * into v from public.fps_orders where order_id = p_order_id for update;
+  if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
+  if v.status <> 'CANCELING' then
+    if p_ok and v.status = 'CANCELED' then return jsonb_build_object('ok', true, 'already', true); end if;
+    return jsonb_build_object('ok', false, 'error', 'ORDER_STATE', 'status', v.status);
+  end if;
+  if p_ok then
+    update public.fps_orders set status = 'CANCELED', canceled_at = now(), updated_at = now() where order_id = v.order_id;
+    return jsonb_build_object('ok', true, 'status', 'CANCELED', 'coins', (select p.coins from public.fps_players p where p.id = v.player_id));
+  end if;
+  update public.fps_players set coins = coins + v.coins, updated_at = now() where id = v.player_id returning coins into v_coins;
+  insert into public.fps_coin_ledger (player_id, delta, balance, reason, order_id) values (v.player_id, v.coins, v_coins, 'refund_undo', v.order_id);
+  update public.fps_orders set status = 'DONE', updated_at = now() where order_id = v.order_id;
+  return jsonb_build_object('ok', true, 'status', 'DONE', 'coins', v_coins);
+end $$;
+
+-- 토스 쪽에서 취소된 결제(상점관리자에서 취소한 것, 웹훅·대사로 알게 됨)를 주문에 맞춘다. DONE이면 남은 코인에서 그만큼 빼고
+-- (모자라면 있는 만큼, fail_code = COINS_SHORT) CANCELED로 바꾼다. 이미 CANCELED면 그대로 ok
+create or replace function public.fps_api_external_cancel(p_order_id text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v public.fps_orders%rowtype;
+  v_have int;
+  v_take int;
+  v_coins int;
+begin
+  select * into v from public.fps_orders where order_id = p_order_id for update;
+  if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
+  if v.status = 'CANCELED' then return jsonb_build_object('ok', true, 'already', true, 'status', v.status); end if;
+  if v.status = 'CANCELING' then
+    update public.fps_orders set status = 'CANCELED', canceled_at = now(), updated_at = now() where order_id = v.order_id;
+    return jsonb_build_object('ok', true, 'status', 'CANCELED');
+  end if;
+  if v.status in ('READY', 'CONFIRMING') then
+    update public.fps_orders set status = 'FAILED', fail_code = 'CANCELED', updated_at = now() where order_id = v.order_id;
+    return jsonb_build_object('ok', true, 'status', 'FAILED');
+  end if;
+  if v.status <> 'DONE' then return jsonb_build_object('ok', true, 'status', v.status); end if;
+  select p.coins into v_have from public.fps_players p where p.id = v.player_id for update;
+  v_take := least(v_have, v.coins);
+  if v_take > 0 then
+    update public.fps_players set coins = coins - v_take, updated_at = now() where id = v.player_id returning coins into v_coins;
+    insert into public.fps_coin_ledger (player_id, delta, balance, reason, order_id) values (v.player_id, -v_take, v_coins, 'refund', v.order_id);
+  end if;
+  update public.fps_orders set status = 'CANCELED', canceled_at = now(), updated_at = now(),
+         fail_code = case when v_take < v.coins then 'COINS_SHORT' end
+   where order_id = v.order_id;
+  return jsonb_build_object('ok', true, 'status', 'CANCELED', 'taken', v_take);
+end $$;
+
+-- 코인으로 꾸미기를 산다(fps_coin_price). 물건을 owned에 바로 넣으므로 클라이언트가 다음에 저장할 때 이미 가진 물건이라 포인트를 내지 않는다.
+-- 코드: TOKEN_INVALID, ITEM_INVALID, NOT_FOUND, OWNED, COINS_SHORT
+create or replace function public.fps_api_buy_with_coins(p_token text, p_item text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v_hash text := public.fps_token_hash(p_token);
+  v public.fps_players%rowtype;
+  v_price int := public.fps_coin_price(p_item);
+  v_coins int;
+begin
+  if v_hash is null then return jsonb_build_object('ok', false, 'error', 'TOKEN_INVALID'); end if;
+  if v_price is null then return jsonb_build_object('ok', false, 'error', 'ITEM_INVALID'); end if;
+  select * into v from public.fps_players where id = public.fps_player_id(v_hash) for update;
+  if not found then return jsonb_build_object('ok', false, 'error', 'NOT_FOUND'); end if;
+  if v.owned ? p_item then return jsonb_build_object('ok', false, 'error', 'OWNED', 'owned', v.owned, 'coins', v.coins); end if;
+  if v.coins < v_price then return jsonb_build_object('ok', false, 'error', 'COINS_SHORT', 'coins', v.coins, 'price', v_price); end if;
+  update public.fps_players set coins = coins - v_price, owned = owned || to_jsonb(p_item), updated_at = now()
+   where id = v.id returning coins into v_coins;
+  insert into public.fps_coin_ledger (player_id, delta, balance, reason, item) values (v.id, -v_price, v_coins, 'spend', p_item);
+  return jsonb_build_object('ok', true, 'coins', v_coins, 'spent', v_price, 'owned', v.owned || to_jsonb(p_item));
+end $$;
+
+-- 대사(Worker cron)할 주문. 한 시간 넘게 결제하지 않은 READY는 여기서 EXPIRED로 바꾼다(승인을 부르지 않았으니 돈이 움직이지 않았다).
+-- 결과를 모르는 CONFIRMING·CANCELING 중 2분 넘게 그대로인 것을 돌려준다. 만든 날이 아니라 마지막으로 바뀐 때(updated_at)로 7일까지 본다:
+-- 환불은 결제하고 며칠 뒤에도 시작할 수 있으므로(REFUND_DAYS), 만든 날로 자르면 늦게 시작한 환불이 CANCELING에 갇혀 코인이 묶인다
+create or replace function public.fps_api_open_orders(p_limit int) returns jsonb
+language plpgsql volatile security definer set search_path = public, extensions as $$
+begin
+  update public.fps_orders set status = 'EXPIRED', fail_code = 'EXPIRED', updated_at = now()
+   where status = 'READY' and created_at < now() - interval '1 hour';
+  return jsonb_build_object('ok', true, 'orders', coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'orderId', o.order_id, 'status', o.status, 'paymentKey', o.payment_key, 'amount', o.amount,
+             'idleSec', floor(extract(epoch from now() - o.updated_at))::int) order by o.created_at)
+    from (
+      select * from public.fps_orders
+      where status in ('CONFIRMING', 'CANCELING') and updated_at < now() - interval '2 minutes' and updated_at > now() - interval '7 days'
+      order by created_at
+      limit least(greatest(coalesce(p_limit, 20), 1), 50)
+    ) o
+  ), '[]'::jsonb));
+end $$;
+
 -- ───────────── 실행 권한 ─────────────
 grant usage on schema public to anon, authenticated;
 
@@ -488,6 +970,9 @@ revoke all on function public.fps_client_key() from public, anon, authenticated;
 revoke all on function public.fps_rate_ok(text, int, interval) from public, anon, authenticated;
 revoke all on function public.fps_feedback_clean(text) from public, anon, authenticated;
 revoke all on function public.fps_feedback_stamp() from public, anon, authenticated;
+revoke all on function public.fps_player_id(text) from public, anon, authenticated;
+revoke all on function public.fps_coin_price(text) from public, anon, authenticated;
+revoke all on function public.fps_ticket_once(text) from public, anon, authenticated;
 
 revoke all on function public.fps_check_nickname(text) from public;
 revoke all on function public.fps_claim_nickname(text, text) from public;
@@ -506,6 +991,41 @@ grant execute on function public.fps_top_players(int) to anon, authenticated;
 grant execute on function public.fps_features() to anon, authenticated;
 grant execute on function public.fps_send_feedback(text, text, text, jsonb) to anon, authenticated;
 grant execute on function public.fps_my_feedback(text) to anon, authenticated;
+
+-- 로그인 연결·테스트 결제: server/api Worker(Supabase 비밀 키 = service_role)만 부른다
+revoke all on function public.fps_api_ping() from public, anon, authenticated;
+revoke all on function public.fps_api_me(text, int) from public, anon, authenticated;
+revoke all on function public.fps_api_identity_owner(text, text) from public, anon, authenticated;
+revoke all on function public.fps_api_link(text, text, text, text) from public, anon, authenticated;
+revoke all on function public.fps_api_login(text, text, text, text) from public, anon, authenticated;
+revoke all on function public.fps_api_logout(text) from public, anon, authenticated;
+revoke all on function public.fps_api_create_order(text, text, text, int, int, text, int) from public, anon, authenticated;
+revoke all on function public.fps_api_order(text) from public, anon, authenticated;
+revoke all on function public.fps_api_mark_confirming(text, text, int) from public, anon, authenticated;
+revoke all on function public.fps_api_complete_order(text, text, int, text) from public, anon, authenticated;
+revoke all on function public.fps_api_fail_order(text, text) from public, anon, authenticated;
+revoke all on function public.fps_api_begin_cancel(text, text, int) from public, anon, authenticated;
+revoke all on function public.fps_api_end_cancel(text, boolean) from public, anon, authenticated;
+revoke all on function public.fps_api_external_cancel(text) from public, anon, authenticated;
+revoke all on function public.fps_api_buy_with_coins(text, text) from public, anon, authenticated;
+revoke all on function public.fps_api_open_orders(int) from public, anon, authenticated;
+
+grant execute on function public.fps_api_ping() to service_role;
+grant execute on function public.fps_api_me(text, int) to service_role;
+grant execute on function public.fps_api_identity_owner(text, text) to service_role;
+grant execute on function public.fps_api_link(text, text, text, text) to service_role;
+grant execute on function public.fps_api_login(text, text, text, text) to service_role;
+grant execute on function public.fps_api_logout(text) to service_role;
+grant execute on function public.fps_api_create_order(text, text, text, int, int, text, int) to service_role;
+grant execute on function public.fps_api_order(text) to service_role;
+grant execute on function public.fps_api_mark_confirming(text, text, int) to service_role;
+grant execute on function public.fps_api_complete_order(text, text, int, text) to service_role;
+grant execute on function public.fps_api_fail_order(text, text) to service_role;
+grant execute on function public.fps_api_begin_cancel(text, text, int) to service_role;
+grant execute on function public.fps_api_end_cancel(text, boolean) to service_role;
+grant execute on function public.fps_api_external_cancel(text) to service_role;
+grant execute on function public.fps_api_buy_with_coins(text, text) to service_role;
+grant execute on function public.fps_api_open_orders(int) to service_role;
 
 -- API가 새 함수를 바로 보도록 스키마 캐시를 다시 읽게 한다.
 notify pgrst, 'reload schema';

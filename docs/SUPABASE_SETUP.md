@@ -38,8 +38,12 @@ Supabase 프로젝트를 게임에 연결하는 절차입니다.
 | 테이블 | `fps_feedback` | 건의함. 정책·권한이 없어 API로는 아무도 못 읽고, 소유자만 대시보드에서 읽는다([docs/FEEDBACK.md](FEEDBACK.md)) |
 | RPC | `fps_send_feedback` | 건의 보내기(등록된 닉네임만, 사람·IP·전체 한도) |
 | RPC | `fps_my_feedback` | 내가 보낸 건의와 운영자 답(최근 10개) |
+| 테이블 | `fps_tokens`, `fps_identities`, `fps_auth_used` | 구글·카카오 로그인 연결: 로그인으로 더한 기기 토큰, 이은 외부 계정, 한 번 쓴 로그인 표 |
+| 테이블 | `fps_orders`, `fps_coin_ledger` (+ `fps_players.coins`) | 테스트 결제 주문과 코인 원장 |
+| 함수 | `fps_api_*` | 위 표를 바꾸는 함수. 브라우저는 부를 수 없고 [server/api](../server/api/README.md) Worker가 **Secret key**(`sb_secret_…`, service_role)로만 부른다 |
 
 멀티 채널(`skalafps:lobby`, `skalafps:room:<id>`)은 테이블이 필요 없습니다.
+로그인 연결·테스트 결제를 쓰지 않아도 이 절은 그대로 두어도 됩니다. Worker를 배포하기 전에는 아무도 부르지 않습니다.
 
 ## 3. Project URL과 Publishable key 찾기
 

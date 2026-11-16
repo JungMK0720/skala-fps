@@ -1,0 +1,19 @@
+{
+  "name": "skala-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SKALA 작전 로그인 연결(구글·카카오 OAuth + PKCE, ID 토큰 검증)과 토스페이먼츠 테스트 결제 API: Cloudflare Worker + Supabase RPC",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "tail": "wrangler tail"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "wrangler": "4.158.0"
+  }
+}

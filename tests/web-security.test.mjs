@@ -46,6 +46,17 @@ test('전송 방식 설정이 맞고, 중계 서버를 쓰면 그 주소(https·
   assert.ok(directive('connect-src').includes(`https://${host[1]}`) && directive('connect-src').includes(`wss://${host[1]}`), '중계 서버 주소');
 });
 
+test('로그인·결제 API(server/api)를 쓰면 그 주소(https)가 connect-src에 있고, 결제 SDK는 게임 페이지에서 돌지 않는다', () => {
+  const apiUrl = (config.match(/\bapi:\s*\{\s*url:\s*'([^']*)'/) || [])[1];
+  assert.equal(typeof apiUrl, 'string', 'api.url 칸');
+  assert.ok(!/tosspayments/i.test(csp), '토스 SDK는 Worker의 결제 페이지에서만 불러온다(server/api/src/pages.js)');
+  assert.ok(!/accounts\.google\.com|kauth\.kakao\.com/.test(directive('connect-src')), '인가 화면은 이동이지 접속이 아니다');
+  if (!apiUrl) return;
+  const host = apiUrl.match(/^https:\/\/([a-z0-9.-]+)\/?$/);
+  assert.ok(host, '배포 설정의 API 주소는 경로 없는 https 주소다');
+  assert.ok(directive('connect-src').includes(`https://${host[1]}`), 'API 주소');
+});
+
 test('importmap 말고 인라인 스크립트와 인라인 이벤트 속성이 없다', () => {
   const inline = [...html.matchAll(/<script(?![^>]*\bsrc=)([^>]*)>/g)].map((m) => m[1]);
   assert.deepEqual(inline, [' type="importmap"']);

@@ -32,6 +32,13 @@
  *   await account.sendFeedback({ kind, body, info? })  → { ok, id?, reason?, message }. reason: offline | kind | short | long | closed |
  *                                 nickname | duplicate | rate | blocked | invalid | network. message는 화면에 그대로 보여 줘도 된다
  *   await account.myFeedback()    → { ok, items, offline, reason? }  내가 보낸 건의와 운영자 답(최근 10개, feedback.js normalizeFeedbackItems 모양)
+ *   account.online                로그인 연결·코인(테스트 결제). SKALA_CONFIG.api.url이 없으면 state.status가 'off'다(./online.js, server/api/README.md)
+ *     .state                      { status, providers, linked, name, coins, orders, pay, coinsEnabled, busy, message, pending } 읽기 전용
+ *     .startLogin(provider)       인가 화면으로 떠난다. 돌아오면 이 기기의 닉네임에 잇거나 그 계정으로 로그인한다
+ *     .confirmSwitch() / .cancelSwitch()  다른 닉네임에 연결된 계정으로 이 기기를 바꿀지
+ *     .logout()                   연결한 계정이 있을 때만. 이 기기의 토큰을 끊고 새 기기처럼 시작한다
+ *     .buyCoins(productId)        주문을 만들고 결제 페이지로 떠난다. .refund(orderId), .buyWithCoins(itemId), .refresh()
+ *     .takeNotice()               결제·로그인을 마치고 돌아온 결과 알림 { tone, text, open, tab } 또는 null. bus 'account:notice'로도 알린다
  *
  * 닉네임 게이트는 'account:change'도 들어야 한다. 프로필을 잃어도 토큰이 남아 있으면 동기화가 끝난 뒤 닉네임이 돌아온다.
  */
@@ -41,12 +48,13 @@ import { clampPoints, isAvatarId, isEmoteId, matchReward, priceOf, readSummary, 
 import { nicknameKey, validateNickname } from './nickname.js';
 import { createRemote } from './remote.js';
 import { FEEDBACK_MESSAGES, feedbackInfo, feedbackResult, normalizeFeedbackItems, validateFeedback } from './feedback.js';
+import { createOnline } from './online.js';
 import {
-  LOADOUT_SLOTS, PROFILE_KEY, createStore, defaultProfile, isSecretId, mergeProfiles, normalizeOwned,
+  LOADOUT_SLOTS, PROFILE_KEY, TOKEN_KEY, createStore, defaultProfile, generateToken, isSecretId, mergeProfiles, normalizeOwned,
   normalizeProfile, normalizeStats, sameProfile, sameProgress, secretEntry
 } from './store.js';
 
-export { START_POINTS, isAvatarId, isEmoteId, matchReward, priceOf, quickRespawnCost } from './economy.js';
+export { START_POINTS, coinPriceOf, isAvatarId, isEmoteId, matchReward, priceOf, quickRespawnCost } from './economy.js';
 export { cleanNickname, nicknameKey, validateNickname } from './nickname.js';
 
 export const SAVE_DEBOUNCE_MS = 2000;
@@ -56,7 +64,8 @@ export const RETRY_MAX_MS = 300000;
 const MESSAGE = Object.freeze({
   offline: '오프라인이라 중복 확인을 못 했어요.',
   available: '사용할 수 있는 닉네임이에요.',
-  saved: '닉네임을 저장했어요.'
+  saved: '닉네임을 저장했어요.',
+  loading: '다른 탭에서 바꾼 계정을 불러오는 중이에요. 잠시 뒤 다시 시도해 주세요.'
 });
 
 /**
@@ -84,10 +93,13 @@ function offlineResult(name) {
 }
 
 /**
- * opts: { bus, storage?, fetch?, config?: { url, anonKey }, target? }
- * config를 주지 않으면 globalThis.SKALA_CONFIG.supabase를 읽는다. target은 pagehide·online·storage를 받는 대상(기본 window).
+ * opts: { bus, storage?, fetch?, config?: { url, anonKey }, target?, apiConfig?: { url }, session?, location?, history? }
+ * config를 주지 않으면 globalThis.SKALA_CONFIG.supabase를, apiConfig를 주지 않으면 SKALA_CONFIG.api를 읽는다.
+ * target은 pagehide·online·storage를 받는 대상(기본 window). session·location·history는 로그인 흐름용(기본 브라우저 것).
  */
-export function createAccount({ bus = null, storage, fetch: fetchImpl, config, target = globalThis.window } = {}) {
+export function createAccount({
+  bus = null, storage, fetch: fetchImpl, config, target = globalThis.window, apiConfig, session, location, history
+} = {}) {
   const store = createStore({ storage });
   const remote = createRemote({ fetch: fetchImpl, config });
   const restored = store.load();
@@ -108,6 +120,8 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
   let avatarShop = remote.enabled ? 'checking' : 'open';      // 캐릭터 구매를 열었는가(서버 기능 확인)
   let feedbackBox = remote.enabled ? 'checking' : 'closed';   // 건의함을 쓸 수 있는가(서버 기능 확인)
   let featureCheck = null;
+  let online = null;                                          // 로그인 연결·코인(./online.js). 아래에서 만든다
+  let awaitingProfile = false;                                // 다른 탭이 토큰을 바꿨고 새 토큰의 서버 프로필을 아직 받지 못했다
 
   // ───────────── 내부 상태 ─────────────
   function readProfile() {
@@ -217,6 +231,7 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     conflictName = null;
     retryDelay = RETRY_MIN_MS;
     commit(); // 행이 방금 생겼을 수 있으니 진행 상황도 함께 올린다
+    if (online) online.onRegistered(); // 닉네임을 정하면 잇기로 한 외부 계정(게이트에서 로그인했지만 연결된 닉네임이 없던 경우)을 잇는다
     return { ok: true, name, offline: false, message: MESSAGE.saved };
   }
 
@@ -245,7 +260,9 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
   async function setNickname(name) {
     const v = validateNickname(name);
     if (!v.ok) return { ok: false, name: v.name, reason: v.reason, offline: false, message: v.message };
+    if (awaitingProfile) return { ok: false, name: v.name, reason: 'loading', offline: false, message: MESSAGE.loading };
     return serial(async () => {
+      if (awaitingProfile) return { ok: false, name: v.name, reason: 'loading', offline: false, message: MESSAGE.loading };
       if (v.name === profile.nickname && !pendingClaim) return { ok: true, name: v.name, offline: false, message: MESSAGE.saved };
       if (!remote.enabled) return keepOffline(v.name);
       const r = await remote.claimNickname(store.token(), v.name);
@@ -322,11 +339,17 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     const r = await serial(async () => {
       const res = await remote.getProfile(store.token());
       if (res.ok) adoptServerProfile(res.profile);
+      // 서버가 답했다(프로필 또는 없음): 이제 이 토큰이 어느 행인지 안다. 네트워크 실패면 계속 기다린다
+      if ((res.ok || res.error === 'NOT_FOUND') && awaitingProfile) {
+        awaitingProfile = false;
+        announce();
+      }
       return res;
     });
     if (r.ok) {
       synced = true;
       retryDelay = RETRY_MIN_MS;
+      if (online && profile.nickname && !pendingClaim) online.onRegistered();
       return { ok: true, offline: false };
     }
     if (r.error === 'NOT_FOUND') {
@@ -551,6 +574,51 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     announce();
   }
 
+  /**
+   * 이 기기를 다른 토큰(계정)으로 바꾼다. 로그인: serverProfile = 그 토큰으로 미리 받은 서버 프로필. 로그아웃: 새 무작위 토큰, serverProfile 없음.
+   * 앞선 저장·등록 요청이 끝난 뒤(serial) 바꾼다. 로그인은 받아 둔 서버 프로필을 곧바로 따르므로 "이미 행이 있는 토큰 + 빈 프로필(닉네임 없음)"인
+   * 순간이 없다. 그 틈에 닉네임을 정하면 fps_claim_nickname이 그 행의 이름을 바꾸고 빈 프로필 저장이 진행 상황을 덮어쓰기 때문이다.
+   * 저장 순서는 토큰 → 프로필이다. 다른 탭은 토큰이 바뀌면 프로필을 비우고 서버에서 다시 받는다(onStorage).
+   */
+  function switchAccount(nextToken, serverProfile = null) {
+    return serial(async () => {
+      clearTimeout(saveTimer);
+      clearTimeout(retryTimer);
+      saveTimer = null;
+      retryTimer = null;
+      retryDelay = RETRY_MIN_MS;
+      profile = defaultProfile();
+      dirty = false;
+      pendingClaim = null;
+      conflictName = null;
+      synced = false;
+      awaitingProfile = false;
+      revision += 1;
+      store.setToken(nextToken);
+      if (serverProfile) {
+        adoptServerProfile(serverProfile);   // 빈 로컬에 서버 값(닉네임·포인트·장비·전적·비밀 스팟)을 그대로 받는다
+        synced = true;
+        persist();
+      } else {
+        store.clear();
+      }
+      announce();
+    }).then(() => {
+      if (synced) return { ok: true, offline: false };
+      syncing = runSync().finally(() => { syncing = null; });
+      return syncing;
+    });
+  }
+
+  /** 서버가 준 owned(코인으로 산 물건)를 합친다. 서버에는 이미 있으므로 다음 저장도 같은 목록을 보낸다 */
+  function adoptOwned(list) {
+    if (!Array.isArray(list)) return;
+    const next = normalizeOwned([...profile.owned, ...list]);
+    if (next.length === profile.owned.length) return;
+    profile.owned = next;
+    commit();
+  }
+
   async function topPlayers(limit = 20) {
     if (!remote.enabled) return { ok: false, players: [], offline: true };
     const r = await remote.topPlayers(limit);
@@ -570,10 +638,27 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
 
   /** 다른 탭이 프로필을 바꾸면 따라간다. 오래된 값으로 덮어써서 포인트를 잃지 않게 한다. */
   function onStorage(e) {
+    if (e.key === TOKEN_KEY) {
+      // 다른 탭이 로그인·로그아웃으로 이 기기의 계정을 바꿨다. 이 탭의 프로필은 앞 계정의 것이라 저장하지 않게 비우고 새 토큰으로 다시 받는다.
+      // 받기 전에는 닉네임을 정하지 못한다(이미 행이 있는 토큰이면 그 행의 이름과 진행 상황을 덮어쓸 수 있다)
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      profile = defaultProfile();
+      dirty = false;
+      pendingClaim = null;
+      conflictName = null;
+      synced = false;
+      awaitingProfile = true;
+      revision += 1;
+      announce();
+      syncing = runSync().finally(() => { syncing = null; });
+      return;
+    }
     if (e.key !== PROFILE_KEY && e.key !== null) return;
     const next = store.load();
     if (next) {
       ({ profile, dirty, pendingClaim } = next);
+      awaitingProfile = false;
     } else if (e.newValue == null) {
       profile = defaultProfile();
       dirty = false;
@@ -596,11 +681,29 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     if (canListen) for (const [name, fn] of listeners) target.removeEventListener(name, fn);
     clearTimeout(retryTimer);
     retryTimer = null;
+    if (online) online.dispose();
     flush();
   }
 
   // 시작 동기화와 서버 기능 확인을 함께 기다린다. 값은 동기화 결과다
   const ready = Promise.all([syncFromRemote(), checkFeatures()]).then(([synced]) => synced);
+
+  online = createOnline({
+    fetch: fetchImpl, config: apiConfig, session, location, history,
+    hooks: {
+      token: () => store.token(),
+      registered: () => remote.enabled && !!profile.nickname && !pendingClaim,
+      nickname: () => profile.nickname,
+      fetchProfile: (token) => remote.getProfile(token),
+      freshToken: generateToken,
+      switchToken: switchAccount,
+      adoptOwned,
+      flush: () => flush(),
+      announce,
+      emit,
+      ready
+    }
+  });
 
   return Object.freeze({
     get profile() { return readProfile(); },
@@ -632,6 +735,7 @@ export function createAccount({ bus = null, storage, fetch: fetchImpl, config, t
     topPlayers,
     sendFeedback,
     myFeedback,
+    online: online.api,
     dispose
   });
 }

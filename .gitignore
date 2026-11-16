@@ -7,5 +7,9 @@ audio/emotes/*.ogg
 server/relay/node_modules/
 server/relay/.wrangler/
 server/relay/.dev.vars
+# 로그인·테스트 결제 API(server/api)도 같다. .dev.vars에는 로컬에서 쓸 토스·구글 키가 들어간다
+server/api/node_modules/
+server/api/.wrangler/
+server/api/.dev.vars
 # 운영자 열쇠(전체 공지 서명용, tools/make-notice-key.mjs) 보관 폴더. 비밀 열쇠는 저장소에 올리지 않는다
 .secrets/

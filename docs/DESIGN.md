@@ -246,7 +246,10 @@ account.remoteEnabled
 // bus: 'account:change' { profile }
 ```
 - 저장: localStorage `skalafps.profile.v1`(정본). Supabase가 설정돼 있으면 비동기로 동기화한다. 네트워크가 실패해도 게임을 막지 않는다.
-- 기기 식별: `skalafps.token`(무작위 256비트 hex). 서버에는 sha256만 저장.
+- 기기 식별: `skalafps.token`(무작위 256비트 hex). 서버에는 sha256만 저장. 구글·카카오 로그인으로 다른 기기에서 같은 계정을 쓰면 그 기기가 새로 만든 토큰을 서버가 더한다(`fps_tokens`).
+- 로그인 연결·코인: `account.online`(`js/account/online.js`). `SKALA_CONFIG.api.url`(server/api Worker)이 없으면 `state.status`가 `'off'`이고 화면에 아무것도 나오지 않는다.
+  게이트의 "구글로 불러오기", 마이페이지 계정 연결 칸(잇기·이 기기 바꾸기·로그아웃), 상점 코인 탭(테스트 결제 충전·구매 내역·환불)과 이모트·캐릭터 카드의 "코인으로 사기"가 쓴다.
+  코인은 서버만 바꾸는 잔액이라 프로필(localStorage)에 없다. 값과 흐름은 `server/api/README.md`, 보안은 `docs/SECURITY.md` 5절.
 - 닉네임 규칙: 앞뒤 공백 제거, 연속 공백 1칸, **2~12자**, 한글·영문·숫자·`_`·`-`·공백, 비교는 소문자. 예약어(`admin, 관리자, 운영자, system, gm, null, undefined`)와 ` 봇`으로 끝나는 이름 금지.
 - 온라인이면 중복 검사는 서버 기준(전역 유일). 오프라인이면 형식만 검사하고 `offline:true`를 돌려 화면에 "오프라인이라 중복 확인을 못 했어요"를 표시한다. 멀티 입장 때 다시 등록을 시도한다.
 - 시작 포인트 500. 기본 지급: `price===0`인 무기·이모트·캐릭터.
@@ -289,6 +292,7 @@ account.remoteEnabled
 
 ### Supabase (`supabase/schema.sql`, 새 프로젝트 전용)
 테이블 `public.fps_players(id, token_hash unique, name, name_key unique, points, owned jsonb, loadout jsonb, stats jsonb, secrets jsonb, created_at, updated_at)`. RLS 켜고 anon 직접 접근 없음. RPC(SECURITY DEFINER): `fps_check_nickname(p_name)`, `fps_claim_nickname(p_token, p_name)`, `fps_get_profile(p_token)`, `fps_save_profile(p_token, p_points, p_owned, p_loadout, p_stats, p_secrets)`, `fps_top_players(p_limit)`, `fps_features()`(서버가 아는 기능, 캐릭터 구매 열기). 설정 절차는 `docs/SUPABASE_SETUP.md`. 멀티 채널은 `skalafps:lobby`, `skalafps:room:<id>`이며 테이블이 필요 없다.
+로그인 연결·테스트 결제 절(`fps_tokens`, `fps_identities`, `fps_auth_used`, `fps_orders`, `fps_coin_ledger`, `fps_players.coins`, `fps_api_*`)은 server/api Worker만 Supabase 비밀 키로 부른다. 토큰으로 사람을 찾는 RPC는 `fps_player_id(hash)`로 처음 기기 토큰과 로그인으로 더한 토큰을 함께 본다.
 
 ## 8. UI
 

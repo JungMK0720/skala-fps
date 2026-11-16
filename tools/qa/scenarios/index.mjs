@@ -30,5 +30,6 @@ import notice from './notice.mjs';
 import zombie from './zombie.mjs';
 import zombieCoop from './zombie-coop.mjs';
 import feedback from './feedback.mjs';
+import online from './online.mjs';
 
-export const SCENARIOS = [firstRun, menus, practice, bomb, swap, keys, movers, notice, feedback, zombie, zombieCoop, weapons, damage, multikill, drops, mobile, mobileMenus, movement, props, debug, multi, controls, multiPlay, robust, monkey, gallery, maps];
+export const SCENARIOS = [firstRun, menus, practice, bomb, swap, keys, movers, notice, feedback, online, zombie, zombieCoop, weapons, damage, multikill, drops, mobile, mobileMenus, movement, props, debug, multi, controls, multiPlay, robust, monkey, gallery, maps];
