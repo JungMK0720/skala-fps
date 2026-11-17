@@ -165,7 +165,8 @@ export function createLoadout(ctx) {
       r.el.hidden = !on;
       if (!on) continue;
       shown = true;
-      const list = [...ctx.weapons.values()].filter((w) => w.slot === r.slot && (p.free || a.isOwned(w.id)));
+      // 좀비 전용 무기(유탄 발사기·바주카포)는 증강으로만 얻으므로 빠른 교체 줄에 넣지 않는다
+      const list = [...ctx.weapons.values()].filter((w) => w.slot === r.slot && !w.zombieOnly && (p.free || a.isOwned(w.id)));
       const sel = p.free ? (p.current && p.current[r.key]) || null : a.loadout[r.key];
       r.row.set(list.map((w) => ({ id: w.id, label: w.short || w.name, icon: w.icon, title: w.name })), sel);
     }

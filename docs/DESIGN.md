@@ -116,6 +116,7 @@ arsenal.getZoom() → { ..., level, levels }             // level 0 = 줌 아님
 ### 3.5 사운드 이름 (`js/fx/audio.js`)
 기존: `sniper, rifle, pistol, knife_slash, knife_hit, headshot, kill, hit_marker, ...`. 추가:
 `smg, shotgun, magnum, dmr, katana_swing, katana_heavy, katana_hit, half_shot, pad_boost, portal, secret_found, purchase, ui_click, bhop_land`.
+나중에 더한 것: `lmg`(좀비 물량 막기 전용 기관총 MG-100).
 없는 이름을 재생해도 오류 없이 무시한다.
 
 ## 4. 이동 물리 (`js/engine/movement.js`, `js/engine/player.js`, `js/engine/input.js`)

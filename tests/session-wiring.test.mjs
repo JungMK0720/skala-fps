@@ -1560,6 +1560,75 @@ describe('좀비 물량 막기 방', () => {
     assert.equal(nades[1].kind, undefined);
     env.dispose();
   });
+
+  test('기관총(좀비 전용): 좀비 방에서는 동료가 고르고 쏜 기관총이 방장 화면의 아바타에 그려진다', async (t) => {
+    const env = stage(t);
+    const a = env.client('a', '하늘', {}, { hordeRules: { prepMs: 400 } });
+    const b = env.client('b', '구름', {}, { hordeRules: { prepMs: 400 } });
+    a.world.localAlive = true;
+    b.world.localAlive = true;
+    await startMatch(env, [a, b], { mode: 'zombie' });
+    await env.run(1500);
+    b.ui.fire('loadout:pick', { id: 'mg_m249' });
+    b.world.fire('fire', { weaponId: 'mg_m249', origin: [0, 1, 0], dir: [0, 0, -1], hitPoint: null, hitKind: 'none', dist: 0, t: env.clock.t });
+    await env.run(500);
+    env.frames();
+    assert.equal(a.world.last('actorFire')[0].weaponId, 'mg_m249');
+    assert.equal(a.world.last('setActorState')[1].weaponId, 'mg_m249', '좀비 방에서는 동료가 든 기관총을 그린다');
+    env.dispose();
+  });
+
+  test('기관총(좀비 전용): 좀비 방에서 고른 기관총은 쓰러졌다 다음 스테이지에 일어날 때도 내 무기다(spawnLocal의 loadout)', async (t) => {
+    const env = stage(t);
+    const a = env.client('a', '하늘', {}, { hordeRules: { prepMs: 400 } });
+    const b = env.client('b', '구름', {}, { hordeRules: { prepMs: 400 } });
+    a.world.localAlive = true;
+    b.world.localAlive = true;
+    await startMatch(env, [a, b], { mode: 'zombie' });
+    await env.run(1500);
+    const first = b.world.last('spawnLocal')[0];
+    assert.notEqual(first.loadout, 'mg_m249', '처음 나올 때는 아직 고르기 전이라 계정 장비');
+    // 준비 시간에 N 목록에서 기관총을 고른다(고르기 화면의 'loadout:pick'과 월드의 'loadoutPick' 둘 다 같은 길로 간다)
+    b.ui.fire('loadout:pick', { id: 'mg_m249' });
+    await env.run(100);
+    // b가 쓰러진 채 스테이지 시간이 다 되면 다음 스테이지에 일어난다 → 새로 나올 때의 무기는 고른 기관총이다
+    const m = a.session.match;
+    const PB = m.internals.players.get('b');
+    PB.alive = false; PB.hp = 0; PB.downPos = [-22, 0, 0];
+    const before = b.world.calls('spawnLocal').length;
+    m.internals.S.stageEnd = m.internals.S.clock;
+    await env.run(800);
+    const spawns = b.world.calls('spawnLocal');
+    assert.ok(spawns.length > before, '다음 스테이지에 b가 다시 나온다');
+    assert.equal(spawns.at(-1)[0].loadout, 'mg_m249', '고른 기관총으로 일어난다');
+    env.dispose();
+  });
+});
+
+describe('기관총은 일반 모드에서 쓸 수 없다(좀비 전용)', () => {
+  test('팀전: 고르기 메시지·아바타 그리기·히트 판정 어느 쪽도 기관총을 받지 않는다', async (t) => {
+    const env = stage(t);
+    const a = env.client('a', '하늘');
+    const b = env.client('b', '구름');
+    await startMatch(env, [a, b], { mapId: 'jetty' });
+    // 장비 고르기: 기관총을 골라도 장비 메시지와 방장 경기에 실리지 않는다
+    b.ui.fire('loadout:pick', { id: 'mg_m249' });
+    await env.run(150);
+    assert.equal(env.hub.decoded(EV.loadout, 'b').at(-1).loadout.pick, 'ar_std');
+    assert.equal(a.session.match.state.players.find((p) => p.id === 'b').loadout, 'ar_std');
+    // 아바타: 고친 클라이언트가 기관총으로 쏴도 팀전 아바타는 기관총을 들지 않는다
+    await env.run(1400);
+    b.world.fire('fire', { weaponId: 'mg_m249', origin: [0, 1, 0], dir: [0, 0, -1], hitPoint: null, hitKind: 'none', dist: 0, t: env.clock.t });
+    await env.run(500);
+    env.frames();
+    assert.notEqual(a.world.last('setActorState')[1].weaponId, 'mg_m249');
+    // 판정: 방장이 규칙으로 거절한다
+    b.world.fire('hitClaim', { victimId: 'a', part: 'head', weaponId: 'mg_m249', dist: 5, kind: 'shot', t: env.clock.t, count: 1, shotId: 1 });
+    await env.run(150);
+    assert.ok(a.logs.some((l) => l[0] === 'reject' && l[1].reason === 'ruleset'), '방장이 규칙으로 거절');
+    assert.equal(a.world.calls('setLocalHp').length, 0);
+    env.dispose();
+  });
 });
 
 describe('팀 자동 배정', () => {
@@ -1691,6 +1760,9 @@ describe('장비 메시지', () => {
     assert.equal(preferredPick('sniper', OWNED, eq), 'sr_bolt', '스나전에 돌격소총 장비는 쓸 수 없다');
     assert.equal(preferredPick('sniper', OWNED, { primary: 'sr_twin' }), 'sr_twin');
     assert.equal(preferredPick('classic', ['ar_std'], { primary: 'ar_line' }), 'ar_std', '없는 무기는 고르지 않는다');
+    // 좀비 판에서 고른 기관총이 같은 규칙(클래식)의 '직전 선택'으로 남아도 일반 모드의 미리 고르기에는 들어오지 않는다
+    assert.equal(preferredPick('classic', OWNED, eq, 'mg_m249'), 'ar_rapid', '계정 장비로 돌아간다');
+    assert.equal(preferredPick('classic', null, { primary: 'mg_m249' }, 'mg_m249'), 'ar_std', '장비에 있어도 기본 소총');
     assert.equal(preferredPick('classic', null, null), 'ar_std');
     assert.equal(preferredPick('knife', null, null), 'ml_knife');
   });
@@ -1729,6 +1801,18 @@ describe('장비 메시지', () => {
     assert.equal(weaponForSlot(gear, 1, 'sniper', 'sr_twin'), 'sr_twin');
     assert.equal(weaponForSlot(gear, 1, 'knife'), 'ml_knife', '칼전이면 어떤 슬롯이든 칼');
     assert.equal(weaponForSlot(null, 4, 'knife'), 'ml_knife');
+  });
+
+  test('weaponForSlot: 좀비 전용 기관총은 좀비 방(zombie)에서만 든 것으로 그린다', () => {
+    const gear = { primary: 'mg_m249', secondary: 'pt_std', melee: 'ml_knife' };
+    assert.equal(weaponForSlot(gear, 1, 'classic'), 'ar_std', '일반 모드에서는 기관총을 그리지 않는다');
+    assert.equal(weaponForSlot(gear, 1, 'classic', 'mg_m249'), 'ar_std', '방장이 확정했다는 값이어도 마찬가지');
+    assert.equal(weaponForSlot(gear, 1, 'classic', null, false), 'ar_std');
+    assert.equal(weaponForSlot(gear, 1, 'classic', null, true), 'mg_m249');
+    assert.equal(weaponForSlot(null, 1, 'classic', 'mg_m249', true), 'mg_m249', '장비를 모르면 확정된 선택');
+    assert.equal(weaponForSlot(gear, 1, 'sniper', null, true), 'sr_bolt', '좀비 방이어도 스나전 규칙에는 기관총이 없다');
+    assert.equal(weaponForSlot(gear, 1, 'knife', null, true), 'ml_knife');
+    assert.deepEqual(readGear({ primary: 'mg_m249', pick: 'mg_m249' }), { primary: 'mg_m249', pick: 'mg_m249' }, '글자 읽기는 규칙을 묻지 않는다(그리기·판정에서 거른다)');
   });
 });
 

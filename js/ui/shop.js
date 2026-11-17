@@ -480,7 +480,8 @@ export function createShop(ctx) {
   });
 
   function build() {
-    const defs = [...ctx.weapons.values()].filter((d) => SLOT_KEYS[d.slot]);
+    // 좀비 물량 막기 전용 무기(zombieOnly)는 파는 물건이 아니다
+    const defs = [...ctx.weapons.values()].filter((d) => SLOT_KEYS[d.slot] && !d.zombieOnly);
     cards.clear();
     for (const d of defs) {
       const card = buildCard(d);

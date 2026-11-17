@@ -26,7 +26,7 @@ async function pickThroughLoadout(t, page, id, ruleset = 'classic') {
   await page.fn((o) => {
     const ids = o.ruleset === 'knife' ? o.melee : o.primary;
     window.__qa.ui.show('loadout', { weapons: ids, ruleset: o.ruleset, seconds: 0, selected: window.__qa.run.lastPick });
-  }, { ruleset, melee: MELEE_IDS, primary: ruleset === 'sniper' ? PRIMARY_IDS.filter((x) => WEAPONS[x].kind === 'sniper') : PRIMARY_IDS });
+  }, { ruleset, melee: MELEE_IDS, primary: ruleset === 'sniper' ? PRIMARY_IDS.filter((x) => WEAPONS[x].kind === 'sniper') : PRIMARY_IDS.filter((x) => !WEAPONS[x].zombieOnly) });
   await page.waitFor('__qa.ui.isVisible("loadout") && !__qa.ctx.input.locked', 3000, { label: '무기 선택 화면이 잠금을 푼다' });
   const isCard = ruleset === 'knife' ? def.slot === 3 : def.slot === 1;
   if (isCard) {

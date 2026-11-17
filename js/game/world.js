@@ -727,7 +727,7 @@ function buildWorld(ctx, opts) {
     const rs = rulesetOf(ruleset);
     const acc = accountLoadout();
     const key = SLOT_KEYS[rs.pickSlot];
-    const allowed = pickableWeapons(ruleset);
+    const allowed = pickableWeapons(ruleset, null, mode === 'zombie');
     const chosen = [pick, local.loadout, acc[key]].find((id) => allowed.includes(id)) || rs.defaultPick;
     return { ...acc, [key]: chosen };
   }
@@ -740,7 +740,8 @@ function buildWorld(ctx, opts) {
   /** 'classic' | 'knife' | 'sniper' — 쓸 수 있는 슬롯과 무기를 맞춘다. loadMap(mapId, { ruleset })도 같다. unloadMap은 클래식으로 되돌린다 */
   function setRuleset(id) {
     ruleset = normalizeRuleset(typeof id === 'string' ? id : DEFAULT_RULESET);   // 방 메타에서 온 값일 수 있다
-    if (local.loadout && !pickableWeapons(ruleset).includes(local.loadout)) local.loadout = null;
+    // 좀비 전용 주무기(기관총)는 좀비 물량 막기에서만 든다. 다른 모드로 넘어가면 기억해 둔 선택에서 빠진다
+    if (local.loadout && !pickableWeapons(ruleset, null, mode === 'zombie').includes(local.loadout)) local.loadout = null;
     arsenal.setAllowedSlots(rulesetOf(ruleset).slots);
     arsenal.setLoadout(resolveLoadout());
     settleArsenal();
@@ -997,8 +998,8 @@ function buildWorld(ctx, opts) {
   function setLocalLoadout(id) {
     const def = getDef(id);
     const key = def ? SLOT_KEYS[def.slot] : null;
-    if (!key || !isWeaponAllowed(ruleset, id)) return false;
-    if (pickableWeapons(ruleset).includes(id)) local.loadout = id;
+    if (!key || !isWeaponAllowed(ruleset, id, mode === 'zombie')) return false;
+    if (pickableWeapons(ruleset, null, mode === 'zombie').includes(id)) local.loadout = id;
     if (mode === 'zombie' && local.spawned && local.alive) {
       // 좀비 물량 막기는 언제든 바꿀 수 있는 대신 탄창이 이어진다: 내려놓는 총의 남은 탄을 기억하고, 다시 들면 그 탄 그대로 준다
       const old = arsenal.getLoadout()[key];
@@ -1092,7 +1093,7 @@ function buildWorld(ctx, opts) {
   }
   /** 항목 { id, weaponId, pos, mag, reserve }를 바닥에 놓는다. 이 규칙에서 못 쓰는 총이나 깨진 값이면 null */
   function addDrop(o) {
-    if (!active || !o || !isWeaponAllowed(ruleset, o.weaponId)) return null;
+    if (!active || !o || !isWeaponAllowed(ruleset, o.weaponId, mode === 'zombie')) return null;
     const { drop, evicted } = drops.add(o);
     for (const d of evicted) removeDropView(d.id);
     if (drop) addDropView(drop);
@@ -1142,7 +1143,7 @@ function buildWorld(ctx, opts) {
     if (!active || !map || rnd.phase !== 'live') return;
     const held = arsenal.getWeapon();
     const def = getDef(held.id);
-    if (!def || (def.slot !== 1 && def.slot !== 2) || !isWeaponAllowed(ruleset, held.id)) return;
+    if (!def || (def.slot !== 1 && def.slot !== 2) || !isWeaponAllowed(ruleset, held.id, mode === 'zombie')) return;
     const a = arsenal.getAmmo(held.id);
     const p = player.state.pos;
     placeLocalDrop({ id: held.id, mag: a.mag, reserve: a.reserve }, [p[0], floorUnder(p), p[2]]);

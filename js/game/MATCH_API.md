@@ -474,7 +474,7 @@ publish(h.m.start());                                      // sync.sendMatch(h.m
 | `knife` | 3 | 칼 4종 | `ml_knife` | 총·수류탄 주장은 `ruleset`으로 거절 |
 | `sniper` | 1·3 | 저격총 4종 | `sr_bolt` | 칼은 쓸 수 있다. 보조·수류탄·다른 주무기는 `ruleset`으로 거절 |
 
-- `claimHit`·`claimExplosion`은 `isWeaponAllowed(ruleset, weaponId)`가 false면 `reject 'ruleset'`이다.
+- `claimHit`·`claimExplosion`은 `isWeaponAllowed(ruleset, weaponId)`가 false면 `reject 'ruleset'`이다. 좀비 전용 무기(기관총 `mg_m249` 등, defs `zombieOnly`)는 `zombie` 인자를 넘기지 않으므로 이 경기들에서 늘 거절된다.
 - `setLoadout`은 `pickableWeapons(ruleset)`에 있는 id만 받는다. 고르지 않으면 `defaultPick(ruleset)`이다.
 - `player.loadout`, `phase.loadouts`, `spawn.loadout`은 규칙의 `pickSlot` 무기다. 칼전이면 칼 id다.
 - `roundStart`, `spawn`, 스냅샷(`rs`), 뷰(`view.ruleset`, `view.rules.ruleset`)에 규칙이 실린다. `restoreMatch`·`restoreFfaMatch`는 `view.rules`를 그대로 넘겨 규칙을 이어받는다.

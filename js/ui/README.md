@@ -192,7 +192,7 @@ props 없음. 계정에서 읽습니다. 닉네임 변경(같은 검사 + 저장
 
 ### `loadout`
 ```js
-{ weapons?: [id | def, ...] /*최대 11개. 생략하면 pickableWeapons(ruleset, 보유 무기)*/, ruleset? /*'classic'|'knife'|'sniper'*/,
+{ weapons?: [id | def, ...] /*11~12개. 생략하면 pickableWeapons(ruleset, 보유 무기). 좀비 물량 막기는 좀비 전용 기관총을 더한 12개*/, ruleset? /*'classic'|'knife'|'sniper'*/,
   seconds = 5 /*0·null이면 타이머 없음*/, selected? /*지난 선택, 시간 초과 시 기본값. 없으면 계정 장비 → 첫 무기*/, round?, title?,
   compact? /*true = 하단 작은 패널(개인전 부활 대기)*/,
   free? /*true = 가진 것과 상관없이 모든 무기(좀비 물량 막기)*/, current? /*free의 지금 장비 { primary, secondary, melee }*/,
