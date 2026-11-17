@@ -406,12 +406,15 @@ describe('supabase/schema.sql 건의함', () => {
     for (const shown of ["'kind'", "'body'", "'status'", "'reply'", "'at'", "'repliedAt'"]) assert.ok(out[0].includes(shown), shown);
   });
 
-  test('표는 RLS를 켜고 권한을 없앤다. 정책이 없다', () => {
+  test('표는 RLS를 켜고 권한을 모두 없앤다. 그 위에 더하는 것은 소유자 받은편지함의 열 단위 권한뿐이다', () => {
     assert.match(code, /alter table public\.fps_feedback enable row level security;/);
     assert.match(code, /revoke all on public\.fps_feedback from public, anon, authenticated;/);
     assert.match(code, /revoke all on sequence public\.fps_feedback_id_seq from public, anon, authenticated;/);
-    assert.ok(!/create policy/i.test(code));
-    assert.ok(!/grant [^;]* on (table )?public\.fps_feedback/i.test(code));
+    // 플레이어(anon)에게는 아무 권한도 없다. authenticated에게는 열 단위 select·update 둘뿐이다(자세한 대조는 tests/inbox.test.mjs)
+    const grants = [...code.matchAll(/grant\s+([^;]*?)\s+on\s+(?:table\s+)?public\.fps_feedback\s+to\s+([^;]+);/gi)];
+    assert.equal(grants.length, 2);
+    assert.ok(grants.every((g) => g[2].trim() === 'authenticated' && /^(select|update)\s*\(/i.test(g[1])), JSON.stringify(grants.map((g) => g.slice(1, 3))));
+    assert.ok([...code.matchAll(/create policy \w+ on ([\w.]+)/gi)].every((m) => m[1] === 'public.fps_feedback'));
   });
 
   test('RPC 두 개만 밖에서 부를 수 있고 정리·답 시각 함수는 닫혀 있다', () => {

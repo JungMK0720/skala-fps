@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<!--
+  Date: 06NOV2026
+  Author: Minkyu Jung
+  Purpose: 운영자 패널: 건의 받은편지함. 소유자 계정(Supabase Auth)으로 로그인해 플레이어 건의를 읽고 답과 상태를 저장한다. 관리자 표에 등록된 계정만 글을 볼 수 있고, 게임(3D)은 불러오지 않는다.
+-->
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <!-- 보안: 이 사이트의 스크립트만 쓰고 Supabase 프로젝트(js/config.js의 supabase.url)로만 접속한다. 주소를 바꾸면 connect-src도 바꾼다(tests/inbox.test.mjs가 확인) -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://tvsoacvbjvggqdgnzijc.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#05080f">
+  <title>SKALA 작전 — 건의 받은편지함</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root {
+      --ib-bg: #05080f; --ib-panel: #0e1524; --ib-line: rgba(130, 170, 230, .22); --ib-text: #eaf1fb; --ib-muted: #9dabc2;
+      --ib-cyan: #35e0ff; --ib-warn: #ffc845; --ib-bad: #ff4d6d; --ib-ok: #3ddc97; --ib-hold: #b79cff;
+      --ib-font: "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --ib-mono: ui-monospace, "Cascadia Mono", Consolas, "D2Coding", Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { margin: 0; min-height: 100%; background: var(--ib-bg); color: var(--ib-text); font: 15px/1.5 var(--ib-font); color-scheme: dark; }
+    body {
+      background:
+        radial-gradient(900px 480px at 85% -10%, rgba(53, 224, 255, .1), transparent 60%),
+        radial-gradient(900px 500px at 5% 110%, rgba(255, 200, 69, .08), transparent 60%), var(--ib-bg);
+    }
+    .ib { width: min(1180px, 100%); margin: 0 auto; padding: clamp(16px, 4vw, 32px) 16px 56px; display: flex; flex-direction: column; gap: 14px; }
+    .ib-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; }
+    .ib-title { margin: 0; font-size: clamp(22px, 4vw, 30px); letter-spacing: -.01em; }
+    .ib-title small { display: block; font-size: 13px; font-weight: 700; color: var(--ib-cyan); letter-spacing: .06em; }
+    .ib-who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .ib-card { padding: 16px 18px; border-radius: 14px; background: var(--ib-panel); box-shadow: inset 0 0 0 1px var(--ib-line), 0 14px 40px rgba(0, 0, 0, .35); }
+    .ib-narrow { width: min(460px, 100%); margin: 0 auto; }
+    .ib-card h2 { margin: 0 0 10px; font-size: 15px; color: var(--ib-cyan); letter-spacing: .03em; }
+    .ib-note, .ib-msg, .ib-meta { word-break: keep-all; overflow-wrap: anywhere; }   /* 한글은 낱말 중간에서 끊지 않고, 아주 긴 글자 덩어리만 넘치지 않게 끊는다 */
+    .ib-note { margin: 8px 0 0; font-size: 13px; color: var(--ib-muted); }
+    .ib-note[data-tone="bad"] { color: var(--ib-bad); font-weight: 800; }
+    .ib-note[data-tone="wait"] { color: var(--ib-warn); }
+    .ib-msg { min-height: 1.4em; margin: 8px 0 0; font-size: 13px; font-weight: 800; overflow-wrap: anywhere; }
+    .ib-msg[data-tone="ok"] { color: var(--ib-ok); }
+    .ib-msg[data-tone="bad"] { color: var(--ib-bad); }
+    .ib-msg[data-tone="wait"] { color: var(--ib-warn); }
+    .ib-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 13px; font-weight: 700; color: var(--ib-muted); }
+    input[type="email"], input[type="password"], input[type="text"], textarea, select {
+      width: 100%; font: inherit; color: var(--ib-text); background: rgba(4, 7, 14, .7); border: 1px solid var(--ib-line); border-radius: 10px; padding: 10px 12px; outline: none;
+    }
+    textarea { resize: vertical; min-height: 110px; line-height: 1.5; }
+    select { width: auto; }
+    input:focus, textarea:focus, select:focus { border-color: var(--ib-cyan); }
+    button {
+      font: inherit; font-weight: 800; cursor: pointer; color: var(--ib-text); background: rgba(255, 255, 255, .08); border: 1px solid var(--ib-line);
+      border-radius: 10px; padding: 10px 16px; min-height: 44px;
+    }
+    button:hover { background: rgba(255, 255, 255, .14); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    button.ib-primary { color: #04202a; background: linear-gradient(180deg, #7aeeff, var(--ib-cyan)); border-color: transparent; }
+    button.ib-primary:hover { filter: brightness(1.06); }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--ib-cyan); outline-offset: 2px; }
+    .ib-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .ib-btns .ib-grow { flex: 1 1 auto; }
+    .ib-chip { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12px; font-weight: 800; white-space: nowrap; background: rgba(255, 255, 255, .06); box-shadow: inset 0 0 0 1px var(--ib-line); color: var(--ib-muted); }
+    .ib-chip[data-kind="bug"] { color: var(--ib-bad); box-shadow: inset 0 0 0 1px rgba(255, 77, 109, .45); }
+    .ib-chip[data-kind="idea"] { color: var(--ib-cyan); box-shadow: inset 0 0 0 1px rgba(53, 224, 255, .45); }
+    .ib-chip[data-kind="balance"] { color: var(--ib-warn); box-shadow: inset 0 0 0 1px rgba(255, 200, 69, .45); }
+    .ib-chip[data-status="new"] { color: #1a1300; background: var(--ib-warn); box-shadow: none; }
+    .ib-chip[data-status="done"] { color: var(--ib-ok); box-shadow: inset 0 0 0 1px rgba(61, 220, 151, .45); }
+    .ib-chip[data-status="hold"] { color: var(--ib-hold); box-shadow: inset 0 0 0 1px rgba(183, 156, 255, .45); }
+    .ib-chip[data-tone="ok"] { color: var(--ib-ok); box-shadow: inset 0 0 0 1px rgba(61, 220, 151, .45); }
+    .ib-chip[data-tone="wait"] { color: var(--ib-warn); box-shadow: inset 0 0 0 1px rgba(255, 200, 69, .45); }
+
+    /* 거르기 줄 */
+    .ib-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+    .ib-filters { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 360px; }
+    .ib-filter { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; min-height: 40px; border-radius: 999px; font-size: 14px; }
+    .ib-filter b { font: 800 12px/1 var(--ib-mono); color: var(--ib-muted); }
+    .ib-filter[aria-pressed="true"] { color: #04202a; background: var(--ib-cyan); border-color: transparent; }
+    .ib-filter[aria-pressed="true"] b { color: #04202a; }
+    .ib-kind { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--ib-muted); }
+
+    /* 목록 · 내용 */
+    .ib-split { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); gap: 14px; align-items: start; }
+    .ib-pane { min-width: 0; }
+    .ib-list-pane { display: flex; flex-direction: column; gap: 8px; }
+    .ib-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: calc(100vh - 230px); min-height: 120px; overflow-y: auto; }
+    .ib-row {
+      display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 10px 12px; text-align: left; font-weight: 600; border-radius: 12px; background: var(--ib-panel);
+    }
+    .ib-row[aria-current="true"] { border-color: var(--ib-cyan); background: rgba(53, 224, 255, .1); }
+    .ib-row[data-status="new"] { box-shadow: inset 3px 0 0 var(--ib-warn); }
+    .ib-row-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 12px; }
+    .ib-row-id { font: 800 12px/1.4 var(--ib-mono); color: var(--ib-muted); }
+    .ib-row-name { min-width: 0; font-weight: 800; color: var(--ib-text); overflow-wrap: anywhere; }
+    .ib-row-time { margin-left: auto; font: 700 12px/1.4 var(--ib-mono); color: var(--ib-muted); white-space: nowrap; }
+    .ib-row-snip { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ib-muted); font-size: 14px; }
+    .ib-row[data-status="new"] .ib-row-snip { color: var(--ib-text); font-weight: 700; }
+    .ib-empty { margin: 0; padding: 28px 12px; text-align: center; color: var(--ib-muted); }
+    .ib-d-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0 0 6px; font-size: 18px; color: var(--ib-text); letter-spacing: 0; }
+    .ib-d-id { font: 800 16px/1 var(--ib-mono); color: var(--ib-muted); }
+    .ib-meta { margin: 0 0 10px; font-size: 13px; color: var(--ib-muted); overflow-wrap: anywhere; }
+    .ib-text { margin: 0 0 12px; padding: 12px 14px; font: inherit; font-size: 15px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 10px; background: rgba(4, 7, 14, .6); box-shadow: inset 0 0 0 1px var(--ib-line); }
+    .ib-diag { margin: 0 0 14px; font-size: 13px; color: var(--ib-muted); }
+    .ib-diag summary { cursor: pointer; font-weight: 800; }
+    .ib-info { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 8px 0 0; }
+    .ib-info dt { color: var(--ib-muted); }
+    .ib-info dd { margin: 0; color: var(--ib-text); overflow-wrap: anywhere; }
+    .ib-reply-label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 800; color: var(--ib-cyan); }
+    .ib-count { margin-right: auto; font: 700 12px/1 var(--ib-mono); color: var(--ib-muted); white-space: nowrap; }
+    .ib-count.is-over { color: var(--ib-bad); }
+    .ib-status-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; font-weight: 800; color: var(--ib-muted); }
+    .ib-status-row button[aria-pressed="true"] { border-color: var(--ib-cyan); color: var(--ib-cyan); }
+    .ib-back { display: none; margin-bottom: 10px; }
+    .ib-qr { display: block; width: 188px; height: 188px; margin: 10px 0; padding: 6px; border-radius: 10px; background: #fff; }
+    .ib-secret { display: block; margin: 4px 0 10px; padding: 8px 10px; font: 700 13px/1.5 var(--ib-mono); letter-spacing: .08em; border-radius: 8px; background: rgba(4, 7, 14, .7); overflow-wrap: anywhere; user-select: all; }
+    .ib-mfa summary { cursor: pointer; font-weight: 800; color: var(--ib-cyan); }
+
+    @media (max-width: 860px) {
+      .ib-split { grid-template-columns: 1fr; }
+      .ib-list { max-height: none; }
+      .ib[data-pane="list"] .ib-detail-pane { display: none; }
+      .ib[data-pane="detail"] .ib-list-pane { display: none; }
+      .ib-back { display: inline-block; }
+    }
+  </style>
+</head>
+<body>
+  <main class="ib" id="ib-root" data-view="login" data-pane="list">
+    <header class="ib-head">
+      <h1 class="ib-title"><small>SKALA 작전 · 운영자 패널</small>건의 받은편지함</h1>
+      <div class="ib-who" id="ib-who" hidden>
+        <span class="ib-chip" id="ib-user"></span>
+        <span class="ib-chip" id="ib-aal" data-tone="ok" hidden>2단계 인증됨</span>
+        <button type="button" id="ib-logout">로그아웃</button>
+      </div>
+    </header>
+
+    <section class="ib-card ib-narrow" id="ib-login-card" aria-labelledby="ib-login-h">
+      <h2 id="ib-login-h">로그인</h2>
+      <form id="ib-login">
+        <!-- 칸에 name을 주지 않는다: 스크립트가 못 떠서 폼이 그대로 제출돼도 이메일·비밀번호가 주소(GET)에 실려 가지 않게 한다 -->
+        <label class="ib-field"><span>이메일</span><input type="email" id="ib-email" autocomplete="username" spellcheck="false" required></label>
+        <label class="ib-field"><span>비밀번호</span><input type="password" id="ib-password" autocomplete="current-password" required></label>
+        <button type="submit" class="ib-primary" id="ib-login-btn">로그인</button>
+      </form>
+      <form id="ib-totp" autocomplete="off" hidden>
+        <label class="ib-field"><span>인증 앱에 보이는 6자리 코드</span><input type="text" id="ib-totp-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" spellcheck="false"></label>
+        <div class="ib-btns"><button type="submit" class="ib-primary" id="ib-totp-btn">확인</button><button type="button" id="ib-totp-back">처음으로</button></div>
+      </form>
+      <p class="ib-msg" id="ib-login-msg" role="alert"></p>
+      <p class="ib-note">소유자 계정만 쓸 수 있습니다. 계정을 만들고 권한을 주는 순서는 docs/FEEDBACK_INBOX_SOP.md에 있습니다.</p>
+    </section>
+
+    <section class="ib-card ib-narrow" id="ib-denied-card" aria-labelledby="ib-denied-h" hidden>
+      <h2 id="ib-denied-h">받은편지함을 열 수 없어요</h2>
+      <p class="ib-note" id="ib-denied-text" role="alert"></p>
+      <div class="ib-btns" style="margin-top: 10px"><button type="button" class="ib-primary" id="ib-denied-retry">다시 확인</button></div>
+    </section>
+
+    <div id="ib-app" hidden>
+      <div class="ib-bar">
+        <div class="ib-filters" id="ib-chips" role="group" aria-label="상태로 거르기"></div>
+        <label class="ib-kind"><span>종류</span><select id="ib-kind"><option value="">전체</option></select></label>
+        <button type="button" id="ib-refresh">새로고침</button>
+      </div>
+      <div class="ib-split">
+        <section class="ib-pane ib-list-pane" aria-label="받은 건의">
+          <p class="ib-note" id="ib-list-note" role="status"></p>
+          <ul class="ib-list" id="ib-list"></ul>
+          <button type="button" id="ib-more" hidden>더 보기</button>
+        </section>
+        <section class="ib-pane ib-detail-pane ib-card" aria-label="건의 내용">
+          <p class="ib-empty" id="ib-detail-empty">목록에서 건의를 고르세요.</p>
+          <div id="ib-detail-body" hidden>
+            <button type="button" class="ib-back" id="ib-back">← 목록으로</button>
+            <h2 class="ib-d-title"><span class="ib-d-id" id="ib-d-id"></span><span class="ib-chip" id="ib-d-kind"></span><span class="ib-chip" id="ib-d-status"></span></h2>
+            <p class="ib-meta" id="ib-d-meta"></p>
+            <pre class="ib-text" id="ib-d-text"></pre>
+            <details class="ib-diag" open>
+              <summary>진단 정보</summary>
+              <dl class="ib-info" id="ib-d-info"></dl>
+              <p class="ib-note" id="ib-d-info-empty" hidden>진단 정보가 없습니다.</p>
+            </details>
+            <form id="ib-reply-form" autocomplete="off">
+              <label class="ib-reply-label" for="ib-reply">운영자 답 (보낸 사람의 건의하기 시트에 보입니다)</label>
+              <textarea id="ib-reply" spellcheck="false"></textarea>
+              <div class="ib-btns" style="margin-top: 8px">
+                <span class="ib-count" id="ib-reply-count">0 / 500</span>
+                <button type="submit" class="ib-primary" id="ib-reply-save">답 저장</button>
+              </div>
+            </form>
+            <div class="ib-status-row" id="ib-status-row" role="group" aria-label="상태 바꾸기"><span>상태 바꾸기</span></div>
+            <p class="ib-msg" id="ib-d-msg" role="status"></p>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <details class="ib-card ib-mfa" id="ib-mfa-card" hidden>
+      <summary>2단계 인증 (선택)</summary>
+      <p class="ib-note" id="ib-mfa-state"></p>
+      <div class="ib-btns" style="margin-top: 8px"><button type="button" id="ib-mfa-start">인증 앱 등록 시작</button></div>
+      <div id="ib-mfa-enroll" hidden>
+        <p class="ib-note">인증 앱(구글 OTP, Microsoft Authenticator 등)으로 QR을 읽거나 아래 키를 직접 입력한 뒤, 앱에 보이는 6자리 코드를 넣어 확인하세요.</p>
+        <img class="ib-qr" id="ib-mfa-qr" alt="인증 앱으로 읽는 QR 코드" width="188" height="188" hidden>
+        <code class="ib-secret" id="ib-mfa-secret"></code>
+        <form id="ib-mfa-form" autocomplete="off">
+          <label class="ib-field"><span>인증 앱의 6자리 코드</span><input type="text" id="ib-mfa-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" spellcheck="false"></label>
+          <div class="ib-btns"><button type="submit" class="ib-primary">등록 확인</button><button type="button" id="ib-mfa-cancel">취소</button></div>
+        </form>
+      </div>
+      <p class="ib-msg" id="ib-mfa-msg" role="status"></p>
+    </details>
+  </main>
+  <noscript><p style="padding: 24px">이 페이지는 JavaScript가 필요합니다.</p></noscript>
+  <script src="../js/config.js"></script>
+  <script type="module" src="../js/admin/inbox-panel.js"></script>
+</body>
+</html>

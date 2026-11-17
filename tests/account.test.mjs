@@ -1956,7 +1956,11 @@ describe('supabase/schema.sql', () => {
     assert.ok(!/create\s+table\s+(?!if not exists)/i.test(code));
     assert.ok(!/create\s+function/i.test(code), '함수는 create or replace만 쓴다');
     assert.ok(!/create\s+(unique\s+)?index\s+(?!if not exists)/i.test(code));
-    assert.ok(!/\bdrop\s/i.test(code), '데이터를 지우는 문장이 없다');
+    // 데이터를 지우는 문장은 없다. drop은 받은편지함의 정책 둘을 이름을 정해 지웠다 바로 다시 만드는 줄뿐이다(tests/inbox.test.mjs가 그 둘을 확인한다)
+    assert.deepEqual(
+      [...code.matchAll(/\bdrop\s+(\w+)(?:\s+if\s+exists)?\s+(\w+)/gi)].map((m) => `${m[1]} ${m[2]}`.toLowerCase()),
+      ['policy fps_feedback_owner_select', 'policy fps_feedback_owner_update']
+    );
     assert.ok(!/\b(truncate|delete from)\b/i.test(code));
     assert.match(code, /create extension if not exists pgcrypto with schema extensions;/);
     assert.equal((code.match(/\$\$/g) || []).length % 2, 0, '$$ 짝이 맞는다');
@@ -1965,7 +1969,8 @@ describe('supabase/schema.sql', () => {
   test('테이블은 RLS를 켜고 직접 권한을 없앤다', () => {
     assert.match(code, /alter table public\.fps_players enable row level security;/);
     assert.match(code, /revoke all on public\.fps_players from public, anon, authenticated;/);
-    assert.ok(!/create policy/i.test(code));
+    // 정책은 건의함(소유자 받은편지함)에만 있다. 계정 표는 정책도 권한도 없다
+    assert.ok([...code.matchAll(/create policy \w+ on ([\w.]+)/gi)].every((m) => m[1] === 'public.fps_feedback'));
     assert.ok(!/grant [^;]* on (table )?public\.fps_players/i.test(code));
     for (const col of ['id', 'token_hash', 'name', 'name_key', 'points', 'owned', 'loadout', 'stats', 'secrets', 'created_at', 'updated_at']) {
       assert.match(code, new RegExp(`^\\s+${col} `, 'm'), col);
