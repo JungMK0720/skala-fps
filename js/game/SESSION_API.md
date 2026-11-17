@@ -157,7 +157,7 @@ ui.on('menu:multi', () => s.open({ name: ctx.session.name }));
 | `sniper` 스나전 | 주무기 | 보유한 저격총 | 계정 장비 → `sr_bolt` | 1·3 |
 
 - 정본은 방장이다: `rules.ruleset`이 경기에 들어가고 스냅샷 `rs`로 모두에게 간다. 스냅샷의 규칙이 들어올 때 받은 값과 다르면 `world.setRuleset`으로 맞춘다.
-- `modes.js`의 `pickableWeapons(ruleset, owned)`, `defaultPick(ruleset)`만 쓴다(`owned` = `ctx.account.profile.owned`). 미리 골라 둘 무기는 `preferredPick(ruleset, owned, equipped, last)`: 이 규칙에서 직전에 고른 것 → 계정 장비 → 규칙 기본값.
+- `modes.js`의 `pickableWeapons(ruleset, owned)`, `defaultPick(ruleset)`만 쓴다(`owned` = `ctx.account.profile.owned`). 좀비 방(`mode: 'zombie'`)만 `zombie`(true)를 더 넘겨 좀비 전용 기관총을 고르고(`pickLoadout`) 원격 아바타에 그린다(`weaponForSlot(gear, slot, ruleset, confirmed, zombie)`). 다른 방에서는 기관총을 고르기·그리기·히트 판정 모두 받지 않는다. 미리 골라 둘 무기는 `preferredPick(ruleset, owned, equipped, last)`: 이 규칙에서 직전에 고른 것 → 계정 장비 → 규칙 기본값.
 - 칼전에 총·수류탄 주장을 보내면 방장이 `reject 'ruleset'`으로 거절한다(`claimHit`·`claimExplosion`).
 - **장비 메시지 `g2l`**: `gearMessage(ruleset, pick, equipped)` + `{ round, m }`. `pick`은 그 칸에 고른 무기, `primary`·`secondary`·`melee`는 다른 사람 화면에 그릴 장비다. 받는 쪽은 `readGear`로 `getDef`와 슬롯을 확인하고 틀린 값은 조용히 버린다. 최악 117B(예산 256B).
 - **원격 무기 표시**: `weaponForSlot(gear, slot, ruleset, confirmed)` = 그 사람의 장비 → (고르는 칸이면) 방장이 확정한 선택 → 규칙 기본값 → 기본 장비. 사격 메시지의 무기가 오면 그 칸의 장비를 고친다. 칼은 어떤 칼이든 맞게 그려진다.

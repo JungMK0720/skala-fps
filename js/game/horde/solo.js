@@ -15,6 +15,14 @@ const PUSH_MS = 50;                       // 혼자일 때 화면에 스냅샷�
 // 혼자일 때는 증강을 고르는 동안 좀비·스테이지 시간이 멈추고, 시간 제한을 사실상 두지 않는다(10분 지나면 무작위)
 const SOLO_RULES = Object.freeze({ cardMs: 10 * 60 * 1000, pauseOnCards: true });
 
+/**
+ * 좀비 물량 막기에서 스폰할 주무기: 쓸 수 있는 무기 id면 그대로, 아니면 기본 주무기.
+ * 이 모드에서는 좀비 전용 기관총(zombieOnly)도 쓸 수 있다(isWeaponAllowed의 zombie 인자). 다른 모드의 규칙과 달리 계정 보유와 상관없이 고른다
+ */
+export function hordeSpawnPrimary(id) {
+  return id && getDef(id) && isWeaponAllowed('classic', id, true) ? id : DEFAULT_LOADOUT.primary;
+}
+
 /** 고른 카드 목록 → 결과 화면 칸 [{ id, name, icon, color, n, desc }] (같은 카드는 묶는다) */
 export function cardRows(ids) {
   const m = new Map();
@@ -43,8 +51,7 @@ export function startHordeSolo(o) {
   let lastPick = null;
   const pick = () => {
     const lo = ctx.account && ctx.account.loadout;
-    const id = lastPick || (lo && lo.primary);
-    return id && getDef(id) && isWeaponAllowed('classic', id) ? id : DEFAULT_LOADOUT.primary;
+    return hordeSpawnPrimary(lastPick || (lo && lo.primary));
   };
   // 좀비 전용 맵은 좀비가 좀비 문(레드 쪽 스폰 자리)에서만 나온다
   const gates = isZombieMap(info.data || map.data) && map.spawns && Array.isArray(map.spawns.charterer) ? map.spawns.charterer : undefined;

@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import * as defs from '../js/weapons/defs.js';
 import { createArsenal, validateHit, shotDirection, STATES } from '../js/weapons/logic.js';
 import { GRENADE_PHYSICS, explosionDamage } from '../js/weapons/grenade.js';
+import { hordeAmmo } from '../js/game/horde/rules.js';
 import {
   RULESET_IDS, isWeaponAllowed, pickableWeapons, defaultPick, rulesetOf, normalizeRuleset,
   FFA_KILLS, FFA_KILL_PRESETS, parseKillTarget, normalizeKillTarget,
@@ -48,7 +49,12 @@ const SNIPER_IDS = ['sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy'];
 const RIFLE_IDS = ['ar_std', 'ar_rapid', 'ar_line', 'ar_burst'];
 const ALL_IDS = [...GUN_IDS, ...Object.keys(MELEE_TABLE), 'gr_frag'];
 /** 좀비 물량 막기 전용 보조무기(docs/MODES.md, zombieOnly). 증강으로만 얻고 상점·로드아웃·봇·다른 모드에는 나오지 않는다 */
-const ZOMBIE_ONLY_IDS = ['gl_m32', 'rl_b9'];
+const ZOMBIE_LAUNCHER_IDS = ['gl_m32', 'rl_b9'];
+/** 좀비 물량 막기 전용 주무기: 기관총. 그 모드의 무기 고르기 창과 무기 교체권으로만 들고, 다른 모드에서는 어떤 규칙에서도 쓸 수 없다 */
+const ZOMBIE_GUN_IDS = ['mg_m249'];
+const ZOMBIE_ONLY_IDS = [...ZOMBIE_LAUNCHER_IDS, ...ZOMBIE_GUN_IDS];
+/** 좀비가 아닌 모드에서 고르는 주무기(표 순서) */
+const PVP_PRIMARY = () => PRIMARY_IDS.filter((id) => !WEAPONS[id].zombieOnly);
 
 /* ---------- 도우미 ---------- */
 const DT = 1 / 60;
@@ -78,7 +84,9 @@ describe('무기 표(DESIGN 3.2)', () => {
     assert.deepEqual([...WEAPON_IDS].sort(), [...ALL_IDS, ...ZOMBIE_ONLY_IDS].sort());
     assert.equal(WEAPON_IDS.length, 18 + ZOMBIE_ONLY_IDS.length);
     assert.deepEqual(WEAPON_IDS.filter((id) => !WEAPONS[id].zombieOnly).sort(), [...ALL_IDS].sort());
-    assert.deepEqual([...PRIMARY_IDS].sort(), [...RIFLE_IDS, 'dm_mark', 'sm_vx3', 'sg_bx12', ...SNIPER_IDS].sort());
+    assert.deepEqual([...PVP_PRIMARY()].sort(), [...RIFLE_IDS, 'dm_mark', 'sm_vx3', 'sg_bx12', ...SNIPER_IDS].sort());
+    assert.deepEqual(PRIMARY_IDS.filter((id) => WEAPONS[id].zombieOnly), ZOMBIE_GUN_IDS, '좀비 전용 주무기는 기관총 하나이고 목록 맨 끝이다');
+    assert.equal(PRIMARY_IDS[PRIMARY_IDS.length - 1], 'mg_m249');
     assert.deepEqual(SECONDARY_IDS.filter((id) => !WEAPONS[id].zombieOnly).sort(), ['pt_magnum', 'pt_std']);
     assert.deepEqual([...SECONDARY_IDS].sort(), ['gl_m32', 'pt_magnum', 'pt_std', 'rl_b9']);
     assert.deepEqual([...MELEE_IDS].sort(), ['ml_gurkha', 'ml_katana', 'ml_knife', 'ml_tanto']);
@@ -90,10 +98,29 @@ describe('무기 표(DESIGN 3.2)', () => {
     assert.deepEqual({ ...DEFAULT_LOADOUT }, { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
   });
 
+  test('좀비 전용 무기는 어느 규칙의 고르는 목록에도, 허용 무기에도 없다(좀비 물량 막기만 넘기는 zombie 인자가 있을 때만)', () => {
+    for (const r of RULESET_IDS) {
+      for (const id of ZOMBIE_ONLY_IDS) {
+        assert.equal(isWeaponAllowed(r, id), false, `${r} ${id}`);
+        assert.ok(!pickableWeapons(r).includes(id), `${r} ${id}`);
+        assert.ok(!pickableWeapons(r, null, false).includes(id), `${r} ${id} (zombie=false)`);
+      }
+    }
+    // 좀비 물량 막기(클래식 규칙, zombie = true)에서만 기관총이 고르는 목록에 들고 발사기·칼전·스나전은 그대로 안 열린다
+    assert.deepEqual(pickableWeapons('classic', null, true), [...PRIMARY_IDS]);
+    assert.equal(isWeaponAllowed('classic', 'mg_m249', true), true);
+    assert.equal(isWeaponAllowed('classic', 'gl_m32', true), true);
+    assert.equal(isWeaponAllowed('classic', 'mg_m249', 'yes'), false, '정확히 true일 때만 연다');
+    assert.equal(isWeaponAllowed('knife', 'mg_m249', true), false);
+    assert.equal(isWeaponAllowed('sniper', 'mg_m249', true), false);
+    assert.deepEqual(pickableWeapons('knife', null, true), [...MELEE_IDS]);
+    assert.deepEqual([...pickableWeapons('sniper', null, true)].sort(), [...SNIPER_IDS].sort());
+  });
+
   test('좀비 전용 보조무기는 폭발로만 피해를 주는 발사기이고 상점 값이 없으며 고르는 목록에 없다', () => {
     for (const id of ALL_IDS) assert.ok(!WEAPONS[id].zombieOnly, id);
     const projectile = { gl_m32: 'gl', rl_b9: 'rocket' };
-    for (const id of ZOMBIE_ONLY_IDS) {
+    for (const id of ZOMBIE_LAUNCHER_IDS) {
       const d = WEAPONS[id];
       assert.equal(d.zombieOnly, true, id);
       assert.equal(d.slot, 2, id);
@@ -1596,11 +1623,118 @@ describe('사격', () => {
   });
 });
 
+/* ---------- MG-100 기관총(좀비 물량 막기 전용) ---------- */
+describe('MG-100 기관총(mg_m249, 좀비 전용)', () => {
+  const D = WEAPONS.mg_m249;
+  const gun = () => createArsenal({ primary: 'mg_m249', rng: () => 0 });
+
+  test('표: 주무기 · 연사 750rpm · 탄창 100발 · 예비 두 탄창 · 이동 70% · 상점 값 없는 좀비 전용', () => {
+    assert.equal(D.slot, 1);
+    assert.equal(D.kind, 'lmg');
+    assert.equal(D.category, 'lmg');
+    assert.equal(D.fire, 'auto');
+    assert.equal(D.rpm, 750);
+    near(D.fireInterval, 60 / 750);
+    assert.equal(D.mag, 100, '탄창은 100발');
+    assert.equal(D.reserve, 200, '예비는 다른 총과 같은 두 탄창이다(무제한이 아니다)');
+    assert.equal(D.premium, false);
+    assert.equal(D.price, 0);
+    assert.equal(D.zombieOnly, true);
+    assert.equal(D.moveMul, 0.7);
+    assert.deepEqual({ ...D.damage }, { head: 90, body: 22, legs: 16, hand: 11, foot: 11 });
+    assert.equal(D.sound, 'lmg');
+    assert.equal(D.fxKind, 'rifle');
+    assert.ok(minShotInterval('mg_m249') > 0.07 && minShotInterval('mg_m249') < 0.09);
+  });
+
+  test('카드 문구가 표의 숫자와 같다', () => {
+    const text = D.stats.map((s) => `${s.label} ${s.value}`).join('\n');
+    for (const want of ['100 / 200', '이동 70%', '750 rpm', '머리 90', '몸 22', '다리 16', '손·발 11', '25~70 m → 70%', '1.4배 · 이동 60%']) {
+      assert.ok(text.includes(want), want);
+    }
+  });
+
+  test('들고 있는 동안만 느리다: 모든 무기 중 가장 느리고, 조준하면 더 느리고, 칼로 바꾸면 빨라진다', () => {
+    for (const id of WEAPON_IDS) if (id !== 'mg_m249') assert.ok(WEAPONS[id].moveMul > D.moveMul, `${id}가 더 빠르다`);
+    const a = gun();
+    run(a, 2);
+    near(a.getMoveMul(), 0.7);
+    run(a, 2, { zoomDown: true });
+    near(a.getMoveMul(), 0.7 * D.zoom.moveMul);
+    assert.ok(a.getMoveMul() < 0.5);
+    run(a, 2);
+    near(a.getMoveMul(), 0.7, 1e-3);
+    a.update(DT, { slot: 3 });
+    run(a, 2);
+    assert.equal(a.getWeapon().id, 'ml_knife');
+    near(a.getMoveMul(), WEAPONS.ml_knife.moveMul);
+    a.update(DT, { slot: 1 });
+    run(a, 2);
+    assert.equal(a.getWeapon().id, 'mg_m249');
+    near(a.getMoveMul(), 0.7);
+  });
+
+  test('한 탄창 100발을 8초 동안 쉬지 않고 쏟아낸 뒤 재장전한다', () => {
+    const a = gun();
+    const evs = run(a, 9, { fireDown: true });
+    const shots = only(evs, 'fire');
+    assert.equal(shots.length, 100);
+    assert.ok(shots[99].t > 7.5 && shots[99].t < 8.4, `${shots[99].t}초에 마지막 발`);
+    assert.equal(a.getAmmo().mag, 0);
+    assert.equal(only(evs, 'reloadStart').length, 1);
+    const end = run(a, D.reloadEmpty + 0.2);
+    assert.equal(only(end, 'reloadEnd').length, 1);
+    assert.equal(a.getAmmo().mag, 100);
+    assert.equal(a.getAmmo().reserve, 100, '예비 200에서 100발을 채웠다');
+  });
+
+  test('라이플보다 무겁다: 꺼내기·재장전이 길고 탄이 더 퍼지고 반동이 크다', () => {
+    const std = WEAPONS.ar_std;
+    assert.ok(D.drawTime > std.drawTime * 1.5 && D.reload > std.reload * 1.8 && D.reloadEmpty >= D.reload);
+    for (const k of ['hip', 'ads', 'move', 'adsMove', 'bloomMax']) assert.ok(D.spread[k] > std.spread[k], `탄퍼짐 ${k}`);
+    assert.ok(D.recoil.maxPitch > std.recoil.maxPitch && D.recoil.maxYaw > std.recoil.maxYaw);
+    const rise = (id) => WEAPONS[id].recoil.pattern.slice(0, 8).reduce((s, p) => s + p[1], 0);
+    assert.ok(rise('mg_m249') > rise('ar_std'), '처음 8발이 RX-4보다 위로 더 솟는다');
+    // 대신 한 탄창의 피해가 훨씬 크다
+    assert.ok(D.mag * D.damage.body > std.mag * std.damage.body * 2.5);
+  });
+
+  test('반동 패턴은 40칸이고 21발째부터 20발 주기로 되풀이되며 한 주기의 좌우 합은 0이다', () => {
+    const r = D.recoil;
+    assert.equal(r.pattern.length, 40);
+    assert.equal(r.loopFrom, 20);
+    near(r.pattern.slice(r.loopFrom).reduce((s, p) => s + p[0], 0), 0, 0.02);
+    for (let i = 0; i < 8; i++) assert.ok(r.pattern[i][1] >= 0.5, `${i + 1}발째 솟는 양`);
+    for (const [, y] of r.pattern.slice(r.loopFrom)) assert.ok(y > 0 && y <= 0.15, '되풀이 구간은 조금씩 계속 오른다');
+    const a = gun();
+    run(a, 3, { fireDown: true });
+    assert.ok(a.getRecoilKick().pitch > 0, '쏘면 카메라가 솟는다');
+  });
+
+  test('피해는 몸 22 · 머리 90이고 25 m부터 줄어 70 m에서 70%다(머리도 줄어든다)', () => {
+    assert.equal(computeDamage('mg_m249', 'body', 0), 22);
+    assert.equal(computeDamage('mg_m249', 'head', 0), 90);
+    assert.equal(computeDamage('mg_m249', 'body', 25), 22);
+    assert.equal(computeDamage('mg_m249', 'body', 70), Math.round(22 * 0.7));
+    assert.equal(computeDamage('mg_m249', 'head', 70), Math.round(90 * 0.7));
+    assert.equal(computeDamage('mg_m249', 'body', 500), Math.round(22 * 0.7));
+  });
+
+  test('좀비 물량 막기에서는 예비 탄이 세 배라 100 / 600이다', () => {
+    assert.deepEqual(hordeAmmo(D), { mag: 100, reserve: 600 });
+    const a = createArsenal({ primary: 'mg_m249' });
+    a.setMods({ reserve: 3 });
+    a.resetRound();
+    assert.equal(a.getAmmo('mg_m249').magSize, 100);
+    assert.equal(a.getAmmo('mg_m249').reserve, 600);
+  });
+});
+
 /* ---------- modes.js ---------- */
 describe('규칙(modes.js)', () => {
   test('클래식은 모든 무기를 허용한다', () => {
     for (const id of ALL_IDS) assert.equal(isWeaponAllowed('classic', id), true, id);
-    assert.deepEqual(pickableWeapons('classic'), [...PRIMARY_IDS]);
+    assert.deepEqual(pickableWeapons('classic'), PVP_PRIMARY());
     assert.equal(defaultPick('classic'), 'ar_std');
   });
 
@@ -1623,7 +1757,7 @@ describe('규칙(modes.js)', () => {
     assert.equal(normalizeRuleset('없는 규칙'), 'classic');
     assert.equal(rulesetOf('없는 규칙').id, 'classic');
     assert.equal(isWeaponAllowed('없는 규칙', 'ar_std'), true);
-    assert.deepEqual(pickableWeapons('없는 규칙'), [...PRIMARY_IDS]);
+    assert.deepEqual(pickableWeapons('없는 규칙'), PVP_PRIMARY());
   });
 
   test('owned를 주면 가진 것만 남긴다', () => {

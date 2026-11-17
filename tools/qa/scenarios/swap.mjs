@@ -57,6 +57,15 @@ export default {
     t.check(/바로 바뀌어요/.test(sheet.sub) && /N 또는 Esc/.test(sheet.sub), '누르면 바로 바뀐다는 안내와 닫는 키', sheet);
     t.check(/몇 번이든/.test(sheet.foot), '라운드 전까지 다시 바꿀 수 있다고 알린다', sheet);
     t.check(sheet.cards.length >= 4, '가진 주무기가 모두 나온다', sheet.cards);
+    t.check(!sheet.cards.includes('MG-100 기관총'), '좀비 전용 기관총은 팀전 목록에 없다', sheet.cards);
+    // 목록에 없을 뿐 아니라 월드를 직접 불러도 받지 않는다(무기 고르기·바닥 총 모두)
+    const gate = await page.eval(`(() => {
+      const w = __qa.world, before = __qa.arsenal.getLoadout().primary;
+      const set = w.setLocalLoadout('mg_m249');
+      const drop = !!w.addDrop({ id: 'qa#mg', weaponId: 'mg_m249', pos: [0, 0, 0], mag: 10, reserve: 10 });
+      return { set, drop, before, after: __qa.arsenal.getLoadout().primary };
+    })()`);
+    t.check(gate.set === false && gate.drop === false && gate.after === gate.before && gate.after !== 'mg_m249', '팀전: 월드가 좀비 전용 기관총을 받지 않는다(고르기·바닥 총)', gate);
     await t.shot('list');
 
     // 무기를 누르면 바로 바뀌고 닫힌다

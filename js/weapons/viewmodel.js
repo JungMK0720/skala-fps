@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 1인칭 무기 모형(뷰모델). 17종 무기와 수류탄을 도형·캔버스 텍스처로 만들고 사격·재장전·베기·점검 동작을 재생한다.
+ * Purpose: 1인칭 무기 모형(뷰모델). 17종 무기와 수류탄(+ 좀비 전용 기관총)을 도형·캔버스 텍스처로 만들고 사격·재장전·베기·점검 동작을 재생한다.
  */
 
 /*
@@ -33,7 +33,7 @@ export const VIEWMODEL_LAYER = 30;
 /** 모형을 가진 무기 id(DESIGN 3.2 표 순서) */
 export const VIEWMODEL_IDS = Object.freeze([
   'ar_std', 'ar_rapid', 'ar_line', 'ar_burst', 'dm_mark', 'sm_vx3', 'sg_bx12',
-  'sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy', 'pt_std', 'pt_magnum', 'ml_knife', 'ml_tanto', 'ml_gurkha', 'ml_katana', 'gr_frag',
+  'sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy', 'mg_m249', 'pt_std', 'pt_magnum', 'ml_knife', 'ml_tanto', 'ml_gurkha', 'ml_katana', 'gr_frag',
 ]);
 
 const RO = 10000;                 // renderOrder 기준(월드의 투명 물체보다 뒤에 그려지도록 크게)
@@ -47,7 +47,7 @@ const COLOR = {
 /** 팀별 소매 색(core TEAMS 색과 맞춤) */
 const TEAM_SLEEVE = { owner: 0x22407a, charterer: 0xb8323b };
 /** 표에 있지만 빌더가 없는 무기는 kind로 닮은 모형을 쓴다 */
-const KIND_FALLBACK = { rifle: 'ar_std', dmr: 'dm_mark', smg: 'sm_vx3', shotgun: 'sg_bx12', sniper: 'sr_bolt', pistol: 'pt_std', melee: 'ml_knife', grenade: 'gr_frag', launcher: 'sg_bx12', rocket: 'sr_heavy' };
+const KIND_FALLBACK = { rifle: 'ar_std', dmr: 'dm_mark', smg: 'sm_vx3', shotgun: 'sg_bx12', sniper: 'sr_bolt', pistol: 'pt_std', melee: 'ml_knife', grenade: 'gr_frag', launcher: 'sg_bx12', rocket: 'sr_heavy', lmg: 'ar_std' };
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const num = (v, d = 0) => (Number.isFinite(v) ? v : d);
@@ -1822,6 +1822,94 @@ export function createViewmodel(camera, opts = {}) {
     };
   }
 
+  // ── 기관총 MG-100 (좀비 물량 막기 전용) ────────────────────────
+  /**
+   * 박스 탄창 기관총. 배 밑의 탄약 상자(parts.mag)가 재장전에 빠졌다 들어가고, 급탄 덮개(parts.cover)가 뒤쪽 경첩을 따라 열렸다 닫힌다(lmgReload).
+   * 철제 조준기: 덮개 위의 뒤 가늠구멍과 총열 밑동의 앞 가늠쇠가 같은 높이(aimY)라 조준하면 둘이 겹친다.
+   */
+  function buildMgM249() {
+    const g = new THREE.Group();
+    const parts = {};
+    const id = 'mg_m249';
+    const aimY = 0.066;
+    const body = paint(0x2a2d2f, { rough: 0.55, metal: 0.4 });
+    const shell = paint(0x3a3d3a, { rough: 0.6, metal: 0.3 });                 // 총열덮개·급탄 덮개
+    const poly = paint(0x34382f, { rough: 0.78, metal: 0.08, glow: 0.12 });    // 개머리·손잡이(올리브 폴리머)
+    const boxCol = paint(0x4b5230, { rough: 0.62, metal: 0.25 });               // 탄약 상자(국방색)
+    const accent = paint(accentOf(id, 0xa39a4f), { rough: 0.45, metal: 0.15, glow: 0.24 });
+    // 리시버와 방아쇠울 집
+    prof([[-0.15, 0.034], [0.07, 0.034], [0.086, 0.016], [0.082, -0.03], [-0.15, -0.03]], 0.054, body, g, 0, 0, 0, 0.0028);
+    prof([[-0.04, -0.03], [0.07, -0.03], [0.062, -0.052], [-0.03, -0.052]], 0.044, body, g, 0, 0, 0, 0.002);
+    box(0.002, 0.016, 0.04, M.black, g, 0.0272, 0.012, 0.0);                    // 탄피 배출구
+    box(0.014, 0.012, 0.03, M.gray, g, 0.034, 0.014, -0.05);                    // 장전 손잡이
+    // 급탄 덮개: 뒤 경첩(z 0.07)에서 앞으로 뻗는다. 안쪽 급탄 틀에는 황동 탄이 누워 있어 열면 보인다
+    for (let i = 0; i < 5; i++) cyl(0.0045, 0.0045, 0.036, M.brass, g, 'x', 0, 0.034, -0.1 + i * 0.026);
+    const cover = new THREE.Group();
+    cover.position.set(0, 0.034, 0.07);
+    g.add(cover);
+    prof([[-0.2, 0.0], [-0.188, 0.018], [-0.012, 0.02], [0.0, 0.004], [0.0, 0.0]], 0.05, shell, cover, 0, 0, 0, 0.003);
+    for (let i = 0; i < 4; i++) box(0.046, 0.003, 0.01, M.black, cover, 0, 0.0205, -0.05 - i * 0.035);
+    box(0.0012, 0.006, 0.12, accent, cover, -0.0256, 0.01, -0.1);
+    // 뒤 가늠구멍(덮개 위): 구멍의 한가운데 높이가 aimY
+    torus(0.0055, 0.0017, M.black, cover, 0, aimY - 0.034, -0.03);
+    for (const s of [1, -1]) box(0.0035, 0.02, 0.01, M.black, cover, s * 0.0092, 0.029, -0.03);
+    parts.cover = cover;
+    // 구멍 뚫린 총열덮개와 총열·가스 블록
+    cyl(0.0265, 0.0265, 0.22, shell, g, 'z', 0, 0.004, -0.26);
+    cyl(0.03, 0.03, 0.012, M.black, g, 'z', 0, 0.004, -0.154);
+    for (let i = 0; i < 5; i++) {
+      for (const s of [1, -1]) box(0.003, 0.013, 0.024, M.black, g, s * 0.0268, 0.01, -0.19 - i * 0.034);
+    }
+    for (let i = 0; i < 4; i++) box(0.018, 0.003, 0.02, M.black, g, 0, 0.0305, -0.2 - i * 0.04);
+    box(0.0012, 0.005, 0.1, accent, g, -0.0268, -0.012, -0.26);
+    cyl(0.0105, 0.0098, 0.2, M.gunmetal, g, 'z', 0, 0.004, -0.47);
+    box(0.022, 0.03, 0.045, M.black, g, 0, 0.008, -0.43);
+    // 앞 가늠쇠: 끝 높이가 aimY
+    box(0.012, 0.012, 0.016, M.black, g, 0, 0.029, -0.43);
+    box(0.0042, 0.034, 0.004, M.black, g, 0, aimY - 0.017, -0.43);
+    for (const s of [1, -1]) box(0.003, 0.014, 0.01, M.black, g, s * 0.0065, 0.04, -0.43);
+    const mz = muzzleDevice('triple', g, 0.004, -0.564);
+    // 접은 이각(총열덮개 앞 밑에 뒤로 누웠다)
+    box(0.04, 0.014, 0.016, M.black, g, 0, -0.012, -0.375);
+    for (const s of [1, -1]) {
+      cyl(0.003, 0.003, 0.105, M.gunmetal, g, 'z', s * 0.014, -0.022, -0.3225);
+      box(0.012, 0.006, 0.014, M.black, g, s * 0.014, -0.022, -0.27);
+    }
+    // 개머리(가운데가 뚫린 폴리머)와 고무 받침
+    prof([[0.086, 0.03], [0.13, 0.034], [0.27, 0.022], [0.292, -0.01], [0.285, -0.066], [0.252, -0.074], [0.196, -0.052], [0.13, -0.036], [0.086, -0.03]],
+      0.042, poly, g, 0, 0, 0, 0.003, [[[0.15, 0.012], [0.236, 0.004], [0.248, -0.03], [0.16, -0.022]]]);
+    box(0.046, 0.088, 0.016, M.black, g, 0, -0.02, 0.296);
+    // 권총 손잡이·방아쇠
+    const gripTop = -0.05, gripZ = 0.036;
+    pistolGrip(g, gripTop, gripZ, poly);
+    triggerGroup(g, gripTop + 0.002, gripZ - 0.026);
+    // 탄약 상자: 배 밑 앞쪽에 매달린다. 재장전 때 아래로 빠졌다 새것이 올라온다
+    const mag = new THREE.Group();
+    mag.position.set(0, -0.03, -0.095);
+    g.add(mag);
+    box(0.068, 0.098, 0.098, boxCol, mag, 0, -0.049, 0);
+    box(0.072, 0.008, 0.102, M.black, mag, 0, -0.004, 0);
+    box(0.0012, 0.016, 0.07, accent, mag, 0.0346, -0.05, 0);
+    for (let i = 0; i < 3; i++) box(0.002, 0.07, 0.006, M.black, mag, 0.0345, -0.052, -0.03 + i * 0.03);
+    box(0.03, 0.006, 0.012, M.gunmetal, mag, 0, -0.098, 0.052);
+    parts.mag = mag;
+    label(g, shortOf(id), 0.1, 0.022, -0.0278, 0.01, 0.0, '#f1f0d8');
+    const muzzle = new THREE.Object3D();
+    muzzle.position.set(0, 0.004, mz - 0.004);
+    g.add(muzzle);
+    return {
+      g, parts, muzzle,
+      arms: {
+        R: makeArm('R', [0, gripTop - 0.05, gripZ + 0.012], [0, -0.089, 0.0275], [0.78, 0, 0.62], 0.0172),
+        L: makeArm('L', [0, 0.004, -0.225], [0, 0, 1], [-0.32, -0.95, 0], 0.03),
+      },
+      hip: [0.15, -0.165, -0.37], hipRot: [0.01, 0.03, 0.01],
+      ads: [0, -aimY, -0.17],
+      kick: { z: 0.03, pitch: 0.045, roll: 0.02 }, flash: 1.3,
+      reloadFn: lmgReload,
+    };
+  }
+
   // ── 모형 등록 ───────────────────────────────────────────────
   const BUILDERS = {
     ar_std: () => buildRifle({
@@ -1862,6 +1950,7 @@ export function createViewmodel(camera, opts = {}) {
       id: 'sr_heavy', body: 0x3b4149, k: 1.32, w: 0.062, fore: 0.36, barrel: 0.54, barrelR: 0.0165, brake: 'huge', stock: 'heavy', optic: 'huge', scopeY: 0.098,
       mag: { w: 0.05, h: 0.092, d: 0.112 }, bipod: 'open', hip: [0.185, -0.205, -0.45], adsZ: -0.38, kick: { z: 0.12, pitch: 0.26, roll: 0.05 }, flash: 2.2,
     }),
+    mg_m249: buildMgM249,
     pt_std: buildPtStd,
     pt_magnum: buildPtMagnum,
     ml_knife: buildMlKnife,
@@ -2334,6 +2423,13 @@ export function createViewmodel(camera, opts = {}) {
       shell.position.set(hx, hy + 0.02, hz);
     }
     if (reloadEmpty) pumpParts(m, clamp((u - 0.8) / 0.18, 0, 1), o);
+  }
+
+  /** 기관총 재장전: 기본 재장전(상자가 아래로 빠졌다 들어온다)에 급탄 덮개를 위로 열었다 닫는 동작을 더한다 */
+  function lmgReload(m, u, o) {
+    reloadAnim(m, u, o);
+    const cover = m.parts.cover;
+    if (cover) cover.rotation.x = cover.userData.base.rot.x + 1.15 * smooth(0.05, 0.18, u) * (1 - smooth(0.8, 0.92, u));
   }
 
   /** 회전식 재장전: 약실 뭉치를 왼쪽으로 빼 돌리고 다시 넣는다 */

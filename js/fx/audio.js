@@ -286,6 +286,15 @@ const DEFS = {
       .noise({ t: 0.008, dur: 0.6, a: 0.008, d: 0.09, lp: 1800, brown: 1, g: 0.3 })
       .sat(2.4)
       .echo([{ t: 0.15, g: 0.2, lp: 2800 }, { t: 0.34, g: 0.12, lp: 1700 }, { t: 0.58, g: 0.06, lp: 1100 }]) },
+  // 묵직한 기관총 연사음: 낮은 몸통 + 짧은 크랙 + 급탄 달각. 750 rpm(80 ms 간격)에서 뭉개지지 않게 꼬리를 소총(0.6초)보다 짧게 둔다.
+  lmg: { dur: 0.36, prio: 6, level: 0.85, ref: 9, maxDist: 280, muffle: 1, send: 0.14, max: 7, vars: 3, jit: 0.03,
+    r: (S) => S.noise({ dur: 0.02, a: 0.0002, d: 0.004, hp: 1600, g: 1 })
+      .noise({ dur: 0.17, d: S.r(0.028, 0.038), lp: 3000, g: 1 })
+      .tone({ f: S.r(118, 138), f1: 42, glide: 0.035, a: 0.0008, d: 0.075, dur: 0.24, g: 1.15 })
+      .noise({ t: 0.01, dur: 0.32, a: 0.008, d: 0.07, lp: 760, brown: 1, g: 0.7 })
+      .click(0.05, 0.16, 2200)
+      .ring({ t: 0.052, f: [1900, 2900], amp: [1, 0.55], dec: [0.012, 0.008], g: 0.1 })
+      .sat(1.9) },
   knife_slash: { dur: 0.32, prio: 5, level: 0.55, ref: 2.5, maxDist: 30, send: 0.04, max: 3, vars: 2, jit: 0.06,
     r: (S) => {
       const top = S.r(2300, 2900);

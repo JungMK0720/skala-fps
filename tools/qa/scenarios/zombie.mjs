@@ -2,7 +2,8 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 시나리오 25. 좀비 물량 막기(혼자). 메뉴의 좀비 버튼이 여는 고르기 시트(같이 하기 · 혼자 하기 · 로비에서 찾기, 오프라인이면 같이 하기는 꺼진다),
- *          연습장 설정 시트의 모드와 좀비 전용 맵, 준비 시간에만 되는 N 무기 교체(모든 무기 · 한 번 쓴 총은 남은 탄 그대로), 1스테이지 → 좀비가 좀비 문에서
+ *          연습장 설정 시트의 모드와 좀비 전용 맵, 준비 시간에만 되는 N 무기 교체(모든 무기 · 한 번 쓴 총은 남은 탄 그대로),
+ *          좀비 전용 기관총 MG-100(목록 맨 끝 · 탄창 100 · 예비 600 · 이동 70%/조준 42% · HUD 이름 · 연사 · 조준 · 재장전, 스크린샷 mg-*), 1스테이지 → 좀비가 좀비 문에서
  *          나와 다가오는지, 내 사격이 방장 시뮬레이션에 피해로 들어가는지, 팀 경험치로 레벨이 오르면 증강 3장(혼자는 게임이 멈춤 · 카드 입력 잠금 ·
  *          R 길게 다시 뽑기 · 카드를 누르고 [확인] · 고른 뒤 3초 무적), 40초가 지나면 남은 좀비를 둔 채 다음 스테이지, C4 수류탄(좀비에 붙어 따라가다 터짐),
  *          검기(칼을 휘두르면 초승달이 날아가 4~8 m 좀비에게 칼 피해), 좀비에게 맞으면 밀려남(부동자세면 버팀), 바닥 보급품(탄창은 예비 탄과 수류탄을
@@ -17,10 +18,11 @@ import { CARD_ARM_MS, REROLL_HOLD_MS } from '../../../js/ui/cards.js';
 
 /**
  * 레벨 업에서 고를 카드: 뒤 시험을 흔드는 카드(무기 목록을 여는 교체권, 맞아도 체력이 그대로인 보호막·회피, 뒤에서 따로 주는 검기·부동자세·C4,
- * C4 폭발에 불길·얼음·분신을 붙이거나 여러 개를 던지게 하는 수류탄 증강)는 피한다.
+ * C4 폭발에 불길·얼음·분신을 붙이거나 여러 개를 던지게 하는 수류탄 증강, 보급품 양(구급 키트·탄띠)·탄창 크기(탄창 확장·드럼 탄창·전술 재장전)·
+ * 초당 회복(재생·불굴·회복 주사)을 바꾸는 카드. 바닥 보급품 시험이 기본 값(구급 상자 +10, 탄창 장전 1회분)과 정확히 같은 값을 기대한다)는 피한다.
  * 칼 피해·치명타 같은 능력치는 검기 시험이 내 능력치로 기대 피해를 계산하므로 상관없다
  */
-const SHAKY_CARD = /무기 교체권|보호막|회피|행운의 동전|벙커|검기|부동자세|C4 수류탄|화염 수류탄|빙결 수류탄|어그로 수류탄|다연발 투척/;
+const SHAKY_CARD = /무기 교체권|보호막|회피|행운의 동전|벙커|검기|부동자세|C4 수류탄|화염 수류탄|빙결 수류탄|어그로 수류탄|다연발 투척|구급 키트|탄띠|탄창 확장|드럼 탄창|전술 재장전|재생|불굴|회복 주사/;
 
 /** 방장 공식(zombieHitDamage)으로 검기 한 번의 피해. 치명타가 있으면 치명타 값도 돌려준다 */
 function expectedHit(perks, weaponId, kind, z, myHpFrac) {
@@ -320,7 +322,7 @@ export default {
     const list = await page.eval(`({ cards: [...document.querySelectorAll('.sk-loadout .sk-lo-card .sk-lo-name')].map((e) => e.textContent),
       extras: [...document.querySelectorAll('.sk-loadout .sk-lo-extra')].filter((e) => !e.hidden).map((e) => e.querySelectorAll('.sk-choice').length),
       title: __qa.text('.sk-lo-title'), count: !document.querySelector('.sk-lo-count').hidden })`);
-    t.check(list.cards.length === 11, '주무기 11자루가 모두 나온다(가진 것과 상관없이)', list.cards);
+    t.check(list.cards.length === 12 && list.cards[11] === WEAPONS.mg_m249.name, '주무기 12자루가 모두 나온다(가진 것과 상관없이, 좀비 전용 기관총이 맨 끝)', list.cards);
     t.check(list.extras.length === 2 && list.extras[0] === 2 && list.extras[1] === 4, '보조 2·근접 4 빠른 교체 줄도 모두(좀비 전용 발사기는 증강으로만)', list.extras);
     t.check(/좀비 물량 막기/.test(list.title) && !list.count, '좀비 모드 교체 창은 시간 막대 없이 준비 시간 동안 열린다', list);
     await t.shot('swap-list');
@@ -335,6 +337,73 @@ export default {
     const back = await page.eval(`__qa.arsenal.getAmmo('ar_std')`);
     t.check(back.mag === rx4.mag && back.reserve === rx4.reserve, '한 번 쓴 총으로 돌아오면 남은 탄 그대로(채워지지 않는다)', { before: rx4, after: back });
     t.errorsOk('준비 시간 무기 교체');
+
+    t.setSection('기관총 MG-100(좀비 전용): 고르기 · 탄창 100발 · 이동 70% · 사격 · 조준 · 재장전');
+    await page.press('KeyN');
+    await page.waitFor(`__qa.ui.isVisible('loadout')`, 3000, { label: '무기 목록(기관총)' });
+    await page.clickText('.sk-loadout .sk-lo-card .sk-lo-name', WEAPONS.mg_m249.name);
+    await page.waitFor(`!__qa.ui.isVisible('loadout') && __qa.arsenal.getLoadout().primary === 'mg_m249'`, 3000, { label: '기관총으로 바뀜' });
+    await waitIdle(page);
+    await page.waitFor(`__qa.world.internals.vm.getWeaponId() === 'mg_m249'`, 3000, { label: '기관총 모형' });
+    const mg0 = await page.eval(`(() => { const a = __qa.arsenal.getAmmo('mg_m249'); return { mag: a.mag, size: a.magSize, reserve: a.reserve, move: __qa.arsenal.getMoveMul(), scale: __qa.ctx.player.state.speedScale }; })()`);
+    const mgWant = hordeAmmo(WEAPONS.mg_m249);
+    t.check(mg0.mag === 100 && mg0.size === 100 && mg0.reserve === mgWant.reserve && mgWant.reserve === 600, '기관총: 탄창 100발 · 예비 600(좀비 모드는 예비 3배)', mg0);
+    t.check(Math.abs(mg0.move - 0.7) < 1e-6 && Math.abs(mg0.scale - 0.7) < 1e-3, '기관총을 든 동안 이동 속도가 70%로 느리다', mg0);
+    const hudMag = await page.eval(`document.querySelector('.sk-ammo-mag').textContent`);
+    t.check(hudMag === '100', 'HUD 탄약이 100으로 보인다', hudMag);
+    const hudNames = await page.eval(`({ slot: (document.querySelector('.sk-slot.is-active .sk-slot-nm') || {}).textContent, ammo: (document.querySelector('.sk-ammo-wpn') || {}).textContent })`);
+    t.check(hudNames.slot === 'MG-100' && /MG-100/.test(hudNames.ammo || '') && !/mg_m249|✖/.test(`${hudNames.slot} ${hudNames.ammo}`), 'HUD 슬롯·탄약 칸이 id가 아니라 MG-100 이름으로 보인다', hudNames);
+    await sleep(300);
+    await t.shot('mg-hip');
+    // 사격: 누르는 동안 연사하고 쏜 만큼 탄이 준다(바닥을 보고 쏜다)
+    await page.eval(`(() => { const s = __qa.ctx.player.state; s.pitch = -1.2; return true; })()`);
+    await page.eval('__qa.clearLogs()');
+    await clickFire(page, 36);
+    await waitTicks(page, 2);
+    const mgShots = await page.eval(`__qa.worldEvents.filter((e) => e.evt === 'fire')`);
+    const mg1 = await page.eval(`__qa.arsenal.getAmmo('mg_m249')`);
+    t.check(mgShots.length >= 8 && mgShots.every((e) => e.weaponId === 'mg_m249'), '기관총: 누르는 동안 연사한다(초당 12발쯤)', mgShots.length);
+    t.check(100 - mg1.mag === mgShots.length, '기관총: 쏜 만큼 탄이 준다', { used: 100 - mg1.mag, fired: mgShots.length });
+    await t.shot('mg-fire');
+    // 조준: 이동 속도가 더 느려진다(70% × 60% = 42%)
+    await waitIdle(page);
+    await page.mouseDown(2);
+    await page.waitFor('__qa.arsenal.getZoom().progress >= 1', 4000, { label: '기관총 조준' });
+    await waitTicks(page, 4);
+    const mgAds = await page.eval(`({ scale: __qa.ctx.player.state.speedScale, ads: __qa.visible('.sk-ads') })`);
+    t.check(Math.abs(mgAds.scale - 0.42) < 0.01, '기관총: 조준하면 이동 속도가 42%로 더 느려진다', mgAds);
+    await t.shot('mg-ads');
+    await page.mouseUp(2);
+    await page.waitFor('__qa.arsenal.getZoom().progress <= 0', 3000, { label: '기관총 조준 해제' });
+    // 재장전: 급탄 덮개가 열리고 상자가 빠졌다 들어온다. 끝나면 탄창 100발, 예비는 쓴 만큼 준다
+    await waitIdle(page);
+    await page.press('KeyR');
+    await page.waitFor('__qa.arsenal.getWeapon().state === "reload"', 3000, { label: '기관총 재장전 시작' });
+    await sleep(Math.round(WEAPONS.mg_m249.reload * 1000 * 0.3));
+    await t.shot('mg-reload');
+    await waitIdle(page, 30000);
+    const mg2 = await page.eval(`__qa.arsenal.getAmmo('mg_m249')`);
+    t.check(mg2.mag === 100 && mg2.reserve === mgWant.reserve - (100 - mg1.mag), '기관총: 재장전으로 탄창이 100발로 차고 예비가 준다', mg2);
+    // 칼로 바꾸면 빨라지고(칼 110%), 다시 기관총을 들면 느려진다
+    await page.press('Digit3');
+    await page.waitFor(`__qa.arsenal.getWeapon().id === 'ml_knife'`, 3000, { label: '칼 들기' });
+    await waitIdle(page);
+    const knifeScale = await page.eval('__qa.ctx.player.state.speedScale');
+    t.check(Math.abs(knifeScale - WEAPONS.ml_knife.moveMul) < 1e-3, '기관총을 내려놓고 칼을 들면 이동이 다시 빨라진다', knifeScale);
+    await page.press('Digit1');
+    await page.waitFor(`__qa.arsenal.getWeapon().id === 'mg_m249'`, 3000, { label: '기관총 다시 들기' });
+    await waitIdle(page);
+    t.check(Math.abs((await page.eval('__qa.ctx.player.state.speedScale')) - 0.7) < 1e-3, '다시 기관총을 들면 70%로 느려진다');
+    // 동료가 버린 기관총(바닥 총)도 좀비 모드의 월드는 받는다(팀전 월드는 받지 않는다: swap 시나리오)
+    const mgDrop = await page.eval(`(() => { const w = __qa.world; const d = w.addDrop({ id: 'qa#mg', weaponId: 'mg_m249', pos: [...__qa.ctx.player.state.pos], mag: 10, reserve: 10 }); w.removeDrop('qa#mg'); return !!d; })()`);
+    t.check(mgDrop, '좀비 모드의 월드는 바닥에 놓인 기관총을 받는다', mgDrop);
+    t.errorsOk('기관총');
+    // 이어지는 시험을 위해 RX-4로 돌아온다
+    await page.press('KeyN');
+    await page.waitFor(`__qa.ui.isVisible('loadout')`, 3000, { label: '무기 목록(RX-4로)' });
+    await page.clickText('.sk-loadout .sk-lo-card .sk-lo-name', WEAPONS.ar_std.name);
+    await page.waitFor(`!__qa.ui.isVisible('loadout') && __qa.arsenal.getLoadout().primary === 'ar_std'`, 3000, { label: 'RX-4로 돌아옴(기관총 뒤)' });
+    await waitIdle(page);
 
     t.setSection('1스테이지: 좀비가 다가오고 내 사격이 맞는다');
     await page.eval(`(() => { const S = __qa.run.director.internals.S; S.phaseEnd = S.clock; return true; })()`);   // 시험용: 준비를 바로 끝낸다

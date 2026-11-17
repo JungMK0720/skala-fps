@@ -72,7 +72,8 @@ export function createHordeClient(o) {
 
   /** 좀비 물량 막기의 무기 고르기 창(World openSwap free): 모든 무기. 1스테이지가 시작되기 전 준비 시간에만 연다 */
   function swapProps() {
-    const weapons = pickableWeapons('classic');
+    // 좀비 전용 주무기(기관총)도 이 목록에만 든다(다른 모드의 pickableWeapons에는 나오지 않는다)
+    const weapons = pickableWeapons('classic', null, true);
     // 카드의 '탄' 칸은 이 모드의 탄(예비 3배, 프리미엄 총도 탄창 2개 × 3)으로 보여 준다
     const ammo = Object.fromEntries(weapons.map((id) => { const a = hordeAmmo(WEAPONS[id]); return [id, a ? `${a.mag}/${a.reserve}` : '']; }));
     return {

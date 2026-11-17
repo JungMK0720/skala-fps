@@ -18,6 +18,7 @@ import {
 } from '../js/game/horde/rules.js';
 import { createHorde, applyHordeSnapshot, restoreHorde, hordeSummary, zombieIdOf, zombieHitDamage, nadeDamage } from '../js/game/horde/director.js';
 import { modsFromPerks } from '../js/game/horde/client.js';
+import { hordeSpawnPrimary } from '../js/game/horde/solo.js';
 import { zombieReward } from '../js/account/economy.js';
 import { WEAPONS } from '../js/weapons/defs.js';
 import { createArsenal } from '../js/weapons/logic.js';
@@ -559,6 +560,35 @@ describe('방장 시뮬레이션', () => {
     const b = d.claimHit({ attackerId: 'p1', victimId: 'z' + zs[1].id, weaponId: 'ar_std', part: 'body', dist: 12, kind: 'shot', count: 1, shotId: 77 });
     assert.ok(!a.some((e) => e.type === 'reject'));
     assert.equal(b[0].reason, 'pierce');
+  });
+
+  test('좀비 전용 기관총(mg_m249)의 사격은 방장이 받아 몸 22 · 머리 90 · 25 m 밖 감쇠로 좀비에게 들어간다', () => {
+    const k = computePerks([]);
+    const hit = (part, dist) => zombieHitDamage({ weaponId: 'mg_m249', part, dist, kind: 'shot', count: 1 }, k, { boss: false, hpFrac: 1 }, {}).dmg;
+    assert.equal(hit('body', 5), 22);
+    assert.equal(hit('head', 5), 90);
+    assert.equal(hit('legs', 5), 16);
+    assert.equal(hit('hand', 5), 22, '손은 몸으로 친다(이 모드의 부위 규칙)');
+    assert.equal(hit('body', 70), Math.round(22 * 0.7));
+    assert.ok(hit('head', 5) < 100, '머리 한 방으로 1스테이지 워커(100)를 쓰러뜨리지 못한다');
+    const { d } = makeDirector({ startStage: 1 });
+    d.start();
+    runUntil(d, () => [...d.internals.zombies.values()].some((Z) => Z.state !== 'rise' && Z.state !== 'dead'), 30000);
+    const Z = [...d.internals.zombies.values()].find((q) => q.state !== 'dead' && q.state !== 'rise');
+    const before = Z.hp;
+    const ev = d.claimHit({ attackerId: 'p1', victimId: 'z' + Z.id, weaponId: 'mg_m249', part: 'body', dist: 10, kind: 'shot', count: 1, shotId: 1 });
+    assert.ok(!ev.some((e) => e.type === 'reject'), '방장이 기관총 사격을 거절하지 않는다');
+    assert.equal(before - Z.hp, 22);
+    // 사거리: 220 m 밖은 거절
+    const far = d.claimHit({ attackerId: 'p1', victimId: 'z' + Z.id, weaponId: 'mg_m249', part: 'body', dist: 400, kind: 'shot', count: 1, shotId: 2 });
+    assert.equal(far[0].reason, 'out_of_range');
+  });
+
+  test('혼자 하기의 스폰 주무기: 고른 좀비 전용 기관총은 그대로 쓰고(쓰러졌다 일어날 때도), 없는 값은 기본 주무기다', () => {
+    assert.equal(hordeSpawnPrimary('mg_m249'), 'mg_m249', '좀비 전용 기관총을 이 모드에서는 쓴다');
+    assert.equal(hordeSpawnPrimary('sr_heavy'), 'sr_heavy');
+    assert.equal(hordeSpawnPrimary('ar_line'), 'ar_line', '계정이 안 가진 총도 이 모드에서는 고른다');
+    for (const bad of [null, undefined, '', 'nope', 42, {}]) assert.equal(hordeSpawnPrimary(bad), 'ar_std', String(bad));
   });
 
   test('스냅샷 → 뷰 왕복, 방장 이전으로 같은 스테이지를 잇는다', () => {

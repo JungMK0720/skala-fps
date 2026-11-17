@@ -9,7 +9,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHordeClient } from '../js/game/horde/client.js';
 import { HORDE } from '../js/game/horde/rules.js';
-import { GRENADE_IDS } from '../js/weapons/defs.js';
+import { GRENADE_IDS, PRIMARY_IDS, WEAPONS } from '../js/weapons/defs.js';
 import { createBus } from '../js/core/bus.js';
 
 const NAMES = { me: '하늘', b: '구름', c: '바다' };
@@ -53,6 +53,8 @@ function fakeWorld() {
     fire(evt, payload) { const fn = handlers.get(evt); if (fn) fn(payload); },
     getLocalState: () => ({ pos: w.pos.slice(), alive: w.localAlive }),
     spawnLocal(o) { log.push(['spawnLocal', o]); w.localAlive = true; },
+    openSwap(o) { log.push(['openSwap', o]); },
+    closeSwap() { log.push(['closeSwap', {}]); },
     killLocal() { log.push(['killLocal', {}]); w.localAlive = false; },
     pushLocal(v) { log.push(['pushLocal', v]); },
     setHordeInteract(o) { log.push(['setHordeInteract', o]); },
@@ -109,6 +111,35 @@ function rig(t, { solo = false, revive = true, touchMode = false } = {}) {
   };
   return env;
 }
+
+describe('무기 고르기 창(준비 시간)', () => {
+  test('모든 주무기와 함께 좀비 전용 기관총이 목록 끝에 들고, 카드의 탄은 이 모드의 양(예비 3배)이다', (t) => {
+    const env = rig(t, { solo: true });
+    env.apply([player('me')], [{ type: 'spawn', id: 'me', spawn: { x: 1, y: 0, z: 2 } }], { phase: 'prep', stage: 0 });
+    const swap = env.world.last('openSwap');
+    assert.ok(swap, '처음 나올 때 무기 고르기 창을 연다');
+    assert.equal(swap.free, true);
+    assert.equal(swap.ruleset, 'classic');
+    // 카드는 무기 id로 그린다(UI 무기 표에 좀비 전용 무기도 들어 있다: game/index.js ui.setWeapons)
+    assert.deepEqual(swap.weapons, [...PRIMARY_IDS], '모든 주무기가 표 순서대로, 기관총이 맨 끝');
+    assert.equal(swap.weapons.at(-1), 'mg_m249');
+    assert.ok(WEAPONS.mg_m249.stats.some((s) => s.label === '이동' && s.value === '70%'), '카드 자료에 이동 70%가 있다');
+    assert.equal(swap.ammo.mg_m249, '100/600');
+    assert.equal(swap.ammo.ar_std, '30/180');
+  });
+
+  test('기관총을 든 채 쓰러졌다 일어나도 고른 무기를 그대로 쓰도록 loadout 값을 넘긴다', (t) => {
+    const clock = mockNow(t);
+    const world = fakeWorld();
+    let picked = 'mg_m249';
+    const client = createHordeClient({ world, ui: fakeUi(), meId: 'me', myName: () => NAMES.me, solo: true, loadout: () => picked, actions: { pick() {}, reroll() {}, loot() {} } });
+    client.apply(view([player('me')], { phase: 'wave' }), [{ type: 'spawn', id: 'me', spawn: { x: 1, y: 0, z: 2 }, revive: false }], clock.t);
+    assert.equal(world.last('spawnLocal').loadout, 'mg_m249');
+    picked = 'ar_std';
+    client.apply(view([player('me')], { phase: 'wave' }), [{ type: 'spawn', id: 'me', spawn: { x: 1, y: 0, z: 2 }, revive: false }], clock.t + 50);
+    assert.equal(world.last('spawnLocal').loadout, 'ar_std');
+  });
+});
 
 describe('멀티 살리기', () => {
   test('쓰러진 동료 옆에서 F를 누르면 바로 on, 누르는 동안 0.3초마다 다시, 떼면 off를 한 번 보낸다', (t) => {
