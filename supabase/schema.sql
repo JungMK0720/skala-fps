@@ -6,7 +6,8 @@
 --          포인트와 전적은 클라이언트가 계산해 보내지만, 서버가 늘어나는 속도(통으로 채우는 한도)와 새로 산 무기의 가격을 확인해
 --          한도를 넘는 만큼은 버린다. 닉네임 등록은 같은 IP에서 한 시간에 60번까지다. 경기 판정은 방장 브라우저가 한다(js/game/anticheat.js).
 --          멀티 채널(skalafps:lobby, skalafps:room:<id>)은 Realtime Broadcast·Presence만 쓰므로 테이블이 필요 없다.
---          건의함(fps_feedback)은 등록된 닉네임만 fps_send_feedback으로 보내고, 소유자만 대시보드에서 읽는다(docs/FEEDBACK.md).
+--          건의함(fps_feedback)은 등록된 닉네임만 fps_send_feedback으로 보내고, 읽는 사람은 소유자뿐이다: 대시보드, 또는 관리자 표(fps_admins)에
+--          등록한 소유자 계정으로 로그인한 받은편지함 화면(dev/inbox.html). 플레이어(anon)에게는 이 표의 권한을 주지 않는다(docs/FEEDBACK.md).
 --          로그인 연결·테스트 결제(fps_tokens·fps_identities·fps_orders·fps_coin_ledger)는 fps_api_* 함수로만 바뀐다. 이 함수는
 --          server/api Worker가 Supabase 비밀 키로만 부르고 브라우저(공개 키)는 부를 수 없다(server/api/README.md).
 
@@ -359,8 +360,8 @@ language sql stable security definer set search_path = public, extensions as $$
 $$;
 
 -- ───────────── 건의함 (2026-11-12) ─────────────
--- 플레이어가 게임 안에서 소유자에게 바로 보내는 글. 정책도 권한도 없어 API로는 아무도 표를 읽거나 쓰지 못한다.
--- 소유자는 Supabase 대시보드(Table Editor·SQL Editor)에서 읽고, reply 칸에 답을 적으면 보낸 사람의 건의함에 보인다.
+-- 플레이어가 게임 안에서 소유자에게 바로 보내는 글. 플레이어(anon)에게는 이 표의 권한이 하나도 없어, 쓰기는 fps_send_feedback으로만 하고 읽기는 fps_my_feedback(자기 글)으로만 한다.
+-- 소유자는 Supabase 대시보드(Table Editor·SQL Editor)나 아래 '받은편지함' 로그인으로 읽고, reply 칸에 답을 적으면 보낸 사람의 건의함에 보인다.
 -- 보낸 사람은 닉네임을 등록한 기기 토큰이어야 한다. 이메일·IP 원문은 받지 않는다(IP는 fps_rate의 해시로만 센다).
 create table if not exists public.fps_feedback (
   id bigint generated always as identity primary key,
@@ -489,6 +490,47 @@ begin
     ) f
   ), '[]'::jsonb));
 end $$;
+
+-- ───────────── 건의함 받은편지함: 소유자 전용 로그인 (2026-11-17) ─────────────
+-- 소유자가 SQL·Table Editor 없이 웹 화면(dev/inbox.html)에서 건의를 읽고 답한다. 설계는 docs/FEEDBACK.md 6절, 처음 켜는 절차는 docs/FEEDBACK_INBOX_SOP.md.
+-- 플레이어(anon)의 권한은 늘리지 않는다. 열리는 곳은 Supabase Auth로 로그인한(authenticated) 사용자 가운데 관리자 표에 있는 사람뿐이다.
+--   1) 관리자 표 fps_admins: 소유자 계정의 uid를 소유자가 SQL Editor에서 직접 넣는다. uid를 이 파일에 적지 않는다. API로는 읽지도 쓰지도 못한다.
+--   2) fps_is_admin(): 지금 로그인한 사용자가 관리자인가. require_mfa를 켠 관리자는 2단계 인증(aal2)으로 로그인한 토큰만 통과한다.
+--   3) 열 단위 권한: authenticated는 아래 열만 읽고 reply·status 두 칸만 고친다. 글을 넣거나 지우거나 본문·보낸 사람을 바꾸지 못한다.
+--   4) 정책: 읽기·수정 모두 fps_is_admin()이 참인 사람만. 새 가입을 끄지 않아 누가 authenticated가 되어도 관리자 표에 없으면 0행이다.
+-- 답을 고치면 트리거 fps_feedback_stamp가 답한 시각과 상태(new → read)를 처리한다. 대시보드에서 고칠 때와 같다.
+create table if not exists public.fps_admins (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  note text check (note is null or char_length(note) <= 80),
+  require_mfa boolean not null default false,
+  created_at timestamptz not null default now()
+);
+alter table public.fps_admins enable row level security;
+revoke all on public.fps_admins from public, anon, authenticated;
+
+-- 이 함수만 관리자 표를 읽는다(SECURITY DEFINER). 결과는 '내가 관리자인가' 하나뿐이다.
+create or replace function public.fps_is_admin() returns boolean
+language sql stable security definer set search_path = public, extensions as $$
+  select exists (
+    select 1 from public.fps_admins a
+    where a.user_id = auth.uid()
+      and (not a.require_mfa or coalesce(auth.jwt() ->> 'aal', '') = 'aal2')
+  )
+$$;
+revoke all on function public.fps_is_admin() from public, anon, authenticated;
+grant execute on function public.fps_is_admin() to authenticated;
+
+-- 표 전체 권한은 위(건의함 절)에서 모두 회수했다. 여기서 필요한 열만 authenticated에게 다시 준다. anon에게는 주지 않는다
+grant select (id, player_id, name, kind, body, info, status, reply, replied_at, created_at) on public.fps_feedback to authenticated;
+grant update (reply, status) on public.fps_feedback to authenticated;
+
+-- 정책은 이름을 정해 두고 다시 만든다(데이터는 건드리지 않는다). 정책이 없으면 기본이 거절이라 만드는 사이에도 열리지 않는다
+drop policy if exists fps_feedback_owner_select on public.fps_feedback;
+create policy fps_feedback_owner_select on public.fps_feedback
+  for select to authenticated using ((select public.fps_is_admin()));
+drop policy if exists fps_feedback_owner_update on public.fps_feedback;
+create policy fps_feedback_owner_update on public.fps_feedback
+  for update to authenticated using ((select public.fps_is_admin())) with check ((select public.fps_is_admin()));
 
 -- 순위표에는 이름, 킬, 승리, 포인트만 내보낸다.
 create or replace function public.fps_top_players(p_limit int default 20) returns jsonb

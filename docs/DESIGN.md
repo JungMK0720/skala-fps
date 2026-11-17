@@ -294,6 +294,7 @@ account.remoteEnabled
 ### Supabase (`supabase/schema.sql`, 새 프로젝트 전용)
 테이블 `public.fps_players(id, token_hash unique, name, name_key unique, points, owned jsonb, loadout jsonb, stats jsonb, secrets jsonb, created_at, updated_at)`. RLS 켜고 anon 직접 접근 없음. RPC(SECURITY DEFINER): `fps_check_nickname(p_name)`, `fps_claim_nickname(p_token, p_name)`, `fps_get_profile(p_token)`, `fps_save_profile(p_token, p_points, p_owned, p_loadout, p_stats, p_secrets)`, `fps_top_players(p_limit)`, `fps_features()`(서버가 아는 기능, 캐릭터 구매 열기). 설정 절차는 `docs/SUPABASE_SETUP.md`. 멀티 채널은 `skalafps:lobby`, `skalafps:room:<id>`이며 테이블이 필요 없다.
 로그인 연결·테스트 결제 절(`fps_tokens`, `fps_identities`, `fps_auth_used`, `fps_orders`, `fps_coin_ledger`, `fps_players.coins`, `fps_api_*`)은 server/api Worker만 Supabase 비밀 키로 부른다. 토큰으로 사람을 찾는 RPC는 `fps_player_id(hash)`로 처음 기기 토큰과 로그인으로 더한 토큰을 함께 본다.
+건의함 받은편지함(소유자 전용 로그인, `dev/inbox.html`)은 Supabase Auth로 로그인한 `authenticated` 가운데 관리자 표 `fps_admins`(uid는 소유자가 SQL Editor에서 직접 등록, `require_mfa`면 `aal2`만)에 있는 계정만 `fps_is_admin()`과 정책 `fps_feedback_owner_select`·`fps_feedback_owner_update`를 통과해 `fps_feedback`을 읽고 `reply`·`status`만 고친다(열 단위 권한). 플레이어(`anon`)의 권한은 늘리지 않는다. 설계는 docs/FEEDBACK.md 6절, 켜는 순서는 docs/FEEDBACK_INBOX_SOP.md.
 
 ## 8. UI
 
