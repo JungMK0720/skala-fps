@@ -102,6 +102,8 @@ npm run serve
 
 **전체 공지**: 운영자가 운영자 패널(`dev/notice.html`)에서 보낸 공지가 게임 화면을 열어 둔 모든 사람의 화면 맨 위에 뜹니다. 받는 화면이 서명을 확인하므로 운영자 열쇠가 없으면 보낼 수 없습니다. 사용법과 열쇠 관리는 [docs/NOTICE.md](docs/NOTICE.md)에 있습니다.
 
+**건의 받은편지함**: 소유자가 운영자 화면(`dev/inbox.html`)에 로그인해 플레이어 건의를 읽고 답과 상태를 저장합니다. Supabase Auth 로그인과 RLS(관리자 표에 등록한 계정만, `reply`·`status` 두 칸만 수정)로 지키고, 플레이어(`anon`)의 권한은 늘리지 않습니다. 켜는 순서는 [docs/FEEDBACK_INBOX_SOP.md](docs/FEEDBACK_INBOX_SOP.md)에 있습니다.
+
 ## 개발
 
 ```bash
@@ -123,6 +125,7 @@ npm run check
 | [docs/MODES.md](docs/MODES.md) | 모드별 규칙 계약(개인전·폭파 미션·좀비 물량 막기 등) |
 | [docs/AUGMENTS.md](docs/AUGMENTS.md) | 좀비 물량 막기 레벨·경험치와 증강 카드 전체 표(등급·단계 수치·상한) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/CORE_API.md](docs/CORE_API.md) | 엔진 구조와 API |
+| [docs/FEEDBACK_INBOX_SOP.md](docs/FEEDBACK_INBOX_SOP.md) | 건의 받은편지함 켜기: 용어, 소유자 계정·새 가입 끄기·`schema.sql`·관리자 등록, 첫 로그인 시험, 2단계 인증, 문제 해결 |
 
 ## 저작권
 
