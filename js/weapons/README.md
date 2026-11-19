@@ -48,6 +48,8 @@
 MG-100은 그 모드의 준비 시간 무기 고르기 창(N)과 무기 교체권으로만 든다. 들고 있는 동안만 이동이 70%(조준하면 42%)로 느리다(`moveMul`). 수치의 이유는 `docs/BALANCE.md` 6절.
 
 **프리미엄 총:** 상점 가격이 `PREMIUM_PRICE`(1,200 P) 이상인 총이다. 예비 탄약이 무제한(`reserve: Infinity`)이고 탄창과 재장전은 그대로다. 나머지 총은 탄창 + 예비 2탄창이 전부이고, 다음 스폰에 다시 찬다.
+예외(요청, 2026-11-20): 아래 총은 가격이 1,200 P 이상이지만 `premium: false`라 프리미엄이 아니고 탄약이 정해져 있다. 그래서 지금 프리미엄 총은 DM-4 `dm_mark` 하나다.
+LN-3 `ar_line` 25 / 100, AS-12 `sg_auto` 12 / 60, T-2 `sr_twin` 5 / 20, H-50 `sr_heavy` 4 / 20, MN-6 `mg_minigun` 200 / 200.
 
 슬롯 4 `gr_frag`(💣 수류탄)는 폭심 0.8 m 안에서 100이고 6 m까지 선형으로 줄어 0이 된다. 가리면 0이다. 신관 2.5s, 1개, 꺼내기 0.5s, 이동 1.0.
 
@@ -162,7 +164,7 @@ import {
 - 점사 무기의 `fireInterval`은 점사가 끝난 뒤 쉬는 시간이고, `rpm`은 쉬는 시간까지 넣은 실효 연사다.
 - `PRIMARY_IDS`는 슬롯 1 무기 전부다(표 순서). `SECONDARY_IDS`는 슬롯 2, `MELEE_IDS`는 슬롯 3, `GRENADE_IDS`는 슬롯 4.
 - `DEFAULT_LOADOUT = { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' }`
-- `PREMIUM_PRICE`, `isPremium(id)`: 프리미엄 기준과 판정. 표의 `premium`은 `gun()`이 가격으로 정한다
+- `PREMIUM_PRICE`, `isPremium(id)`: 프리미엄 기준과 판정. 표의 `premium`은 `gun()`이 가격으로 정한다(정의에 `premium: false`를 적으면 가격과 관계없이 아니다)
 
 ### 함수
 

@@ -2634,7 +2634,7 @@ describe('로비·대기실 화면', () => {
     results.dispose();
   });
 
-  test('메뉴 좀비 물량 막기: 시트를 닫은 뒤 같이 하기·혼자 하기·로비에서 찾기를 알리고, 멀티플레이를 못 쓰면 같이 하기와 찾기를 끈다', () => {
+  test('메뉴 좀비 물량 막기: 같이 하기·혼자 하기 중 하나를 고르고 [확인]을 누르면 시트를 닫은 뒤 알리고, 멀티플레이를 못 쓰면 같이 하기를 끈다', () => {
     globalThis.document.documentElement = new FakeEl('html');   // 메뉴의 설정·조작법 시트가 휴대폰(pc-touch)인지 본다
     const ctx = {
       ...uiCtx(), playerName: '하늘', setPlayerName(n) { ctx.playerName = n; },
@@ -2653,20 +2653,25 @@ describe('로비·대기실 화면', () => {
     const opt = (text) => byText(sheet, text)[0];
     assert.ok(opt('같이 하기 · 공개 방 만들기').textContent.includes('로비에 바로 보이는 좀비 방을 만들어요 · 최대 4명'));
     assert.ok(opt('혼자 하기').textContent.includes('증강을 고르는 동안 게임이 멈춰요'));
+    assert.equal(opt('같이 하기').getAttribute('aria-checked'), 'true', '처음에는 같이 하기를 고른 채로 연다');
     assert.equal(opt('같이 하기').getAttribute('data-autofocus'), '', '처음 포커스는 같이 하기');
-    opt('같이 하기').fire('click');
+    assert.equal(byText(sheet, '로비에서 좀비 방 찾기').length, 0, '방 찾기 단추는 없다');
+    byText(sheet, '확인')[0].fire('click');
     assert.deepEqual(emitted.map((e) => [e.name, e.closed]), [['menu:zombieRoom', true]], '시트를 먼저 닫고 알린다');
     sheet = openSheet();
     opt('혼자 하기').fire('click');
+    assert.equal(emitted.length, 1, '칸을 누르는 것만으로는 아무 데도 가지 않는다');
+    assert.equal(opt('혼자 하기').getAttribute('aria-checked'), 'true');
+    byText(sheet, '확인')[0].fire('click');
+    assert.deepEqual(emitted.map((e) => e.name), ['menu:zombieRoom', 'menu:zombie']);
     sheet = openSheet();
-    opt('로비에서 좀비 방 찾기').fire('click');
-    assert.deepEqual(emitted.map((e) => e.name), ['menu:zombieRoom', 'menu:zombie', 'menu:multi']);
+    assert.equal(opt('같이 하기').getAttribute('aria-checked'), 'true', '다시 열면 같이 하기로 돌아간다');
     // 멀티플레이를 열 수 없으면(세션 실패 등) 같이 하기·찾기를 끄고 사유를 보여 준다. 혼자 하기는 그대로
     menu.update({ multiDisabled: '멀티플레이를 열 수 없어요. 잠시 뒤 다시 시도해 주세요.' });
     sheet = openSheet();
     assert.equal(opt('같이 하기').disabled, true);
     assert.ok(opt('같이 하기').textContent.includes('지금은 쓸 수 없어요'));
-    assert.equal(opt('로비에서 좀비 방 찾기').disabled, true);
+    assert.equal(opt('혼자 하기').getAttribute('aria-checked'), 'true', '못 쓰면 혼자 하기를 고른다');
     assert.ok(!opt('혼자 하기').disabled, '혼자 하기는 언제나 된다');
     assert.ok(sheet.textContent.includes('멀티플레이를 열 수 없어요'));
     assert.equal(opt('같이 하기').getAttribute('data-autofocus'), null);

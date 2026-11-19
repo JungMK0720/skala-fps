@@ -39,7 +39,7 @@ export const HORDE = Object.freeze({
   maxProjectiles: 40,
   maxHazards: 16,
   gameOverMs: 6000,       // 전멸 뒤 결과 화면까지
-  lootMs: 30000,          // 바닥의 보급품(탄창 등)이 사라지기까지(보물 상자는 chestMs)
+  lootMs: 300000,         // 바닥의 보급품(탄창·구급 상자)이 사라지기까지 5분(요청 2026-11-20: 30초의 10배. 보물 상자는 chestMs)
   chestMs: 90000,         // 보스의 보물 상자가 사라지기까지
   maxLoot: 24,            // 한 번에 바닥에 있는 보급품 상한(넘으면 가장 오래된 것부터 치운다. 보물 상자는 치우지 않는다)
   lootPickM: 2.6,         // 방장이 받아 주는 줍기 거리(지연 여유 포함). 화면은 LOOT_TOUCH_M 안에 들어가면 줍는다

@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 시나리오 25. 좀비 물량 막기(혼자). 메뉴의 좀비 버튼이 여는 고르기 시트(같이 하기 · 혼자 하기 · 로비에서 찾기, 오프라인이면 같이 하기는 꺼진다),
+ * Purpose: 시나리오 25. 좀비 물량 막기(혼자). 메뉴의 좀비 버튼이 여는 고르기 시트(같이 하기 · 혼자 하기를 고르고 [확인], 오프라인이면 같이 하기는 꺼진다),
  *          연습장 설정 시트의 모드와 좀비 전용 맵, 준비 시간에만 되는 N 무기 교체(모든 무기 · 한 번 쓴 총은 남은 탄 그대로),
  *          좀비 전용 기관총 MG-100(목록 맨 끝 · 탄창 100 · 예비 600 · 이동 70%/조준 42% · HUD 이름 · 연사 · 조준 · 재장전, 스크린샷 mg-*), 1스테이지 → 좀비가 좀비 문에서
  *          나와 다가오는지, 내 사격이 방장 시뮬레이션에 피해로 들어가는지, 팀 경험치로 레벨이 오르면 증강 3장(혼자는 게임이 멈춤 · 카드 입력 잠금 ·
@@ -230,25 +230,25 @@ export default {
     t.setSection('메뉴의 좀비 물량 막기: 같이 하기 · 혼자 하기 고르기 시트');
     let page = await openGame(t, '', { profile: richProfile(), settings: LOW_QUALITY, width: 960, height: 540, screen: 'menu' });
     await page.clickText('.sk-menu-btn', '좀비 물량 막기');
-    // 메뉴 버튼은 먼저 고르기 시트(같이 하기 · 혼자 하기 · 로비에서 찾기)를 연다. 혼자 하기가 예전 바로가기다
+    // 메뉴 버튼은 먼저 고르기 시트(같이 하기 · 혼자 하기 중 하나를 고르고 [확인])를 연다. 로비에서 찾기 단추는 없다
     await page.waitFor('!!document.querySelector(".sk-sheet.sk-zpick")', 5000, { label: '좀비 고르기 시트' });
-    const pick = await page.eval(`[...document.querySelectorAll('.sk-zpick .sk-zpick-opt, .sk-zpick .sk-zpick-find')].map((b) => b.textContent)`);
-    t.check(pick.some((s) => /같이 하기/.test(s)) && pick.some((s) => /혼자 하기/.test(s)) && pick.some((s) => /로비에서 좀비 방 찾기/.test(s)),
-      '메뉴 버튼은 같이 하기 · 혼자 하기 · 로비에서 찾기를 고르는 시트를 연다', pick);
+    const pick = await page.eval(`[...document.querySelectorAll('.sk-zpick button')].map((b) => b.textContent)`);
+    t.check(pick.some((s) => /같이 하기/.test(s)) && pick.some((s) => /혼자 하기/.test(s)) && pick.some((s) => s === '확인') && !pick.some((s) => /로비에서 좀비 방 찾기/.test(s)),
+      '메뉴 버튼은 같이 하기 · 혼자 하기를 고르고 확인하는 시트를 연다', pick);
     const zp = await page.eval(`(() => {
       const room = document.querySelector('.sk-zpick .sk-zpick-opt--room');
       const solo = [...document.querySelectorAll('.sk-zpick .sk-zpick-opt')].find((b) => /혼자 하기/.test(b.textContent));
-      const find = document.querySelector('.sk-zpick .sk-zpick-find'), note = document.querySelector('.sk-zpick .sk-zpick-note');
+      const note = document.querySelector('.sk-zpick .sk-zpick-note');
       return { title: __qa.text('.sk-zpick .sk-sheet-title'), roomOff: room.disabled, roomSub: room.querySelector('.sk-zpick-sub').textContent,
-        soloOff: solo.disabled, soloSub: solo.querySelector('.sk-zpick-sub').textContent, findOff: find.disabled,
+        soloOff: solo.disabled, soloSub: solo.querySelector('.sk-zpick-sub').textContent, soloOn: solo.getAttribute('aria-checked') === 'true',
         note: note.hidden ? '' : note.textContent, focusSolo: document.activeElement === solo };
     })()`);
     t.check(/좀비 물량 막기/.test(zp.title), '시트 제목', zp.title);
-    // 시험 서버는 온라인 설정이 비어 있다(오프라인): 같이 하기와 로비에서 찾기는 꺼지고 사유가 보인다. 혼자 하기는 언제나 된다
-    t.check(zp.roomOff && /지금은 쓸 수 없어요/.test(zp.roomSub) && zp.findOff && /온라인 서버가 설정되지 않아/.test(zp.note),
-      '오프라인이면 같이 하기·로비에서 찾기가 꺼지고 사유를 보여 준다', zp);
+    // 시험 서버는 온라인 설정이 비어 있다(오프라인): 같이 하기는 꺼지고 사유가 보인다. 혼자 하기는 언제나 된다
+    t.check(zp.roomOff && /지금은 쓸 수 없어요/.test(zp.roomSub) && /온라인 서버가 설정되지 않아/.test(zp.note),
+      '오프라인이면 같이 하기가 꺼지고 사유를 보여 준다', zp);
     t.check(!zp.soloOff && /증강을 고르는 동안 게임이 멈춰요/.test(zp.soloSub), '혼자 하기는 켜져 있고 멈춤 안내가 붙는다', zp);
-    t.check(zp.focusSolo, '같이 하기가 꺼져 있으면 포커스는 혼자 하기에', zp);
+    t.check(zp.soloOn && zp.focusSolo, '같이 하기가 꺼져 있으면 혼자 하기를 고른 채로 포커스', zp);
     await t.shot('zombie-pick');
     await page.press('Escape');
     await page.waitFor('!document.querySelector(".sk-zpick")', 3000, { label: 'Esc로 고르기 시트 닫힘' }).then(
@@ -257,8 +257,9 @@ export default {
     await page.clickText('.sk-menu-btn', '좀비 물량 막기');
     await page.waitFor('!!document.querySelector(".sk-sheet.sk-zpick")', 5000, { label: '좀비 고르기 시트 다시' });
     await page.clickText('.sk-zpick-opt', '혼자 하기');
+    await page.clickText('.sk-zpick .sk-btn', '확인');
     await page.waitFor('!!document.querySelector(".sk-sheet .sk-sheet-foot")', 5000, { label: '바로가기 시트' });
-    t.check(await page.eval(`!document.querySelector('.sk-zpick')`), '혼자 하기를 누르면 고르기 시트는 닫힌다');
+    t.check(await page.eval(`!document.querySelector('.sk-zpick')`), '혼자 하기를 고르고 확인하면 고르기 시트는 닫힌다');
     const quick = await page.eval(`({ on: (document.querySelector('.sk-sheet [aria-label="모드"] .sk-seg-btn.is-on') || {}).textContent || '',
       hint: [...document.querySelectorAll('.sk-sheet .sk-field-hint')].map((e) => e.textContent).join(' | ') })`);
     t.check(/좀비 물량 막기/.test(quick.on) && /예비 탄 3배/.test(quick.hint), '혼자 하기는 좀비 모드를 고른 연습장 시트를 연다', quick);

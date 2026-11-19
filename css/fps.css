@@ -421,6 +421,31 @@
 /* 개인전 목표 킬: 규칙 칸 아래. 방장에게만 − 값 ＋ 와 빠른 선택이 보인다 */
 .sk-room-kills { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--sk-line); }
 .sk-room-kills-title { font-size: 13px; font-weight: 800; letter-spacing: .04em; color: var(--sk-ffa-hi); }
+/* 대기실 내 장비(ui/room.js): 오른쪽 칸 맨 위에 2×2 칸. 누르면 그 칸의 무기 창(장착 · 바로 구매) */
+.sk-rgear-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sk-rgear-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.sk-rgear-slot {
+  display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 10px; border: 0; border-radius: 8px; text-align: left;
+  color: var(--sk-text); background: var(--sk-well); box-shadow: inset 0 0 0 1px rgba(130, 170, 230, .14); cursor: pointer; transition: background .12s, box-shadow .12s;
+}
+.sk-rgear-slot:hover:not(:disabled) { background: rgba(30, 42, 66, .75); box-shadow: inset 0 0 0 1px var(--sk-accent); }
+.sk-rgear-slot:disabled { cursor: not-allowed; opacity: .6; }
+.sk-rgear-txt { display: flex; flex-direction: column; min-width: 0; }
+.sk-rgear-label { font-size: 11px; font-weight: 800; letter-spacing: .04em; color: var(--sk-muted); }
+.sk-rgear-name { font-size: 13.5px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-rgear-note:empty { display: none; }
+.sk-rgear-sheet { width: min(640px, 100%); }
+.sk-rgear-list { display: flex; flex-direction: column; gap: 8px; }
+.sk-rgear-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; background: var(--sk-well); box-shadow: inset 0 0 0 1px rgba(130, 170, 230, .12); }
+.sk-rgear-item.is-on { background: rgba(53, 224, 255, .1); box-shadow: inset 0 0 0 2px var(--sk-accent); }
+.sk-rgear-itext { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.sk-rgear-iname { font-size: 14.5px; font-weight: 900; }
+.sk-rgear-iside { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.sk-rgear-act { min-width: 96px; }
+@media (max-width: 560px) {
+  .sk-rgear-item { flex-wrap: wrap; }
+  .sk-rgear-iside { flex-direction: row; align-items: center; width: 100%; justify-content: space-between; }
+}
 .sk-chat-log { list-style: none; margin: 0; padding: 8px 10px; height: 220px; overflow-y: auto; border-radius: 7px; background: var(--sk-well); box-shadow: inset 0 2px 6px rgba(0, 0, 0, .4); font-size: 13.5px; }
 .sk-chat-log li + li { margin-top: 3px; }
 .sk-chat-line { overflow-wrap: anywhere; }
@@ -2237,8 +2262,8 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
   .sk-fb-text { min-height: 84px; }
 }
 
-/* ───────────── 좀비 물량 막기 고르기 시트(ui/menu.js): 같이 하기(공개 방) · 혼자 하기 · 로비에서 찾기 ─────────────
-   메뉴 버튼(.sk-menu-btn)과 같은 모양의 큰 칸 둘. 같이 하기는 메뉴의 좀비 버튼과 같은 초록이다 */
+/* ───────────── 좀비 물량 막기 고르기 시트(ui/menu.js): 같이 하기(공개 방) · 혼자 하기 중 하나를 고르고 [확인] ─────────────
+   메뉴 버튼(.sk-menu-btn)과 같은 모양의 큰 칸 둘. 고른 칸(.is-on)은 메뉴의 좀비 버튼과 같은 초록이다 */
 .sk-zpick { width: min(520px, 100%); }
 .sk-zpick-opts { display: grid; gap: 10px; }
 .sk-zpick-opt {
@@ -2250,16 +2275,15 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
 .sk-zpick-opt:hover:not(:disabled) { border-color: rgba(96, 220, 104, .75); background: rgba(18, 34, 30, .92); box-shadow: 0 0 0 1px rgba(96, 220, 104, .3), 0 0 22px rgba(96, 220, 104, .16); }
 .sk-zpick-opt:active:not(:disabled) { transform: translateY(1px); }
 .sk-zpick-opt:disabled { cursor: not-allowed; opacity: .55; }
-.sk-zpick-opt--room { color: var(--sk-on-accent); border-color: transparent; background: linear-gradient(100deg, #9cee72, #3fbf5a 70%); box-shadow: 0 0 22px rgba(96, 220, 104, .3); }
-.sk-zpick-opt--room:hover:not(:disabled) { border-color: transparent; background: linear-gradient(100deg, #b6f58f, #4fd06a 70%); box-shadow: 0 0 30px rgba(96, 220, 104, .48); }
-.sk-zpick-opt--room.is-locked { color: var(--sk-text); border-color: var(--sk-edge); background: rgba(14, 20, 34, .84); box-shadow: none; }
-.sk-ui .sk-zpick-opt--room:focus-visible { outline-color: #fff; }
+.sk-zpick-opt.is-on { color: var(--sk-on-accent); border-color: transparent; background: linear-gradient(100deg, #9cee72, #3fbf5a 70%); box-shadow: 0 0 22px rgba(96, 220, 104, .3); }
+.sk-zpick-opt.is-on:hover:not(:disabled) { border-color: transparent; background: linear-gradient(100deg, #b6f58f, #4fd06a 70%); box-shadow: 0 0 30px rgba(96, 220, 104, .48); }
+.sk-ui .sk-zpick-opt.is-on:focus-visible { outline-color: #fff; }
 .sk-zpick-ico { flex: none; font-size: 30px; line-height: 1; }
 .sk-zpick-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .sk-zpick-label { font-size: 17px; font-weight: 800; }
 .sk-zpick-sub { font-size: 13px; line-height: 1.35; opacity: .85; }
 .sk-zpick-note { font-size: 12.5px; line-height: 1.45; color: var(--sk-warn); }
-.sk-zpick-find { align-self: center; }
+.sk-zpick-ok { align-self: stretch; }
 
 /* ───────────── 좀비 물량 막기 동료 살리기(ui/horde.js) ─────────────
    살리기 막대: 크로스헤어 아래(폭파 미션 설치 막대와 같은 자리, 좀비 모드에는 폭탄이 없다). 진행은 스냅샷마다 와서 .2초씩 이어 채운다 */
