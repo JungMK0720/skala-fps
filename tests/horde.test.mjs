@@ -349,9 +349,12 @@ describe('보스 · 스테이지 규칙', () => {
     assert.ok(zombieCount(10) > zombieCount(1));
     assert.ok(hpMul(20) > hpMul(10));
     assert.ok(zombieMix(1).every((m) => m.type.id === 'walker'));
-    assert.ok(zombieMix(12).length === 5, '원거리 스피터는 20스테이지부터');
-    assert.ok(!zombieMix(19).some((m) => m.type.id === 'spitter' || m.type.id === 'flyer'));
-    assert.ok(zombieMix(20).some((m) => m.type.id === 'spitter'));
+    assert.ok(!zombieMix(10).some((m) => m.type.id === 'spitter'), '10스테이지까지 스피터가 없다');
+    const spit11 = zombieMix(11).find((m) => m.type.id === 'spitter');
+    const spit15 = zombieMix(15).find((m) => m.type.id === 'spitter');
+    assert.ok(spit11 && spit15 && spit11.weight > 0 && spit11.weight < spit15.weight, '11스테이지부터 원거리 좀비가 서서히 늘어난다');
+    assert.ok(zombieMix(19).some((m) => m.type.id === 'spitter'));
+    assert.ok(!zombieMix(19).some((m) => m.type.id === 'flyer'));
     const flyer20 = zombieMix(20).find((m) => m.type.id === 'flyer');
     const flyer24 = zombieMix(24).find((m) => m.type.id === 'flyer');
     assert.ok(flyer20 && flyer24, '20스테이지부터 비행 좀비가 열린다');
