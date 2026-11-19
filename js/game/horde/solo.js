@@ -13,7 +13,7 @@ import { isZombieMap } from '../../maps/collision.js';
 
 const PUSH_MS = 50;                       // 혼자일 때 화면에 스냅샷을 넘기는 간격(20 Hz)
 // 혼자일 때는 증강을 고르는 동안 좀비·스테이지 시간이 멈추고, 시간 제한을 사실상 두지 않는다(10분 지나면 무작위)
-const SOLO_RULES = Object.freeze({ cardMs: 10 * 60 * 1000, pauseOnCards: true });
+const SOLO_RULES = Object.freeze({ cardMs: 10 * 60 * 1000, pauseOnCards: true, pickInvulnMs: 3000 });
 
 /**
  * 좀비 물량 막기에서 스폰할 주무기: 쓸 수 있는 무기 id면 그대로, 아니면 기본 주무기.

@@ -12,13 +12,17 @@ import { computePerks, perkSummary, cardById, TIERS } from './cards.js';
 import { HORDE, fmtClock, hordeAmmo } from './rules.js';
 import { zombieHitDamage, nadeDamage } from './director.js';
 import { WEAPONS, GRENADE_IDS } from '../../weapons/defs.js';
-import { SKILL_NAMES, skillKindOf } from './bosses.js';
+import { SKILL_NAMES, skillKindOf, HAZARD_KINDS } from './bosses.js';
 import { pickableWeapons } from '../modes.js';
 
 const FRENZY_MS = 7000;          // 광란: 총으로 좀비를 맞힐 때마다 쌓이는 연사가 이만큼 이어진다(맞힐 때마다 한 겹씩, 겹마다 따로 끝난다)
 const FRENZY_MAX = 300;          // 광란 최대 겹 수
 const REVIVE_SEND_MS = 300;      // 살리기를 누르고 있는 동안 방장에게 다시 알리는 간격(방장은 reviveKeepMs 동안 소식이 없으면 끊는다)
 const REVIVE_KEEP_M = 0.5;       // 살리던 동료는 reviveTouchM보다 이만큼 멀어져도 이어 간다(경계에서 켜졌다 꺼졌다 하지 않게)
+const HAZARD_LABEL = Object.freeze({
+  [HAZARD_KINDS.acid]: 'acid', [HAZARD_KINDS.fire]: 'fire', [HAZARD_KINDS.web]: 'web',
+  [HAZARD_KINDS.frost]: 'frost', [HAZARD_KINDS.shock]: 'shock'
+});
 
 /** 카드 능력치 → 무기 배율(arsenal.setMods) */
 export function modsFromPerks(k, frenzyStacks = 0) {
@@ -106,7 +110,7 @@ export function createHordeClient(o) {
       // 수류탄 폭발 반경은 던진 사람의 증강을 따른다(방장 화면이 남의 수류탄 피해도 잰다)
       nadeRadiusOf: (owner) => { const k = perksOf(owner); return 1 + ((k && k.nadeRadius) || 0); },
       // C4 수류탄(좀비에 붙는다)과 검기 거리. 남의 칼질에도 검기를 그리려고 다른 사람의 검기 거리도 넘긴다
-      sticky: perks.stickyNade > 0, waveRange: perks.wave || 0,
+      sticky: perks.stickyNade > 0, waveRange: perks.wave || 0, autoAim: perks.autoAim > 0,
       waveRangeOf: (owner) => ((perksOf(owner) || {}).wave || 0)
     });
   }
@@ -127,8 +131,10 @@ export function createHordeClient(o) {
     if (revive) return;
     // 무기는 1스테이지가 시작되기 전에만 고른다(쓰러졌다 일어날 때는 고른 무기 그대로)
     if (phase == null || phase === 'prep') W('openSwap', swapProps());
-    // 보조무기를 바꾸는 증강(유탄 발사기·바주카포)은 쓰러졌다 일어나도 그대로다
-    const side = last ? sidearmOf(((last.players.find((p) => p.id === meId) || {}).cards) || []) : null;
+    // 카드로 바뀐 주·보조무기는 다음 스테이지에 일어나도 유지한다(나중에 고른 카드가 우선).
+    const cards = last ? ((last.players.find((p) => p.id === meId) || {}).cards || []) : [];
+    const primary = primaryOf(cards), side = sidearmOf(cards);
+    if (primary) W('equipHordePrimary', primary);
     if (side) W('equipSidearm', side);
   }
 
@@ -338,6 +344,12 @@ export function createHordeClient(o) {
   }
 
   /** 고른 카드 중 보조무기를 바꾸는 증강(나중 것이 이긴다) → 무기 id | null */
+  function primaryOf(cards) {
+    let id = null;
+    for (const cid of cards) { const c = cardById(cid); if (c && c.instant && c.instant.primary) id = c.instant.primary; }
+    return id;
+  }
+
   function sidearmOf(cards) {
     let id = null;
     for (const cid of cards) { const c = cardById(cid); if (c && c.instant && c.instant.side) id = c.instant.side; }
@@ -355,6 +367,7 @@ export function createHordeClient(o) {
       if (inst.nades) W('refillGrenades');
       if (inst.swap) swapNow = true;
       if (inst.side && W('equipSidearm', inst.side) && ui && ui.hud) ui.hud.callout(`${c.icon} 보조무기: ${(WEAPONS[inst.side] || {}).name || inst.side}`);
+      if (inst.primary && W('equipHordePrimary', inst.primary) && ui && ui.hud) ui.hud.callout(`${c.icon} 주무기: ${(WEAPONS[inst.primary] || {}).name || inst.primary}`);
     }
     appliedCards = cards.length;
     // 무기 교체권: 무기 목록을 한 번 연다(고르면 닫힌다. 못 골랐으면 N으로 다시 연다)
@@ -400,6 +413,22 @@ export function createHordeClient(o) {
     const t = v.players.find((p) => p.id !== meId && !p.alive && p.down && p.down.by === meId);
     return t ? { text: `🩹 ${t.name || '동료'} 살리는 중`, frac: t.down.progress || 0, down: false } : null;
   }
+  /** 방장 장판의 유효 시간·반경·바닥 높이와 같은 조건으로 내 발이 닿은 종류를 찾는다. */
+  function fieldUnderfoot(v, now) {
+    if (!myAlive || !world.localAlive || v.phase !== 'wave' || !v.hazards || !v.hazards.length) return null;
+    const st = W('getLocalState');
+    const pos = st && st.pos;
+    if (!pos) return null;
+    let kind = null, nearest = Infinity;
+    const elapsed = Math.max(0, now - timeAt);
+    for (const h of v.hazards) {
+      if (h.leftMs <= elapsed || !HAZARD_LABEL[h.kind] || Math.abs(pos[1] - h.pos[1]) >= 1.2) continue;
+      const d = Math.hypot(pos[0] - h.pos[0], pos[2] - h.pos[2]);
+      if (d <= h.r && d < nearest) { kind = HAZARD_LABEL[h.kind]; nearest = d; }
+    }
+    return kind;
+  }
+
   function hud(now) {
     const v = last;
     if (!v || !ui) return;
@@ -427,7 +456,7 @@ export function createHordeClient(o) {
       pickedText: picking.length ? picking.map((p) => p.name).join(', ') : '',
       // 혼자 하기의 증강 고르기 줄: 보물 상자 몫이면 '보물 상자'라고 말한다
       pickWhy: picking.some((p) => p.chest) ? 'chest' : 'level',
-      warn, revive
+      warn, revive, field: fieldUnderfoot(v, now)
     });
   }
 

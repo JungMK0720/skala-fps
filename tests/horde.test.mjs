@@ -222,9 +222,9 @@ describe('새 카드: 이미 있는 카드의 전송 번호는 그대로', () =>
   const OLD_SPECIALS = ('second glass wall chain luck wide medkit syringe drop hunter thrift perfect giant thirst runngun drum samurai iron ' +
     'tactical react dread coin adrenaline bunker fireNade iceNade decoyNade multiNade rearm sideGl sideRl').split(' ');
   const OLD = [...OLD_FAMILIES.flatMap((f) => [1, 2, 3, 4].map((n) => `${f}${n}`)), ...OLD_SPECIALS];
-  const ADDED = ['reflex1', 'reflex2', 'reflex3', 'reflex4', 'wave1', 'wave2', 'wave3', 'wave4', 'anchor', 'c4', 'shieldKnife', 'airStrike', 'sideGravity'];
+  const ADDED = ['reflex1', 'reflex2', 'reflex3', 'reflex4', 'wave1', 'wave2', 'wave3', 'wave4', 'anchor', 'c4', 'shieldKnife', 'airStrike', 'sideGravity', 'flameGun', 'railGun', 'aiGlasses'];
 
-  test('예전 카드 187장은 번호가 같고, 새 카드 13장은 그 뒤에 붙는다', () => {
+  test('기존 카드 번호는 유지하고 신규 전설 증강은 맨 뒤에 붙는다', () => {
     assert.equal(OLD.length, 187);
     OLD.forEach((id, i) => assert.equal(cardById(id) && cardById(id).idx, i, id));
     assert.deepEqual(CARDS.slice(OLD.length).map((c) => c.id), ADDED);
@@ -355,11 +355,13 @@ describe('보스 · 스테이지 규칙', () => {
     assert.ok(zombieMix(20).length === 6);
   });
 
-  test('경험치: 레벨마다 10·15·20…, 시간 안에 다 잡으면 남은 2초당 1, 강한 좀비일수록 많다', () => {
+  test('경험치: 레벨마다 10·15·20…, 시간 안에 다 잡으면 남은 1초당 1, 강한 좀비일수록 많다', () => {
     assert.deepEqual([1, 2, 3, 4].map((l) => xpNeed(l)), [10, 15, 20, 25]);
     assert.equal(timeBonusXp(0), 0);
-    assert.equal(timeBonusXp(3999), 1);
-    assert.equal(timeBonusXp(26000), 13);
+    assert.equal(timeBonusXp(999), 0);
+    assert.equal(timeBonusXp(1000), 1);
+    assert.equal(timeBonusXp(3999), 3);
+    assert.equal(timeBonusXp(26000), 26);
     for (const id of ZOMBIE_IDS) assert.ok(zombieXp(id) >= 1, id);
     assert.ok(zombieXp('brute') > zombieXp('walker'));
     assert.equal(zombieXp('nope'), 1);
@@ -420,7 +422,7 @@ describe('무기 배율(카드)', () => {
 
 describe('방장 시뮬레이션', () => {
   test('혼자: 준비 → 1스테이지 → 팀 경험치가 차면 증강 고르기(시계가 멈춤) → 다시 뽑기 한 번 → 고르면 같은 스테이지를 잇는다', () => {
-    const { d } = makeDirector({ rules: { pauseOnCards: true } });
+    const { d } = makeDirector({ rules: { pauseOnCards: true, pickInvulnMs: 3000 } });
     const ev0 = d.start();
     assert.ok(ev0.some((e) => e.type === 'spawn' && e.id === 'p1'));
     runUntil(d, () => d.phase === 'wave', 2000);
@@ -448,7 +450,7 @@ describe('방장 시뮬레이션', () => {
     assert.equal(d.phase, 'wave');
     assert.equal(d.stage, 1, '증강을 골라도 스테이지는 그대로');
     assert.deepEqual(P.cards, [pick]);
-    assert.ok(S.clock < P.invulnUntil, '고른 뒤 3초 무적');
+    assert.equal(P.invulnUntil - S.clock, 3000, '혼자는 고른 뒤 3초 무적');
   });
 
   test('혼자: 증강 고르기 시간이 지나면 제안 중 하나를 받고 웨이브를 잇는다', () => {
@@ -465,7 +467,7 @@ describe('방장 시뮬레이션', () => {
     assert.equal(P.cards[0], got.card);
   });
 
-  test('멀티: 팀 레벨이 오르면 모두에게 제안(멈추지 않음) · 고르는 동안 무적 · 고른 뒤 3초 무적 · 시간이 다 되면 제안 중 하나', () => {
+  test('멀티: 팀 레벨이 오르면 모두에게 제안(멈추지 않음) · 고르는 동안 무적 · 고른 뒤 2초 무적 · 시간이 다 되면 제안 중 하나', () => {
     const { d, pos, P } = makeFlat({ ids: ['p1', 'p2'], rules: { cardMs: 2000 } });
     const ev = d.internals.addXp(xpNeed(1));
     assert.ok(ev.some((e) => e.type === 'levelUp' && e.level === 2));
@@ -482,7 +484,7 @@ describe('방장 시뮬레이션', () => {
     step(d);
     assert.equal(P('p2').hp, hp2, '고른 직후 무적');
     const left = P('p2').invulnUntil - d.internals.S.clock;
-    assert.ok(left > 2800 && left <= HORDE.pickInvulnMs, `무적 ${left}ms`);
+    assert.ok(left > 1800 && left <= HORDE.pickInvulnMs, `무적 ${left}ms`);
     const v = applyHordeSnapshot(JSON.parse(JSON.stringify(d.snapshot())));
     assert.ok(v.players.find((p) => p.id === 'p2').invuln);
     assert.ok(v.players.find((p) => p.id === 'p1').offerLeftMs > 0, '멀티 제안의 남은 시간');
@@ -491,7 +493,7 @@ describe('방장 시뮬레이션', () => {
     const ev2 = runUntil(d, () => !P('p1').offer, 3000);
     const auto = ev2.find((e) => e.type === 'card' && e.id === 'p1');
     assert.ok(auto && auto.auto && offered.includes(auto.card));
-    // 3초가 지나면 다시 맞는다
+    // 2초가 지나면 다시 맞는다
     runUntil(d, () => d.internals.S.clock > P('p2').invulnUntil, 4000);
     step(d, 4);
     spitAt(d, pos.p2, 30);
@@ -499,7 +501,7 @@ describe('방장 시뮬레이션', () => {
     assert.ok(P('p2').hp < hp2, '무적이 끝나면 맞는다');
   });
 
-  test('40초 스테이지: 시간이 다 되면 남은 좀비를 둔 채 다음 스테이지, 다 잡으면 남은 2초당 경험치 1을 받고 바로 다음 스테이지', () => {
+  test('40초 스테이지: 시간이 다 되면 남은 좀비를 둔 채 다음 스테이지, 다 잡으면 남은 1초당 경험치 1을 받고 바로 다음 스테이지', () => {
     assert.equal(HORDE.stageMs, 40000);
     const { d } = makeFlat({ rules: { stageMs: 3000 } });
     const ev = runUntil(d, (all) => all.some((e) => e.type === 'timeup'), 5000);
@@ -1189,17 +1191,13 @@ describe('동료 살리기(멀티)', () => {
 });
 
 describe('검기', () => {
-  test('피해 공식: 베기 검기는 베기, 찌르기 검기는 찌르기 피해(칼 증강이 붙고 거리와 상관없다)', () => {
+  test('피해 공식: 우클릭 찌르기 검기는 칼 찌르기 피해(칼 증강 포함, 거리는 무관)', () => {
     const k0 = computePerks([]), k1 = computePerks(['blade1']);
     const dmg = (kind, k, dist = 12) => zombieHitDamage({ weaponId: 'ml_knife', part: 'body', dist, kind }, k, {}, {}).dmg;
-    const slash = WEAPONS.ml_knife.melee.slash.damage, stab = WEAPONS.ml_knife.melee.stab.damage;
-    assert.equal(dmg('wave', k0), slash);
+    const stab = WEAPONS.ml_knife.melee.stab.damage;
     assert.equal(dmg('waveStab', k0), stab);
-    assert.equal(dmg('slash', k0, 1), slash, '칼 베기는 그대로');
-    assert.equal(dmg('stab', k0, 1), stab, '칼 찌르기는 그대로');
-    assert.ok(near(dmg('wave', k1), slash * 1.2));
+    assert.equal(dmg('stab', k0, 1), stab);
     assert.ok(near(dmg('waveStab', k1), stab * 1.2));
-    assert.equal(zombieHitDamage({ weaponId: 'ml_knife', kind: 'wave' }, k0, {}, {}).melee, true);
     assert.equal(zombieHitDamage({ weaponId: 'ml_katana', kind: 'waveStab' }, k0, {}, {}).dmg, WEAPONS.ml_katana.melee.stab.damage);
   });
 
@@ -1212,15 +1210,17 @@ describe('검기', () => {
     let lastHp = Z.hp;
     const took = () => { const n = lastHp - Z.hp; lastHp = Z.hp; return n; };
     let shot = 0;
-    const claim = (o = {}) => d.claimHit({ attackerId: 'p1', victimId: 'z' + Z.id, weaponId: 'ml_knife', part: 'body', dist: 5, kind: 'wave', count: 1, shotId: ++shot, ...o });
+    const claim = (o = {}) => d.claimHit({ attackerId: 'p1', victimId: 'z' + Z.id, weaponId: 'ml_knife', part: 'body', dist: 5, kind: 'waveStab', count: 1, shotId: ++shot, ...o });
     const p = P('p1');
     assert.equal(claim()[0].reason, 'no_wave', '검기 증강이 없다');
     assert.equal(took(), 0);
     p.cards = ['wave1'];
     p.perks = computePerks(p.cards);
+    assert.equal(claim({ kind: 'wave' })[0].reason, 'no_wave', '좌클릭 베기는 검기를 내지 않는다');
+    assert.equal(took(), 0);
     assert.ok(!claim({ dist: 8 }).some((e) => e.type === 'reject'), '6 m + 여유 2.5 m 안');
-    assert.equal(took(), WEAPONS.ml_knife.melee.slash.damage);
-    claim({ dist: 8, kind: 'waveStab' });
+    assert.equal(took(), WEAPONS.ml_knife.melee.stab.damage);
+    claim({ dist: 8 });
     assert.equal(took(), WEAPONS.ml_knife.melee.stab.damage);
     assert.equal(claim({ dist: 9 })[0].reason, 'out_of_range');
     assert.equal(claim({ weaponId: 'ar_std' })[0].reason, 'no_wave', '총은 검기가 없다');
@@ -1233,7 +1233,7 @@ describe('검기', () => {
     p.cards = ['wave1', 'wave2', 'blade1'];
     p.perks = computePerks(p.cards);
     claim({ dist: 16 });
-    assert.equal(took(), Math.round(WEAPONS.ml_knife.melee.slash.damage * 1.2));
+    assert.equal(took(), Math.round(WEAPONS.ml_knife.melee.stab.damage * 1.2));
     // 검기 하나(shotId)에 6마리까지, 다른 검기는 따로 센다(날아가는 검기 둘이 섞여도)
     for (let i = 0; i < 6; i++) assert.ok(!claim({ shotId: 500 }).some((e) => e.type === 'reject'), `${i + 1}번째`);
     assert.equal(claim({ shotId: 500 })[0].reason, 'wave_cap');
@@ -1242,6 +1242,28 @@ describe('검기', () => {
     assert.ok(!claim({ shotId: 502 }).some((e) => e.type === 'reject'));
     assert.equal(claim({ shotId: 501 })[0].reason, 'wave_cap');
     assert.equal(claim({ shotId: 500 })[0].reason, 'wave_cap');
+  });
+});
+
+describe('카드 전용 주무기', () => {
+  test('화염 방사기와 레일건은 해당 카드를 고른 사람만 맞힐 수 있다', () => {
+    const { d, P } = makeFlat();
+    runUntil(d, () => alive(d).length >= 1, 5000);
+    const Z = alive(d)[0];
+    Z.hp = Z.maxHp = 100000;
+    const p = P('p1');
+    const hit = (weaponId, shotId) => d.claimHit({ attackerId: 'p1', victimId: 'z' + Z.id, weaponId, part: 'body', dist: 3, kind: 'shot', count: 1, shotId });
+    assert.equal(hit('fl_horde', 1)[0].reason, 'bad_weapon');
+    assert.equal(hit('rg_horde', 2)[0].reason, 'bad_weapon');
+    p.cards = ['flameGun'];
+    p.perks = computePerks(p.cards);
+    assert.ok(!hit('fl_horde', 3).some((e) => e.type === 'reject'));
+    assert.equal(Z.hp, 100000 - 8, '화염 한 갈래의 몸 피해');
+    assert.equal(hit('rg_horde', 4)[0].reason, 'bad_weapon');
+    p.cards.push('railGun');
+    p.perks = computePerks(p.cards);
+    assert.ok(!hit('rg_horde', 5).some((e) => e.type === 'reject'));
+    assert.equal(Z.hp, 100000 - 8 - 400);
   });
 });
 

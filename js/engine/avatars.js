@@ -153,6 +153,19 @@ const HAND_R = [0.2442, -0.1722, -0.5181];
 const SKIN = 0xd9a77e, NOSE = 0xc28f6a, BOOT = 0x2b2622, GLOVE = 0x3a3a36, TAPE = 0x33363a, BELT = 0x25211d, EYES = 0x1c1a18, GUN = 0x2c3034;
 const HELMET = 0x3c4038, HELMET_DK = 0x24262a, VEST = 0x2f322e, POUCH = 0x3b3e38;
 const STEEL = 0xc9d2da, STEEL_DK = 0x6f7884, WRAP = 0x4a1525, BRASS = 0x8f7038;
+// 좀비 증강 AI 안경. 아바타마다 지오메트리를 복제하지 않고, 얻은 사람에게만 메시를 붙인다.
+let aiGlassesGeo = null;
+function glassesGeometry() {
+  if (!aiGlassesGeo) aiGlassesGeo = merge([
+    box(0.092, 0.046, 0.018, -0.057, 0.135, -0.139, 0x35eaff),
+    box(0.092, 0.046, 0.018, 0.057, 0.135, -0.139, 0x35eaff),
+    box(0.026, 0.012, 0.024, 0, 0.14, -0.141, 0x132a35),
+    box(0.018, 0.012, 0.145, -0.119, 0.14, -0.05, 0x132a35),
+    box(0.018, 0.012, 0.145, 0.119, 0.14, -0.05, 0x132a35)
+  ]);
+  return aiGlassesGeo;
+}
+
 
 /* ---------------- 캐릭터 부품 ----------------
  * 좌표: head = 목 피벗(서 있으면 1.50 m) 기준, 위로. 머리 상자 0.22×0.25×0.24(중심 0.12 = 히트박스 머리 1.62).
@@ -954,6 +967,7 @@ class Avatar {
     this.lastEmote = 0;            // 끝난 뒤 되돌아오는 동안 쓰는 번호
     this.rig = null;               // 이모트 때만 만드는 관절 리그
     this.isLocal = false;          // 3인칭 때의 내 몸
+    this.aiGlasses = false;
     this.pose = makePose();
     this.blendPose = makePose();
     this.death = null;             // { t, dirX, dirZ }
@@ -985,6 +999,11 @@ class Avatar {
     this.upper = new THREE.Group();          // 상체(조준 pitch로 살짝 젖힘/숙임)
     this.hips.add(this.upper);
     this.upper.add(mk(G.upper));
+    if (this.aiGlasses) {
+      this.glasses = mk(glassesGeometry());
+      this.glasses.position.y = 0.55; // 머리(목 피벗) 좌표
+      this.upper.add(this.glasses);
+    } else this.glasses = null;
     this.armsPivot = new THREE.Group(); this.armsPivot.position.set(0, 0.5, 0); // 어깨선
     this.upper.add(this.armsPivot);
     this.arms = mk(this.held ? G.armsOnly : G[this.armsKey]);
@@ -1035,11 +1054,34 @@ class Avatar {
     this.build();
     if (rigOn) { const r = this.buildRig(); r.root.visible = true; this.hips.visible = false; }
   }
+  setAiGlasses(on) {
+    on = !!on;
+    if (on === this.aiGlasses) return;
+    this.aiGlasses = on;
+    if (on) {
+      this.glasses = new THREE.Mesh(glassesGeometry(), bodyMaterial());
+      this.glasses.position.y = 0.55;
+      this.upper.add(this.glasses);
+      if (this.rig) {
+        this.rigGlasses = new THREE.Mesh(glassesGeometry(), bodyMaterial());
+        this.rig.head.add(this.rigGlasses);
+      }
+    } else {
+      if (this.glasses) this.upper.remove(this.glasses);
+      if (this.rigGlasses && this.rig) this.rig.head.remove(this.rigGlasses);
+      this.glasses = this.rigGlasses = null;
+    }
+  }
+
 
   /** 이모트용 관절 리그 만들기(처음 이모트할 때 한 번) */
   buildRig() {
     const mat = bodyMaterial();
     const r = buildRigMeshes(rigGeometry(this.avatarId, this.team), (geo) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; return m; });
+    if (this.aiGlasses) {
+      this.rigGlasses = new THREE.Mesh(glassesGeometry(), mat);
+      r.head.add(this.rigGlasses);
+    } else this.rigGlasses = null;
     r.root.visible = false;
     this.body.add(r.root);
     this.rig = r;
@@ -1332,6 +1374,7 @@ export function createAvatars({ scene, camera, delay = NET.INTERP_DELAY_MS } = {
       local.visible = true;
       local.buffer.clear();
       local.buffer.push(0, { pos: [o.pos[0], o.pos[1], o.pos[2]], yaw: o.yaw || 0, pitch: o.pitch || 0, alive: true, crouch: !!o.crouch, emote: o.emote | 0, slot: o.slot, weaponId: o.weaponId });
+      local.setAiGlasses(!!o.aiGlasses);
     },
     /**
      * 맵 로드 때 부른다: 준비용 메시를 장면에 넣고 fn()(예: compileAsync + 한 번 그리기)을 기다린 뒤 뺀다.

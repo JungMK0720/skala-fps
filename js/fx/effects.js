@@ -38,12 +38,15 @@ const DUST = {
 const TRACER_KIND = {
   rifle: { color: 0xffd27a, r: 0.012, speed: 480, seg: 3.5, trail: false },
   sniper: { color: 0xfff1c9, r: 0.016, speed: 900, seg: 7, trail: true },
-  pistol: { color: 0xffc66b, r: 0.010, speed: 360, seg: 2.2, trail: false }
+  pistol: { color: 0xffc66b, r: 0.010, speed: 360, seg: 2.2, trail: false },
+  rail: { color: 0x56bfff, r: 0.035, speed: 0, seg: 0, trail: true }
 };
 const FLASH_KIND = {
-  rifle: { w: 0.22, len: 0.38, core: 0.30, life: 0.05, light: 6, side: false },
-  sniper: { w: 0.34, len: 0.60, core: 0.50, life: 0.07, light: 10, side: true },  // 머즐 브레이크 측면 화염
-  pistol: { w: 0.16, len: 0.24, core: 0.22, life: 0.045, light: 4, side: false }
+  rifle: { w: 0.22, len: 0.38, core: 0.30, life: 0.05, light: 6, side: false, color: 0xffffff },
+  sniper: { w: 0.34, len: 0.60, core: 0.50, life: 0.07, light: 10, side: true, color: 0xffffff },
+  pistol: { w: 0.16, len: 0.24, core: 0.22, life: 0.045, light: 4, side: false, color: 0xffffff },
+  flame: { w: 0.32, len: 0.85, core: 0.36, life: 0.09, light: 7, side: false, color: 0xff8b30 },
+  rail: { w: 0.25, len: 0.55, core: 0.46, life: 0.14, light: 9, side: true, color: 0x65c9ff }
 };
 const SHELL_KIND = {                         // scale: 탄피 크기 배율, speed: 튕겨 나가는 속도 배율
   rifle: { scale: 1, speed: 1 },
@@ -52,10 +55,12 @@ const SHELL_KIND = {                         // scale: 탄피 크기 배율, spe
 };
 const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 
-// fxKind('rifle'|'sniper'|'pistol') 또는 무기 id → 표 키. 모르는 값(null, 오타, 칼의 fxKind 등)은 소총으로 처리한다.
+// fxKind 또는 무기 id → 표 키. 모르는 값(null, 오타, 칼의 fxKind 등)은 소총으로 처리한다.
 function kindOf(kind) {
   if (typeof kind !== 'string') return 'rifle';
   const k = kind.toLowerCase();
+  if (k === 'flame' || k.startsWith('fl_')) return 'flame';
+  if (k === 'rail' || k.startsWith('rg_')) return 'rail';
   if (k.includes('snip') || k.startsWith('sr_')) return 'sniper';
   if (k.includes('pist') || k.startsWith('pt_')) return 'pistol';
   return 'rifle';
@@ -352,6 +357,10 @@ const P = {
   glint: { life: [0.06, 0.1], s0: 0.2, s1: 0.04, a: 1, c0: [0.9, 0.97, 1] },
   hitPuff: { life: [0.07, 0.1], s0: 0.32, s1: 0.1, a: 1, c0: [1, 0.96, 0.82], c1: [1, 0.7, 0.3] },
   fire: { life: [0.35, 0.6], s0: 0.6, s1: 2.2, a: 1, fin: 0.05, grav: 1.5, drag: 3.5, c0: [1, 0.93, 0.7], c1: [0.9, 0.28, 0.04] },
+  flameJet: { life: [0.14, 0.25], s0: 0.27, s1: 0.75, sj: 0.35, a: 0.8, fin: 0.04, grav: 0.3, drag: 0.8,
+    c0: [1, 0.78, 0.25], c1: [1, 0.2, 0.015] },
+  flameCore: { life: [0.08, 0.15], s0: 0.17, s1: 0.32, sj: 0.25, a: 0.85, fin: 0.02, drag: 1,
+    c0: [1, 0.96, 0.62], c1: [1, 0.55, 0.08] },
   smoke: { life: [2.2, 3.6], s0: 1.0, s1: 4.2, a: 0.55, fin: 0.12, grav: 0.6, drag: 1.2, c0: [0.22, 0.21, 0.2], c1: [0.46, 0.45, 0.43] },
   groundDust: { life: [1.2, 1.8], s0: 0.6, s1: 2.4, a: 0.45, fin: 0.1, drag: 2.5, c0: [0.55, 0.5, 0.42], c1: [0.62, 0.58, 0.5] },
   ember: { life: [0.5, 1.0], s0: 0.07, s1: 0.03, a: 1, grav: -9.8, drag: 0.8, c0: [1, 0.85, 0.45], c1: [1, 0.35, 0.05], shape: 1 },
@@ -453,8 +462,8 @@ export function createEffects(scene, camera, opts = {}) {
     const mesh = new THREE.Mesh(tracerGeo, m);
     mesh.visible = false; mesh.renderOrder = 22; mesh.frustumCulled = false;
     root.add(mesh);
-    tracers.push({ mesh, m, active: false, trail: false, from: new THREE.Vector3(), dir: new THREE.Vector3(),
-      dist: 0, t: 0, life: 0, speed: 0, seg: 0, r: 0 });
+    tracers.push({ mesh, m, active: false, trail: false, beam: false, from: new THREE.Vector3(), dir: new THREE.Vector3(),
+      dist: 0, t: 0, life: 0, speed: 0, seg: 0, r: 0, a: 0 });
   }
 
   /* ── 링 풀(충격파·물결) ── */
@@ -544,10 +553,10 @@ export function createEffects(scene, camera, opts = {}) {
     decals.instanceColor.needsUpdate = true;
   }
 
-  /** 총구 섬광. pos: 총구 위치, dir: 사격 방향(정규화), kind: 'rifle'|'sniper'|'pistol' */
+  /** 총구 섬광. pos: 총구 위치, dir: 사격 방향(정규화), kind: fxKind */
   function muzzleFlash(pos, dir, kind = 'rifle') {
     if (disposed) return;
-    const K = FLASH_KIND[kindOf(kind)];
+    const key = kindOf(kind), K = FLASH_KIND[key];
     v3(pos, _a);
     v3(dir, _d);
     if (_d.lengthSq() < 1e-8) camera.getWorldDirection(_d); else _d.normalize();
@@ -562,8 +571,11 @@ export function createEffects(scene, camera, opts = {}) {
     if (K.side) { f.sideL.scale.set(K.w * 0.55, K.w * 0.55, K.len * 0.5); f.sideR.scale.copy(f.sideL.scale); }
     f.core.scale.setScalar(K.core);
     f.pm.opacity = f.sm.opacity = f.a;
+    f.pm.map = key === 'rail' ? tex.hole : tex.petal;
+    f.sm.map = key === 'rail' ? tex.hole : tex.flash;
+    f.pm.color.setHex(K.color); f.sm.color.setHex(K.color);
     f.g.visible = true;
-    if (Q.muzzleLight && !reduced) useLight(_b.copy(_a).addScaledVector(_d, 0.3), 0xffb35a, K.light, 7, K.life + 0.02, 1);
+    if (Q.muzzleLight && !reduced) useLight(_b.copy(_a).addScaledVector(_d, 0.3), K.color === 0xffffff ? 0xffb35a : K.color, K.light, 7, K.life + 0.02, 1);
     // 옅은 총구 연기
     for (let i = 0, n = cnt(K.side ? 4 : 2); i < n; i++) {
       ptsAlpha.add(_a.x, _a.y, _a.z, _d.x * rand(0.3, 1) + rand(-0.2, 0.2), _d.y * rand(0.3, 1) + rand(0, 0.3),
@@ -571,28 +583,48 @@ export function createEffects(scene, camera, opts = {}) {
     }
   }
 
-  /** 예광탄. from→to 로 빛줄기가 날아간다. 저격은 옅은 공기 궤적이 잠시 남는다. */
+  /** 화염 분사. from→to 경로(최대 12 m)에 매 발사마다 풀의 입자를 쌓아 연속 불길을 그린다. */
+  function flameSpray(from, to) {
+    if (disposed) return;
+    v3(from, _a); v3(to, _b);
+    const len = Math.min(12, _d.subVectors(_b, _a).length());
+    if (len < 0.05) return;
+    _d.normalize();
+    const n = cnt(20);
+    for (let i = 0; i < n; i++) {
+      const d = Math.min(len, (i + Math.random()) * len / n);
+      const radius = 0.025 + d * 0.045;
+      const x = _a.x + _d.x * d + rand(-radius, radius);
+      const y = _a.y + _d.y * d + rand(-radius, radius);
+      const z = _a.z + _d.z * d + rand(-radius, radius);
+      ptsAdd.add(x, y, z, _d.x * 2, _d.y * 2 + 0.35, _d.z * 2, i % 3 === 0 ? P.flameCore : P.flameJet);
+    }
+    if (Q.muzzleLight && !reduced) useLight(_a, 0xff6e1d, 5, 5, 0.16, 1);
+  }
+
+  /** 예광탄. rail은 이동하는 탄 대신 시작점에서 끝점까지 즉시 뻗는 푸른 빔을 그린다. */
   function tracer(from, to, kind = 'rifle') {
     if (disposed) return;
-    const K = TRACER_KIND[kindOf(kind)];
+    const key = kindOf(kind), K = TRACER_KIND[key];
     v3(from, _a); v3(to, _b);
     const dist = _a.distanceTo(_b);
     if (dist < 0.05) return;
     _d.subVectors(_b, _a).divideScalar(dist);
-    const spawn = (trail) => {
+    const spawn = (trail, halo = false) => {
       const tr = tracers.find((x) => !x.active) || tracers.reduce((m, x) => (x.t > m.t ? x : m));
-      tr.active = true; tr.trail = trail; tr.t = 0; tr.from.copy(_a); tr.dir.copy(_d); tr.dist = dist;
-      tr.speed = K.speed; tr.seg = K.seg; tr.r = trail ? 0.006 : K.r;
-      tr.life = trail ? 0.45 : dist / K.speed + K.seg / K.speed;
-      tr.m.color.setHex(trail ? 0xcfe8ff : K.color);
-      tr.m.opacity = trail ? 0.3 : 0.9;
+      tr.active = true; tr.trail = trail; tr.beam = key === 'rail'; tr.t = 0; tr.from.copy(_a); tr.dir.copy(_d); tr.dist = dist;
+      tr.speed = K.speed; tr.seg = K.seg; tr.r = trail && !tr.beam ? 0.006 : K.r * (halo ? 3 : 1);
+      tr.life = tr.beam ? 0.18 : trail ? 0.45 : dist / K.speed + K.seg / K.speed;
+      tr.m.color.setHex(tr.beam ? (halo ? 0x236cff : 0x9ceaff) : trail ? 0xcfe8ff : K.color);
+      tr.a = tr.beam ? (halo ? 0.38 : 0.95) : trail ? 0.3 : 0.9;
+      tr.m.opacity = tr.a;
       tr.mesh.quaternion.setFromUnitVectors(Z, _d);
       tr.mesh.position.copy(_a);
       tr.mesh.scale.set(tr.r, tr.r, trail ? dist : Math.min(dist, 0.01));
       tr.mesh.visible = true;
     };
-    spawn(false);
-    if (K.trail) spawn(true);
+    spawn(key === 'rail');
+    if (K.trail) spawn(true, key === 'rail');
   }
 
   /**
@@ -854,8 +886,8 @@ export function createEffects(scene, camera, opts = {}) {
       if (tr.trail) {
         const u = tr.t / tr.life;
         if (u >= 1) { tr.active = false; tr.mesh.visible = false; continue; }
-        tr.m.opacity = 0.3 * (1 - u) ** 2;
-        const r = tr.r * (1 + 2.5 * u);
+        tr.m.opacity = tr.a * (1 - u) ** 2;
+        const r = tr.r * (tr.beam ? 1 + 0.8 * u : 1 + 2.5 * u);
         tr.mesh.scale.x = tr.mesh.scale.y = r;
         continue;
       }
@@ -963,7 +995,7 @@ export function createEffects(scene, camera, opts = {}) {
   const live = (arr) => arr.reduce((n, x) => n + (x.active ? 1 : 0), 0);
 
   return {
-    muzzleFlash, tracer, impact, explosion, shellEject, update, clear, setQuality, addShake,
+    muzzleFlash, tracer, flameSpray, impact, explosion, shellEject, update, clear, setQuality, addShake,
     padBurst, portalFlash, secretSparkle, slashSpark, setSpeedAmount,
     /** null이면 OS 설정(prefers-reduced-motion)을 따른다 */
     setReducedMotion(v) { rmOverride = v === null || v === undefined ? null : !!v; reduced = rmOverride ?? !!mq?.matches; },

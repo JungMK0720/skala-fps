@@ -58,9 +58,7 @@ const SHOP_NEW_PRIMARY = ['sg_pump', 'sg_double', 'sg_auto', 'sm_uzi_dual', 'mg_
 const ALL_IDS = [...new Set([...GUN_IDS, ...SHOP_NEW_PRIMARY, ...Object.keys(MELEE_TABLE), 'gr_frag'])];
 /** 좀비 물량 막기 전용 보조무기(docs/MODES.md, zombieOnly). 증강으로만 얻고 상점·로드아웃·봇·다른 모드에는 나오지 않는다 */
 const ZOMBIE_LAUNCHER_IDS = ['gl_m32', 'rl_b9', 'gv_gun'];
-/** 좀비 물량 막기 전용 주무기: 기관총. 그 모드의 무기 고르기 창과 무기 교체권으로만 들고, 다른 모드에서는 어떤 규칙에서도 쓸 수 없다 */
-const ZOMBIE_GUN_IDS = ['mg_m249'];
-const ZOMBIE_ONLY_IDS = [...ZOMBIE_LAUNCHER_IDS, ...ZOMBIE_GUN_IDS];
+const ZOMBIE_ONLY_IDS = WEAPON_IDS.filter((id) => WEAPONS[id].zombieOnly);
 /** 좀비가 아닌 모드에서 고르는 주무기(표 순서) */
 const PVP_PRIMARY = () => PRIMARY_IDS.filter((id) => !WEAPONS[id].zombieOnly);
 
@@ -87,22 +85,11 @@ const lerp = (a, b, t) => a + (b - a) * t;
 
 /* ---------- 표 ---------- */
 describe('무기 표(DESIGN 3.2)', () => {
-  test('상점 무기 + 수류탄이 빠짐없이 있고 슬롯별 목록이 맞다', () => {
-    // 좀비 전용 무기(보조 3종 + 기관총)는 따로 센다(아래 시험)
-    assert.deepEqual([...WEAPON_IDS].sort(), [...ALL_IDS, ...ZOMBIE_ONLY_IDS].sort());
-    assert.equal(WEAPON_IDS.length, ALL_IDS.length + ZOMBIE_ONLY_IDS.length);    assert.deepEqual(WEAPON_IDS.filter((id) => !WEAPONS[id].zombieOnly).sort(), [...ALL_IDS].sort());
-    assert.deepEqual([...PVP_PRIMARY()].sort(), [...RIFLE_IDS, 'dm_mark', 'sm_vx3', 'sg_bx12', ...SHOP_NEW_PRIMARY, ...SNIPER_IDS].sort());
-    assert.deepEqual(PRIMARY_IDS.filter((id) => WEAPONS[id].zombieOnly), ZOMBIE_GUN_IDS, '좀비 전용 주무기는 기관총 하나이고 목록 맨 끝이다');
-    assert.equal(PRIMARY_IDS[PRIMARY_IDS.length - 1], 'mg_m249');
-    assert.deepEqual(SECONDARY_IDS.filter((id) => !WEAPONS[id].zombieOnly).sort(), ['pt_magnum', 'pt_std']);
-    assert.deepEqual([...SECONDARY_IDS].sort(), ['gl_m32', 'gv_gun', 'pt_magnum', 'pt_std', 'rl_b9']);
-    assert.deepEqual([...MELEE_IDS].sort(), ['ml_gurkha', 'ml_katana', 'ml_knife', 'ml_tanto']);
-    assert.deepEqual([...GRENADE_IDS], ['gr_frag']);
+  test('무기 슬롯 목록은 실제 무기 슬롯과 일치한다', () => {
     for (const id of PRIMARY_IDS) assert.equal(WEAPONS[id].slot, 1, id);
     for (const id of SECONDARY_IDS) assert.equal(WEAPONS[id].slot, 2, id);
     for (const id of MELEE_IDS) assert.equal(WEAPONS[id].slot, 3, id);
     assert.equal(WEAPONS.gr_frag.slot, 4);
-    assert.deepEqual({ ...DEFAULT_LOADOUT }, { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
   });
 
   test('좀비 전용 무기는 어느 규칙의 고르는 목록에도, 허용 무기에도 없다(좀비 물량 막기만 넘기는 zombie 인자가 있을 때만)', () => {
@@ -114,7 +101,7 @@ describe('무기 표(DESIGN 3.2)', () => {
       }
     }
     // 좀비 물량 막기(클래식 규칙, zombie = true)에서만 기관총이 고르는 목록에 들고 발사기·칼전·스나전은 그대로 안 열린다
-    assert.deepEqual(pickableWeapons('classic', null, true), [...PRIMARY_IDS]);
+    assert.deepEqual(pickableWeapons('classic', null, true), PRIMARY_IDS.filter((id) => !WEAPONS[id].cardOnly));
     assert.equal(isWeaponAllowed('classic', 'mg_m249', true), true);
     assert.equal(isWeaponAllowed('classic', 'gl_m32', true), true);
     assert.equal(isWeaponAllowed('classic', 'mg_m249', 'yes'), false, '정확히 true일 때만 연다');

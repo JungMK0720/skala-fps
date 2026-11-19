@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { createGrenade, stepGrenade, createGrenadeSystem, PROJECTILES, GRENADE_PHYSICS, projectileCode, projectileKind } from '../js/weapons/grenade.js';
 import { waveHitT, waveHitPoint, losReach, c4Offset, c4WorldPos, C4_STICK_H, C4_STICK_H_LOW } from '../js/game/horde/contact.js';
 import { createHordeView } from '../js/game/horde/view.js';
+import { HAZARD_KINDS } from '../js/game/horde/bosses.js';
 import { ZF } from '../js/game/horde/director.js';
 import { HORDE } from '../js/game/horde/rules.js';
 import { createWorld, makeBox } from '../js/engine/physics.js';
@@ -322,7 +323,7 @@ function fakeThree() {
     copy() { return this; } compose() { return this; } makeRotationFromEuler() { return this; } makeBasis() { return this; }
   }
   class Euler { set() { return this; } }
-  class Color { setHex() { return this; } lerp() { return this; } copy() { return this; } }
+  class Color { setHex() { return this; } multiplyScalar() { return this; } lerp() { return this; } copy() { return this; } }
   class Geometry { rotateX() { return this; } translate() { return this; } setAttribute() { return this; } setIndex() { return this; } computeBoundingSphere() {} setFromPoints() { return this; } dispose() {} }
   class Material { constructor(o = {}) { Object.assign(this, o); this.color = new Color(); } dispose() {} }
   class Object3D {
@@ -366,10 +367,36 @@ describe('검기·쓰러진 동료·좀비 찾기(view.js, three.js 대역)', ()
     return { v, scene, frame };
   }
 
+  test('보스 장판은 종류별 상승 입자를 그리고 만료되면 걷힌다', () => {
+    const { v, scene, frame } = setup([]);
+    const wisps = scene.children.find((o) => o.name === 'horde:field-wisps');
+    v.push({ zombies: [], hazards: [
+      { id: 1, kind: HAZARD_KINDS.acid, pos: [1, 0, 2], r: 3, leftMs: 1000 },
+      { id: 2, kind: HAZARD_KINDS.fire, pos: [4, 0, 2], r: 2, leftMs: 1000 }
+    ] }, 1000, 'me');
+    frame();
+    assert.equal(wisps.count, 6);
+    frame(60);
+    assert.equal(wisps.count, 0);
+    v.dispose();
+  });
+
   test('검기 상수는 규칙 값을 따른다', () => {
     assert.equal(HORDE.waveSpeed, 26);
     assert.equal(HORDE.waveRadius, 0.7);
     assert.equal(HORDE.waveMaxHits, 6);
+  });
+
+  test('AI 안경은 전방 15° 안의 보이는 몸통으로만 탄도를 돌린다', () => {
+    const eye = [0, 1.6, 0], forward = [0, 0, -1];
+    const { v } = setup([zombie(1, 1, -8), zombie(2, 4, -8), zombie(3, 0, 6)]);
+    const aim = v.autoAim(eye, forward, 30, () => true);
+    assert.ok(aim && aim[0] > 0 && aim[2] < 0);
+    assert.equal(v.ray(eye, aim, 30)[0].part, 'body');
+    assert.equal(v.autoAim(eye, forward, 30, () => false), null, '벽 너머는 조준하지 않는다');
+    assert.equal(v.autoAim(eye, forward, 5, () => true), null, '사거리 밖은 조준하지 않는다');
+    v.setActive(false);
+    assert.equal(v.autoAim(eye, forward, 30), null);
   });
 
   test('내 검기: 지나가는 좀비를 가까운 순서로 한 번씩, exclude는 건너뛰고 상한(6)까지 맞힌다', () => {
