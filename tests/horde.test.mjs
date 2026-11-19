@@ -14,7 +14,7 @@ import { getGroundY } from '../js/engine/physics.js';
 import { CARDS, CARD_COUNT, TIERS, computePerks, perkMaxHp, perkSummary, makeOffer, encodeCards, decodeCards, cardById, cardAvailable } from '../js/game/horde/cards.js';
 import { BOSSES, pickBosses, SKILL_KINDS } from '../js/game/horde/bosses.js';
 import {
-  HORDE, bossCount, zombieCount, hpMul, hordeAmmo, makeRng, zombieMix, LOOT_TYPES, rollDrop, lootByCode, xpNeed, timeBonusXp, zombieXp, ZOMBIE_IDS
+  HORDE, bossCount, zombieCount, hpMul, hordeAmmo, makeRng, zombieMix, LOOT_TYPES, rollDrop, lootByCode, xpNeed, timeBonusXp, zombieXp, ZOMBIE_IDS, ZOMBIE_TYPES
 } from '../js/game/horde/rules.js';
 import { createHorde, applyHordeSnapshot, restoreHorde, hordeSummary, zombieIdOf, zombieHitDamage, nadeDamage } from '../js/game/horde/director.js';
 import { modsFromPerks } from '../js/game/horde/client.js';
@@ -437,6 +437,77 @@ describe('보스 · 스테이지 규칙', () => {
     const again = restored.internals.zombies.get(Z.id);
     assert.equal(again?.t?.id, 'flyer');
     for (let axis = 0; axis < 3; axis++) assert.ok(near(again.body.pos[axis], seen.pos[axis]), `복원된 발 좌표 ${axis}`);
+  });
+
+  test('30스테이지 블리츠: 가끔 섞이고, 그랩에 맞으면 블리츠 앞으로 끌려가고(20초 쿨타임), 평타에 맞으면 기절하며 뜬다', () => {
+    assert.ok(!zombieMix(29).some((m) => m.type.id === 'grabber'));
+    const g30 = zombieMix(30).find((m) => m.type.id === 'grabber');
+    const walker30 = zombieMix(30).find((m) => m.type.id === 'walker');
+    assert.ok(g30 && g30.weight > 0 && g30.weight < walker30.weight, '30스테이지부터 가끔');
+    const { d, pos, P } = makeFlat({ startStage: 30 });
+    const S = d.internals.S;
+    S.queue.length = 0;
+    S.queue.push({ type: 'grabber' });
+    S.spawnAt = 0;
+    step(d);
+    S.spawnAt = Infinity;
+    const Z = alive(d).find((z) => z.t?.id === 'grabber');
+    assert.ok(Z && Z.code === 8);
+    Z.state = 'move';
+    Z.body.pos[0] = 12; Z.body.pos[2] = 0;
+    Z.grabAt = 0;
+    const p = P('p1');
+    let ev = [];
+    for (let i = 0; i < 60 && !ev.some((e) => e.type === 'grabbed'); i++) ev = ev.concat(step(d));
+    assert.ok(ev.some((e) => e.type === 'grabbed' && e.id === 'p1'), '그랩에 맞았다');
+    assert.ok(p.knockV[0] > 10 && p.knockV[1] > 0, `블리츠 쪽(+x)으로 끌려간다 ${p.knockV}`);
+    const flight = (2 * p.knockV[1]) / 16;
+    const landX = pos.p1[0] + p.knockV[0] * flight;
+    assert.ok(Math.abs(landX - (Z.body.pos[0] - 1.4)) < 1.5, `블리츠 바로 앞에 떨어진다: ${landX} vs ${Z.body.pos[0]}`);
+    assert.ok(Z.grabAt - S.clock > 18000, '그랩 쿨타임 20초');
+    // 평타: 기절 + 띄우기
+    p.hitUntil = 0;
+    Z.body.pos[0] = pos.p1[0] + 1; Z.body.pos[2] = 0;
+    Z.state = 'wind'; Z.until = S.clock; Z.windRanged = false; Z.windGrab = false;
+    const hit = step(d);
+    const stun = hit.find((e) => e.type === 'stun' && e.id === 'p1');
+    assert.ok(stun && stun.ms === ZOMBIE_TYPES.grabber.stun.ms, '평타에 맞으면 기절');
+    assert.equal(p.knockV[1], ZOMBIE_TYPES.grabber.stun.up, '공중에 뜬다');
+  });
+
+  test('40스테이지 마녀: 저주 물약을 던지고, 맞으면 10초 동안 어떤 회복도 받지 않는다', () => {
+    assert.ok(!zombieMix(39).some((m) => m.type.id === 'witch'));
+    assert.ok(zombieMix(40).some((m) => m.type.id === 'witch'));
+    const { d, pos, P } = makeFlat({ startStage: 40 });
+    const S = d.internals.S;
+    S.queue.length = 0;
+    S.queue.push({ type: 'witch' });
+    S.spawnAt = 0;
+    step(d);
+    S.spawnAt = Infinity;
+    const Z = alive(d).find((z) => z.t?.id === 'witch');
+    assert.ok(Z && Z.code === 9);
+    Z.state = 'move';
+    Z.body.pos[0] = 10; Z.body.pos[2] = 0;
+    Z.rangedAt = 0;
+    const p = P('p1');
+    let ev = [];
+    for (let i = 0; i < 120 && !ev.some((e) => e.type === 'noHeal'); i++) ev = ev.concat(step(d));
+    const curse = ev.find((e) => e.type === 'noHeal' && e.id === 'p1');
+    assert.ok(curse && curse.ms === 10000, '저주 물약에 맞았다');
+    // 저주 중에는 회복하지 않는다(구급 상자 줍기도)
+    p.hp = 50;
+    const id = S.nextLoot++;
+    d.internals.loot.set(id, { id, kind: 'med', x: pos.p1[0], y: 0, z: 0, until: S.clock + 30000 });
+    d.claimLoot('p1', id);
+    assert.equal(p.hp, 50, '저주 중에는 구급 상자로도 회복하지 않는다');
+    // 10초가 지나면 다시 회복된다
+    Z.state = 'dead';
+    step(d, Math.ceil(10000 / STEP) + 2);
+    const id2 = S.nextLoot++;
+    d.internals.loot.set(id2, { id: id2, kind: 'med', x: pos.p1[0], y: 0, z: 0, until: S.clock + 30000 });
+    d.claimLoot('p1', id2);
+    assert.ok(p.hp > 50, '저주가 끝나면 회복한다');
   });
 
   test('경험치: 레벨마다 10·20·30…, 시간 안에 다 잡으면 남은 1초당 1, 강한 좀비일수록 많다', () => {

@@ -33,7 +33,7 @@ export const skillKindOf = (code) => KIND_BY_CODE.get(code | 0) || null;
 /** 장판 종류(스냅샷 번호) */
 export const HAZARD_KINDS = Object.freeze({ acid: 1, fire: 2, web: 3, frost: 4, shock: 5 });
 /** 투사체 종류(스냅샷 번호) */
-export const PROJECTILE_KINDS = Object.freeze({ spit: 1, acid: 2, barrel: 3, web: 4, shard: 5 });
+export const PROJECTILE_KINDS = Object.freeze({ spit: 1, acid: 2, barrel: 3, web: 4, shard: 5, hook: 6, curse: 7 });
 
 /**
  * hp = 5스테이지 기준 체력(bossHpMul을 곱한다. 첫 보스인 3스테이지는 약 0.85배), damage = 근접 피해(dmgMul을 곱한다), scale = 화면·히트박스 배율, radius = 충돌 반지름.

@@ -205,6 +205,9 @@ export function createHordeClient(o) {
       }
       case 'knock': if (String(ev.id) === meId) W('pushLocal', ev.v); break;
       case 'slow': if (String(ev.id) === meId) { W('slowLocal', 1 - (Number(ev.mul) || 0), ev.ms); if (H) H.callout('❄️ 느려졌어요'); } break;
+      case 'stun': if (String(ev.id) === meId) { W('stunLocal', ev.ms); if (H) H.callout('💫 기절!'); } break;
+      case 'grabbed': if (String(ev.id) === meId && H) H.callout('🪝 그랩에 끌려가요!'); break;
+      case 'noHeal': if (String(ev.id) === meId && H) H.callout(`🧪 저주! ${Math.round((Number(ev.ms) || 0) / 1000)}초 동안 회복 불가`); break;
       case 'second': if (String(ev.id) === meId && H) H.banner({ icon: '🪽', title: '두 번째 기회!', sub: '쓰러질 피해를 버텼어요' }); break;
       case 'boss':
         if (H) H.banner({ icon: '👑', title: '보스 등장', sub: (ev.bosses || []).map((b) => `${b.icon || ''} ${b.name}`).join(' · ') });

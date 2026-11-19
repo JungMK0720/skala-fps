@@ -270,7 +270,7 @@ function buildWorld(ctx, opts) {
   // sticky = C4, waveRange = 우클릭 검기 거리, autoAim = AI 안경의 전방 몸통 자동 조준
   const hordePerk = { speed: 1, pierce: 0, maxHp: 100, nadeMulti: 0, nadeRadiusOf: null, sticky: false, waveRange: 0, waveRangeOf: null, autoAim: false };
   const hordeGlasses = new Set();  // 마지막 좀비 스냅샷에서 AI 안경을 쓴 사람
-  let slowUntil = 0, slowMul = 1, grabbedNow = false;
+  let slowUntil = 0, slowMul = 1, grabbedNow = false, stunUntil = 0;
   // 좀비에 붙은 C4: 수류탄 id → { zid(좀비 번호), x, y, z(좀비 발 기준 로컬 오프셋) }. 터지거나 판이 바뀌면 지운다
   const c4Stuck = new Map();
   const c4At = [0, 0, 0];
@@ -705,7 +705,7 @@ function buildWorld(ctx, opts) {
     spec.id = null; spec.name = '';
     latch.fire = latch.rmb = latch.reload = false; latch.slot = null; latch.wheel = 0;
     vm.setVisible(true);
-    slowUntil = 0; grabbedNow = false;
+    slowUntil = 0; grabbedNow = false; stunUntil = 0;
     player.setSpeedScale(speedScaleNow());
     syncFrozen();
     R.setFov(R.baseFov);
@@ -780,7 +780,7 @@ function buildWorld(ctx, opts) {
       arsenal.setMods(null);
       arsenal.setAllowedSlots(rulesetOf(ruleset).slots);
       player.setMoveTuning(null);
-      slowUntil = 0; grabbedNow = false;
+      slowUntil = 0; grabbedNow = false; stunUntil = 0;
       return;
     }
     if (o.mods) arsenal.setMods(o.mods);
@@ -1798,7 +1798,7 @@ function buildWorld(ctx, opts) {
   }
 
   /* ---------- 루프 ---------- */
-  const localCanMove = () => controls && rnd.phase !== 'loadout' && rnd.phase !== 'matchEnd' && local.spawned && local.alive;
+  const localCanMove = () => controls && rnd.phase !== 'loadout' && rnd.phase !== 'matchEnd' && local.spawned && local.alive && !(stunUntil > performance.now());
   /** 무기 입력을 받을 수 있는가: 움직일 수 있고, 입력이 켜져 있고, 커서가 필요한 화면·이모트·휠이 없을 때 */
   const localCanAct = () => localCanMove() && input.enabled && !(ui && ui.needsCursor()) && !emoteLocal && !wheel.open;
   /**
@@ -2127,6 +2127,11 @@ function buildWorld(ctx, opts) {
       const m = clamp(num(mul, 1), 0.2, 1);
       slowUntil = Math.max(slowUntil, performance.now() + clamp(num(ms, 0), 0, 10000));
       slowMul = Math.min(slowUntil > performance.now() ? slowMul : 1, m);
+    },
+    /** 블리츠 평타: ms 동안 기절(움직이지도 쏘지도 못한다). 띄우는 힘은 방장의 밀려남으로 따로 온다 */
+    stunLocal(ms) {
+      stunUntil = Math.max(stunUntil, performance.now() + clamp(num(ms, 0), 0, 5000));
+      syncFrozen();
     },
     /** 보스 돌진·내려찍기에 밀려남: [vx, vy, vz] */
     pushLocal(v) { if (local.spawned && local.alive) player.push(v); },
