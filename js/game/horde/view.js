@@ -52,8 +52,8 @@ const HIT_FLASH_MS = 90;
 const GROAN_MIN = 3500, GROAN_SPREAD = 6000;
 const SKILL_CODE = Object.freeze(Object.fromEntries(Object.entries(SKILL_KINDS).map(([k, v]) => [v, k])));
 const HAZ_COLOR = Object.freeze({ [HAZARD_KINDS.acid]: 0x7dff3a, [HAZARD_KINDS.fire]: 0xff7a1a, [HAZARD_KINDS.web]: 0xe8e2d0, [HAZARD_KINDS.frost]: 0x8fdcff, [HAZARD_KINDS.shock]: 0x6ff0ff });
-const PROJ_COLOR = Object.freeze({ [PROJECTILE_KINDS.spit]: 0x9dff4a, [PROJECTILE_KINDS.acid]: 0x6dff2a, [PROJECTILE_KINDS.barrel]: 0x8a4b1c, [PROJECTILE_KINDS.web]: 0xf2ecdc, [PROJECTILE_KINDS.shard]: 0xbfeaff, [PROJECTILE_KINDS.hook]: 0xffd34a, [PROJECTILE_KINDS.curse]: 0xb04cff });
-const PROJ_SIZE = Object.freeze({ [PROJECTILE_KINDS.barrel]: 0.34, [PROJECTILE_KINDS.shard]: 0.14, [PROJECTILE_KINDS.hook]: 0.3, [PROJECTILE_KINDS.curse]: 0.24 });
+const PROJ_COLOR = Object.freeze({ [PROJECTILE_KINDS.spit]: 0x9dff4a, [PROJECTILE_KINDS.acid]: 0x6dff2a, [PROJECTILE_KINDS.barrel]: 0x8a4b1c, [PROJECTILE_KINDS.web]: 0xf2ecdc, [PROJECTILE_KINDS.shard]: 0xbfeaff, [PROJECTILE_KINDS.hook]: 0xffd34a, [PROJECTILE_KINDS.curse]: 0xb04cff, [PROJECTILE_KINDS.ice]: 0x8fdcff, [PROJECTILE_KINDS.bolt]: 0x9ff8ff });
+const PROJ_SIZE = Object.freeze({ [PROJECTILE_KINDS.barrel]: 0.34, [PROJECTILE_KINDS.shard]: 0.14, [PROJECTILE_KINDS.hook]: 0.3, [PROJECTILE_KINDS.curse]: 0.24, [PROJECTILE_KINDS.ice]: 0.36, [PROJECTILE_KINDS.bolt]: 0.3 });
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -269,9 +269,6 @@ export function createHordeView(o) {
   projMesh.frustumCulled = false; projMesh.count = 0; projMesh.name = 'horde:proj'; projMesh.visible = false;
   projMesh.setColorAt(0, new THREE.Color(1, 1, 1));
   scene.add(projMesh);
-  // 연쇄 번개 선
-  const zapMat = new THREE.LineBasicMaterial({ color: 0x9ff8ff, transparent: true, opacity: 0.95 });
-  const zaps = [];
   // 검기: 빛나는 초승달(더하기 혼합, 사라질 때 흐려지게 검기마다 재질 하나). 풀로 다시 쓴다
   const waveGeo = crescentGeometry(THREE);
   const waves = [];
@@ -392,31 +389,13 @@ export function createHordeView(o) {
     }
   }
 
-  /** 방장 이벤트 중 화면 연출이 필요한 것(스킬 예고 소리·연쇄 번개) */
+  /** 방장 이벤트 중 화면 연출이 필요한 것(스킬 예고 소리·성남·보스 등장) */
   function event(ev) {
     if (!active || !ev) return;
     if (ev.type === 'skill') {
       const e = ents.get(ev.z);
       const pos = e && e.hist.length ? e.hist[e.hist.length - 1].pos : null;
       play(ev.kind === 'chain' ? 'zap' : ev.kind === 'volley' && ev.boss === 'frost' ? 'ice_crack' : 'boss_skill', pos ? { pos } : undefined);
-    } else if (ev.type === 'chain' && Array.isArray(ev.pts)) {
-      const pts = ev.pts.map((q) => new THREE.Vector3(q[0], q[1], q[2]));
-      const jag = [];
-      for (let i = 0; i < pts.length - 1; i++) {
-        const a = pts[i], b = pts[i + 1];
-        for (let k = 0; k <= 6; k++) {
-          const u = k / 6;
-          const v = a.clone().lerp(b, u);
-          if (k > 0 && k < 6) v.add(new THREE.Vector3((Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6));
-          jag.push(v);
-        }
-      }
-      const g = new THREE.BufferGeometry().setFromPoints(jag);
-      const line = new THREE.Line(g, zapMat);
-      line.name = 'horde:zap';
-      scene.add(line);
-      zaps.push({ line, at: performance.now() });
-      play('zap', { pos: ev.pts[ev.pts.length - 1] });
     } else if (ev.type === 'enrage') {
       const e = ents.get(ev.z);
       if (e && e.hist.length) play('boss_roar', { pos: e.hist[e.hist.length - 1].pos });
@@ -997,12 +976,6 @@ export function createHordeView(o) {
       r.material.opacity = 0.8 * (1 - u);
     }
     fxRings.end();
-    for (let i = zaps.length - 1; i >= 0; i--) {
-      const z = zaps[i];
-      const u = (now - z.at) / 320;
-      if (u >= 1) { scene.remove(z.line); z.line.geometry.dispose(); zaps.splice(i, 1); continue; }
-    }
-    zapMat.opacity = zaps.length ? 0.95 : 0;
   }
 
   /* ---------- 쓰러진 동료 표시 ---------- */
@@ -1368,8 +1341,6 @@ export function createHordeView(o) {
     barBg.count = barFg.count = 0;
     fxAnims.length = 0;
     seenFx.clear();
-    for (const z of zaps) { scene.remove(z.line); z.line.geometry.dispose(); }
-    zaps.length = 0;
     lastPushAt = 0;
     for (const m of Object.values(parts)) { m.count = 0; m.instanceMatrix.needsUpdate = true; }
     projMesh.count = 0;
@@ -1386,7 +1357,7 @@ export function createHordeView(o) {
     scene.remove(projMesh); projMesh.geometry.dispose(); projMesh.material.dispose();
     scene.remove(chainMesh); chainMesh.geometry.dispose(); chainMesh.material.dispose();
     for (const m of lootMeshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); if (m.dispose) m.dispose(); }
-    mat.dispose(); eyeMat.dispose(); zapMat.dispose();
+    mat.dispose(); eyeMat.dispose();
     ringGeo.dispose(); discGeo.dispose(); planeGeo.dispose();
     for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hookRects, hazDiscs, hazRings, fxRings, lootRings, fireDiscs, fireRings, decoyRings, reviveRings, reviveDiscs]) pool.dispose();
     for (const g of decoyMeshes) scene.remove(g);

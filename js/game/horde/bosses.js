@@ -13,15 +13,15 @@ export const SKILL_KINDS = Object.freeze({
   charge: 1,   // 예고 뒤 직선으로 돌진. 부딪히면 피해 + 밀려남
   slam: 2,     // 제자리에서 내려찍기. 반경 안 피해
   nova: 3,     // 퍼져 나가는 고리. 고리가 지나갈 때 땅에 있으면 맞는다(점프로 피한다)
-  leap: 4,     // 사람 자리로 뛰어올라 떨어진다. 떨어지는 자리를 미리 보여 준다
+  leap: 4,     // 예고+체공 뒤 사람이 있을 자리를 예상해 그곳으로 뛰어올라 떨어진다. 예고 동안 자리를 따라가지 않는다
   blink: 5,    // 사람 뒤로 순간이동
   summon: 6,   // 좀비를 불러낸다
   volley: 7,   // 투사체 여러 발(산·통·가시). 떨어진 자리에 장판을 남길 수 있다
-  pool: 8,     // 사람 발밑에 장판(피해·느려짐)
+  pool: 8,     // 장판 덩어리를 포물선으로 던진다. 떨어진 자리에 장판(피해·느려짐)
   scream: 9,   // 비명: 사람은 느려지고 좀비는 빨라진다
   armor: 10,   // 잠시 받는 피해를 줄인다
   heal: 11,    // 둘레 좀비와 자신을 치유
-  chain: 12    // 사람 사이를 튀는 연쇄 번개
+  chain: 12    // 곧게 날아가는 번개 구체. 맞은 사람에게서 가까운 다른 사람에게 튄다
 });
 export const SKILL_NAMES = Object.freeze({
   charge: '돌진', slam: '내려찍기', nova: '충격파', leap: '도약', blink: '순간이동', summon: '소환',
@@ -33,7 +33,7 @@ export const skillKindOf = (code) => KIND_BY_CODE.get(code | 0) || null;
 /** 장판 종류(스냅샷 번호) */
 export const HAZARD_KINDS = Object.freeze({ acid: 1, fire: 2, web: 3, frost: 4, shock: 5 });
 /** 투사체 종류(스냅샷 번호) */
-export const PROJECTILE_KINDS = Object.freeze({ spit: 1, acid: 2, barrel: 3, web: 4, shard: 5, hook: 6, curse: 7 });
+export const PROJECTILE_KINDS = Object.freeze({ spit: 1, acid: 2, barrel: 3, web: 4, shard: 5, hook: 6, curse: 7, ice: 8, bolt: 9 });
 
 /**
  * hp = 5스테이지 기준 체력(bossHpMul을 곱한다. 첫 보스인 3스테이지는 약 0.85배), damage = 근접 피해(dmgMul을 곱한다), scale = 화면·히트박스 배율, radius = 충돌 반지름.
@@ -118,7 +118,7 @@ const BOSS_TABLE = [
     id: 'volt', code: 9, name: '번개 좀비', title: '전선을 삼킨 감전된 시체', icon: '⚡',
     color: 0x3a4a6a, accent: 0x6ff0ff, hp: 2600, speed: 2.8, scale: 1.9, radius: 0.5, damage: 24, attackMs: 1200, windupMs: 420, range: 2.1,
     skills: [
-      { kind: 'chain', cd: 5000, windup: 700, range: 20, jumps: 3, dmg: 20 },
+      { kind: 'chain', cd: 5000, windup: 700, range: 20, speed: 20, jumps: 3, hop: 9, dmg: 20 },
       { kind: 'nova', cd: 9000, windup: 800, radius: 13, speed: 11, dmg: 20, width: 1.2, shock: true }
     ],
     enrage: { at: 0.4, speed: 1.2, dmg: 1.2, cd: 0.7 }
@@ -128,7 +128,7 @@ const BOSS_TABLE = [
     color: 0x4a6a8a, accent: 0xbfe8ff, hp: 2600, speed: 2.6, scale: 1.95, radius: 0.5, damage: 22, attackMs: 1200, windupMs: 420, range: 2.1,
     skills: [
       { kind: 'volley', cd: 4500, windup: 650, count: 5, fan: 0.18, speed: 22, dmg: 12, proj: 'shard', slow: { mul: 0.3, ms: 1500 } },
-      { kind: 'pool', cd: 10000, windup: 900, hazard: { kind: 'frost', r: 4, ms: 5500, dps: 6, slow: 0.4 } }
+      { kind: 'pool', cd: 10000, windup: 900, speed: 13, proj: 'ice', hazard: { kind: 'frost', r: 4, ms: 5500, dps: 6, slow: 0.4 } }
     ],
     enrage: { at: 0.4, speed: 1.2, dmg: 1.2, cd: 0.7 }
   }
