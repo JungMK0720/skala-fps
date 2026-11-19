@@ -68,7 +68,7 @@ export function createHordeHud(ctx) {
   const downText = (x) => {
     const r = reviveOf(x);
     if (r != null) return `살리는 중 ${Math.round(r * 100)}%`;
-    if (!x.canRevive) return '다음 스테이지에 부활';
+    if (!x.canRevive) return x.noAutoRevive ? '동료가 살려야 부활' : '다음 스테이지에 부활';
     return x.me ? '동료가 살릴 수 있어요' : '곁에서 3초 눌러 살리기';
   };
 

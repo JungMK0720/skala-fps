@@ -141,7 +141,7 @@ const FAMILIES = [
   { key: 'exec', name: '처형자', icon: '⚔️', stat: 'executioner', vals: [0.38, 0.63, 1, 1.5], text: (v) => `체력 25% 이하 좀비에게 피해 +${pc(v)}` },
   { key: 'last', name: '배수의 진', icon: '🔥', stat: 'lastStand', vals: [0.25, 0.42, 0.67, 1], text: (v) => `내 체력이 35% 이하일 때 피해 +${pc(v)}` },
   { key: 'rest', name: '휴식', icon: '🛌', stat: 'stageHeal', vals: [0.25, 0.38, 0.63, 1], text: (v) => `스테이지가 시작할 때 최대 체력의 ${pc(v)} 회복` },
-  { key: 'shield', name: '보호막', icon: '🛡️', stat: 'shield', vals: [200, 333, 533, 800], text: (v) => `스테이지가 시작할 때 보호막 +${v} (남은 보호막에 더해진다)` },
+  { key: 'shield', name: '보호막', icon: '🛡️', stat: 'shield', vals: [30, 50, 80, 120], text: (v) => `스테이지가 시작할 때 보호막 +${v} (남은 보호막에 더해진다)` },
   { key: 'forge', name: '탄약 제조', icon: '🏭', stat: 'ammoRegen', vals: [0.02, 0.04, 0.06, 0.09], text: (v) => `1초마다 탄창 크기의 ${pc(v)}만큼 재장전 탄창 회복` },
   { key: 'frenzy', name: '광란', icon: '🌀', stat: 'frenzy', vals: [0.004, 0.005, 0.0075, 0.01], text: (v) => `총으로 좀비를 맞힐 때마다 7초 동안 연사 +${+(v * 100).toFixed(2)}% (최대 300번 겹침)` }
 ];
@@ -158,7 +158,7 @@ const NADE_UP_N = 2;
 const SPECIALS = [
   { key: 'second', name: '두 번째 기회', icon: '🪽', tier: 'legend', max: 1, fx: { secondChance: 1 }, desc: '스테이지마다 한 번, 쓰러질 피해를 받아도 체력 30%로 버틴다', minStage: 3 },
   { key: 'glass', name: '유리 대포', icon: '🔮', tier: 'epic', max: 1, fx: { dmg: 0.5, maxHpPct: -0.2 }, desc: '모든 피해 +50% · 최대 체력 −20%' },
-  { key: 'wall', name: '철벽', icon: '🧱', tier: 'epic', max: 1, fx: { maxHpPct: 3, fireRate: -0.2 }, desc: '최대 체력 +300% · 연사 속도 −20%' },
+  { key: 'wall', name: '철벽', icon: '🧱', tier: 'epic', max: 1, fx: { maxHpPct: 1, fireRate: -0.2 }, desc: '최대 체력 +100% · 연사 속도 −20%' },
   { key: 'chain', name: '연쇄 폭발', icon: '🎆', tier: 'legend', max: 2, fx: { explosive: 0.25 }, desc: '처치한 좀비가 터져 3 m 안의 좀비에게 그 좀비 최대 체력의 25% 피해', minStage: 4 },
   { key: 'luck', name: '행운', icon: '🍀', tier: 'rare', max: 3, fx: { rerolls: 1 }, desc: '카드 제안마다 다시 뽑기 +1' },
   { key: 'wide', name: '넓은 선택', icon: '🃏', tier: 'epic', max: 1, fx: { offers: 1 }, desc: '카드 제안이 4장으로 늘어난다' },

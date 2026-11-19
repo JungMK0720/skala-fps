@@ -14,10 +14,10 @@ import { getGroundY, createWorld, makeBox } from '../js/engine/physics.js';
 import { CARDS, CARD_COUNT, TIERS, computePerks, perkMaxHp, perkSummary, makeOffer, encodeCards, decodeCards, cardById, cardAvailable } from '../js/game/horde/cards.js';
 import { BOSSES, pickBosses, SKILL_KINDS } from '../js/game/horde/bosses.js';
 import {
-  HORDE, bossCount, zombieCount, hpMul, hordeAmmo, makeRng, zombieMix, LOOT_TYPES, rollDrop, lootByCode, xpNeed, timeBonusXp, zombieXp, ZOMBIE_IDS, ZOMBIE_TYPES
+  HORDE, bossCount, zombieCount, hpMul, dmgMul, hordeAmmo, makeRng, zombieMix, LOOT_TYPES, rollDrop, lootByCode, xpNeed, timeBonusXp, zombieXp, ZOMBIE_IDS, ZOMBIE_TYPES
 } from '../js/game/horde/rules.js';
 import { createHorde, applyHordeSnapshot, restoreHorde, hordeSummary, zombieIdOf, zombieHitDamage, nadeDamage } from '../js/game/horde/director.js';
-import { modsFromPerks } from '../js/game/horde/client.js';
+import { createHordeClient, modsFromPerks } from '../js/game/horde/client.js';
 import { hordeSpawnPrimary } from '../js/game/horde/solo.js';
 import { zombieReward } from '../js/account/economy.js';
 import { WEAPONS } from '../js/weapons/defs.js';
@@ -480,10 +480,12 @@ describe('보스 · 스테이지 규칙', () => {
     let ev = [];
     for (let i = 0; i < 60 && !ev.some((e) => e.type === 'grabbed'); i++) ev = ev.concat(step(d));
     assert.ok(ev.some((e) => e.type === 'grabbed' && e.id === 'p1'), '그랩에 맞았다');
-    assert.ok(p.knockV[0] > 10 && p.knockV[1] > 0, `블리츠 쪽(+x)으로 끌려간다 ${p.knockV}`);
+    assert.ok(ev.some((e) => e.type === 'stun' && e.id === 'p1' && e.ms === 2000), '그랩에 끌리면 2초 동안 기절한다');
+    assert.ok(p.knockV[0] > 5 && p.knockV[1] > 11, `블리츠 쪽(+x)으로 높게 끌려간다 ${p.knockV}`);
     const flight = (2 * p.knockV[1]) / 16;
     const landX = pos.p1[0] + p.knockV[0] * flight;
     assert.ok(Math.abs(landX - (Z.body.pos[0] - 1.4)) < 1.5, `블리츠 바로 앞에 떨어진다: ${landX} vs ${Z.body.pos[0]}`);
+    assert.ok(near(p.knockV[1] ** 2 / (2 * 16), 5 * (5 ** 2 / (2 * 16)), 0.02), '그랩의 최고 높이는 예전의 5배');
     assert.ok(Z.grabAt - S.clock > 18000, '그랩 쿨타임 20초');
     // 평타: 기절 + 띄우기
     p.hitUntil = 0;
@@ -493,6 +495,33 @@ describe('보스 · 스테이지 규칙', () => {
     const stun = hit.find((e) => e.type === 'stun' && e.id === 'p1');
     assert.ok(stun && stun.ms === ZOMBIE_TYPES.grabber.stun.ms, '평타에 맞으면 기절');
     assert.equal(p.knockV[1], ZOMBIE_TYPES.grabber.stun.up, '공중에 뜬다');
+    assert.ok(near(p.knockV[1] ** 2 / (2 * 16), 5 * (7 ** 2 / (2 * 16)), 0.15), '블리츠 평타의 최고 높이도 예전의 약 5배');
+  });
+
+  test('블리츠는 그랩 예고 때 겨눈 방향을 고정하고, 옆으로 비키면 갈고리가 빗나간다', () => {
+    const { d, pos, P } = makeFlat({ startStage: 30 });
+    const S = d.internals.S;
+    S.queue.length = 0; S.queue.push({ type: 'grabber' }); S.spawnAt = 0;
+    step(d);
+    const Z = alive(d).find((z) => z.t?.id === 'grabber');
+    S.queue.length = 0; S.spawnAt = Infinity;
+    Z.state = 'move'; Z.body.pos[0] = 12; Z.body.pos[2] = 0; Z.grabAt = 0;
+    for (let i = 0; i < 5 && !Z.windGrab; i++) step(d);
+    assert.ok(Z.windGrab, '그랩 예고가 시작된다');
+    assert.ok(d.snapshot().z.find((r) => r[0] === Z.id)[7] & 512, '화면으로 그랩 예고를 전한다');
+    assert.deepEqual(Z.grabAim, [0, 1, 0], '예고를 시작할 때의 표적을 고정한다');
+    pos.p1[2] = 2.5;
+    let fired = false, grabbed = false, owner = 0;
+    for (let i = 0; i < 80; i++) {
+      const ev = step(d);
+      grabbed ||= ev.some((e) => e.type === 'grabbed');
+      const hook = d.internals.projectiles.find((p) => p.pull === Z.id);
+      if (hook) { fired = true; owner = d.snapshot().pr.find((r) => r[0] === hook.id)[9]; }
+    }
+    assert.ok(fired && owner === Z.id, '사슬을 그릴 갈고리 소유자를 동기화한다');
+    assert.equal(grabbed, false, '옆으로 비키면 갈고리에 맞지 않는다');
+    assert.equal(P('p1').knockV, null, '빗나가면 끌리지도 기절하지도 않는다');
+    assert.equal(P('p1').hp, P('p1').maxHp, '빗나간 갈고리는 피해를 주지 않는다');
   });
 
   test('40스테이지 마녀: 저주 물약을 던지고, 맞으면 10초 동안 어떤 회복도 받지 않는다', () => {
@@ -530,6 +559,180 @@ describe('보스 · 스테이지 규칙', () => {
     assert.ok(p.hp > 50, '저주가 끝나면 회복한다');
   });
 
+  test('보스 타격: 30~ 회복 금지, 40~ 화상, 50~ 2초 기절·띄우기', () => {
+    for (const stage of [29, 30, 40, 50]) {
+      const { d, pos, P } = makeFlat({ startStage: stage });
+      const S = d.internals.S, Z = bossAt(d, 'butcher', [1, 0, 0], 'slam'), p = P('p1');
+      S.queue.length = 0; S.spawnAt = Infinity;
+      p.maxHp = p.hp = 1000;
+      swing(d, Z, [1, 0, 0]);
+      const ev = step(d);
+      assert.ok(p.hp < 1000, `스테이지 ${stage}: 보스에게 맞았다`);
+      assert.equal(ev.some((e) => e.type === 'noHeal' && e.source === 'boss'), stage >= 30, '30부터 회복 금지');
+      assert.equal(ev.some((e) => e.type === 'burn' && e.ms === 5000), stage >= 40, '40부터 화상');
+      assert.equal(ev.some((e) => e.type === 'stun' && e.ms === 2000), stage >= 50, '50부터 2초 기절');
+      if (stage >= 50) assert.equal(p.knockV[1], 8, '보스에게 맞으면 공중으로 뜬다');
+      if (stage >= 30) {
+        const hp = p.hp, id = S.nextLoot++;
+        d.internals.loot.set(id, { id, kind: 'med', x: pos.p1[0], y: 0, z: 0, until: S.clock + 30000 });
+        d.claimLoot('p1', id);
+        assert.equal(p.hp, hp, '회복 금지 중 구급 상자로도 못 낫는다');
+      }
+      if (stage >= 40) {
+        Z.body.pos[0] = 100; Z.skillReady.fill(Infinity);
+        const hp = p.hp;
+        step(d, Math.ceil(1000 / STEP) + 1);
+        assert.equal(hp - p.hp, 4, '화상은 피격 무적과 별개로 초당 4 피해');
+        const snap = JSON.parse(JSON.stringify(d.snapshot()));
+        const v = applyHordeSnapshot(snap);
+        assert.ok(v.players[0].burnMs > 3000 && v.players[0].noHealMs > 8000, '남은 디버프 시간을 전송');
+        const r = restoreHorde(snap, { players: [{ id: 'p1', name: 'P1' }], world: null, nav: null, spawns: FAR_SPAWNS, getPositions: () => pos });
+        assert.ok(r.internals.players.get('p1').burnUntil > r.internals.S.clock, '방장 이전에도 화상 유지');
+      }
+    }
+  });
+
+  test('보스 투사체·장판도 보스 타격이며, 산성·냉각 등 장판 안에서는 회복 절반', () => {
+    const { d, pos, P } = makeFlat({ startStage: 30 });
+    const S = d.internals.S, p = P('p1');
+    p.maxHp = p.hp = 1000;
+    const Z = bossAt(d, 'plague', [6, 0, 0], 'volley');
+    S.queue.length = 0; S.spawnAt = Infinity;
+    for (let i = 0; i < 60 && !d.internals.projectiles.some((x) => x.boss); i++) step(d);
+    const pr = d.internals.projectiles.find((x) => x.boss);
+    assert.ok(pr, '보스 투사체에 출처를 표시');
+    pr.pos = [pos.p1[0], 1, pos.p1[2]]; pr.vel = [0, 0, 0];
+    const ev = step(d);
+    assert.ok(ev.some((e) => e.type === 'noHeal' && e.source === 'boss'), '투사체도 회복 금지');
+    assert.ok(d.internals.hazards.some((h) => h.boss), '투사체가 남긴 장판도 보스 출처를 유지');
+    p.noHealUntil = 0; Z.body.pos[0] = 100; Z.skillReady.fill(Infinity);
+    for (const kind of ['acid', 'frost', 'web', 'fire']) {
+      p.hp = 50; d.internals.hazards.length = 0;
+      d.internals.hazards.push({ kindName: kind, x: 0, y: 0, z: 0, r: 2, until: S.clock + 5000, dps: 0, tick: 0 });
+      const id = S.nextLoot++;
+      d.internals.loot.set(id, { id, kind: 'med', x: 0, y: 0, z: 0, until: S.clock + 30000 });
+      d.claimLoot('p1', id);
+      assert.equal(p.hp, 55, `${kind} 장판 안에서 구급 상자 회복 10 → 5`);
+    }
+    p.hp = 50; d.internals.hazards.length = 0;
+    const id = S.nextLoot++;
+    d.internals.loot.set(id, { id, kind: 'med', x: 0, y: 0, z: 0, until: S.clock + 30000 });
+    d.claimLoot('p1', id);
+    assert.equal(p.hp, 60, '장판 밖 회복은 그대로');
+  });
+
+  test('51~100스테이지 전역 치유 감소는 1~90%이며 장판 감소와 곱해진다', () => {
+    for (const [stage, heal] of [[50, 10], [51, 9.9], [75, 5.5], [100, 1], [120, 1]]) {
+      const { d, P } = makeFlat({ startStage: stage });
+      const p = P('p1'), S = d.internals.S;
+      p.hp = 50;
+      const id = S.nextLoot++;
+      d.internals.loot.set(id, { id, kind: 'med', x: 0, y: 0, z: 0, until: S.clock + 30000 });
+      d.claimLoot('p1', id);
+      assert.ok(near(p.hp - 50, heal, 0.01), `스테이지 ${stage}: 회복 ${heal}`);
+      if (stage === 100) {
+        p.hp = 50;
+        d.internals.hazards.push({ x: 0, y: 0, z: 0, r: 2, until: S.clock + 5000, dps: 0, tick: 0 });
+        const id2 = S.nextLoot++;
+        d.internals.loot.set(id2, { id: id2, kind: 'med', x: 0, y: 0, z: 0, until: S.clock + 30000 });
+        d.claimLoot('p1', id2);
+        assert.ok(near(p.hp - 50, 0.5), '90% 전역 감소와 장판 50% 감소는 함께 적용');
+      }
+    }
+  });
+
+  test('30스테이지부터 쓰러진 사람은 다음 라운드에도 남고 동료만 살린다', () => {
+    for (const stage of [28, 29, 30]) {
+      const { d, pos, P } = makeFlat({ ids: ['p1', 'p2'], startStage: stage });
+      const S = d.internals.S, p = P('p1');
+      S.queue.length = 0; S.spawnAt = Infinity;
+      p.alive = false; p.hp = 0; p.downPos = [0, 0, 0];
+      S.stageEnd = S.clock;
+      step(d);
+      assert.equal(S.stage, stage + 1);
+      assert.equal(p.alive, stage === 28, '30스테이지 도달 전까지만 라운드 자동 부활');
+      if (stage >= 29) {
+        assert.deepEqual(p.downPos, [0, 0, 0], '쓰러진 자리 유지');
+        pos.p2 = [0.5, 0, 0];
+        for (let i = 0; i < 15 && !p.alive; i++) { d.reviveAction('p2', 'p1', true); step(d, 8); }
+        assert.equal(p.alive, true, '동료가 살리면 다시 일어난다');
+      }
+    }
+  });
+
+  test('장판 고정 피해는 방어·방패·회피·피격 무적을 무시하고 체력을 직접 깎는다', () => {
+    const { d, P } = makeFlat({ startStage: 1 });
+    const S = d.internals.S, p = P('p1');
+    S.queue.length = 0; S.queue.push({ type: 'walker' }); S.spawnAt = Infinity;
+    p.hp = 100; p.shield = 100; p.perks.armor = 0.9; p.perks.dodge = 1; p.hitUntil = S.clock + 5000;
+    d.internals.hazards.push({ x: 0, y: 0, z: 0, r: 2, until: S.clock + 5000, dps: 10, tick: 0 });
+    step(d, 16);
+    assert.ok(near(p.hp, 100 - 10 * 16 * STEP / 1000, 0.01), `장판 피해 ${p.hp}, 기대 ${100 - 10 * 16 * STEP / 1000}`);
+    assert.equal(p.shield, 100, '방패도 고정 피해를 막지 못한다');
+  });
+
+  test('보스 장판은 고정 피해를 계속 주지만 기절·화상·회복 금지는 진입할 때만 적용한다', () => {
+    const { d, pos, P } = makeFlat({ startStage: 50 });
+    const S = d.internals.S, p = P('p1');
+    S.queue.length = 0; S.queue.push({ type: 'walker' }); S.spawnAt = Infinity;
+    p.maxHp = p.hp = 1000;
+    d.internals.hazards.push({ x: 0, y: 0, z: 0, r: 2, until: S.clock + 5000, dps: 10, boss: true, afflicted: new Set(), tick: 0 });
+    const first = step(d, 16);
+    assert.ok(first.some((e) => e.type === 'stun' && e.ms === 2000), '첫 장판 타격은 기절');
+    const hp = p.hp;
+    const second = step(d, 16);
+    assert.ok(p.hp < hp, '다음 타격도 고정 피해');
+    assert.ok(!second.some((e) => e.type === 'stun' || e.type === 'burn'), '장판 안에서 기절이 계속 갱신되지 않는다');
+    pos.p1 = [5, 0, 0]; step(d, 16);
+    pos.p1 = [0, 0, 0];
+    assert.ok(step(d, 16).some((e) => e.type === 'stun'), '나갔다 다시 밟으면 다시 적용');
+  });
+
+  test('폭발·불길·연쇄 광역 공격은 일반 타격 흡혈의 20%만 회복한다', () => {
+    const { d, P } = makeFlat({ startStage: 1 });
+    const p = P('p1'), Z = bossAt(d, 'butcher', [2, 0, 0], 'slam');
+    d.internals.S.queue.length = 0; d.internals.S.spawnAt = Infinity;
+    p.maxHp = 1000;
+    p.perks.lifesteal = 0.5;
+    p.hp = 50;
+    const before = p.damage;
+    d.claimHit({ attackerId: 'p1', victimId: 'z' + Z.id, weaponId: 'ar_std', part: 'body', dist: 2, kind: 'shot', count: 1, shotId: 91 });
+    assert.ok(near(p.hp - 50, (p.damage - before) * 0.5), '일반 타격 흡혈 100%');
+    p.hp = 50;
+    const dealt = p.damage;
+    d.claimExplosion({ attackerId: 'p1', center: [0, 0, 0], victims: [{ id: 'z' + Z.id, dmg: 100 }] });
+    assert.ok(near(p.hp - 50, (p.damage - dealt) * 0.5 * 0.2), `폭발 흡혈 ${p.hp - 50}, 피해 ${p.damage - dealt}`);
+  });
+
+  test('ESC 능력치 자료는 획득한 증강·회피·피해·무적 시간·현재 보호막·방패 조건을 반영한다', () => {
+    const { d, P } = makeFlat({ startStage: 1 });
+    const p = P('p1');
+    const reflex = CARDS.find((c) => c.fx.iframe > 0);
+    p.cards.push('coin', 'coin', 'hunter', reflex.id, 'shieldKnife');
+    p.shield = 25;
+    let provider = null;
+    const world = { localAlive: false, setPauseDetails: (fn) => { provider = fn; } };
+    const client = createHordeClient({ world, ui: null, meId: 'p1', solo: true });
+    client.apply(applyHordeSnapshot(d.snapshot()));
+    const details = provider();
+    assert.equal(details.cards.find((c) => c.name === '행운의 동전').count, 2, '중복 증강을 합쳐 표시');
+    const stat = (label) => details.stats.find((s) => s.label === label)?.value;
+    assert.match(stat('공격 피해'), /24%/);
+    assert.match(stat('회피 확률'), /8%.*광역 공격 제외/);
+    assert.equal(stat('피격 후 무적'), `${(0.1 + reflex.fx.iframe).toFixed(1)}초`);
+    assert.equal(stat('현재 보호막'), '25');
+    assert.match(stat('방패'), /정면·칼을 든 동안/);
+    client.dispose();
+    assert.equal(provider, null, '모드 종료 시 일시정지 자료를 제거');
+  });
+
+  test('모든 좀비 공격은 기존 스테이지 배율에 더해 10스테이지마다 10%씩 증가한다', () => {
+    for (const stage of [1, 9, 10, 19, 20, 50, 100]) {
+      const k = stage - 1;
+      const smooth = 1 + 0.045 * k + 0.0003 * k * k;
+      assert.ok(near(dmgMul(stage) / smooth, 1 + 0.1 * Math.floor(stage / 10)), `스테이지 ${stage}`);
+    }
+  });
   test('경험치: 레벨마다 10·20·30…, 시간 안에 다 잡으면 남은 1초당 1, 강한 좀비일수록 많다', () => {
     assert.deepEqual([1, 2, 3, 4].map((l) => xpNeed(l)), [10, 20, 30, 40]);
     assert.equal(timeBonusXp(0), 0);

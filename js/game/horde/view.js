@@ -140,7 +140,7 @@ export function createHordeView(o) {
     leg: new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 0.86, 0.22), mat, MAX_Z * 2),
     torso: new THREE.InstancedMesh(new THREE.BoxGeometry(0.54, 0.64, 0.32), mat, MAX_Z),
     head: new THREE.InstancedMesh(new THREE.BoxGeometry(0.32, 0.34, 0.32), mat, MAX_Z),
-    arm: new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.14, 0.62), mat, MAX_Z * 2),
+    arm: new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.14, 0.62), mat, MAX_Z * 4),   // 팔 둘 + 블리츠 주먹 둘
     eye: new THREE.InstancedMesh(new THREE.BoxGeometry(0.07, 0.045, 0.03), eyeMat, MAX_Z * 2),
     pad: new THREE.InstancedMesh(new THREE.ConeGeometry(0.12, 0.34, 5), mat, MAX_Z * 2)
   };
@@ -187,6 +187,15 @@ export function createHordeView(o) {
   const teleDiscs = decalPool(discGeo, 10, 0xff2a2a, 0.28);
   const teleRings = decalPool(ringGeo, 10, 0xff4a2a, 0.7);
   const teleRects = decalPool(planeGeo, 4, 0xff2a2a, 0.3);
+  // 블리츠 그랩: 예고 중 겨눈 쪽 바닥 선(노랑)과 날아가는 갈고리에서 손까지 이어지는 사슬
+  const hookRects = decalPool(planeGeo, 6, 0xffd34a, 0.3);
+  const hookTele = [];               // 이번 프레임에 그릴 그랩 예고 { x, y, z, yaw, len }
+  const launchedHooks = new Set();    // 날아가는 동안 블리츠의 오른 주먹은 갈고리 자리에 없다
+  const chainMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.07, 0.07, 1), new THREE.MeshBasicMaterial({ color: 0x9c8a62 }), MAX_PROJ);
+  chainMesh.frustumCulled = false; chainMesh.count = 0; chainMesh.name = 'horde:hook-chain';
+  chainMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  scene.add(chainMesh);
+  const CH_A = new THREE.Vector3(), CH_B = new THREE.Vector3(), CH_Z = new THREE.Vector3(0, 0, 1), CH_Q = new THREE.Quaternion(), CH_S = new THREE.Vector3(), CH_D = new THREE.Vector3();
   const hazDiscs = decalPool(discGeo, MAX_HAZ, 0x7dff3a, 0.32);
   const hazRings = decalPool(ringGeo, MAX_HAZ, 0x7dff3a, 0.65);
   // 장판 위로 피어오르는 색 입자. 한 InstancedMesh로 묶어 장판 수만큼 draw call이 늘지 않게 한다.
@@ -293,6 +302,7 @@ export function createHordeView(o) {
     if (!active) clear();
     for (const m of Object.values(parts)) m.visible = active;
     projMesh.visible = active;
+    chainMesh.visible = active;
     for (const m of lootMeshes) m.visible = active;
     wisps.visible = active;
     barBg.visible = barFg.visible = active;
@@ -472,6 +482,7 @@ export function createHordeView(o) {
     let speed = 0;
     if (e.prev) speed = Math.hypot(smp.pos[0] - e.prev[0], smp.pos[2] - e.prev[2]) / Math.max(1e-3, dt);
     e.prev = smp.pos;
+    e.prevYaw = smp.yaw;
     if (!dead) e.walk += dt * clamp(speed, 0, 9) * 2.4 / Math.max(0.6, s);
     const swing = Math.sin(e.walk) * clamp(speed / 2.5, 0, 1) * 0.6;
     const riseK = clamp((now - e.riseAt) / RISE_MS, 0, 1);
@@ -541,8 +552,20 @@ export function createHordeView(o) {
     put('head', partM(M, 0, 1.67, -0.08, -lean * 0.4 + Math.sin(e.walk * 0.7 + 1) * 0.08, Math.sin(e.walk * 0.33) * 0.2, 0.12 * Math.sin(e.walk * 0.21)), skinC);
     // 팔: 앞으로 뻗고(0 = 수평) 걸을 때 흔들, 공격 예고면 위로 들었다가 내리친다
     const armUp = wind ? 1.15 : -0.08 + Math.sin(e.walk + 0.5) * 0.12;
+    // 블리츠: 큰 쇠주먹 둘. 그랩 예고면 오른팔을 앞으로 뻗어 당기고 주먹이 노랗게 빛난다(바닥에 겨눈 선). 갈고리가 날아가는 동안 오른 주먹은 없다
+    const hook = !!(type && type.grab) && !!(f & ZF.hook) && !dead;
+    const rArm = hook ? 0.05 : armUp - swing * 0.2, rOff = hook ? -0.12 : -0.29;
     put('arm', partM(M, -0.34, 1.43, -0.05, armUp + swing * 0.2, 0.08, 0, 0, -0.29), skinC);
-    put('arm', partM(M, 0.34, 1.43, -0.05, armUp - swing * 0.2, -0.08, 0, 0, -0.29), skinC);
+    put('arm', partM(M, 0.34, 1.43, -0.05, rArm, -0.08, 0, 0, rOff), skinC);
+    if (type && type.grab && !dead) {
+      C.setHex(0x6a6a72);
+      put('arm', partM(M, -0.34, 1.43, -0.05, armUp + swing * 0.2, 0.08, 0, 0, -0.66).multiply(S.makeScale(2.6, 2.6, 0.5)), C);
+      if (!launchedHooks.has(e.id)) {
+        C.setHex(hook ? (Math.sin(now / 60) > 0 ? 0xffe27a : 0xffb02e) : 0x6a6a72);
+        put('arm', partM(M, 0.34, 1.43, -0.05, rArm, -0.08, 0, 0, rOff - 0.37).multiply(S.makeScale(2.6, 2.6, 0.5)), C);
+      }
+      if (hook) hookTele.push({ x: smp.pos[0], y: smp.pos[1], z: smp.pos[2], yaw: smp.yaw, len: type.grab.range });
+    }
     const rage = !!(f & ZF.rage);
     C.setHex(boss ? (rage ? 0xff1a1a : boss.accent) : wind ? 0xff2a2a : 0xfff27a);
     put('eye', partM(M, -0.075, 1.71, -0.25, 0, 0, 0), C);
@@ -559,6 +582,8 @@ export function createHordeView(o) {
   function frame(dt, now = performance.now(), frozen = false) {
     if (!active) return;
     for (const k of Object.keys(ni)) ni[k] = 0;
+    launchedHooks.clear();
+    for (const p of projectiles) if (p.owner) launchedHooks.add(p.owner);
     rendered.length = 0;
     bars.length = 0;
     const rt = now - delay;
@@ -875,6 +900,18 @@ export function createHordeView(o) {
       }
     }
     teleDiscs.end(); teleRings.end(); teleRects.end();
+    // 블리츠 그랩 예고: 겨눈 쪽으로 사거리만큼 바닥 선(폭 = 갈고리가 맞히는 폭 1.1 m). 깜박이며 진해진다
+    hookRects.begin();
+    for (const h of hookTele) {
+      const r = hookRects.take();
+      if (!r) break;
+      r.position.set(h.x, h.y + 0.05, h.z);
+      r.rotation.set(0, h.yaw, 0);
+      r.scale.set(1.1, 1, h.len);
+      r.material.opacity = 0.22 + 0.2 * (0.5 + 0.5 * Math.sin(now / 60));
+    }
+    hookRects.end();
+    hookTele.length = 0;
   }
   /** 바닥 높이를 모를 때 쓰는 근사(보스 발 높이) */
   const groundNear = (y) => y;
@@ -882,6 +919,7 @@ export function createHordeView(o) {
   function drawProjectiles(now) {
     const dt = (now - projAt) / 1000;
     let n = 0;
+    let c = 0;
     for (const p of projectiles) {
       if (n >= MAX_PROJ) break;
       const t = Math.min(dt, 0.6);
@@ -894,7 +932,22 @@ export function createHordeView(o) {
       projMesh.setMatrixAt(n, M);
       projMesh.setColorAt(n, C.setHex(PROJ_COLOR[p.kind] || 0x9dff4a));
       n++;
+      // 그랩 갈고리: 던진 블리츠의 오른손에서 갈고리까지 사슬
+      const o = p.owner ? ents.get(p.owner) : null;
+      if (o && o.prev && !o.deadAt) {
+        const cy = Math.cos(o.prevYaw), sy = Math.sin(o.prevYaw);
+        CH_A.set(o.prev[0] + (0.34 * cy + 0.6 * sy) * o.s, o.prev[1] + 1.43 * o.s, o.prev[2] + (-0.34 * sy - 0.6 * cy) * o.s);
+        CH_B.set(x, y, z);
+        const len = CH_A.distanceTo(CH_B);
+        if (len > 0.05) {
+          CH_Q.setFromUnitVectors(CH_Z, CH_D.subVectors(CH_B, CH_A).divideScalar(len));
+          M.compose(CH_A.add(CH_B).multiplyScalar(0.5), CH_Q, CH_S.set(1, 1, len));
+          chainMesh.setMatrixAt(c++, M);
+        }
+      }
     }
+    chainMesh.count = c;
+    chainMesh.instanceMatrix.needsUpdate = true;
     projMesh.count = n;
     projMesh.instanceMatrix.needsUpdate = true;
     if (projMesh.instanceColor) projMesh.instanceColor.needsUpdate = true;
@@ -1315,9 +1368,10 @@ export function createHordeView(o) {
     lastPushAt = 0;
     for (const m of Object.values(parts)) { m.count = 0; m.instanceMatrix.needsUpdate = true; }
     projMesh.count = 0;
+    chainMesh.count = 0;
     for (const m of lootMeshes) m.count = 0;
     wisps.count = 0;
-    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, hazRings, fxRings, lootRings, fireDiscs, fireRings, decoyRings, reviveRings, reviveDiscs]) { pool.begin(); pool.end(); }
+    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hookRects, hazDiscs, hazRings, fxRings, lootRings, fireDiscs, fireRings, decoyRings, reviveRings, reviveDiscs]) { pool.begin(); pool.end(); }
   }
 
   function dispose() {
@@ -1325,10 +1379,11 @@ export function createHordeView(o) {
     scene.remove(wisps); wispGeo.dispose(); wispMat.dispose();
     for (const m of Object.values(parts)) { scene.remove(m); m.geometry.dispose(); m.dispose && m.dispose(); }
     scene.remove(projMesh); projMesh.geometry.dispose(); projMesh.material.dispose();
+    scene.remove(chainMesh); chainMesh.geometry.dispose(); chainMesh.material.dispose();
     for (const m of lootMeshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); if (m.dispose) m.dispose(); }
     mat.dispose(); eyeMat.dispose(); zapMat.dispose();
     ringGeo.dispose(); discGeo.dispose(); planeGeo.dispose();
-    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, hazRings, fxRings, lootRings, fireDiscs, fireRings, decoyRings, reviveRings, reviveDiscs]) pool.dispose();
+    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hookRects, hazDiscs, hazRings, fxRings, lootRings, fireDiscs, fireRings, decoyRings, reviveRings, reviveDiscs]) pool.dispose();
     for (const g of decoyMeshes) scene.remove(g);
     decoyBodyGeo.dispose(); decoyHeadGeo.dispose(); decoyMat.dispose();
     for (const m of [barBg, barFg]) scene.remove(m);

@@ -19,6 +19,7 @@ export function createPause(ctx) {
   const feedbackBtn = btn('건의하기', () => { feedbackPanel.refresh(info); modal.open(feedbackPanel.el); });
 
   const note = h('p', { class: 'sk-pause-note' });
+  const details = h('div', { class: 'sk-pause-details', hidden: true });
   const resumeBtn = btn('계속하기', () => {
     ctx.emit('pause:resume', {}); // 이 핸들러 안에서 requestPointerLock()을 부르면 된다(사용자 클릭 중)
     ctx.hideSelf('pause');
@@ -50,6 +51,7 @@ export function createPause(ctx) {
     h('div', { class: 'sk-hazard', 'aria-hidden': 'true' }),
     h('h2', { class: 'sk-pause-title sk-stencil', text: '일시정지' }),
     note,
+    details,
     h('div', { class: 'sk-pause-btns' },
       resumeBtn,
       fullBtn,
@@ -68,6 +70,25 @@ export function createPause(ctx) {
     setText(confirmText, p.leaveConfirm || '정말 나갈까요? 진행 중인 매치에서 빠지게 돼요.');
     setText(note, p.note != null ? p.note : '멀티플레이 중에는 게임이 멈추지 않아요.');
     note.hidden = !note.textContent;
+    details.hidden = !p.details;
+    panel.classList.toggle('sk-pause-panel--stats', !!p.details);
+    if (p.details) {
+      const cards = Array.isArray(p.details.cards) ? p.details.cards : [];
+      const stats = Array.isArray(p.details.stats) ? p.details.stats : [];
+      details.replaceChildren(
+        h('section', { class: 'sk-pause-detail-group', 'aria-label': '획득한 증강' },
+          h('h3', { text: `획득한 증강 · ${cards.reduce((n, c) => n + (c.count || 1), 0)}장` }),
+          cards.length ? h('div', { class: 'sk-pause-card-list' },
+            ...cards.map((c) => h('div', { class: 'sk-pause-card' },
+              h('strong', { text: `${c.icon || ''} ${c.name}${c.count > 1 ? ` ×${c.count}` : ''}` }),
+              h('small', { text: c.desc || '' })))
+          ) : h('p', { class: 'sk-pause-empty', text: '아직 획득한 증강이 없어요.' })),
+        h('section', { class: 'sk-pause-detail-group', 'aria-label': '현재 능력치' },
+          h('h3', { text: '현재 능력치' }),
+          h('dl', { class: 'sk-pause-stats' },
+            ...stats.flatMap((s) => [h('dt', { text: s.label }), h('dd', { text: s.value })])))
+      );
+    } else details.replaceChildren();
     info = p.info && typeof p.info === 'object' ? p.info : null;
     feedbackBtn.hidden = !ctx.account || !ctx.account.remoteEnabled;
     paintFull();

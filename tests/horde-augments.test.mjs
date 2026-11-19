@@ -293,9 +293,9 @@ describe('희귀 증강', () => {
 });
 
 describe('철벽', () => {
-  test('최대 체력은 400, 연사는 20% 감소하고 이동 속도는 그대로다', () => {
+  test('최대 체력은 200, 연사는 20% 감소하고 이동 속도는 그대로다', () => {
     const k = computePerks(['wall']);
-    assert.equal(perkMaxHp(k), 400);
+    assert.equal(perkMaxHp(k), 200);
     assert.equal(k.move, 0);
     const shots = (cards) => {
       const a = createArsenal({ primary: 'ar_std', rng: () => 0.5 });
@@ -443,6 +443,7 @@ describe('여덟 번째 요청 증강', () => {
     p.shield = 50;
     const stage = d.internals.S.stage;
     runUntil(d, () => d.internals.S.stage === stage + 1, 3000);
-    assert.equal(p.shield, 250, '깨지지 않은 50에 200을 더한다');
+    assert.equal(p.shield, 80, '깨지지 않은 50에 기본 등급의 30을 더한다');
+    assert.deepEqual(['shield1', 'shield2', 'shield3', 'shield4'].map((id) => cardById(id).fx.shield), [30, 50, 80, 120]);
   });
 });

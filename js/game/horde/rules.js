@@ -157,8 +157,10 @@ export const ZOMBIE_TYPES = Object.freeze({
   grabber: Object.freeze({
     id: 'grabber', code: 8, name: '블리츠', hp: 700, speed: 2.4, damage: 14, attackMs: 1400, windupMs: 450, range: 1.6,
     radius: 0.45, scale: 1.3, from: 30, weight: 0.8, color: 0xd2a63a, cloth: 0x5a4a3a,
-    grab: Object.freeze({ every: 20000, range: 20, speed: 26, windupMs: 600, dmg: 8 }),
-    stun: Object.freeze({ ms: 1200, up: 7 })
+    // 그랩: 예고(0.7초) 동안 겨눈 쪽 바닥에 선이 뜨고, 갈고리는 18 m/s로 곧게 날아 사슬과 함께 보인다(20 m면 약 1.1초). 선 밖으로 비켜서면 피한다
+    grab: Object.freeze({ every: 20000, range: 20, speed: 18, windupMs: 700, dmg: 8 }),
+    // 평타 기절: up은 위로 튀는 속도(m/s). 15.7이면 약 7.7 m 뜬다(예전 7 → 약 1.5 m의 5배 높이)
+    stun: Object.freeze({ ms: 1200, up: 15.7 })
   }),
   // 마녀: 40스테이지부터. 포물선으로 저주 물약을 던진다. 맞으면 10초 동안 회복 불가
   witch: Object.freeze({
@@ -188,10 +190,11 @@ export function hpMul(stage) {
   return 1 + 0.1 * k + 0.0035 * k * k;
 }
 
-/** 피해 배율: 10스테이지 약 1.4배, 50스테이지 약 3.9배, 100스테이지 약 7.4배 */
+/** 스테이지마다 오르는 피해에 더해, 10·20·30…스테이지부터 모든 좀비 공격이 10%씩 추가로 강해진다 */
 export function dmgMul(stage) {
-  const k = stageOf(stage) - 1;
-  return 1 + 0.045 * k + 0.0003 * k * k;
+  const s = stageOf(stage);
+  const k = s - 1;
+  return (1 + 0.045 * k + 0.0003 * k * k) * (1 + 0.1 * Math.floor(s / 10));
 }
 
 /** 이동 속도 배율(최대 1.35) */
