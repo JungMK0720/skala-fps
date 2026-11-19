@@ -35,6 +35,25 @@ export { normalizeTheme, validateMap };
 
 const NO_SHADOW_MATS = new Set(['glass', 'water', 'neon_cyan', 'neon_pink']);
 const listOf = (v) => (Array.isArray(v) ? v : []);
+const BORDER_H = 14;     // 맵 끝 표시 벽 높이(m)
+const BORDER_TILE = 2;   // 빗금 무늬 한 칸(m)
+
+/** 맵 끝 표시 무늬: 투명 바탕에 대각선 빗금. 캔버스가 없는 곳(node 도구)에서는 null(단색 반투명) */
+function borderTexture() {
+  if (typeof document === 'undefined') return null;
+  const n = 64, c = document.createElement('canvas');
+  c.width = c.height = n;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, n, n);
+  g.strokeStyle = 'rgba(255,255,255,0.9)';
+  g.lineWidth = 9;
+  // 칸 경계에서 이어지게 같은 기울기 선 셋(왼쪽 아래 → 오른쪽 위)
+  for (const o of [-n, 0, n]) { g.beginPath(); g.moveTo(o, n); g.lineTo(o + n, 0); g.stroke(); }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 4;
+  return tex;
+}
 
 /**
  * @param {object} data 맵 데이터 (ARCHITECTURE 4절 + DESIGN 5절 형식)
@@ -117,6 +136,30 @@ export function buildMap(data, scene, opts = {}) {
       group.add(mesh);
       disposables.push(geo);
     }
+  }
+
+  // --- 맵 끝 표시: 플레이 영역 둘레에 대각선 빗금이 그려진 반투명 벽(충돌은 collision.js의 보이지 않는 외곽 벽) ---
+  {
+    const H = BORDER_H, s = BORDER_TILE;
+    const bb = new GeoBatch();
+    const { minX: x0, maxX: x1, minZ: z0, maxZ: z1 } = bounds;
+    // 벽마다 u = 벽을 따라간 거리(m), v = 높이(m). 빗금이 벽 사이에서 끊기지 않게 둘레 길이를 이어 붙인다
+    const wx = x1 - x0, wz = z1 - z0;
+    bb.quad([x0, 0, z0, 0, 0], [x1, 0, z0, wx, 0], [x1, H, z0, wx, H], [x0, H, z0, 0, H], [0, 0, 1], s);
+    bb.quad([x1, 0, z0, wx, 0], [x1, 0, z1, wx + wz, 0], [x1, H, z1, wx + wz, H], [x1, H, z0, wx, H], [-1, 0, 0], s);
+    bb.quad([x1, 0, z1, wx + wz, 0], [x0, 0, z1, 2 * wx + wz, 0], [x0, H, z1, 2 * wx + wz, H], [x1, H, z1, wx + wz, H], [0, 0, -1], s);
+    bb.quad([x0, 0, z1, 2 * wx + wz, 0], [x0, 0, z0, 2 * (wx + wz), 0], [x0, H, z0, 2 * (wx + wz), H], [x0, H, z1, 2 * wx + wz, H], [1, 0, 0], s);
+    const geo = bb.build();
+    const tex = borderTexture();
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x8fe6ff, map: tex, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = 'map-border';
+    mesh.renderOrder = 5;
+    group.add(mesh);
+    disposables.push(geo, mat);
+    if (tex) disposables.push(tex);
   }
 
   // --- 장식 ---
