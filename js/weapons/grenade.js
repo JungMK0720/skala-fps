@@ -42,7 +42,8 @@ let nextId = 1;
 export const PROJECTILES = Object.freeze({
   gl: Object.freeze({ code: 1, gravity: -9, impact: true }),       // 유탄 발사기: 낮게 휘어 날아가 맞은 자리에서 터진다
   rocket: Object.freeze({ code: 2, gravity: 0, impact: true }),    // 바주카포: 곧게 날아가 닿는 곳에서 터진다
-  c4: Object.freeze({ code: 3, impact: false, sticky: true })      // C4 수류탄(증강): 손으로 던진 수류탄처럼 날고 튀며 신관이 다 되면 터진다
+  c4: Object.freeze({ code: 3, impact: false, sticky: true }),     // C4 수류탄(증강): 손으로 던진 수류탄처럼 날고 튀며 신관이 다 되면 터진다
+  gravity: Object.freeze({ code: 4, gravity: -1.5, impact: true }) // 중력건: 거의 곧게 날아가 처음 닿는 곳에서 '터진다'(피해 대신 좀비를 끌어당긴다)
 });
 const PROJ_BY_CODE = new Map(Object.entries(PROJECTILES).map(([k, v]) => [v.code, k]));
 /** 발사체 종류 번호 ↔ 이름(네트워크) */

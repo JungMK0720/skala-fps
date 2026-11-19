@@ -295,6 +295,7 @@ export default {
     await page.waitFor('__qa.ui.isVisible("loadout")', 8000, { label: '무기 목록' });
     const cards = await page.eval(`[...document.querySelectorAll('.sk-lo-card')].map((c) => c.title)`);
     t.check(cards.length === 11, '보유한 주무기가 모두 보인다', cards);
+    t.check(!cards.includes('MG-100 기관총'), '좀비 전용 기관총은 팀전 무기 목록에 없다(모든 무기를 가진 프로필이어도)', cards);
     await page.press('Digit2');
     await page.waitFor('!__qa.ui.isVisible("loadout")', 2000, { label: '숫자키로 선택' });
     await waitTicks(page, 2);

@@ -177,9 +177,9 @@ function buildWorld(ctx, opts) {
   const nadeGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.13, 10);
   const nadeMat = new THREE.MeshLambertMaterial({ color: 0xe2b52a });
   // 좀비 물량 막기 보조무기의 발사체: 유탄(어두운 초록)·로켓(주황, 날아가는 쪽으로 길게)
-  const projMats = { gl: new THREE.MeshLambertMaterial({ color: 0x4f6b2a }), rocket: new THREE.MeshLambertMaterial({ color: 0xff8a2a, emissive: 0x7a2a00 }) };
+  const projMats = { gl: new THREE.MeshLambertMaterial({ color: 0x4f6b2a }), rocket: new THREE.MeshLambertMaterial({ color: 0xff8a2a, emissive: 0x7a2a00 }), gravity: new THREE.MeshLambertMaterial({ color: 0x8a5cff, emissive: 0x4b2aa8 }) };
   // 발사체 종류 → 그 무기의 정의(폭발 반경·최대 피해). C4는 손으로 던진 수류탄과 같은 폭발이라 없다
-  const PROJ_DEF = { gl: WEAPONS.gl_m32, rocket: WEAPONS.rl_b9 };
+  const PROJ_DEF = { gl: WEAPONS.gl_m32, rocket: WEAPONS.rl_b9, gravity: WEAPONS.gv_gun };
   // C4 수류탄(좀비 물량 막기 증강): 어두운 국방색 작은 상자 + 위의 빨간 불(신관이 다 되어 갈수록 빨리 깜박인다)
   const c4Geo = new THREE.BoxGeometry(0.16, 0.08, 0.11);
   const c4Mat = new THREE.MeshLambertMaterial({ color: 0x4b5530 });
@@ -727,7 +727,7 @@ function buildWorld(ctx, opts) {
     const rs = rulesetOf(ruleset);
     const acc = accountLoadout();
     const key = SLOT_KEYS[rs.pickSlot];
-    const allowed = pickableWeapons(ruleset);
+    const allowed = pickableWeapons(ruleset, null, mode === 'zombie');
     const chosen = [pick, local.loadout, acc[key]].find((id) => allowed.includes(id)) || rs.defaultPick;
     return { ...acc, [key]: chosen };
   }
@@ -740,7 +740,8 @@ function buildWorld(ctx, opts) {
   /** 'classic' | 'knife' | 'sniper' — 쓸 수 있는 슬롯과 무기를 맞춘다. loadMap(mapId, { ruleset })도 같다. unloadMap은 클래식으로 되돌린다 */
   function setRuleset(id) {
     ruleset = normalizeRuleset(typeof id === 'string' ? id : DEFAULT_RULESET);   // 방 메타에서 온 값일 수 있다
-    if (local.loadout && !pickableWeapons(ruleset).includes(local.loadout)) local.loadout = null;
+    // 좀비 전용 주무기(기관총)는 좀비 물량 막기에서만 든다. 다른 모드로 넘어가면 기억해 둔 선택에서 빠진다
+    if (local.loadout && !pickableWeapons(ruleset, null, mode === 'zombie').includes(local.loadout)) local.loadout = null;
     arsenal.setAllowedSlots(rulesetOf(ruleset).slots);
     arsenal.setLoadout(resolveLoadout());
     settleArsenal();
@@ -768,6 +769,7 @@ function buildWorld(ctx, opts) {
     if (!o) {
       hordePerk.speed = 1; hordePerk.pierce = 0; hordePerk.maxHp = 100; hordePerk.nadeMulti = 0; hordePerk.nadeRadiusOf = null;
       hordePerk.sticky = false; hordePerk.waveRange = 0; hordePerk.waveRangeOf = null;
+      if (vm && vm.setShield) vm.setShield(false);
       arsenal.setMods(null);
       player.setMoveTuning(null);
       slowUntil = 0; grabbedNow = false;
@@ -782,6 +784,7 @@ function buildWorld(ctx, opts) {
     hordePerk.sticky = !!o.sticky;
     hordePerk.waveRange = waveRangeOk(o.waveRange);
     hordePerk.waveRangeOf = typeof o.waveRangeOf === 'function' ? o.waveRangeOf : null;
+    if (vm && vm.setShield) vm.setShield(num(o.guard, 0) > 0);   // 방패 칼: 칼을 들면 방패가 보인다
     player.setMoveTuning({ maxSpeed: num(o.maxSpeed, 1), jump: num(o.jump, 1) });
     player.setSpeedScale(speedScaleNow());
   }
@@ -997,8 +1000,8 @@ function buildWorld(ctx, opts) {
   function setLocalLoadout(id) {
     const def = getDef(id);
     const key = def ? SLOT_KEYS[def.slot] : null;
-    if (!key || !isWeaponAllowed(ruleset, id)) return false;
-    if (pickableWeapons(ruleset).includes(id)) local.loadout = id;
+    if (!key || !isWeaponAllowed(ruleset, id, mode === 'zombie')) return false;
+    if (pickableWeapons(ruleset, null, mode === 'zombie').includes(id)) local.loadout = id;
     if (mode === 'zombie' && local.spawned && local.alive) {
       // 좀비 물량 막기는 언제든 바꿀 수 있는 대신 탄창이 이어진다: 내려놓는 총의 남은 탄을 기억하고, 다시 들면 그 탄 그대로 준다
       const old = arsenal.getLoadout()[key];
@@ -1092,7 +1095,7 @@ function buildWorld(ctx, opts) {
   }
   /** 항목 { id, weaponId, pos, mag, reserve }를 바닥에 놓는다. 이 규칙에서 못 쓰는 총이나 깨진 값이면 null */
   function addDrop(o) {
-    if (!active || !o || !isWeaponAllowed(ruleset, o.weaponId)) return null;
+    if (!active || !o || !isWeaponAllowed(ruleset, o.weaponId, mode === 'zombie')) return null;
     const { drop, evicted } = drops.add(o);
     for (const d of evicted) removeDropView(d.id);
     if (drop) addDropView(drop);
@@ -1142,7 +1145,7 @@ function buildWorld(ctx, opts) {
     if (!active || !map || rnd.phase !== 'live') return;
     const held = arsenal.getWeapon();
     const def = getDef(held.id);
-    if (!def || (def.slot !== 1 && def.slot !== 2) || !isWeaponAllowed(ruleset, held.id)) return;
+    if (!def || (def.slot !== 1 && def.slot !== 2) || !isWeaponAllowed(ruleset, held.id, mode === 'zombie')) return;
     const a = arsenal.getAmmo(held.id);
     const p = player.state.pos;
     placeLocalDrop({ id: held.id, mag: a.mag, reserve: a.reserve }, [p[0], floorUnder(p), p[2]]);
@@ -1401,9 +1404,11 @@ function buildWorld(ctx, opts) {
     const ex = pdef ? pdef.explosion : WEAPONS.gr_frag.explosion;
     let rk = 1;
     if (!pdef && mode === 'zombie' && hordePerk.nadeRadiusOf) { try { rk = clamp(num(hordePerk.nadeRadiusOf(e.owner), 1), 1, 3); } catch (err) { rk = 1; } }
-    fx.explosion(c, { radius: ex.radius * rk });
-    props.explode(c, ex.radius * rk);
-    play('explosion', { pos: c });
+    // 중력건은 터지지 않는다: 작은 불빛만 남기고(피해 없이 끌어당기는 구멍), 소리도 작게
+    const pull = e.kind === 'gravity';
+    fx.explosion(c, { radius: pull ? 1.4 : ex.radius * rk });
+    if (!pull) props.explode(c, ex.radius * rk);
+    play('explosion', pull ? { pos: c, gain: 0.35 } : { pos: c });
     const targets = [];
     // 앉은 사람은 판정점(다리·몸·머리)도 낮다 → height = 앉은 키 1.25 m
     if (local.spawned && local.alive) targets.push({ id: local.id, pos: player.state.pos, height: player.state.crouch ? CROUCH_H : PLAYER.HEIGHT });
@@ -1422,7 +1427,7 @@ function buildWorld(ctx, opts) {
     const live = nades.list();
     if (live.length >= MAX_LIVE_GRENADES || live.some((g) => g.id === gid)) return null;   // 한도(프레임 하나에 수천 개를 보내도 끄떡없게) · 중복 수신
     const fuse = num(o.fuse, WEAPONS.gr_frag.fuse);
-    const kind = o.kind === 'gl' || o.kind === 'rocket' || o.kind === 'c4' ? o.kind : null;
+    const kind = o.kind === 'gl' || o.kind === 'rocket' || o.kind === 'c4' || o.kind === 'gravity' ? o.kind : null;
     const g = nades.spawn(arr3(o.pos), arr3(o.vel), { owner: o.id != null ? String(o.id) : null, fuse, id: gid, kind });
     // 늦게 받은 만큼 앞당기기(폭발 직전까지만). C4는 잘게 나눠 가며 좀비에 닿았는지 본다(던진 사람 화면에서 붙은 C4가 지나쳐 날아가지 않게)
     const lag = Number.isFinite(o.t) ? (performance.now() - o.t) / 1000 : 0;
@@ -1480,8 +1485,9 @@ function buildWorld(ctx, opts) {
         tmpV.set(g.vel[0] / sp, g.vel[1] / sp, g.vel[2] / sp);
         m.quaternion.setFromUnitVectors(UP_V, tmpV);
       } else {
-        m.material = g.kind === 'gl' ? projMats.gl : nadeMat;
+        m.material = g.kind === 'gl' ? projMats.gl : g.kind === 'gravity' ? projMats.gravity : nadeMat;
         m.scale.set(g.kind === 'gl' ? 1.1 : 1, g.kind === 'gl' ? 0.8 : 1, g.kind === 'gl' ? 1.1 : 1);
+        if (g.kind === 'gravity') m.scale.setScalar(1.5);
         if (!g.sleeping) m.rotation.set(g.age * 9, 0, g.age * 5.5);
       }
     }

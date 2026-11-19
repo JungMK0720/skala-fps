@@ -70,20 +70,29 @@ export function rulesetOf(id) {
   return RULESETS[normalizeRuleset(id)];
 }
 
-/** 이 규칙에서 이 무기를 쓸 수 있는가(방장의 히트 검증과 클라이언트 무기 제한이 같이 쓴다) */
-export function isWeaponAllowed(rulesetId, weaponId) {
+/**
+ * 이 규칙에서 이 무기를 쓸 수 있는가(방장의 히트 검증과 클라이언트 무기 제한이 같이 쓴다).
+ * 좀비 전용 무기(defs zombieOnly: 기관총·유탄 발사기·바주카포)는 zombie가 true일 때만 쓸 수 있다.
+ * 좀비 물량 막기를 하는 코드(game/horde, 좀비 방의 세션, 좀비 모드의 World)만 true를 넘기고,
+ * 팀전·개인전·폭파 미션·칼전·스나전과 방장의 히트 검증은 넘기지 않으므로 어떤 규칙에서도 쓸 수 없다.
+ */
+export function isWeaponAllowed(rulesetId, weaponId, zombie = false) {
   const rs = rulesetOf(rulesetId);
   const def = getDef(weaponId);
   if (!def || !rs.slots.includes(def.slot)) return false;
+  if (def.zombieOnly && zombie !== true) return false;
   if (def.slot === 1 && rs.primaryKinds && !rs.primaryKinds.includes(def.kind)) return false;
   return true;
 }
 
-/** 라운드 전 화면에서 고를 수 있는 무기 id. owned를 주면 가진 것만 남긴다(비면 기본 무기 하나는 남는다) */
-export function pickableWeapons(rulesetId, owned = null) {
+/**
+ * 라운드 전 화면에서 고를 수 있는 무기 id. owned를 주면 가진 것만 남긴다(비면 기본 무기 하나는 남는다).
+ * zombie가 true면 좀비 전용 주무기(기관총)도 목록에 든다(좀비 물량 막기의 무기 고르기 창)
+ */
+export function pickableWeapons(rulesetId, owned = null, zombie = false) {
   const rs = rulesetOf(rulesetId);
   const base = rs.pickSlot === 3 ? MELEE_IDS : PRIMARY_IDS;
-  const all = base.filter((id) => isWeaponAllowed(rs.id, id));
+  const all = base.filter((id) => isWeaponAllowed(rs.id, id, zombie));
   if (!owned) return all.slice();
   const has = owned instanceof Set ? owned : new Set(owned);
   const mine = all.filter((id) => has.has(id));

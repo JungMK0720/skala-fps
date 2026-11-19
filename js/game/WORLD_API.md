@@ -32,9 +32,9 @@ const world = await createWorld({ root, ui, settings, ctx });
 | `setRuleset(id)` → id | `'classic'`·`'knife'`·`'sniper'`. 쓸 수 있는 슬롯(`arsenal.setAllowedSlots`)과 무기를 맞춘다. `loadMap(mapId, { ruleset })`도 같다. 지금 값은 `world.ruleset`. 모르는 값은 클래식 |
 | `reset()` | 라운드 전환용: 수류탄·이펙트·탄흔·예약 소리·관전 정리, HUD 킬피드·중앙 메시지 비우기. **액터는 남는다** |
 | `spawnLocal({ id?, name?, team, spawn:{x,z,rotY,y?}, loadout?, protectMs? })` | 로컬 플레이어 부활(체력 100, 탄약 채움, 허용된 첫 슬롯 꺼내기). `loadout`은 **규칙의 `pickSlot` 무기 id**다(클래식·스나전은 주무기, 칼전은 칼). 없거나 이 규칙에서 못 고르면 직전 선택 → 계정 장비 → 규칙 기본값 순서다. 나머지 슬롯은 `ctx.account.loadout`, 없으면 `DEFAULT_LOADOUT` |
-| `addDrop({ id, weaponId, pos, mag, reserve })` | 다른 사람이 버린 주무기를 바닥에 놓는다. 이 규칙에서 못 쓰는 총이나 깨진 값이면 `null` |
+| `addDrop({ id, weaponId, pos, mag, reserve })` | 다른 사람이 버린 주무기를 바닥에 놓는다. 이 규칙에서 못 쓰는 총이나 깨진 값이면 `null`(좀비 전용 무기 `zombieOnly`는 좀비 모드에서만 받는다) |
 | `removeDrop(id)` | 바닥의 총을 지운다(누가 주웠다). 라운드 전환과 맵 정리 때는 World가 알아서 비운다 |
-| `setLocalLoadout(id)` → bool | 무기 하나를 슬롯에 넣는다(주무기·보조·칼 모두. live 시작 때 `phase.loadouts[myId]` 확정값 반영). 이 규칙에서 못 쓰는 무기는 `false`이고 아무 일도 없다. `pickSlot` 무기면 다음 스폰의 기본값으로도 기억한다 |
+| `setLocalLoadout(id)` → bool | 무기 하나를 슬롯에 넣는다(주무기·보조·칼 모두. live 시작 때 `phase.loadouts[myId]` 확정값 반영). 이 규칙에서 못 쓰는 무기는 `false`이고 아무 일도 없다(좀비 전용 기관총·발사기는 `mode === 'zombie'`일 때만 받는다). `pickSlot` 무기면 다음 스폰의 기본값으로도 기억한다 |
 | `setLocalHp(hp)` | 체력 표시·상태 갱신(방장 확정값). 줄면 화면이 살짝 흔들린다. 0이어도 죽이지는 않는다 → `killLocal` |
 | `killLocal(info?)` | 쓰러지는 카메라 → 1.6초 뒤 같은 팀 생존 액터 3인칭 관전(좌클릭으로 대상 바꾸기). `info = { killerId?, dir?:[x,z] }`. `localDeath` 발생 |
 | `addActor({ id, name, team, kind:'remote'\|'bot', avatar? })` / `removeActor(id)` / `clearActors()` | 원격 플레이어·봇 아바타. `avatar` = 캐릭터 id(`core/avatar-defs.js`, 모르는 값은 기본 캐릭터). `setActorState(id, { avatar })`로 바꿔도 된다 |

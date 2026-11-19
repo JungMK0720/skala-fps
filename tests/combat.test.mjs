@@ -89,7 +89,7 @@ const only = (evs, type) => evs.filter((e) => e.type === type);
 const firstOf = (evs, type) => evs.find((e) => e.type === type);
 const rejectReason = (evs) => (firstOf(evs, 'reject') || {}).reason;
 const playerOf = (m, id) => m.state.players.find((p) => p.id === id);
-/** 좀비 물량 막기 전용 무기(zombieOnly: 유탄 발사기·바주카포)는 다른 모드에서 쓰지 않는다. 사람끼리의 판정 시험은 나머지 무기로 한다 */
+/** 좀비 물량 막기 전용 무기(zombieOnly: 기관총 MG-100·유탄 발사기·바주카포)는 다른 모드에서 쓰지 않는다. 사람끼리의 판정 시험은 나머지 무기로 한다 */
 const ZOMBIE_ONLY = WEAPON_IDS.filter((id) => WEAPONS[id].zombieOnly);
 const pvp = (ids) => ids.filter((id) => !WEAPONS[id].zombieOnly);
 
