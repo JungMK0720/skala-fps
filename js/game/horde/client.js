@@ -159,6 +159,7 @@ export function createHordeClient(o) {
     switch (ev.type) {
       case 'phase':
         phase = ev.phase; stage = ev.stage | 0; centerFor(ev);
+        if (ev.phase === 'wave' && ev.healReduction > 0 && H) H.callout(`🩹 스테이지 ${stage}: 모든 회복량 −${ev.healReduction}%`);
         if (ev.phase === 'over' && ui && ui.isVisible('cards')) ui.hide('cards');
         // 무기는 준비 시간에만 바꾼다. 1스테이지가 시작되면 교체 창을 닫는다(무기 교체권으로 연 창은 한 번 바꿀 때까지 둔다)
         if (ev.phase === 'over' || (ev.phase !== 'prep' && !swapTicket)) { swapTicket = false; W('closeSwap'); }
@@ -186,10 +187,13 @@ export function createHordeClient(o) {
       case 'down':
         if (String(ev.id) === meId) {
           if (myAlive) { myAlive = false; W('killLocal', {}); }
-          // 멀티는 동료가 그 자리에서 살릴 수 있다(F 3초). 아니면 다음 스테이지에 일어난다.
-          // 방장이 쓰러진 자리를 알려 준 때만(살릴 수 있는 몸) 살리기를 말한다(옛 방장·자리를 모르는 경우는 예전 글)
+          // 30스테이지에 도달한 뒤에는 라운드가 넘어가도 자동 부활하지 않는다.
           const mine = last && last.players.find((p) => p.id === meId);
-          const sub = canRevive && mine && mine.down ? `동료가 F를 ${Math.round(HORDE.reviveHoldMs / 1000)}초 누르면 일어나요 · 아니면 다음 스테이지에` : '동료가 이번 스테이지를 깨면 다음 스테이지에 일어나요';
+          const mustRevive = (ev.stage | 0) >= 29;
+          const sub = canRevive && mine && mine.down
+            ? mustRevive ? `동료가 F를 ${Math.round(HORDE.reviveHoldMs / 1000)}초 눌러 살려야 해요 · 라운드 자동 부활 없음`
+              : `동료가 F를 ${Math.round(HORDE.reviveHoldMs / 1000)}초 누르면 일어나요 · 아니면 다음 스테이지에`
+            : mustRevive ? '동료가 곁에서 살려야 해요 · 라운드 자동 부활 없음' : '동료가 이번 스테이지를 깨면 다음 스테이지에 일어나요';
           if (H) H.center('쓰러졌어요', 2200, { sub, tone: 'warn' });
         } else { if (o.onActorDown) o.onActorDown(String(ev.id)); if (H) H.callout(`💀 ${nameOf(String(ev.id)) || '동료'} 쓰러짐`); }
         break;
@@ -207,7 +211,8 @@ export function createHordeClient(o) {
       case 'slow': if (String(ev.id) === meId) { W('slowLocal', 1 - (Number(ev.mul) || 0), ev.ms); if (H) H.callout('❄️ 느려졌어요'); } break;
       case 'stun': if (String(ev.id) === meId) { W('stunLocal', ev.ms); if (H) H.callout('💫 기절!'); } break;
       case 'grabbed': if (String(ev.id) === meId && H) H.callout('🪝 그랩에 끌려가요!'); break;
-      case 'noHeal': if (String(ev.id) === meId && H) H.callout(`🧪 저주! ${Math.round((Number(ev.ms) || 0) / 1000)}초 동안 회복 불가`); break;
+      case 'noHeal': if (String(ev.id) === meId && H) H.callout(`${ev.source === 'boss' ? '👑 보스 타격!' : '🧪 저주!'} ${Math.round((Number(ev.ms) || 0) / 1000)}초 동안 회복 불가`); break;
+      case 'burn': if (String(ev.id) === meId && H) H.callout(`🔥 화상! ${Math.round((Number(ev.ms) || 0) / 1000)}초 동안 지속 피해`); break;
       case 'second': if (String(ev.id) === meId && H) H.banner({ icon: '🪽', title: '두 번째 기회!', sub: '쓰러질 피해를 버텼어요' }); break;
       case 'boss':
         if (H) H.banner({ icon: '👑', title: '보스 등장', sub: (ev.bosses || []).map((b) => `${b.icon || ''} ${b.name}`).join(' · ') });
@@ -376,6 +381,28 @@ export function createHordeClient(o) {
     }
   }
 
+  function pauseDetails() {
+    const me = last && last.players.find((p) => p.id === meId);
+    const counts = new Map();
+    for (const id of me ? me.cards : []) counts.set(id, (counts.get(id) || 0) + 1);
+    const cards = [];
+    for (const [id, count] of counts) {
+      const c = cardById(id);
+      if (c) cards.push({ name: c.name, desc: c.desc, icon: c.icon, count });
+    }
+    const stats = [
+      { label: '공격 피해', value: `${perks.dmg >= 0 ? '+' : ''}${Math.round(perks.dmg * 100)}%` },
+      { label: '회피 확률', value: `${Math.round(Math.min(0.9, perks.dodge) * 100)}% · 광역 공격 제외` },
+      { label: '피격 후 무적', value: `${(HORDE.hitInvulnMs / 1000 + Math.max(0, perks.iframe)).toFixed(1)}초` },
+      { label: '최대 체력', value: `${maxHp}` },
+      { label: '현재 보호막', value: `${me ? me.shield : 0}` },
+      ...perkSummary(perks).filter((row) => !['피해', '맞은 뒤 무적', '최대 체력', '방패'].includes(row.label))
+    ];
+    if (perks.guard > 0) stats.push({ label: '방패', value: `정면·칼을 든 동안 피해 −${Math.round(perks.guard * 100)}%` });
+    if (perks.lifesteal > 0) stats.push({ label: '광역 공격 흡혈', value: `${Math.round(perks.lifesteal * 20)}%` });
+    return { cards, stats };
+  }
+
   function cardProps(me) {
     const taken = me.cards;
     const lv = last && last.xp ? last.xp.level : 1;
@@ -399,8 +426,9 @@ export function createHordeClient(o) {
     return v.players.filter((p) => p.connected).map((p) => ({
       id: p.id, name: p.name, hp: p.hp, maxHp: p.maxHp, alive: p.alive, me: p.id === meId, picking: p.offer.length > 0, invuln: p.invuln, shield: p.shield,
       // 쓰러진 사람: 누가 살리는 중인지와 진행(0..1). 멀티에서 방장이 쓰러진 자리를 알려 준 사람만 동료가 살릴 수 있다
-      // (중간에 들어와 아직 안 나온 사람·나갔다 온 사람·옛 방장은 다음 스테이지에 일어난다)
-      down: !p.alive && p.down ? { by: p.down.by || null, progress: p.down.progress || 0 } : null, canRevive: canRevive && !p.alive && !!p.down
+      // 처음 합류해 아직 나오지 않은 사람만 다음 스테이지에 스폰된다. 30스테이지부터는 쓰러진 사람이 자동 부활하지 않는다.
+      down: !p.alive && p.down ? { by: p.down.by || null, progress: p.down.progress || 0 } : null, canRevive: canRevive && !p.alive && !!p.down,
+      noAutoRevive: v.stage >= 29 && !!p.spawned
     }));
   }
   /** 가운데 살리기 막대: 내가 동료를 살리는 중이거나, 쓰러진 나를 동료가 살리는 중이면 { text, frac } */
@@ -628,6 +656,7 @@ export function createHordeClient(o) {
     }
   }) : null;
 
+  W('setPauseDetails', pauseDetails);
   function dispose() {
     if (disposed) return;
     disposed = true;
@@ -641,6 +670,7 @@ export function createHordeClient(o) {
     if (ui) { ui.hide('cards'); ui.hide('horde'); }
     W('closeSwap');
     W('setHordePerks', null);
+    W('setPauseDetails', null);
   }
 
   return {

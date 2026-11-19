@@ -227,6 +227,7 @@ function buildWorld(ctx, opts) {
   let hordeHint = '';
   let hordeTouch = false;
   let pauseOpts = { leaveLabel: '나가기', note: undefined };
+  let pauseDetailsProvider = null;                // 좀비 모드: ESC에서 현재 카드·능력치 보여 주기
   let scoreboardProvider = null, scoreboardOpen = false, sbRefresh = 0;
   let clock = 0;                                  // World 시뮬레이션 시각(초, 일시정지 중 멈춤)
   let moverClock = null;                          // 움직이는 지형의 바깥 시계(멀티: 방장 시계). 없으면 clock
@@ -479,7 +480,7 @@ function buildWorld(ctx, opts) {
   function openPause() {
     if (!ui) return;
     // info: 일시정지에서 건의를 보낼 때 함께 가는 진단 정보(ui/feedback.js)
-    ui.show('pause', { leaveLabel: pauseOpts.leaveLabel, note: pauseOpts.note, info: { mode, map: map && map.id ? String(map.id) : '' } });
+    ui.show('pause', { leaveLabel: pauseOpts.leaveLabel, note: pauseOpts.note, info: { mode, map: map && map.id ? String(map.id) : '' }, details: pauseDetailsProvider ? pauseDetailsProvider() : null });
     // 결과 화면이 일시정지 메뉴를 덮어 닫으면 uiPaused가 켜진 채 남는다. 메뉴를 새로 여는 것이니 언제나 알린다
     uiPaused = true;
     emit('pause', { paused: true });
@@ -595,6 +596,7 @@ function buildWorld(ctx, opts) {
     setMode(opt && opt.mode);
     setRuleset(opt && opt.ruleset);
     setHordePerks(null);
+    pauseDetailsProvider = null;
     fx.clear(false);
     scheduled.length = 0;
     R.setFov(R.baseFov);
@@ -2174,6 +2176,7 @@ function buildWorld(ctx, opts) {
       simPaused = next;
     },
     setPauseOptions(o = {}) { pauseOpts = { leaveLabel: (o && o.leaveLabel) || '나가기', note: o ? o.note : undefined }; },
+    setPauseDetails(fn) { pauseDetailsProvider = typeof fn === 'function' ? fn : null; },
     setScoreboard(fn) { scoreboardProvider = typeof fn === 'function' ? fn : null; },
     setHint(text) { customHint = text ? String(text) : ''; },
     sound: (name, o) => play(name, o),

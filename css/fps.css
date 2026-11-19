@@ -740,6 +740,18 @@
 .sk-pause-panel { width: min(380px, 100%); display: flex; flex-direction: column; padding-bottom: 18px; overflow: hidden; outline: none; }
 .sk-pause-title { margin-top: 18px; text-align: center; font-size: 28px; }
 .sk-pause-note { margin: 4px 18px 0; text-align: center; font-size: 12.5px; color: var(--sk-muted); }
+.sk-pause-panel--stats { width: min(680px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; }
+.sk-pause-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; padding: 14px 20px 0; }
+.sk-pause-details[hidden] { display: none; }
+.sk-pause-detail-group { min-width: 0; max-height: 38vh; overflow-y: auto; padding: 12px; border: 1px solid var(--sk-edge); border-radius: 8px; background: rgba(0, 0, 0, .18); }
+.sk-pause-detail-group h3 { margin: 0 0 10px; font-size: 15px; }
+.sk-pause-card-list { display: grid; gap: 8px; }
+.sk-pause-card { display: grid; gap: 3px; padding-bottom: 7px; border-bottom: 1px solid var(--sk-edge); }
+.sk-pause-card strong { font-size: 13px; }
+.sk-pause-card small, .sk-pause-empty { color: var(--sk-muted); font-size: 11px; line-height: 1.4; }
+.sk-pause-stats { display: grid; grid-template-columns: minmax(80px, 1fr) auto; gap: 7px 8px; margin: 0; font-size: 12px; }
+.sk-pause-stats dt { color: var(--sk-muted); }
+.sk-pause-stats dd { margin: 0; text-align: right; font-weight: 700; }
 .sk-pause-btns { display: flex; flex-direction: column; gap: 8px; padding: 16px 20px 0; }
 .sk-pause-btns .sk-btn { width: 100%; }
 .sk-confirm { margin: 12px 20px 0; padding: 12px; border-radius: 8px; background: rgba(255, 90, 79, .1); box-shadow: inset 0 0 0 1px rgba(255, 90, 79, .35); }

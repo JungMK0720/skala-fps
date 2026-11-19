@@ -321,6 +321,8 @@ describe('살리기·쓰러짐 소식', () => {
     multi.apply([player('me'), player('b')]);
     multi.apply([downed('me', [0, 0, 0]), player('b')], [{ type: 'down', id: 'me' }]);
     assert.equal(multi.ui.hud.centers.at(-1).sub, '동료가 F를 3초 누르면 일어나요 · 아니면 다음 스테이지에');
+    multi.apply([downed('me', [0, 0, 0]), player('b')], [{ type: 'down', id: 'me', stage: 30 }], { stage: 30 });
+    assert.match(multi.ui.hud.centers.at(-1).sub, /라운드 자동 부활 없음/);
     assert.equal(multi.world.calls('killLocal').length, 1);
     const solo = rig(t, { solo: true });
     solo.apply([player('me')]);
