@@ -163,7 +163,7 @@ node tools/check-maps.mjs --file 경로.js # MAP_IDS에 없는 작업 파일
 
 | 항목 | 한도 |
 |---|---|
-| solids | 400 |
+| solids | 600 (재질별로 한 메시로 합쳐 그리므로 그리기 호출은 늘지 않는다) |
 | decor | 280 |
 | pads, portals | 각 16 |
 | secrets | 8 |
