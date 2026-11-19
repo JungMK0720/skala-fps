@@ -96,7 +96,7 @@ npm run serve
 
 **중계 서버**: [server/relay](server/relay/README.md)의 Cloudflare Worker + Durable Objects(로비 하나, 방마다 하나)가 멀티 메시지를 Supabase Realtime 대신 중계합니다. 서버가 프레임을 받는 사람에게 직접 나눠 주므로 Supabase 무료 한도에 묶이지 않습니다. 배포 설정은 이 서버(`https://skala-relay.skala-fps.workers.dev`)를 씁니다(`js/config.js`의 `transport: 'relay'`, `'supabase'`로 바꾸면 Supabase Realtime으로 돌아갑니다). 판정은 지금처럼 방장 브라우저가 합니다. 배포와 전환 절차는 [docs/CLOUDFLARE_SOP.md](docs/CLOUDFLARE_SOP.md)에 있습니다.
 
-**건의함**: 메인 메뉴와 일시정지의 **건의하기**에서 플레이어가 운영자에게 버그·제안·밸런스 의견을 바로 보냅니다. 운영자만 Supabase 대시보드에서 읽고, 답을 달면 보낸 사람의 건의함에 보입니다. 설계와 운영 방법은 [docs/FEEDBACK.md](docs/FEEDBACK.md)에 있습니다.
+**건의함**: 메인 메뉴와 일시정지의 **건의하기**에서 플레이어가 운영자에게 버그·제안·밸런스 의견을 바로 보냅니다. 운영자만 Supabase 대시보드에서 읽고, 답을 달면 보낸 사람의 건의함에 보입니다. 새 건의는 Edge Function과 Resend로 소유자 이메일에도 바로 알릴 수 있습니다(선택). 설계와 운영 방법은 [docs/FEEDBACK.md](docs/FEEDBACK.md)에 있습니다.
 
 **로그인 연결·테스트 결제**: [server/api](server/api/README.md)의 Cloudflare Worker(무료 플랜)가 구글·카카오 로그인(OAuth 2.0 인가 코드 + PKCE, ID 토큰 검증)으로 다른 기기에서도 같은 닉네임을 쓰게 하고, 토스페이먼츠 **테스트 결제**로 코인을 충전해 꾸미기를 사게 합니다(실제로 돈이 나가지 않고 사업자등록이 필요 없습니다). `js/config.js`의 `api.url`이 비어 있으면 꺼져 있습니다.
 
@@ -119,7 +119,8 @@ npm run check
 | [docs/BALANCE.md](docs/BALANCE.md) | 무기 밸런스 수치와 근거 |
 | [docs/MAP_GUIDE.md](docs/MAP_GUIDE.md) | 맵 만드는 법 |
 | [docs/NOTICE.md](docs/NOTICE.md) | 전체 공지: 운영자 패널 사용법, 열쇠 만들기·바꾸기, 동작 원리 |
-| [docs/FEEDBACK.md](docs/FEEDBACK.md) | 건의함: 서버 열기, 읽고 답하기, 한도, 왜 이 방법인가 |
+| [docs/FEEDBACK.md](docs/FEEDBACK.md) | 건의함: 서버 열기, 읽고 답하기, 한도, 이메일 알림, 왜 이 방법인가 |
+| [docs/FEEDBACK_EMAIL_SOP.md](docs/FEEDBACK_EMAIL_SOP.md) | 건의 이메일 알림 켜기: 용어(프로젝트 ref 등), Resend·비밀·배포·웹훅 순서, 시험, 문제 해결 |
 | [docs/MODES.md](docs/MODES.md) | 모드별 규칙 계약(개인전·폭파 미션·좀비 물량 막기 등) |
 | [docs/AUGMENTS.md](docs/AUGMENTS.md) | 좀비 물량 막기 레벨·경험치와 증강 카드 전체 표(등급·단계 수치·상한) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/CORE_API.md](docs/CORE_API.md) | 엔진 구조와 API |
