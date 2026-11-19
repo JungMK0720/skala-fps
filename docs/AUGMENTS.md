@@ -15,7 +15,7 @@ node -e "import('./js/game/horde/cards.js').then(m=>{for(const c of m.CARDS)cons
 
 | 항목 | 값 | 어디 |
 |---|---|---|
-| 다음 레벨까지 필요한 경험치 | `10 + 5 × (레벨 − 1)`: 1→2 10, 2→3 15, 3→4 20, … | `rules.js xpNeed`, `xpBase`·`xpStep` |
+| 다음 레벨까지 필요한 경험치 | `10 × 레벨`: 1→2 10, 2→3 20, 3→4 30, … | `rules.js xpNeed`, `xpBase`·`xpStep` |
 | 좀비 처치 | 워커·크롤러 1 · 러너·스피터·폭발 좀비 2 · 브루트 4 · 보스가 불러낸 좀비 1 | `rules.js ZOMBIE_XP` |
 | 보스 처치 | 20 (보물 상자는 따로 떨어진다) | `rules.js bossXp` |
 | 시간 보너스 | 40초 안에 다 잡으면 남은 1초당 1 | `rules.js timeXpMs` |

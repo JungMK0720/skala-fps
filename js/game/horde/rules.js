@@ -18,7 +18,7 @@ export const HORDE = Object.freeze({
   stageMs: 40000,         // 스테이지 하나의 시간. 지나면 다음 스테이지가 시작된다(남은 좀비는 그대로 남는다)
   timeXpMs: 1000,         // 시간 안에 다 잡으면 남은 시간 이만큼마다 경험치 1
   xpBase: 10,             // 1레벨 → 2레벨에 필요한 경험치
-  xpStep: 5,              // 레벨마다 필요한 경험치가 이만큼 는다(10, 15, 20, …)
+  xpStep: 10,             // 레벨마다 필요한 경험치가 이만큼 는다(10, 20, 30, …)
   bossXp: 20,             // 보스 처치 경험치(보물 상자는 따로 떨어진다)
   cardMs: 20000,          // 증강 고르기 제한 시간(지나면 제안 중 하나를 무작위로 받는다)
   pauseOnCards: false,    // true(혼자)면 고르는 동안 좀비·스테이지 시간이 멈춘다. 멀티는 멈추지 않고 고르는 사람만 무적이다
@@ -101,7 +101,7 @@ export function rollDrop(rng, medP = HORDE.medChance, magP = HORDE.magChance) {
 export const ZOMBIE_XP = Object.freeze({ walker: 1, crawler: 1, runner: 2, spitter: 2, bomber: 2, brute: 4, flyer: 3 });
 export const zombieXp = (typeId) => ZOMBIE_XP[typeId] || 1;
 
-/** 이 레벨에서 다음 레벨까지 필요한 경험치: 1레벨 10, 2레벨 15, 3레벨 20, … */
+/** 이 레벨에서 다음 레벨까지 필요한 경험치: 1레벨 10, 2레벨 20, 3레벨 30, … */
 export function xpNeed(level, rules = HORDE) {
   return rules.xpBase + rules.xpStep * (Math.max(1, Math.floor(Number(level) || 1)) - 1);
 }
