@@ -15,8 +15,8 @@ import { WEAPONS, GRENADE_IDS } from '../../weapons/defs.js';
 import { SKILL_NAMES, skillKindOf } from './bosses.js';
 import { pickableWeapons } from '../modes.js';
 
-const FRENZY_MS = 4000;
-const FRENZY_MAX = 5;
+const FRENZY_MS = 7000;          // 광란: 총으로 좀비를 맞힐 때마다 쌓이는 연사가 이만큼 이어진다(맞힐 때마다 한 겹씩, 겹마다 따로 끝난다)
+const FRENZY_MAX = 300;          // 광란 최대 겹 수
 const REVIVE_SEND_MS = 300;      // 살리기를 누르고 있는 동안 방장에게 다시 알리는 간격(방장은 reviveKeepMs 동안 소식이 없으면 끊는다)
 const REVIVE_KEEP_M = 0.5;       // 살리던 동료는 reviveTouchM보다 이만큼 멀어져도 이어 간다(경계에서 켜졌다 꺼졌다 하지 않게)
 
@@ -52,7 +52,7 @@ export function createHordeClient(o) {
   const W = (name, ...a) => { const f = world && world[name]; if (typeof f === 'function') { try { return f.apply(world, a); } catch (e) { console.error('[horde]', name, e); } } return undefined; };
   const nameOf = (id) => { const p = last && last.players.find((x) => x.id === id); return p ? p.name : ''; };
   let last = null;
-  let phase = null, stage = 0, overAt = 0, overShown = false;
+  let phase = null, stage = 0, ammoStage = 0, overAt = 0, overShown = false;
   let cardsSig = '', appliedCards = 0, perks = computePerks([]), maxHp = HORDE.baseHp;
   let myKills = 0, myHp = null, myAlive = false, spawnedOnce = false;
   let frenzy = [];                 // 끝나는 시각들
@@ -465,6 +465,11 @@ export function createHordeClient(o) {
         applyNewCards(me.cards);
         applyPerks();
       }
+      // 보급 투하: 새 스테이지마다 한 번(증강 고르기로 잠시 멈춰도 스테이지 번호를 기록한다).
+      if (v.stage !== ammoStage && me.alive && world.localAlive) {
+        ammoStage = v.stage;
+        if (me.cards.includes('drop')) { W('refillAmmo'); W('refillGrenades'); }
+      }
       // 살아남/쓰러짐 보정(이벤트를 놓쳤을 때)
       const localAlive = !!world.localAlive;
       if (!me.alive && localAlive && spawnedOnce) { myAlive = false; W('killLocal', {}); }
@@ -482,17 +487,8 @@ export function createHordeClient(o) {
         W('setLocalHp', me.hp);
       }
       myHp = me.hp;
-      // 처치: 탄약 회수·광란, 내가 마무리한 좀비는 킬 표시
-      if (me.kills > myKills) {
-        const n = me.kills - myKills;
-        if (perks.killAmmo > 0) W('addMagAmmo', perks.killAmmo * n);
-        if (perks.frenzy > 0) {
-          const until = t + FRENZY_MS;
-          for (let i = 0; i < n; i++) frenzy.push(until);
-          frenzy = frenzy.slice(-FRENZY_MAX);
-          applyPerks();
-        }
-      }
+      // 처치: 탄약 회수, 내가 마무리한 좀비는 킬 표시
+      if (me.kills > myKills && perks.killAmmo > 0) W('addMagAmmo', perks.killAmmo * (me.kills - myKills));
       myKills = me.kills;
       // 증강 화면: 제안이 있으면(레벨업·보물 상자) 띄운다. 멀티는 게임이 멈추지 않으므로 단계와 상관없다
       const offered = v.phase !== 'over' && me.offer.length && !me.picked && me.connected;
@@ -579,6 +575,12 @@ export function createHordeClient(o) {
     const me = last && last.players.find((p) => p.id === meId);
     const hit = zombieHitDamage(c, perks, { boss: !!(z && z.boss), hpFrac: z ? z.hpFrac : 1 }, { myHpFrac: me ? me.hp / Math.max(1, me.maxHp) : 1, nth: wave ? 0 : myShot.n, air: airNow() });
     if (!hit) return;
+    // 광란: 총으로 맞힐 때마다 한 겹(칼·검기·수류탄은 쌓지 않는다). 가장 오래된 겹부터 7초 뒤에 끝난다
+    if (perks.frenzy > 0 && !wave && !hit.melee) {
+      frenzy.push(performance.now() + FRENZY_MS);
+      if (frenzy.length > FRENZY_MAX) frenzy.shift();
+      applyPerks();
+    }
     const at = Array.isArray(c.point) ? c.point : z ? [z.pos[0], z.pos[1] + 1.7, z.pos[2]] : null;
     if (at) W('hordeDamageNumber', at, Math.max(1, Math.round(hit.dmg)), hit.melee ? 'melee' : hit.part);
   }) : null;

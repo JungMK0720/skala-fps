@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { buildCollision, isZombieMap } from '../js/maps/collision.js';
 import { buildNavGrid } from '../js/game/navgrid.js';
 import { getGroundY } from '../js/engine/physics.js';
-import { CARDS, CARD_COUNT, TIERS, computePerks, perkMaxHp, perkSummary, makeOffer, encodeCards, decodeCards, cardById, cardAvailable, PERK_CAPS } from '../js/game/horde/cards.js';
+import { CARDS, CARD_COUNT, TIERS, computePerks, perkMaxHp, perkSummary, makeOffer, encodeCards, decodeCards, cardById, cardAvailable } from '../js/game/horde/cards.js';
 import { BOSSES, pickBosses, SKILL_KINDS } from '../js/game/horde/bosses.js';
 import {
   HORDE, bossCount, zombieCount, hpMul, hordeAmmo, makeRng, zombieMix, LOOT_TYPES, rollDrop, lootByCode, xpNeed, timeBonusXp, zombieXp, ZOMBIE_IDS
@@ -168,18 +168,20 @@ describe('카드', () => {
     assert.match(ammo.desc, /기본 재장전 탄창만큼/);
     assert.ok(cardById('sprint1').fx.move > 0);
     assert.ok(cardById('limit1').fx.maxSpeed > 0);
+    // 가속 한계: 걷는 속도와 버니합 상한이 같은 비율로 함께 오른다
+    for (const id of ['limit1', 'limit4']) assert.equal(cardById(id).fx.move, cardById(id).fx.maxSpeed, id);
     assert.ok(cardById('hp1').fx.maxHp > 0);
   });
 
-  test('능력치 계산과 상한', () => {
+  test('능력치 계산: 상한 없이 더하고, 한 장 카드만 고를 수 있는 횟수로 빠진다', () => {
     const many = Array(60).fill('trigger4');
     const k = computePerks(many);
-    assert.equal(k.fireRate, PERK_CAPS.fireRate);
-    assert.ok(!cardAvailable(cardById('trigger4'), many, k), '상한이 찬 카드는 제안에서 빠진다');
+    assert.ok(Math.abs(k.fireRate - 0.22 * 60) < 1e-9, '60장이면 60장만큼');
+    assert.ok(cardAvailable(cardById('trigger4'), many), '상한이 없어 계속 나온다');
     assert.equal(perkMaxHp(computePerks(['hp1', 'hp2'])), 140);
-    assert.equal(perkMaxHp(computePerks(['glass'])), 75);
-    assert.ok(cardAvailable(cardById('glass'), [], null));
-    assert.ok(!cardAvailable(cardById('glass'), ['glass'], null), '한 장뿐인 카드');
+    assert.equal(perkMaxHp(computePerks(['glass'])), 80);
+    assert.ok(cardAvailable(cardById('glass'), []));
+    assert.ok(!cardAvailable(cardById('glass'), ['glass']), '한 장뿐인 카드');
   });
 
   test('제안: 3장(넓은 선택이면 4장), 서로 다르고 같은 묶음이 겹치지 않으며 재현된다', () => {
@@ -236,9 +238,9 @@ describe('새 카드: 이미 있는 카드의 전송 번호는 그대로', () =>
     const tiers = (ids) => ids.map((id) => cardById(id).tier);
     assert.deepEqual(tiers(ADDED.slice(0, 4)), ['common', 'rare', 'epic', 'legend']);
     assert.deepEqual(tiers(ADDED.slice(4, 8)), ['rare', 'rare', 'epic', 'legend'], '검기는 희귀부터');
-    assert.deepEqual(ADDED.slice(0, 4).map((id) => cardById(id).fx.iframe), [0.1, 0.15, 0.2, 0.25]);
+    assert.deepEqual(ADDED.slice(0, 4).map((id) => cardById(id).fx.iframe), [0.2, 0.3, 0.4, 0.5]);
     assert.deepEqual(ADDED.slice(4, 8).map((id) => cardById(id).fx.wave), [6, 8, 10, 13]);
-    assert.match(cardById('reflex1').desc, /맞은 뒤 무적 시간 \+0\.1초/);
+    assert.match(cardById('reflex1').desc, /맞은 뒤 무적 시간 \+0\.2초/);
     assert.match(cardById('wave3').desc, /검기가 10 m/);
     const anchor = cardById('anchor'), c4 = cardById('c4');
     assert.deepEqual([anchor.tier, anchor.max, anchor.fx.noKnock, anchor.icon], ['epic', 1, 1, '⚓']);
@@ -247,15 +249,13 @@ describe('새 카드: 이미 있는 카드의 전송 번호는 그대로', () =>
     const base = computePerks([]);
     for (const k of ['iframe', 'noKnock', 'stickyNade', 'wave']) assert.equal(base[k], 0, k);
     const k = computePerks(['reflex4', 'reflex4', 'wave4', 'wave4', 'wave1']);
-    assert.equal(k.iframe, PERK_CAPS.iframe);
-    assert.equal(PERK_CAPS.iframe, 0.4);
-    assert.equal(k.wave, PERK_CAPS.wave);
-    assert.equal(PERK_CAPS.wave, 18);
+    assert.ok(Math.abs(k.iframe - 1) < 1e-9, '반사 신경은 상한 없이 겹친다');
+    assert.equal(k.wave, 32, '검기 거리도 상한 없이 겹친다');
     assert.equal(computePerks(['wave1', 'wave2']).wave, 14, '검기는 겹치면 더 멀리');
-    assert.ok(!cardAvailable(cardById('wave1'), ['wave4', 'wave4'], null), '검기 거리 상한이 차면 제안에서 빠진다');
+    assert.ok(cardAvailable(cardById('wave1'), ['wave4', 'wave4']), '검기는 여러 번 골라도 제안에 나온다');
     const rows = perkSummary(computePerks(['reflex1', 'anchor', 'c4', 'wave1']));
     const row = (label) => (rows.find((r) => r.label === label) || {}).value;
-    assert.deepEqual([row('맞은 뒤 무적'), row('밀려남'), row('C4'), row('검기')], ['+0.1초', '없음', '붙음', '6 m']);
+    assert.deepEqual([row('맞은 뒤 무적'), row('밀려남'), row('C4'), row('검기')], ['+0.2초', '없음', '붙음', '6 m']);
     assert.equal(perkSummary(base).length, 0, '증강이 없으면 요약도 없다');
   });
 
@@ -267,7 +267,7 @@ describe('새 카드: 이미 있는 카드의 전송 번호는 그대로', () =>
 });
 
 describe('수류탄 증강: 최대 수류탄 +2 · C4', () => {
-  test('수류탄 증강은 모두 최대 수류탄 +2와 가득 채움, 수류탄 주머니는 2·2·3·4, 상한 14', () => {
+  test('수류탄 증강은 모두 최대 수류탄 +2와 가득 채움, 수류탄 주머니는 5·6·8·10, 상한 없음', () => {
     const nade = CARDS.filter((c) => c.nade);
     assert.ok(nade.length >= 14, `수류탄 증강 ${nade.length}장`);
     for (const c of nade) {
@@ -277,17 +277,16 @@ describe('수류탄 증강: 최대 수류탄 +2 · C4', () => {
     }
     for (const id of ['fireNade', 'iceNade', 'decoyNade', 'multiNade', 'react', 'demo1', 'blast4', 'c4']) assert.ok(cardById(id).nade, id);
     const pouch = ['pouch1', 'pouch2', 'pouch3', 'pouch4'].map(cardById);
-    assert.deepEqual(pouch.map((c) => c.fx.nades), [2, 2, 3, 4]);
+    assert.deepEqual(pouch.map((c) => c.fx.nades), [5, 6, 8, 10]);
     assert.ok(pouch.every((c) => c.instant.nades));
-    assert.equal(PERK_CAPS.nades, 14);
-    assert.equal(computePerks(Array(10).fill('pouch4')).nades, 14);
-    assert.ok(!cardAvailable(cardById('pouch1'), Array(10).fill('pouch4'), null), '상한이 차면 주머니는 빠진다');
+    assert.equal(computePerks(Array(10).fill('pouch4')).nades, 100, '최대 수류탄은 상한이 없다');
+    assert.ok(cardAvailable(cardById('pouch1'), Array(10).fill('pouch4')), '여러 장 골라도 주머니는 계속 나온다');
     // 무기: 기본 1개에 증강만큼
     const a = createArsenal({ primary: 'ar_std' });
     a.setMods(modsFromPerks(computePerks(['fireNade'])));
     assert.equal(a.refillGrenades(), 3);
     a.setMods(modsFromPerks(computePerks(['fireNade', 'pouch1', 'c4'])));
-    assert.equal(a.refillGrenades(), 7);
+    assert.equal(a.refillGrenades(), 10);
   });
 
   test('C4 폭발은 손으로 던진 수류탄과 같다(배율 10 · 빙결 같은 수류탄 증강이 붙는다)', () => {
@@ -356,8 +355,8 @@ describe('보스 · 스테이지 규칙', () => {
     assert.ok(zombieMix(20).length === 6);
   });
 
-  test('경험치: 레벨마다 10·20·30…, 시간 안에 다 잡으면 남은 2초당 1, 강한 좀비일수록 많다', () => {
-    assert.deepEqual([1, 2, 3, 4].map((l) => xpNeed(l)), [10, 20, 30, 40]);
+  test('경험치: 레벨마다 10·15·20…, 시간 안에 다 잡으면 남은 2초당 1, 강한 좀비일수록 많다', () => {
+    assert.deepEqual([1, 2, 3, 4].map((l) => xpNeed(l)), [10, 15, 20, 25]);
     assert.equal(timeBonusXp(0), 0);
     assert.equal(timeBonusXp(3999), 1);
     assert.equal(timeBonusXp(26000), 13);
@@ -857,16 +856,16 @@ describe('맞은 뒤 무적', () => {
   test('반사 신경 증강만큼 늘고, 피한 공격은 무적을 만들지 않으며, 보호막이 막아도 무적은 시작된다', () => {
     const { d, pos, P } = makeFlat();
     const p = P('p1');
-    p.cards = ['reflex4'];
+    p.cards = ['reflex1'];
     p.perks = computePerks(p.cards);
     spitAt(d, pos.p1, 10);
     step(d);
     const t0 = d.internals.S.clock;
     assert.equal(p.hp, 90);
-    assert.ok(near(p.hitUntil, t0 + 100 + 250), '기본 0.1초 + 0.25초');
+    assert.ok(near(p.hitUntil, t0 + 100 + 200), '기본 0.1초 + 0.2초');
     step(d, 5);
     spitAt(d, pos.p1, 10);
-    step(d);                       // 약 200 ms 뒤: 증강이 없으면 맞았을 때
+    step(d);                       // 약 200 ms 뒤: 증강이 없으면 맞았을 때(0.3초 무적 안)
     assert.equal(p.hp, 90, '반사 신경으로 늘어난 무적');
     step(d, 5);
     spitAt(d, pos.p1, 10);

@@ -2094,7 +2094,8 @@ function buildWorld(ctx, opts) {
     },
     /** 보스 돌진·내려찍기에 밀려남: [vx, vy, vz] */
     pushLocal(v) { if (local.spawned && local.alive) player.push(v); },
-    /** 들고 있는 총의 예비 탄·수류탄 채우기, 탄창에 탄 더하기(카드·처치 보상) */
+    /** 총들의 탄창·예비 탄과 수류탄 채우기, 탄창에 탄 더하기(증강·보급) */
+    refillAmmo: () => arsenal.refillAmmo(),
     refillReserve: () => arsenal.refillReserve(),
     refillGrenades: () => arsenal.refillGrenades(),
     addMagAmmo: (n) => arsenal.addMagAmmo(n),
