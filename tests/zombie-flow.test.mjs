@@ -63,6 +63,7 @@ function fakeWorld() {
     hordeDamageNumber(at, n, kind) { log.push(['hordeDamageNumber', { at, n, kind }]); },
     refillGrenades() { log.push(['refillGrenades', w.nadeMax]); w.nades = w.nadeMax; return w.nades; },
     addReserve(n, id) { const a = ammo[id]; const add = a ? Math.max(0, Math.min(a.max - a.reserve, Math.floor(n))) : 0; if (a) a.reserve += add; log.push(['addReserve', { n, id, add }]); return add; },
+    refillAmmo() { for (const a of Object.values(ammo)) { a.mag = a.size; a.reserve = a.max; } log.push(['refillAmmo', {}]); },
     internals: {
       arsenal: {
         getLoadout: () => ({ primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' }),
@@ -349,23 +350,22 @@ describe('밀려남', () => {
 });
 
 describe('탄창 줍기', () => {
-  test('탄창을 주우면 예비 탄과 함께 수류탄도 가득 채우고, 늘었을 때만 알린다(같은 이벤트는 한 번)', (t) => {
+  test('탄창을 주우면 주무기·보조무기의 탄창과 예비 탄을 모두 가득 채우고 수류탄도 채운다(같은 이벤트는 한 번)', (t) => {
     const env = rig(t);
     env.apply([player('me')]);
     const loot = (id) => ({ type: 'loot', id, kind: 'mag', by: 'me' });
+    env.world.ammo.ar_std.mag = 3; env.world.ammo.pt_std.reserve = 0;
     env.apply([player('me')], [loot(7)]);
-    assert.equal(env.world.ammo.ar_std.reserve, 50, '든 총(주무기)의 예비 탄 +탄창 하나');
+    assert.deepEqual([env.world.ammo.ar_std.mag, env.world.ammo.ar_std.reserve], [30, 90], '주무기 가득');
+    assert.deepEqual([env.world.ammo.pt_std.mag, env.world.ammo.pt_std.reserve], [12, 72], '보조무기도 가득');
     assert.equal(env.world.nades, 4);
-    assert.equal(env.ui.hud.callouts.at(-1), '🧷 탄창 +30발 · 💣 수류탄 가득');
+    assert.equal(env.ui.hud.callouts.at(-1), '🧷 탄약 · 모든 총 탄 가득 · 💣 수류탄 가득');
     env.apply([player('me')], [loot(7)]);
-    assert.equal(env.world.calls('refillGrenades').length, 1, '같은 이벤트는 한 번');
+    assert.equal(env.world.calls('refillAmmo').length, 1, '같은 이벤트는 한 번');
     env.apply([player('me')], [loot(8)]);
-    assert.equal(env.ui.hud.callouts.at(-1), '🧷 탄창 +30발', '수류탄이 이미 가득이면 알리지 않는다');
-    env.world.ammo.ar_std.reserve = 90; env.world.ammo.pt_std.reserve = 72; env.world.nades = 0;
-    env.apply([player('me')], [loot(9)]);
-    assert.equal(env.ui.hud.callouts.at(-1), '🧷 탄창 · 예비 탄이 가득해요 · 💣 수류탄 가득', '예비 탄이 가득해도 수류탄은 채운다');
+    assert.equal(env.ui.hud.callouts.at(-1), '🧷 탄약 · 모든 총 탄 가득', '수류탄이 이미 가득이면 알리지 않는다');
     env.apply([player('me')], [{ type: 'loot', id: 10, kind: 'mag', by: 'b' }]);
-    assert.equal(env.world.calls('refillGrenades').length, 3, '남이 주운 탄창은 내 수류탄을 채우지 않는다');
+    assert.equal(env.world.calls('refillAmmo').length, 2, '남이 주운 탄창은 내 탄을 채우지 않는다');
   });
 });
 
