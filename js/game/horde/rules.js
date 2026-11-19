@@ -136,7 +136,7 @@ export const ZOMBIE_TYPES = Object.freeze({
   }),
   spitter: Object.freeze({
     id: 'spitter', code: 4, name: '스피터', hp: 85, speed: 2.4, damage: 8, attackMs: 1200, windupMs: 400, range: 1.3,
-    radius: 0.35, scale: 1, from: 20, weight: 2, color: 0x8fc23a, cloth: 0x2f5d50,
+    radius: 0.35, scale: 1, from: 11, weight: 2, color: 0x8fc23a, cloth: 0x2f5d50,
     ranged: Object.freeze({ every: 3200, speed: 15, dmg: 13, keep: 8, range: 24, windupMs: 500 })
   }),
   bomber: Object.freeze({
