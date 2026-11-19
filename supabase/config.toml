@@ -1,0 +1,9 @@
+# Date: 06NOV2026
+# Author: Minkyu Jung
+# Purpose: Supabase CLI 설정(건의 알림 Edge Function 배포용). 지금은 함수 하나만 정한다. 로컬 에뮬레이터(supabase start)는 쓰지 않는다.
+#          notify-feedback은 Database Webhook(pg_net)이 부르므로 사용자 JWT가 없다. verify_jwt를 끄는 대신 함수 안에서 비밀 헤더를 직접 확인한다
+#          (supabase/functions/notify-feedback/core.js, docs/FEEDBACK.md 7절). 배포 명령에도 --no-verify-jwt를 함께 적는다.
+project_id = "skala-fps"
+
+[functions.notify-feedback]
+verify_jwt = false
