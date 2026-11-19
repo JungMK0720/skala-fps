@@ -222,7 +222,7 @@ describe('새 카드: 이미 있는 카드의 전송 번호는 그대로', () =>
   const OLD_SPECIALS = ('second glass wall chain luck wide medkit syringe drop hunter thrift perfect giant thirst runngun drum samurai iron ' +
     'tactical react dread coin adrenaline bunker fireNade iceNade decoyNade multiNade rearm sideGl sideRl').split(' ');
   const OLD = [...OLD_FAMILIES.flatMap((f) => [1, 2, 3, 4].map((n) => `${f}${n}`)), ...OLD_SPECIALS];
-  const ADDED = ['reflex1', 'reflex2', 'reflex3', 'reflex4', 'wave1', 'wave2', 'wave3', 'wave4', 'anchor', 'c4', 'shieldKnife', 'airStrike', 'sideGravity', 'flameGun', 'railGun', 'aiGlasses'];
+  const ADDED = ['reflex1', 'reflex2', 'reflex3', 'reflex4', 'wave1', 'wave2', 'wave3', 'wave4', 'anchor', 'c4', 'shieldKnife', 'airStrike', 'sideGravity', 'flameGun', 'railGun', 'aiGlasses', 'sideMaster'];
 
   test('기존 카드 번호는 유지하고 신규 전설 증강은 맨 뒤에 붙는다', () => {
     assert.equal(OLD.length, 187);
@@ -263,6 +263,37 @@ describe('새 카드: 이미 있는 카드의 전송 번호는 그대로', () =>
     const seen = new Set();
     for (let s = 0; s < 600; s++) for (const id of makeOffer({ seed: s, playerId: 'p', stage: 6, taken: [] })) seen.add(cardById(id).family);
     for (const f of ['reflex', 'wave', 'anchor', 'c4']) assert.ok(seen.has(f), f);
+  });
+
+  test('보조무기 마스터: 주무기 사격은 방장이 거절하고, 보조무기는 피해 6배 · 연사 2배 · 탄창 2배', () => {
+    const k = computePerks(['sideMaster']);
+    const plain = computePerks([]);
+    const hit = (perks, weaponId) => zombieHitDamage({ weaponId, part: 'body', dist: 5, kind: 'shot', count: 1 }, perks, { boss: false, hpFrac: 1 }, {}).dmg;
+    assert.ok(Math.abs(hit(k, 'pt_std') - hit(plain, 'pt_std') * 6) < 1e-9, '보조무기 피해 +500%');
+    assert.equal(hit(k, 'ar_std'), hit(plain, 'ar_std'), '주무기 공식은 그대로(사격 자체를 방장이 거절)');
+    assert.ok(Math.abs(nadeDamage(50, k, false, 'rocket') - nadeDamage(50, plain, false, 'rocket') * 6) < 1e-9, '보조 발사기 폭발도 +500%');
+    assert.equal(nadeDamage(50, k, false, null), nadeDamage(50, plain, false, null), '손 수류탄은 그대로');
+    const m = modsFromPerks(k);
+    assert.deepEqual([m.sideFire, m.sideMag], [2, 2]);
+    const a = createArsenal({ primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
+    a.setMods(m);
+    a.resetRound({});
+    assert.equal(a.getAmmo('pt_std').magSize, WEAPONS.pt_std.mag * 2, '보조무기 탄창 2배');
+    assert.equal(a.getAmmo('ar_std').magSize, WEAPONS.ar_std.mag, '주무기 탄창은 그대로');
+    const { d } = makeFlat();
+    const S = d.internals.S;
+    S.queue.length = 0;
+    S.queue.push({ type: 'brute' });
+    S.spawnAt = 0;
+    step(d);
+    const Z = alive(d)[0];
+    d.internals.players.get('p1').cards.push('sideMaster');
+    d.internals.players.get('p1').perks = k;
+    const shot = (weaponId, shotId) => d.claimHit({ attackerId: 'p1', victimId: 'z' + Z.id, weaponId, part: 'body', dist: 5, kind: 'shot', count: 1, shotId });
+    assert.equal((shot('ar_std', 1).find((e) => e.type === 'reject') || {}).reason, 'bad_weapon', '주무기 사격은 거절');
+    const before = Z.hp;
+    assert.ok(!shot('pt_std', 2).some((e) => e.type === 'reject'), '보조무기 사격은 받는다');
+    assert.ok(before - Z.hp > 0);
   });
 });
 

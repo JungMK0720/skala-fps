@@ -81,7 +81,8 @@ export const PERK_BASE = Object.freeze({
   reloadCut: 0,    // C  재장전 시간 −비율(0.5 = 절반, 1 = 재장전 없이 계속 쏜다)
   guard: 0,        // H  칼을 들면 방패를 든다: 정면에서 오는 공격의 피해 −비율
   airDmg: 0,       // H  점프로 떠 있는 동안 주는 피해 +배율(5 = +500%)
-  autoAim: 0       // C  총을 쏠 때 앞쪽 조준 원뿔 안의 좀비 몸통을 자동 조준
+  autoAim: 0,      // C  총을 쏠 때 앞쪽 조준 원뿔 안의 좀비 몸통을 자동 조준
+  sideMaster: 0    // HC 1이면 주무기를 못 쓰고 보조무기 연사 2배 · 피해 +500% · 탄창 2배
 });
 
 /* ------------------------------------------------------------------ 카드 표 (바꾸면 docs/AUGMENTS.md도 고친다) */
@@ -208,7 +209,9 @@ const ADDED = [
   { key: 'railGun', name: '레일건', icon: '⚡', tier: 'legend', max: 1, minStage: 3,
     instant: { primary: 'rg_horde' }, desc: '주무기가 RG-5 레일건으로 바뀐다(몸 400 · 머리 800 · 5발 탄창 · 1.5초마다 사격)' },
   { key: 'aiGlasses', name: 'AI 안경', icon: '🥽', tier: 'legend', max: 1, minStage: 3,
-    fx: { autoAim: 1 }, desc: '안경을 쓰고 총을 쏘면 앞쪽 조준 원뿔 안에 있는 좀비의 몸통을 자동 조준한다' }
+    fx: { autoAim: 1 }, desc: '안경을 쓰고 총을 쏘면 앞쪽 조준 원뿔 안에 있는 좀비의 몸통을 자동 조준한다' },
+  { key: 'sideMaster', name: '보조무기 마스터', icon: '🔫', tier: 'legend', max: 1, minStage: 3,
+    fx: { sideMaster: 1 }, desc: '주무기를 더 쓸 수 없다. 대신 보조무기 발사 속도 2배 · 피해 +500% · 최대 탄창 2배' }
 ];
 
 /** 묶음 하나 → 카드 네 장(I 일반 · II 희귀 · III 영웅 · IV 전설, minTier가 있으면 그 등급부터) */
@@ -379,6 +382,7 @@ export function perkSummary(stats) {
   add('C4', s.stickyNade, () => '붙음'); add('검기', s.wave, (v) => `${fx(v)} m`); add('AI 안경', s.autoAim, () => '몸통 자동 조준');
   add('재장전 시간', s.reloadCut, (v) => (v >= 1 ? '없음' : `−${Math.round(v * 100)}%`)); add('방패', s.guard, (v) => `−${Math.round(v * 100)}%`);
   add('공중 피해', s.airDmg, (v) => `+${Math.round(v * 100)}%`);
+  add('보조무기 마스터', s.sideMaster, () => '주무기 봉인 · 보조 연사 2배 · 피해 +500% · 탄창 2배');
   add('반응 장갑', s.reactive, (v) => `${fx(1 / v)}초에 한 번`);
   return rows;
 }

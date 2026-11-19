@@ -32,7 +32,9 @@ export function modsFromPerks(k, frenzyStacks = 0) {
     mag: 1 + k.mag, fire: (1 + k.fireRate) * (1 + (k.frenzy || 0) * Math.min(FRENZY_MAX, frenzyStacks)),
     reload: Math.max(0.3, 1 + k.reload) / Math.max(0.02, 1 - cut),
     draw: 1 + k.draw, spread: Math.max(0.2, 1 - k.spread), recoil: Math.max(0.2, 1 - k.recoil),
-    reserve: HORDE.reserveMul * (1 + k.reserve), finiteMags: HORDE.premiumReserveMags, nades: Math.round(k.nades), thrift: cut >= 1 ? 1 : k.thrift
+    reserve: HORDE.reserveMul * (1 + k.reserve), finiteMags: HORDE.premiumReserveMags, nades: Math.round(k.nades), thrift: cut >= 1 ? 1 : k.thrift,
+    // 보조무기 마스터: 보조무기만 연사 2배 · 탄창 2배
+    sideFire: k.sideMaster > 0 ? 2 : 1, sideMag: k.sideMaster > 0 ? 2 : 1
   };
 }
 
@@ -110,7 +112,7 @@ export function createHordeClient(o) {
       // 수류탄 폭발 반경은 던진 사람의 증강을 따른다(방장 화면이 남의 수류탄 피해도 잰다)
       nadeRadiusOf: (owner) => { const k = perksOf(owner); return 1 + ((k && k.nadeRadius) || 0); },
       // C4 수류탄(좀비에 붙는다)과 검기 거리. 남의 칼질에도 검기를 그리려고 다른 사람의 검기 거리도 넘긴다
-      sticky: perks.stickyNade > 0, waveRange: perks.wave || 0, autoAim: perks.autoAim > 0,
+      sticky: perks.stickyNade > 0, waveRange: perks.wave || 0, autoAim: perks.autoAim > 0, sideOnly: perks.sideMaster > 0,
       waveRangeOf: (owner) => ((perksOf(owner) || {}).wave || 0)
     });
   }
