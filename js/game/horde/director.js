@@ -51,6 +51,10 @@ const HURT_KEEP_MS = 900;         // 사람이 맞은 방향 표시를 남겨 �
 const PLAYER_R = 0.35;
 const EYE = 1.6;
 const PIERCE_FALLOFF = 0.7;
+const PIERCE_MIN = 0.3;           // 무제한 관통에서도 이만큼은 남는다(뚫을 때마다 70%, 최소 30%)
+const GUARD_COS = 0.34;           // 방패: 바라보는 방향에서 이 각(약 70°) 안의 공격만 막는다
+const GRAVITY_PULL_MS = 2600;     // 중력건에 끌려가는 시간
+const GRAVITY_PULL_SPEED = 13;    // 끌려가는 속도(m/s)
 const MELEE_SLACK = 2.2;          // 칼 주장 거리 여유(m, 지연 보간 몫)
 const RANGE_SLACK = 1.15;
 const TARGET_MS = 500;
@@ -166,8 +170,15 @@ export function createHorde(o = {}) {
     let raw = null;
     try { raw = getPositions() || {}; } catch (e) { raw = {}; }
     for (const P of players.values()) {
-      const p = pos3(raw[P.id]);
+      const r = raw[P.id];
+      const p = pos3(r);
       if (p) P.pos = p;
+      // 방패(바라보는 방향·든 무기 슬롯)와 공중 강타(점프 중)가 읽는다. 모르면 비워 둔다(방패는 쓰이지 않는다)
+      if (p && r && !Array.isArray(r)) {
+        P.yaw = Number.isFinite(+r.yaw) ? +r.yaw : null;
+        P.slot = Number.isFinite(+r.slot) ? +r.slot : null;
+        P.air = r.air === true;
+      }
     }
   }
 
@@ -528,6 +539,7 @@ export function createHorde(o = {}) {
     P.hitUntil = S.clock + R.hitInvulnMs + 1000 * Math.max(0, P.perks.iframe || 0);
     if (opt.knock > 0 && !(P.perks.noKnock > 0)) pushPlayer(P, from && from.body ? from.body.pos : opt.at, opt.knock);
     let dmg = amount * (1 - clamp(P.perks.armor || 0, 0, 0.75));
+    if (guarded(P, from, opt)) dmg *= 1 - clamp(P.perks.guard, 0, 0.95);
     if (P.shield > 0) { const a = Math.min(P.shield, dmg); P.shield -= a; dmg -= a; }
     dmg = Math.round(dmg);
     if (dmg <= 0) return 0;
@@ -541,6 +553,20 @@ export function createHorde(o = {}) {
     if (opt.melee && from && P.perks.thorns > 0 && from.state !== 'dead') hurtZombie(from, P.perks.thorns, P, { kind: 'thorns' }, ev);
     if (P.hp <= 0) downPlayer(P, ev);
     return dmg;
+  }
+
+  /**
+   * 방패 칼(증강): 칼(슬롯 3)을 들고 있고, 때린 쪽(좀비·침·장판의 자리)이 바라보는 방향의 앞쪽 약 70° 안이면 막는다.
+   * 어디서 맞았는지 모르거나(자리·방향을 못 받음) 뒤에서 맞으면 막지 못한다
+   */
+  function guarded(P, from, opt) {
+    if (!(P.perks.guard > 0) || P.slot !== 3 || !Number.isFinite(P.yaw) || !P.pos) return false;
+    const src = from && from.body ? from.body.pos : opt && opt.at;
+    if (!src) return false;
+    const dx = num(src[0]) - P.pos[0], dz = num(src[2]) - P.pos[2];
+    const l = hyp2(dx, dz);
+    if (l < 0.05) return true;   // 거의 겹쳐 서 있으면 앞이라고 본다
+    return (-Math.sin(P.yaw) * dx - Math.cos(P.yaw) * dz) / l >= GUARD_COS;
   }
 
   /**
@@ -797,6 +823,14 @@ export function createHorde(o = {}) {
       }
     }
   }
+  /** 중력건: 이 좀비를 at(폭심)으로 끌어당긴다. 끌려가는 동안은 때리지 못한다(보스는 짧게, 휘두르던 공격은 끊긴다) */
+  function pullZombie(Z, at) {
+    if (!Z || Z.state === 'dead' || !at) return;
+    Z.pullTo = [at[0] + (rng() - 0.5) * 1.2, at[1], at[2] + (rng() - 0.5) * 1.2];   // 한 점에 겹치지 않게 조금 흩는다
+    Z.pullUntil = S.clock + GRAVITY_PULL_MS * (Z.boss ? 0.35 : 1);
+    if (Z.state === 'wind') { Z.state = 'move'; Z.windRanged = false; }
+    if (Z.skill && Z.skill.phase === 'wind') Z.skill = null;
+  }
   /** 빙결: 얼어붙은 좀비는 움직이지도 때리지도 못한다(보스는 절반 시간) */
   function freezeZombie(Z, P) {
     if (!Z || Z.state === 'dead') return;
@@ -861,7 +895,7 @@ export function createHorde(o = {}) {
       if (nth > Math.round(k.pierce || 0)) return [{ type: 'reject', reason: 'pierce' }];
     }
     // 피해 공식은 화면의 피해 숫자(client.js)와 같은 함수를 쓴다. 치명타만 방장이 굴린다
-    const hit = zombieHitDamage({ ...c, dist }, k, { boss: !!Z.boss, hpFrac: Z.hp / Z.maxHp }, { myHpFrac: P.hp / Math.max(1, P.maxHp), nth });
+    const hit = zombieHitDamage({ ...c, dist }, k, { boss: !!Z.boss, hpFrac: Z.hp / Z.maxHp }, { myHpFrac: P.hp / Math.max(1, P.maxHp), nth, air: !!P.air });
     if (!hit) return [{ type: 'reject', reason: 'bad_weapon' }];
     let dmg = hit.dmg;
     let crit = false;
@@ -896,6 +930,19 @@ export function createHorde(o = {}) {
     const ev = [];
     const k = P.perks;
     const hit = [];
+    // 중력건: 피해 없이 반경 안의 좀비를 폭심 한 점으로 끌어당긴다(무기가 중력건일 때만, 사수 근처 90 m 안에서 터진 것만)
+    if (c.kind === 'gravity') {
+      const at = pos3(c.center);
+      if (!P.cards.includes('sideGravity')) return [];
+      if (!at || (P.pos && hyp2(at[0] - P.pos[0], at[2] - P.pos[2]) > 90)) return [];
+      for (const v of Array.isArray(c.victims) ? c.victims : []) {
+        if (!v || !isZombieId(v.id)) continue;
+        const Z = zombies.get(zombieIdOf(v.id));
+        if (!Z || Z.state === 'dead') continue;
+        pullZombie(Z, at);
+      }
+      return ev;
+    }
     for (const v of Array.isArray(c.victims) ? c.victims : []) {
       if (!v || !isZombieId(v.id)) continue;   // 이 모드에는 아군 피해가 없다(자기 수류탄도)
       const Z = zombies.get(zombieIdOf(v.id));
@@ -1057,6 +1104,19 @@ export function createHorde(o = {}) {
     if (Z.state === 'rise') { if (now >= Z.until) Z.state = 'move'; else return; }
     // 얼어붙음: 제자리에 서서 아무것도 못 한다
     if (Z.frozenUntil > now) { Z.body.vel[0] = Z.body.vel[2] = 0; if (world) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius }); return; }
+    // 중력건에 끌려가는 중: 폭심으로 빨려 들어가고, 닿으면 그 자리에서 멈춘다(보스는 느리게). 그동안 때리지 못한다
+    if (Z.pullUntil > now && Z.pullTo) {
+      const p0 = Z.body.pos;
+      const dx0 = Z.pullTo[0] - p0[0], dz0 = Z.pullTo[2] - p0[2];
+      const d0 = hyp2(dx0, dz0);
+      const sp0 = d0 > 0.35 ? GRAVITY_PULL_SPEED * (Z.boss ? 0.45 : 1) : 0;
+      const wish0 = { x: sp0 > 0 ? (dx0 / d0) * sp0 : 0, z: sp0 > 0 ? (dz0 / d0) * sp0 : 0 };
+      if (world) moveCharacter(world, Z.body, wish0, dt, { radius: Z.radius, height: Math.min(2.4, 1.8 * Math.min(1.3, Z.scale)) });
+      else { p0[0] += wish0.x * dt; p0[2] += wish0.z * dt; Z.body.vel[0] = wish0.x; Z.body.vel[2] = wish0.z; }
+      if (sp0 > 0) faceTo(Z, Z.pullTo[0], Z.pullTo[2], dt, 8);
+      Z.progressAt = now; Z.bestDist = Infinity; Z.stuck = 0;
+      return;
+    }
     const T = chooseTarget(Z);
     const rage = Z.enraged ? Z.boss.enrage : null;
     const speedK = Z.slowMul * Z.hasteMul * (rage ? rage.speed : 1);
@@ -1800,8 +1860,8 @@ export function hordeSummary(view, meId) {
   };
 }
 
-/** 폭발 종류별 배율: 손으로 던진 수류탄 1.6, 유탄 발사기 1.2(여러 발), 바주카포 2.6(한 발씩) */
-export const BLAST_MUL = Object.freeze({ nade: 1.6, gl: 1.2, rocket: 2.6 });
+/** 폭발 종류별 배율: 손으로 던진 수류탄 10(폭심 기본 피해 1000), 유탄 발사기 1.2(여러 발), 바주카포 2.6(한 발씩) */
+export const BLAST_MUL = Object.freeze({ nade: 10, gl: 1.2, rocket: 2.6 });
 
 /** 수류탄·발사체 폭발 피해(화면이 잰 피해 → 이 모드의 피해): 종류 배율 × 모든 피해 × 수류탄 피해(보스면 보스 피해도) */
 export function nadeDamage(dmg, k, boss = false, kind = null) {
@@ -1812,7 +1872,7 @@ export function nadeDamage(dmg, k, boss = false, kind = null) {
 
 /**
  * 좀비 한 발의 피해(치명타·좀비 방어 버프 빼고). 방장 판정(claimHit)과 화면의 피해 숫자가 같은 공식을 쓴다.
- * c = { weaponId, part, dist, kind, count }, k = 쏜 사람의 능력치(computePerks), z = { boss, hpFrac }, o = { myHpFrac, nth(관통 순서) }
+ * c = { weaponId, part, dist, kind, count }, k = 쏜 사람의 능력치(computePerks), z = { boss, hpFrac }, o = { myHpFrac, nth(관통 순서), air(점프로 떠 있는가) }
  * kind: 'stab'·'waveStab'(찌르기의 검기)은 찌르기 피해, 'slash'·'wave'(베기의 검기)는 베기 피해. 검기도 칼 피해라 칼 증강이 붙는다
  * → { dmg, head, melee, part } | null(쓸 수 없는 무기)
  */
@@ -1837,7 +1897,8 @@ export function zombieHitDamage(c = {}, k = {}, z = {}, o = {}) {
   if ((k.lastStand || 0) > 0 && num(o.myHpFrac, 1) < 0.35) mul *= 1 + k.lastStand;
   if ((k.executioner || 0) > 0 && num(z.hpFrac, 1) < 0.25) mul *= 1 + k.executioner;
   const nth = Math.max(0, num(o.nth, 0) | 0);
-  if (nth > 0) mul *= Math.pow(PIERCE_FALLOFF, nth);
+  if (nth > 0) mul *= Math.max(PIERCE_MIN, Math.pow(PIERCE_FALLOFF, nth));
+  if ((k.airDmg || 0) > 0 && o.air) mul *= 1 + k.airDmg;
   return { dmg: base * mul, head, melee, part };
 }
 

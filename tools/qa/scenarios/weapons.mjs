@@ -26,7 +26,7 @@ async function pickThroughLoadout(t, page, id, ruleset = 'classic') {
   await page.fn((o) => {
     const ids = o.ruleset === 'knife' ? o.melee : o.primary;
     window.__qa.ui.show('loadout', { weapons: ids, ruleset: o.ruleset, seconds: 0, selected: window.__qa.run.lastPick });
-  }, { ruleset, melee: MELEE_IDS, primary: ruleset === 'sniper' ? PRIMARY_IDS.filter((x) => WEAPONS[x].kind === 'sniper') : PRIMARY_IDS });
+  }, { ruleset, melee: MELEE_IDS, primary: ruleset === 'sniper' ? PRIMARY_IDS.filter((x) => WEAPONS[x].kind === 'sniper') : PRIMARY_IDS.filter((x) => !WEAPONS[x].zombieOnly) });
   await page.waitFor('__qa.ui.isVisible("loadout") && !__qa.ctx.input.locked', 3000, { label: '무기 선택 화면이 잠금을 푼다' });
   const isCard = ruleset === 'knife' ? def.slot === 3 : def.slot === 1;
   if (isCard) {
@@ -54,7 +54,7 @@ async function fireAndReload(t, page, id) {
   await page.eval('__qa.clearLogs()');
 
   if (def.fire === 'auto') {
-    await clickFire(page, 12);
+    await clickFire(page, Math.max(12, Math.ceil(def.fireInterval * 60 * 2.6)));   // 느린 자동 총(자동 샷건 0.3초)도 두 발 이상 나가게
     await waitTicks(page, 2);
   } else {
     await clickFire(page, 2);

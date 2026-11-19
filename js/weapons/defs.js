@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 무기 17종과 수류탄의 수치·표시 정보, 데미지 계산의 유일한 구현(computeDamage)을 둔다.
+ * Purpose: 무기 17종과 수류탄(+ 좀비 모드 전용 3종)의 수치·표시 정보, 데미지 계산의 유일한 구현(computeDamage)을 둔다.
  *          three.js·엔진·DOM에 의존하지 않아 node 테스트와 방장 판정에서 그대로 import한다.
  */
 
@@ -100,12 +100,46 @@ const SM_VX3_PATTERN = [
 ];
 
 const SG_BX12_PATTERN = [[0.00, 4.20], [0.60, 3.60], [-0.60, 3.60]];
+/** PM-9 펌프. 한 발마다 크게 튀지만 BX-12보다 작다(펠릿이 많고 탄퍼짐이 좁은 대신 느리게 쏜다). */
+const SG_PUMP_PATTERN = [[0.00, 3.40], [0.35, 3.00], [-0.35, 3.00]];
+/** DB-2 쌍발. 두 발이 거의 같이 나가서 첫 발이 가장 크게 튄다. */
+const SG_DOUBLE_PATTERN = [[0.00, 5.00], [0.55, 4.60]];
+/** AS-12 오토. 연사하는 산탄총이라 한 발은 작게, 쏟아부을수록 좌우로 흔들린다. */
+const SG_AUTO_PATTERN = [[0.00, 1.90], [0.25, 1.70], [-0.25, 1.70], [0.15, 1.50], [-0.15, 1.50], [0.30, 1.40], [-0.30, 1.40], [0.00, 1.40]];
+/**
+ * UZ-2 듀얼 우지. 왼손·오른손 총이 번갈아 나가서 한 발마다 좌우가 번갈아 튄다(처음 8발은 점점 벌어지고 그 뒤로는 작게 흔들린다).
+ * 위로는 발당 0.2~0.3°라 VX-3와 비슷하지만 좌우가 두 배 넓다.
+ */
+const SM_UZI_DUAL_PATTERN = [
+  [0.20, 0.22], [-0.22, 0.24], [0.26, 0.26], [-0.28, 0.26], [0.30, 0.26], [-0.32, 0.24], [0.32, 0.22], [-0.32, 0.22],
+  [0.28, 0.20], [-0.28, 0.20], [0.26, 0.18], [-0.26, 0.18], [0.24, 0.18], [-0.24, 0.18], [0.22, 0.16], [-0.22, 0.16],
+];
+/** MN-6 미니건. 위로 발당 0.14~0.16°씩 올라가다가 좌우로 천천히 흔들린다. 12발 주기로 되돌아온다. */
+const MG_MINIGUN_PATTERN = [
+  [0.02, 0.16], [0.04, 0.16], [-0.03, 0.16], [0.05, 0.15], [-0.05, 0.15], [0.06, 0.15],
+  [-0.06, 0.14], [0.05, 0.14], [-0.05, 0.14], [0.04, 0.14], [-0.04, 0.14], [0.02, 0.14],
+];
 const SR_BOLT_PATTERN = [[0.00, 3.20]];
 const SR_TWIN_PATTERN = [[0.15, 3.40]];
 const SR_SWIFT_PATTERN = [[-0.20, 2.20], [0.25, 2.00]];
 const SR_HEAVY_PATTERN = [[0.35, 5.50], [-0.35, 5.50]];
 const PT_STD_PATTERN = [[0.00, 1.30], [0.25, 1.15], [-0.25, 1.15], [0.15, 1.05]];
 const PT_MAGNUM_PATTERN = [[0.00, 3.00], [0.50, 2.70], [-0.50, 2.70]];
+
+/**
+ * MG-100(100발, 좀비 전용). 처음 8발은 거의 수직으로 솟고(발당 0.5~0.8°), 9~16발은 왼쪽으로, 17~20발은 오른쪽으로 끌린다.
+ * 21발째부터는 20발 주기로 좌우로 크게 흔들린다(loopFrom 20, 한 주기의 좌우 합은 0이라 한쪽으로만 흐르지 않는다). 위로는 발당 0.12°씩 계속 오른다.
+ */
+const MG_LMG_PATTERN = [
+  [0.04, 0.62], [0.08, 0.72], [-0.04, 0.78], [0.10, 0.80], [0.12, 0.76],
+  [0.06, 0.70], [0.14, 0.62], [0.04, 0.54], [-0.22, 0.44], [-0.40, 0.38],
+  [-0.52, 0.32], [-0.58, 0.28], [-0.56, 0.24], [-0.46, 0.22], [-0.30, 0.20],
+  [-0.10, 0.18], [0.14, 0.16], [0.34, 0.15], [0.46, 0.14], [0.52, 0.13],
+  [0.52, 0.12], [0.49, 0.12], [0.42, 0.12], [0.31, 0.12], [0.16, 0.12],
+  [0.00, 0.12], [-0.16, 0.12], [-0.31, 0.12], [-0.42, 0.12], [-0.49, 0.12],
+  [-0.52, 0.12], [-0.49, 0.12], [-0.42, 0.12], [-0.31, 0.12], [-0.16, 0.12],
+  [0.00, 0.12], [0.16, 0.12], [0.31, 0.12], [0.42, 0.12], [0.49, 0.12],
+];
 
 /* ───────────────────────────── 카드 문구 ───────────────────────────── */
 
@@ -346,7 +380,7 @@ const WEAPON_TABLE = {
 
   // 펠릿 8발이 모두 몸에 맞으면 112. 탄퍼짐 때문에 몸 중앙을 겨눠도 6 m쯤에서 한 방 확률이 절반으로 떨어지고, 22 m 밖에서는 35%라 견제만 된다.
   sg_bx12: gun({
-    id: 'sg_bx12', slot: 1, kind: 'shotgun', category: 'smg', fire: 'semi', price: 700,
+    id: 'sg_bx12', slot: 1, kind: 'shotgun', category: 'shotgun', fire: 'semi', price: 700,
     name: 'BX-12 브리처', nameEn: 'BX-12 Breacher', short: 'BX-12', role: '근거리',
     icon: '💥', color: '#d9a441', sound: 'shotgun', fxKind: 'rifle',
     tagline: '문을 열고 들어가는 한 방.',
@@ -367,6 +401,141 @@ const WEAPON_TABLE = {
     spread: { hip: 3.2, move: 0.8, air: 2.5, bloomPerShot: 0, bloomMax: 0, bloomDecay: 0, max: 7 },
     recoil: { pattern: SG_BX12_PATTERN, loopFrom: 1, adsMul: 1, maxPitch: 9, maxYaw: 2.5,
       recoverDelay: 0.12, recoverRate: 6, patternRecover: 5 },
+    zoom: null,
+  }),
+
+  // 펌프액션 산탄총. 펠릿 9발이 모두 몸에 맞으면 117이고 BX-12보다 탄퍼짐이 좁아 10 m 안에서는 한 방이 잘 나온다. 28 m까지 40%가 남는다.
+  // 그 대신 한 발에 1초가 걸리고 7발을 다 쓰면 재장전이 길다. 한 방을 노리는 무기다.
+  sg_pump: gun({
+    id: 'sg_pump', slot: 1, kind: 'shotgun', category: 'shotgun', fire: 'semi', price: 900,
+    name: 'PM-9 펌프', nameEn: 'PM-9 Pump', short: 'PM-9', role: '펌프액션',
+    icon: '🪵', color: '#c07f3a', sound: 'shotgun', fxKind: 'rifle',
+    tagline: '당기고, 밀고, 한 방.',
+    desc: '펠릿 9발을 모아 쏘는 펌프액션 산탄총이다. BX-12보다 탄이 덜 퍼지고 멀리 닿지만, 한 발마다 펌프를 당겨야 해서 느리다.',
+    recoilNote: '한 발에 크게 튄다',
+    bars: { power: 88, rate: 10, accuracy: 38, mobility: 76 },
+
+    damage: { head: 18, body: 13, legs: 9, hand: 6, foot: 6 },   // 펠릿 1발 기준
+    pellets: 9,
+    falloff: { start: 10, end: 28, min: 0.4 },
+    maxRange: 55,
+
+    rpm: 60, fireInterval: 1.0,
+
+    mag: 7, reserve: 14, reload: 3.4, reloadEmpty: 3.8,
+    drawTime: 0.7, moveMul: 0.97,
+
+    spread: { hip: 2.4, move: 0.8, air: 2.5, bloomPerShot: 0, bloomMax: 0, bloomDecay: 0, max: 6 },
+    recoil: { pattern: SG_PUMP_PATTERN, loopFrom: 1, adsMul: 1, maxPitch: 8, maxYaw: 2.2,
+      recoverDelay: 0.12, recoverRate: 6, patternRecover: 5 },
+    zoom: null,
+  }),
+
+  // 쌍발 산탄총. 펠릿 10발이 모두 맞으면 160이라 코앞에서는 어디에 맞아도 한 방이고, 두 발을 0.35초에 쏟아낸다. 탄퍼짐이 가장 넓고 18 m 밖에서는 30%만 남으며
+  // 탄창이 두 발뿐이라 둘 다 빗나가면 재장전이 곧 죽음이다.
+  sg_double: gun({
+    id: 'sg_double', slot: 1, kind: 'shotgun', category: 'shotgun', fire: 'semi', price: 1000,
+    name: 'DB-2 쌍발', nameEn: 'DB-2 Double Barrel', short: 'DB-2', role: '쌍발',
+    icon: '♊', color: '#8a5a2b', sound: 'shotgun', fxKind: 'rifle',
+    tagline: '두 발, 그걸로 끝내라.',
+    desc: '총열이 두 개인 쌍발 산탄총이다. 펠릿 10발의 위력이 가장 크고 연달아 두 번 쏘지만, 두 발을 쓰면 바로 장전해야 하고 탄이 넓게 퍼진다.',
+    recoilNote: '두 발 모두 크게 튄다',
+    bars: { power: 98, rate: 20, accuracy: 15, mobility: 82 },
+
+    damage: { head: 22, body: 16, legs: 11, hand: 8, foot: 8 },   // 펠릿 1발 기준
+    pellets: 10,
+    falloff: { start: 6, end: 18, min: 0.3 },
+    maxRange: 35,
+
+    rpm: 171, fireInterval: 0.35,
+
+    mag: 2, reserve: 4, reload: 2.4, reloadEmpty: 2.8,   // 예비는 탄창 2개(규칙). 좀비 모드는 3배라 12발
+    drawTime: 0.6, moveMul: 1.0,
+
+    spread: { hip: 4.2, move: 1.2, air: 3, bloomPerShot: 0, bloomMax: 0, bloomDecay: 0, max: 8 },
+    recoil: { pattern: SG_DOUBLE_PATTERN, loopFrom: 1, adsMul: 1, maxPitch: 10, maxYaw: 3,
+      recoverDelay: 0.12, recoverRate: 6, patternRecover: 6 },
+    zoom: null,
+  }),
+
+  // 자동 산탄총(프리미엄: 예비 탄약 무제한). 펠릿 8발 × 9로 한 발은 가까이서 72이고 두 발이면 쓰러진다. 0.3초마다 쏘는 대신 한 발마다 BX-12의 3분의 2 위력이라
+  // 근거리 TTK는 비슷하고 연속 교전에 강하다. 이동이 느리고 탄이 넓게 퍼지며 20 m 밖에서는 35%뿐이다.
+  sg_auto: gun({
+    id: 'sg_auto', slot: 1, kind: 'shotgun', category: 'shotgun', fire: 'auto', price: 1500,
+    name: 'AS-12 스톰브레이커', nameEn: 'AS-12 Stormbreaker', short: 'AS-12', role: '자동',
+    icon: '🌩️', color: '#e0572b', sound: 'shotgun', fxKind: 'rifle',
+    tagline: '방아쇠를 당기고 있는 한 계속 터진다.',
+    desc: '방아쇠를 누르고 있으면 계속 나가는 자동 산탄총이다. 한 발은 약하지만 연사가 빨라 가까운 적을 몰아붙이기 좋고, 예비 탄약이 무제한이다.',
+    recoilNote: '연사하면 좌우로 흔들린다',
+    bars: { power: 62, rate: 40, accuracy: 24, mobility: 70 },
+
+    damage: { head: 14, body: 9, legs: 6, hand: 4, foot: 4 },   // 펠릿 1발 기준
+    pellets: 8,
+    falloff: { start: 7, end: 20, min: 0.35 },
+    maxRange: 45,
+
+    rpm: 200, fireInterval: 0.3,
+
+    mag: 12, reserve: 36, reload: 3.2, reloadEmpty: 3.6,
+    drawTime: 0.8, moveMul: 0.93,
+
+    spread: { hip: 3.6, move: 1.0, air: 3, bloomPerShot: 0.3, bloomMax: 1.5, bloomDecay: 5, max: 8 },
+    recoil: { pattern: SG_AUTO_PATTERN, loopFrom: 1, adsMul: 1, maxPitch: 9, maxYaw: 4,
+      recoverDelay: 0.14, recoverRate: 6, patternRecover: 8 },
+    zoom: null,
+  }),
+
+  // 양손에 우지를 하나씩 든다. 두 총이 번갈아 쏘아 초당 17발(1000rpm)이고 몸 15라 7발(0.36초)에 쓰러진다. 조준경이 없어 우클릭 조준이 없고
+  // 탄퍼짐이 VX-3의 두 배쯤이며 10 m 밖부터 피해가 빨리 줄어(32 m에서 45%) 근접전 전용이다. 이동은 가장 빠르다.
+  sm_uzi_dual: gun({
+    id: 'sm_uzi_dual', slot: 1, kind: 'smg', category: 'smg', fire: 'auto', price: 1100,
+    name: 'UZ-2 듀얼 우지', nameEn: 'UZ-2 Dual Uzi', short: 'UZ-2', role: '쌍권총',
+    icon: '🎰', color: '#f0c419', sound: 'smg', fxKind: 'pistol',
+    tagline: '양손에 하나씩, 양쪽으로 쏟아붓는다.',
+    desc: '양손에 우지를 하나씩 들고 번갈아 쏜다. 연사가 아주 빠르지만 조준경이 없고 탄이 많이 퍼져서, 코앞에서 움직이며 쏘는 무기다.',
+    recoilNote: '좌우로 번갈아 튄다',
+    bars: { power: 38, rate: 96, accuracy: 28, mobility: 98 },
+
+    damage: { head: 56, body: 15, legs: 11, hand: 7, foot: 7 },
+    falloff: { start: 10, end: 32, min: 0.45 },
+    maxRange: 90,
+
+    rpm: 1000, fireInterval: 60 / 1000,
+
+    mag: 50, reserve: 100, reload: 2.8, reloadEmpty: 3.2,
+    drawTime: 0.6, moveMul: 1.05,
+
+    // 조준(ads)이 없다. 이동 탄퍼짐은 VX-3의 절반 아래는 아니지만 총이 두 자루라 발사 때 벌어지는 정도(bloom)가 크다
+    spread: { hip: 2.6, move: 1.0, air: 3.5, bloomPerShot: 0.14, bloomMax: 2.6, bloomDecay: 5, max: 10 },
+    recoil: { pattern: SM_UZI_DUAL_PATTERN, loopFrom: 8, adsMul: 1, maxPitch: 6, maxYaw: 5,
+      recoverDelay: 0.09, recoverRate: 10, patternRecover: 24 },
+    zoom: null,
+  }),
+
+  // ───────────────────────────── 슬롯 1 · 기관총(상점) ─────────────────────────────
+  // 회전 총열 미니건(프리미엄). 1200rpm(초당 20발)에 탄창 200발이라 한 탄창 피해가 2,400이지만 몸 12로 9발(0.4초)이 필요하다.
+  // 대가: 이동 58%, 꺼내기 1.4초, 재장전 6초, 조준 없음. 프리미엄이라 예비 탄약이 무제한이다. 좀비 전용 MG-100(100발)과 다른 총이다.
+  mg_minigun: gun({
+    id: 'mg_minigun', slot: 1, kind: 'lmg', category: 'lmg', fire: 'auto', price: 2800,
+    name: 'MN-6 미니건', nameEn: 'MN-6 Minigun', short: 'MN-6', role: '제압',
+    icon: '🌀', color: '#7a8f9e', sound: 'lmg', fxKind: 'rifle',
+    tagline: '총열이 돌면, 탄이 멈추지 않는다.',
+    desc: '회전하는 여섯 총열로 초당 20발을 쏟아붓는 중화기다. 탄창이 200발이고 예비 탄약이 무제한이지만, 들고 있으면 걸음이 아주 느리고 꺼내기·재장전이 길다.',
+    recoilNote: '천천히 오르며 흔들린다',
+    bars: { power: 62, rate: 94, accuracy: 36, mobility: 8 },
+
+    damage: { head: 44, body: 12, legs: 9, hand: 5, foot: 5 },
+    falloff: { start: 20, end: 60, min: 0.6 },
+    maxRange: 200,
+
+    rpm: 1200, fireInterval: 60 / 1200,
+
+    mag: 200, reserve: 400, reload: 6.0, reloadEmpty: 6.6,
+    drawTime: 1.4, moveMul: 0.58,
+
+    spread: { hip: 2.8, move: 3.5, air: 6, bloomPerShot: 0.06, bloomMax: 2.4, bloomDecay: 3, max: 9 },
+    recoil: { pattern: MG_MINIGUN_PATTERN, loopFrom: 6, adsMul: 1, maxPitch: 9, maxYaw: 4,
+      recoverDelay: 0.14, recoverRate: 5, patternRecover: 14 },
     zoom: null,
   }),
 
@@ -703,6 +872,57 @@ const WEAPON_TABLE = {
     zoom: null,
     projectile: { kind: 'rocket', speed: 36, pitchUp: 0, fuse: 3.0 },
     explosion: { radius: 5.2, inner: 1.0, max: 100 },
+  }),
+  // 중력건: 피해는 없다. 발사체가 곧게 날아가 처음 닿는 곳에서 중력 구멍이 생겨, 반경 안의 좀비를 그 한 점으로 끌어 뭉친다(explosion은 '끌어당길 범위'다)
+  gv_gun: gun({
+    id: 'gv_gun', slot: 2, kind: 'launcher', category: 'launcher', fire: 'semi', price: 0, zombieOnly: true,
+    name: 'GV-1 중력건', nameEn: 'GV-1 Gravity Gun', short: 'GV-1', role: '군중 제어',
+    icon: '🌀', color: '#8a5cff', sound: 'magnum', fxKind: 'pistol',
+    tagline: '쏜 자리로 좀비를 끌어모은다.',
+    desc: '좀비 물량 막기의 드문 증강으로만 얻는 보조무기다. 중력 탄이 처음 닿는 곳에서 반경 7 m의 좀비를 한 점으로 끌어당겨 뭉친다. 피해는 주지 않으니 뭉친 곳에 수류탄을 던져라.',
+    bars: { power: 5, rate: 40, accuracy: 70, mobility: 85 },
+    damage: { head: 0, body: 0, legs: 0, hand: 0, foot: 0 },
+    falloff: null,
+    maxRange: 90,
+    rpm: 60, fireInterval: 1.0,
+    mag: 4, reserve: 12, reload: 2.4, reloadEmpty: 2.8,
+    drawTime: 0.55, moveMul: 0.97,
+    spread: { hip: 0.3, move: 0.8, air: 1.5, bloomPerShot: 0, bloomMax: 0, bloomDecay: 6, max: 2 },
+    recoil: { pattern: PT_STD_PATTERN, loopFrom: 1, adsMul: 1, maxPitch: 4, maxYaw: 1.5, recoverDelay: 0.1, recoverRate: 8, patternRecover: 10 },
+    zoom: null,
+    projectile: { kind: 'gravity', speed: 30, pitchUp: 0.02, fuse: 2.0 },
+    explosion: { radius: 7, inner: 7, max: 100 },
+  }),
+
+  // ───────────── 좀비 물량 막기 전용 주무기(상점·메뉴·봇·다른 모드에는 나오지 않는다. 좀비 모드의 무기 고르기 창과 무기 교체권으로만 든다) ─────────────
+  // 100발 박스 탄창을 끊지 않고 쏟아붓는 기관총. 750rpm에 몸 22라 한 탄창의 피해가 2,200(RX-4의 720)이고 한 탄창 8초를 쉬지 않고 쏜다.
+  // 그 대가가 크다: 들고 있으면 이동이 70%(좀비 러너 5 m/s보다 느리다), 조준하면 더 느리고, 꺼내기 1.15초·재장전 4.8초, 탄이 넓게 퍼지고 반동이 크다.
+  // 머리 90은 워커(100)·브루트(420)를 한 발에 못 쓰러뜨려 라이플 같은 머리 한 발 킬이 없다(약한 특수 좀비만 초반에 한 발). 그 자리를 한 탄창의 양과 연사가 메운다.
+  mg_m249: gun({
+    id: 'mg_m249', slot: 1, kind: 'lmg', category: 'lmg', fire: 'auto', price: 0, zombieOnly: true,
+    name: 'MG-100 기관총', nameEn: 'MG-100 Machine Gun', short: 'MG-100', role: '제압',
+    icon: '⛓️', color: '#a39a4f', sound: 'lmg', fxKind: 'rifle',
+    tagline: '100발을 쏟아붓는 대신 발이 무겁다.',
+    desc: '좀비 물량 막기에서만 쓰는 박스 탄창 기관총이다. 한 탄창 100발을 끊지 않고 쏟아붓지만, 들고 있으면 걸음이 느리고 꺼내기·재장전이 길며 반동이 크다. 다른 모드에서는 쓸 수 없다.',
+    recoilNote: '솟은 뒤 좌우로 크게 흔들린다',
+    bars: { power: 60, rate: 82, accuracy: 34, mobility: 12 },
+
+    damage: { head: 90, body: 22, legs: 16, hand: 11, foot: 11 },
+    falloff: { start: 25, end: 70, min: 0.7 },
+    maxRange: 220,
+
+    rpm: 750, fireInterval: 60 / 750,
+
+    mag: 100, reserve: 200, reload: 4.8, reloadEmpty: 5.4,
+    drawTime: 1.15, moveMul: 0.7,
+
+    spread: { hip: 2.2, ads: 0.8, move: 4.5, adsMove: 2.2, air: 7, adsAir: 5.5,
+      bloomPerShot: 0.1, bloomMax: 2.4, bloomDecay: 3, adsBloomMul: 0.6, max: 11 },
+    recoil: { pattern: MG_LMG_PATTERN, loopFrom: 20, adsMul: 0.8, maxPitch: 11, maxYaw: 5,
+      recoverDelay: 0.14, recoverRate: 5, patternRecover: 14 },
+    // 조준하면 이동이 더 느려진다(0.7 × 0.6 = 42%). 줌 배율은 낮게 둔 철제 조준기라 오버레이가 없다
+    zoom: { mag: 1.4, inTime: 0.26, outTime: 0.16, accurateAt: null, overlay: null,
+      hideViewmodelAt: null, moveMul: 0.6, unzoomOnFire: false },
   }),
 };
 

@@ -34,6 +34,8 @@ const ARENA = Object.freeze({
 const col = buildCollision(ARENA);
 const nav = buildNavGrid(ARENA);
 const los = (a, b) => lineOfSight(col.world, a, b);
+/** 봇이 쓰는 주무기: 좀비 물량 막기 전용(zombieOnly) 기관총은 사람도 봇도 다른 모드에서 쓰지 않는다 */
+const BOT_PRIMARY = PRIMARY_IDS.filter((id) => !getDef(id).zombieOnly);
 
 function mulberry(seed) {
   let s = seed >>> 0;
@@ -248,7 +250,7 @@ describe('스나전 봇', () => {
 });
 
 describe('모든 주무기', () => {
-  for (const id of PRIMARY_IDS) {
+  for (const id of BOT_PRIMARY) {
     test(`${id}: 예외 없이 싸운다`, () => {
       for (const difficulty of ['easy', 'normal', 'hard']) {
         let fired = 0;
@@ -431,11 +433,16 @@ describe('무기 지정', () => {
 
     const classic = createBot({ id: 'c', mode: 'ffa' });
     assert.equal(classic.primary, 'ar_std');
-    for (const id of PRIMARY_IDS) {
+    for (const id of BOT_PRIMARY) {
       classic.respawn({ x: 0, y: 0, z: 0, loadout: id });
       assert.equal(classic.primary, id);
       assert.equal(classic.role, getDef(id).kind);
     }
+    // 좀비 전용 기관총은 봇이 받지 않는다(규칙이 허용하지 않는다)
+    assert.equal(classic.setLoadout('mg_m249'), false);
+    classic.respawn({ x: 0, y: 0, z: 0, loadout: 'mg_m249' });
+    assert.equal(classic.primary, BOT_PRIMARY[BOT_PRIMARY.length - 1], '받지 않으니 직전 무기가 그대로다');
+    assert.equal(createBot({ id: 'z', primary: 'mg_m249' }).primary, 'ar_std');
   });
 
   test('createBot은 규칙에 맞지 않는 무기를 무시한다', () => {
@@ -552,8 +559,9 @@ describe('봇 무기 뽑기', () => {
     assert.ok(share('ar_std') > 0.35 && share('ar_std') < 0.45, `RX-4 ${share('ar_std')}`);
     const snipers = pickableWeapons('sniper').reduce((a, id) => a + share(id), 0);
     assert.ok(Math.abs(snipers - 0.25) < 0.02, `저격 ${snipers}`);
-    for (const id of PRIMARY_IDS) assert.ok(share(id) > 0.01, `${id} ${share(id)}`);
-    assert.equal(Math.max(...PRIMARY_IDS.map(share)), share('ar_std'));
+    for (const id of BOT_PRIMARY) assert.ok(share(id) > 0.01, `${id} ${share(id)}`);
+    assert.equal(Math.max(...BOT_PRIMARY.map(share)), share('ar_std'));
+    assert.equal(share('mg_m249'), 0, '좀비 전용 기관총은 봇이 뽑지 않는다');
   });
 
   test('스나전은 모두 저격총, 칼전은 나이프와 카타나', () => {
@@ -563,7 +571,8 @@ describe('봇 무기 뽑기', () => {
 
   test('botWeapon 지정: 쓸 수 있는 무기면 그대로, 아니면 확률표', () => {
     const rng = mulberry(5);
-    for (const id of PRIMARY_IDS) assert.equal(pickBotWeapon('classic', rng, id), id);
+    for (const id of BOT_PRIMARY) assert.equal(pickBotWeapon('classic', rng, id), id);
+    assert.ok(pickableWeapons('classic').includes(pickBotWeapon('classic', rng, 'mg_m249')), '좀비 전용 기관총을 지정해도 확률표에서 뽑는다');
     assert.equal(pickBotWeapon('classic', rng, 'pt_magnum'), 'pt_magnum');
     assert.equal(pickBotWeapon('knife', rng, 'ml_knife'), 'ml_knife');
     assert.ok(pickableWeapons('knife').includes(pickBotWeapon('knife', rng, 'ar_std')));

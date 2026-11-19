@@ -18,6 +18,7 @@ import {
 } from '../js/game/horde/rules.js';
 import { createHorde, applyHordeSnapshot, restoreHorde, hordeSummary, zombieIdOf, zombieHitDamage, nadeDamage } from '../js/game/horde/director.js';
 import { modsFromPerks } from '../js/game/horde/client.js';
+import { hordeSpawnPrimary } from '../js/game/horde/solo.js';
 import { zombieReward } from '../js/account/economy.js';
 import { WEAPONS } from '../js/weapons/defs.js';
 import { createArsenal } from '../js/weapons/logic.js';
@@ -219,9 +220,9 @@ describe('새 카드: 이미 있는 카드의 전송 번호는 그대로', () =>
   const OLD_SPECIALS = ('second glass wall chain luck wide medkit syringe drop hunter thrift perfect giant thirst runngun drum samurai iron ' +
     'tactical react dread coin adrenaline bunker fireNade iceNade decoyNade multiNade rearm sideGl sideRl').split(' ');
   const OLD = [...OLD_FAMILIES.flatMap((f) => [1, 2, 3, 4].map((n) => `${f}${n}`)), ...OLD_SPECIALS];
-  const ADDED = ['reflex1', 'reflex2', 'reflex3', 'reflex4', 'wave1', 'wave2', 'wave3', 'wave4', 'anchor', 'c4'];
+  const ADDED = ['reflex1', 'reflex2', 'reflex3', 'reflex4', 'wave1', 'wave2', 'wave3', 'wave4', 'anchor', 'c4', 'shieldKnife', 'airStrike', 'sideGravity'];
 
-  test('예전 카드 187장은 번호가 같고, 새 카드 10장은 그 뒤에 붙는다', () => {
+  test('예전 카드 187장은 번호가 같고, 새 카드 13장은 그 뒤에 붙는다', () => {
     assert.equal(OLD.length, 187);
     OLD.forEach((id, i) => assert.equal(cardById(id) && cardById(id).idx, i, id));
     assert.deepEqual(CARDS.slice(OLD.length).map((c) => c.id), ADDED);
@@ -289,7 +290,7 @@ describe('수류탄 증강: 최대 수류탄 +2 · C4', () => {
     assert.equal(a.refillGrenades(), 7);
   });
 
-  test('C4 폭발은 손으로 던진 수류탄과 같다(배율 1.6 · 빙결 같은 수류탄 증강이 붙는다)', () => {
+  test('C4 폭발은 손으로 던진 수류탄과 같다(배율 10 · 빙결 같은 수류탄 증강이 붙는다)', () => {
     assert.equal(nadeDamage(50, {}, false, 'c4'), nadeDamage(50, {}, false));
     const { d, pos, P } = makeFlat();
     runUntil(d, () => alive(d).length >= 2, 8000);
@@ -301,7 +302,7 @@ describe('수류탄 증강: 최대 수류탄 +2 · C4', () => {
     p.perks = computePerks(p.cards);
     const center = { x: pos.p1[0] + 5, y: 0, z: pos.p1[2] };
     d.claimExplosion({ attackerId: 'p1', center, kind: 'c4', victims: [{ id: 'z' + a.id, dmg: 50 }] });
-    assert.equal(a.hp, 10000 - Math.round(50 * 1.6));
+    assert.equal(a.hp, 10000 - Math.round(50 * 10));   // 폭심 100 → 1000(QA 요청: 수류탄 기본 피해 1000)
     assert.ok(a.frozenUntil > d.internals.S.clock, 'C4에도 빙결이 붙는다');
     d.claimExplosion({ attackerId: 'p1', center, kind: 'gl', victims: [{ id: 'z' + b.id, dmg: 50 }] });
     assert.ok(!(b.frozenUntil > d.internals.S.clock), '유탄에는 수류탄 증강이 붙지 않는다');
@@ -349,7 +350,10 @@ describe('보스 · 스테이지 규칙', () => {
     assert.ok(zombieCount(10) > zombieCount(1));
     assert.ok(hpMul(20) > hpMul(10));
     assert.ok(zombieMix(1).every((m) => m.type.id === 'walker'));
-    assert.ok(zombieMix(12).length === 6);
+    assert.ok(zombieMix(12).length === 5, '원거리 스피터는 20스테이지부터');
+    assert.ok(!zombieMix(19).some((m) => m.type.id === 'spitter'));
+    assert.ok(zombieMix(20).some((m) => m.type.id === 'spitter'));
+    assert.ok(zombieMix(20).length === 6);
   });
 
   test('경험치: 레벨마다 10·20·30…, 시간 안에 다 잡으면 남은 2초당 1, 강한 좀비일수록 많다', () => {
@@ -559,6 +563,35 @@ describe('방장 시뮬레이션', () => {
     const b = d.claimHit({ attackerId: 'p1', victimId: 'z' + zs[1].id, weaponId: 'ar_std', part: 'body', dist: 12, kind: 'shot', count: 1, shotId: 77 });
     assert.ok(!a.some((e) => e.type === 'reject'));
     assert.equal(b[0].reason, 'pierce');
+  });
+
+  test('좀비 전용 기관총(mg_m249)의 사격은 방장이 받아 몸 22 · 머리 90 · 25 m 밖 감쇠로 좀비에게 들어간다', () => {
+    const k = computePerks([]);
+    const hit = (part, dist) => zombieHitDamage({ weaponId: 'mg_m249', part, dist, kind: 'shot', count: 1 }, k, { boss: false, hpFrac: 1 }, {}).dmg;
+    assert.equal(hit('body', 5), 22);
+    assert.equal(hit('head', 5), 90);
+    assert.equal(hit('legs', 5), 16);
+    assert.equal(hit('hand', 5), 22, '손은 몸으로 친다(이 모드의 부위 규칙)');
+    assert.equal(hit('body', 70), Math.round(22 * 0.7));
+    assert.ok(hit('head', 5) < 100, '머리 한 방으로 1스테이지 워커(100)를 쓰러뜨리지 못한다');
+    const { d } = makeDirector({ startStage: 1 });
+    d.start();
+    runUntil(d, () => [...d.internals.zombies.values()].some((Z) => Z.state !== 'rise' && Z.state !== 'dead'), 30000);
+    const Z = [...d.internals.zombies.values()].find((q) => q.state !== 'dead' && q.state !== 'rise');
+    const before = Z.hp;
+    const ev = d.claimHit({ attackerId: 'p1', victimId: 'z' + Z.id, weaponId: 'mg_m249', part: 'body', dist: 10, kind: 'shot', count: 1, shotId: 1 });
+    assert.ok(!ev.some((e) => e.type === 'reject'), '방장이 기관총 사격을 거절하지 않는다');
+    assert.equal(before - Z.hp, 22);
+    // 사거리: 220 m 밖은 거절
+    const far = d.claimHit({ attackerId: 'p1', victimId: 'z' + Z.id, weaponId: 'mg_m249', part: 'body', dist: 400, kind: 'shot', count: 1, shotId: 2 });
+    assert.equal(far[0].reason, 'out_of_range');
+  });
+
+  test('혼자 하기의 스폰 주무기: 고른 좀비 전용 기관총은 그대로 쓰고(쓰러졌다 일어날 때도), 없는 값은 기본 주무기다', () => {
+    assert.equal(hordeSpawnPrimary('mg_m249'), 'mg_m249', '좀비 전용 기관총을 이 모드에서는 쓴다');
+    assert.equal(hordeSpawnPrimary('sr_heavy'), 'sr_heavy');
+    assert.equal(hordeSpawnPrimary('ar_line'), 'ar_line', '계정이 안 가진 총도 이 모드에서는 고른다');
+    for (const bad of [null, undefined, '', 'nope', 42, {}]) assert.equal(hordeSpawnPrimary(bad), 'ar_std', String(bad));
   });
 
   test('스냅샷 → 뷰 왕복, 방장 이전으로 같은 스테이지를 잇는다', () => {

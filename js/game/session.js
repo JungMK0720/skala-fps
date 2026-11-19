@@ -210,10 +210,13 @@ const killNoteText = (k) => `목표 킬이 ${k}킬로 바뀌었어요 · 먼저 
 /* ======================================================================
  * 규칙 · 장비 · 결과 도우미 (순수 함수, tests/session-wiring.test.mjs)
  * ==================================================================== */
-/** 라운드 전에 고를 수 있는 무기인가(match.setLoadout과 같은 기준). 보유 여부는 방장이 알 수 없어 보지 않는다 */
-function isPickable(ruleset, id) {
+/**
+ * 라운드 전에 고를 수 있는 무기인가(match.setLoadout과 같은 기준). 보유 여부는 방장이 알 수 없어 보지 않는다.
+ * zombie(좀비 방)면 좀비 전용 주무기(기관총)도 고를 수 있다. 다른 모드는 넘기지 않아 그 무기를 받지 않는다
+ */
+function isPickable(ruleset, id, zombie = false) {
   const def = getDef(id);
-  return !!def && def.slot === rulesetOf(ruleset).pickSlot && isWeaponAllowed(ruleset, id);
+  return !!def && def.slot === rulesetOf(ruleset).pickSlot && isWeaponAllowed(ruleset, id, zombie);
 }
 
 /** 규칙이 허용하는 슬롯. 막힌 슬롯이면 허용된 첫 슬롯(칼전은 언제나 칼) */
@@ -254,16 +257,17 @@ export function readGear(raw) {
 /**
  * 원격 아바타가 든 무기: 그 사람의 장비 → (pickSlot이면) 방장이 확정한 선택 → 규칙 기본값 → 기본 장비.
  * 이 규칙에서 못 쓰는 무기는 그리지 않는다. 수류탄은 한 종류뿐이라 표에서 찾는다.
+ * zombie(좀비 방)가 아니면 좀비 전용 무기(기관총·발사기)를 든 것으로 그리지 않는다
  */
-export function weaponForSlot(gear, slot, ruleset, confirmed) {
+export function weaponForSlot(gear, slot, ruleset, confirmed, zombie = false) {
   const rs = rulesetOf(ruleset);
   const n = allowedSlot(rs.id, slot);
   const key = SLOT_KEY[n];
   if (!key) return GRENADE_IDS[0];
   const mine = gear && typeof gear === 'object' ? gear[key] : null;
-  if (mine && isWeaponAllowed(rs.id, mine)) return mine;
+  if (mine && isWeaponAllowed(rs.id, mine, zombie)) return mine;
   if (n !== rs.pickSlot) return DEFAULT_GEAR[key];
-  return isPickable(rs.id, confirmed) ? confirmed : rs.defaultPick;
+  return isPickable(rs.id, confirmed, zombie) ? confirmed : rs.defaultPick;
 }
 
 /** 결과표의 내 줄. matchEnd 뷰가 있으면 그것, 아니면 matchEnd 이벤트의 표(늦게 온 이벤트라 스냅샷이 없을 때) */
@@ -1482,13 +1486,15 @@ export function createSession(options = {}) {
     const out = {};
     if (current && current.localAlive) {
       const lp = vec((call(world, 'getLocalState') || {}).pos);
-      if (lp) out[me] = { x: lp[0], y: lp[1], z: lp[2] };
+      // yaw·slot·air: 좀비 모드의 방패(든 무기·바라보는 방향)와 공중 강타(점프 중)가 읽는다. 다른 모드는 x·y·z만 쓴다
+      const ls = call(world, 'getLocalState') || {};
+      if (lp) out[me] = { x: lp[0], y: lp[1], z: lp[2], yaw: ls.yaw, slot: ls.slot, air: ls.onGround === false };
     }
     if (sync) {
       for (const id of sync.remoteIds()) {
         const r = sync.remote(id);
         const p = r && r.state && r.state.alive !== false ? vec(r.state.pos) : null;
-        if (p) out[id] = { x: p[0], y: p[1], z: p[2] };
+        if (p) out[id] = { x: p[0], y: p[1], z: p[2], yaw: r.state.yaw, slot: r.state.slot, air: r.state.onGround === false };
       }
     }
     return out;
@@ -2904,7 +2910,7 @@ export function createSession(options = {}) {
     const w = normalizeWeaponId(id);
     const c = current;
     const ruleset = c ? c.ruleset : roomRuleset();
-    if (!isPickable(ruleset, w)) return;
+    if (!isPickable(ruleset, w, !!c && isZombieMode(c.mode))) return;   // 기관총은 좀비 판에서만 고른다
     lastPicks.set(ruleset, w);
     if (phase !== 'match' || !c || !c.playing) return;
     c.pick = w;
@@ -3041,7 +3047,7 @@ export function createSession(options = {}) {
   wOn('grenade', (g) => {
     if (!inRound() || current.phase !== 'live') return;
     // 종류: 손 수류탄(없음) · 유탄 발사기 'gl' · 바주카포 'rocket' · C4 수류탄 'c4'(좀비 모드 증강, 좀비에 붙는다)
-    sync.sendGrenade({ pos: g.pos, vel: g.vel, t: localT(g.t), kind: g.kind === 'gl' || g.kind === 'rocket' || g.kind === 'c4' ? g.kind : undefined, fuse: g.fuse });
+    sync.sendGrenade({ pos: g.pos, vel: g.vel, t: localT(g.t), kind: g.kind === 'gl' || g.kind === 'rocket' || g.kind === 'c4' || g.kind === 'gravity' ? g.kind : undefined, fuse: g.fuse });
   });
   // 총은 죽은 뒤에 버리므로 살아 있는지(inRound)는 보지 않는다
   wOn('weaponDrop', (d) => {
@@ -3103,7 +3109,7 @@ export function createSession(options = {}) {
   /** 원격 아바타가 든 무기: 슬롯은 상태 메시지, 무기는 그 사람의 장비에서 찾는다 */
   function weaponFor(id, slot) {
     const vp = viewPlayer(id);
-    return weaponForSlot(remoteGear.get(id), slot, current.ruleset, vp && vp.loadout);
+    return weaponForSlot(remoteGear.get(id), slot, current.ruleset, vp && vp.loadout, isZombieMode(current.mode));
   }
 
   let hordeFrameAt = 0;              // 좀비 화면 쪽 frame(dt)의 지난 프레임 시각

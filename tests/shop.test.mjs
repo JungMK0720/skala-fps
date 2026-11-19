@@ -132,6 +132,21 @@ describe('상점 화면', () => {
     assert.equal(s.onTab(), '캐릭터', '새로 열 때 tab을 주면 그 탭');
   });
 
+  test('좀비 전용 무기(zombieOnly: 기관총·유탄 발사기·바주카포·중력건)는 무기 표에 들어 있어도 상점 탭과 카드에 나오지 않는다', (t) => {
+    const zombieOnly = Object.keys(WEAPONS).filter((id) => WEAPONS[id].zombieOnly);
+    assert.deepEqual(zombieOnly.sort(), ['gl_m32', 'gv_gun', 'mg_m249', 'rl_b9']);
+    const s = makeShop(t, offlineAccount(t));
+    s.shop.show({ tab: null });
+    const tabs = s.shop.el.all((k) => k.classList.contains('sk-tab')).map((k) => k.textContent);
+    for (const id of zombieOnly) assert.ok(!tabs.includes(WEAPONS[id].category), `${id}의 분류 탭 '${WEAPONS[id].category}'가 없다`);
+    // 어느 탭을 열어도 그 무기의 카드는 없다
+    for (const label of tabs) {
+      s.tab(label).fire('click');
+      for (const id of zombieOnly) assert.equal(s.card(WEAPONS[id].name), undefined, `${label} 탭에 ${id} 카드가 없다`);
+    }
+    assert.ok(tabs.includes('권총'), '다른 분류 탭은 그대로 있다');
+  });
+
   test('캐릭터 탭에서 사고 입어도 누른 버튼이 그대로 붙어 있다(포커스 유지)', (t) => {
     const account = offlineAccount(t);
     const s = makeShop(t, account);
