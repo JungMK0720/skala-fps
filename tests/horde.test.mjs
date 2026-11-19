@@ -10,7 +10,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCollision, isZombieMap } from '../js/maps/collision.js';
 import { buildNavGrid } from '../js/game/navgrid.js';
-import { getGroundY, createWorld, makeBox } from '../js/engine/physics.js';
+import { getGroundY, createWorld, makeBox, moveCharacter } from '../js/engine/physics.js';
 import { CARDS, CARD_COUNT, TIERS, computePerks, perkMaxHp, perkSummary, makeOffer, encodeCards, decodeCards, cardById, cardAvailable } from '../js/game/horde/cards.js';
 import { BOSSES, pickBosses, SKILL_KINDS } from '../js/game/horde/bosses.js';
 import {
@@ -1707,6 +1707,46 @@ describe('좀비 전용 맵', () => {
     assert.ok(!maps.mapsForMode('bomb').some((m) => m.zombie));
     assert.ok(!maps.mapsForMode('team', 'classic').some((m) => m.zombie));
     assert.ok(!isZombieMap(maps.MAPS.alley), '일반 맵은 좀비 전용이 아니다');
+  });
+
+  test('휴게소 버스 사다리를 오르고 화장실 사다리에서는 옆으로 밀려도 떨어지지 않는다', async () => {
+    const { default: map } = await import('../js/maps/restarea.js');
+    const world = buildCollision(map).world;
+    const roof = [17.5, 3.1, 18];
+    const n = buildNavGrid(map);
+    n.flowField([{ x: roof[0], y: roof[1], z: roof[2] }], 260);
+    const climber = { pos: [17.2, 0, 14.1], vel: [0, 0, 0], onGround: true };
+    let node = -1;
+    for (let i = 0; i < 600 && !(climber.pos[1] >= 3.05 && climber.pos[2] >= 17.2); i++) {
+      const step = n.flowStep({ x: climber.pos[0], y: climber.pos[1], z: climber.pos[2] }, node);
+      if (step) node = step.node;
+      const next = step?.next ?? { x: roof[0], z: roof[2] };
+      const dx = next.x - climber.pos[0], dz = next.z - climber.pos[2];
+      const length = Math.hypot(dx, dz) || 1;
+      moveCharacter(world, climber, { x: dx / length * 3, z: dz / length * 3, jump: step?.next?.jump }, 1 / 60, { radius: 0.35, height: 1.8 });
+    }
+    assert.ok(climber.pos[1] >= 3.05 && climber.pos[2] >= 17.2, `버스 지붕까지 올라야 한다: ${climber.pos}`);
+
+    const restroomRoof = [-28, 3.45, -9];
+    n.flowField([{ x: restroomRoof[0], y: restroomRoof[1], z: restroomRoof[2] }], 260);
+    const walker = { pos: [-22.6, 0, -13.5], vel: [0, 0, 0], onGround: true };
+    node = -1;
+    for (let i = 0; i < 600 && !(walker.pos[1] >= 3.4 && walker.pos[0] < -26); i++) {
+      const step = n.flowStep({ x: walker.pos[0], y: walker.pos[1], z: walker.pos[2] }, node);
+      if (step) node = step.node;
+      const next = step?.next ?? { x: restroomRoof[0], z: restroomRoof[2] };
+      const dx = next.x - walker.pos[0], dz = next.z - walker.pos[2];
+      const length = Math.hypot(dx, dz) || 1;
+      moveCharacter(world, walker, { x: dx / length * 2.5, z: dz / length * 2.5, jump: step?.next?.jump }, 1 / 60, { radius: 0.35, height: 1.8 });
+    }
+    assert.ok(walker.pos[1] >= 3.4 && walker.pos[0] < -26, `화장실 지붕까지 이어져야 한다: ${walker.pos}`);
+
+    for (const push of [-3, 3]) {
+      const zombie = { pos: [-24.5, 2.683333, -13], vel: [0, 0, 0], onGround: true };
+      for (let i = 0; i < 60; i++) moveCharacter(world, zombie, { x: 0, z: push }, 1 / 60, { radius: 0.35, height: 1.8 });
+      assert.ok(zombie.onGround && zombie.pos[1] > 2.5 && Math.abs(zombie.pos[2] + 13) < 1,
+        `화장실 사다리에서 밀려도 난간 안에 남아야 한다: ${zombie.pos}`);
+    }
   });
 
   test('좀비 전용 맵에서 방장 시뮬레이션이 돈다: 문에서 나온 좀비가 사람에게 다가간다', async () => {
