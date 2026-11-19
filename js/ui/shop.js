@@ -15,7 +15,7 @@ import { PREMIUM_PRICE } from '../weapons/defs.js';
 import { EMOTES, EMOTE_WHEEL, TEAMS, TEAM_IDS } from '../core/consts.js';
 import { AVATARS, DEFAULT_AVATAR } from '../core/avatar-defs.js';
 
-const TAB_LABELS = { rifle: '라이플', sniper: '저격', smg: 'SMG·샷건', pistol: '권총', melee: '근접' };
+const TAB_LABELS = { rifle: '라이플', sniper: '저격', smg: 'SMG', shotgun: '샷건', lmg: '기관총', pistol: '권총', melee: '근접' };
 /** 이모트 탭 id. 무기 category와 겹치지 않는다 */
 export const EMOTE_TAB = 'emote';
 /** 캐릭터 탭 id */

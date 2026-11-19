@@ -41,7 +41,8 @@
 | 3 | `ml_gurkha` | 🔪 구르카 나이프 (800 P) | 베기 55 / 0.52s / 2.1 m / 42° / 0.09s | 내려찍기 110 / 1.05s / 2.1 m / 16° / 0.27s | 0.45s | 1.07 |
 | 3 | `ml_katana` | 🗡️ 카게 카타나 (1,200 P) | 베기 65 / 0.62s / 2.7 m / 48° / 0.12s | 강타 120 / 1.25s / 2.9 m / 14° / 0.34s | 0.55s | 1.05 |
 
-**좀비 전용 무기(`zombieOnly: true`):** 기관총 `mg_m249`(슬롯 1)와 유탄 발사기 `gl_m32`·바주카포 `rl_b9`(슬롯 2). 상점 값이 없고(`ITEM_IDS`에 없다) 봇이 쓰지 않으며,
+**좀비 전용 무기(`zombieOnly: true`):** 기관총 `mg_m249`(슬롯 1)와 유탄 발사기 `gl_m32`·바주카포 `rl_b9`·중력건 `gv_gun`(슬롯 2, 중력건은 피해 없이 좀비를 한 점으로 끌어당긴다).
+상점에 새로 들어온 주무기(2026-11-18): 샷건 `sg_pump`(900 P)·`sg_double`(1,000 P)·`sg_auto`(1,500 P), 양손 우지 `sm_uzi_dual`(1,100 P), 미니건 `mg_minigun`(2,800 P). 수치와 이유는 `defs.js` 각 무기의 주석. 상점 값이 없고(`ITEM_IDS`에 없다) 봇이 쓰지 않으며,
 `game/modes.js`의 `isWeaponAllowed(ruleset, id, zombie)`·`pickableWeapons(ruleset, owned, zombie)`는 `zombie`가 `true`가 아니면 이 무기를 **어느 규칙에서도 거절**한다
 (팀전·개인전·폭파 미션·칼전·스나전, 방장의 히트 검증, 바닥 총 줍기, 원격 아바타 그리기). 좀비 물량 막기를 하는 코드(`game/horde`, 좀비 방의 `session.js`, `world.js`의 `mode === 'zombie'`)만 `true`를 넘긴다.
 MG-100은 그 모드의 준비 시간 무기 고르기 창(N)과 무기 교체권으로만 든다. 들고 있는 동안만 이동이 70%(조준하면 42%)로 느리다(`moveMul`). 수치의 이유는 `docs/BALANCE.md` 6절.

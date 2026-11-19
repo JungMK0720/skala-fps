@@ -960,7 +960,7 @@ export function createArsenal(opts = {}) {
         const v = Number(o[k]);
         if (!Number.isFinite(v)) continue;
         if (k === 'magAdd' || k === 'nades') mods[k] = Math.max(0, Math.round(v));
-        else if (k === 'thrift') mods[k] = clamp(v, 0, 0.9);
+        else if (k === 'thrift') mods[k] = v >= 1 ? 1 : clamp(v, 0, 0.9);   // 1 = 탄이 절대 줄지 않는다(재장전 시간 −100% 증강)
         else if (k === 'finiteMags') mods[k] = Math.max(0, v);
         else mods[k] = clamp(pos(v, MOD_BASE[k]), 0.05, 20);
       }

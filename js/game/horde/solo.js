@@ -58,7 +58,13 @@ export function startHordeSolo(o) {
   const director = createHorde({
     players: [{ id: me.id, name: me.name }], world: map.world, nav, spawns: map.spawns, gates, seed: opts.seed || undefined,
     startStage: opts.startStage || 1, rules: { ...SOLO_RULES, ...(opts.hordeRules || {}) },
-    getPositions: () => (world.localAlive ? { [me.id]: ctx.player.state.pos } : {})
+    // yaw·slot·air: 방패(든 무기·바라보는 방향)와 공중 강타(점프 중)가 읽는다
+    getPositions: () => {
+      if (!world.localAlive) return {};
+      const st = ctx.player.state;
+      const ls = typeof world.getLocalState === 'function' ? world.getLocalState() : null;
+      return { [me.id]: { x: st.pos[0], y: st.pos[1], z: st.pos[2], yaw: st.yaw, slot: ls ? ls.slot : null, air: st.onGround === false } };
+    }
   });
   const client = createHordeClient({
     world, ui, meId: me.id, myName: () => me.name, loadout: pick, solo: true, input: ctx.input,

@@ -22,10 +22,13 @@ const REVIVE_KEEP_M = 0.5;       // 살리던 동료는 reviveTouchM보다 이�
 
 /** 카드 능력치 → 무기 배율(arsenal.setMods) */
 export function modsFromPerks(k, frenzyStacks = 0) {
+  // 재장전 시간 −reloadCut(0.5 = 절반). 100%(두 번 고름)면 재장전이 필요 없다: 탄이 줄지 않고(thrift 1) 재장전도 거의 즉시
+  const cut = Math.min(1, Math.max(0, k.reloadCut || 0));
   return {
-    mag: 1 + k.mag, fire: (1 + k.fireRate) * (1 + (k.frenzy || 0) * Math.min(FRENZY_MAX, frenzyStacks)), reload: Math.max(0.3, 1 + k.reload),
+    mag: 1 + k.mag, fire: (1 + k.fireRate) * (1 + (k.frenzy || 0) * Math.min(FRENZY_MAX, frenzyStacks)),
+    reload: Math.max(0.3, 1 + k.reload) / Math.max(0.02, 1 - cut),
     draw: 1 + k.draw, spread: Math.max(0.2, 1 - k.spread), recoil: Math.max(0.2, 1 - k.recoil),
-    reserve: HORDE.reserveMul * (1 + k.reserve), finiteMags: HORDE.premiumReserveMags, nades: Math.round(k.nades), thrift: k.thrift
+    reserve: HORDE.reserveMul * (1 + k.reserve), finiteMags: HORDE.premiumReserveMags, nades: Math.round(k.nades), thrift: cut >= 1 ? 1 : k.thrift
   };
 }
 
@@ -99,7 +102,7 @@ export function createHordeClient(o) {
   function applyPerks() {
     W('setHordePerks', {
       mods: modsFromPerks(perks, frenzy.length), speed: 1 + perks.move, maxSpeed: 1 + perks.maxSpeed, jump: 1 + perks.jump,
-      pierce: perks.pierce, maxHp, nadeMulti: Math.round(perks.nadeMulti || 0),
+      pierce: perks.pierce, maxHp, nadeMulti: Math.round(perks.nadeMulti || 0), guard: perks.guard || 0,
       // 수류탄 폭발 반경은 던진 사람의 증강을 따른다(방장 화면이 남의 수류탄 피해도 잰다)
       nadeRadiusOf: (owner) => { const k = perksOf(owner); return 1 + ((k && k.nadeRadius) || 0); },
       // C4 수류탄(좀비에 붙는다)과 검기 거리. 남의 칼질에도 검기를 그리려고 다른 사람의 검기 거리도 넘긴다
@@ -559,6 +562,8 @@ export function createHordeClient(o) {
     }),
     ui.on('cards:reroll', () => reroll())
   ] : [];
+  /** 지금 내가 점프로 떠 있는가(공중 강타의 피해 숫자) */
+  const airNow = () => { const s = W('getLocalState'); return !!s && s.onGround === false; };
   /** 좀비 한 마리(스냅샷의 좀비 행) */
   const zombieOf = (vid) => { const n = Number(String(vid).slice(1)) | 0; return last ? last.zombies.find((z) => z.id === n) : null; };
   const offHit = typeof world.on === 'function' ? world.on('hitClaim', (c) => {
@@ -572,7 +577,7 @@ export function createHordeClient(o) {
     const shot = Number(c.shotId) | 0;
     if (!wave) myShot = shot && shot === myShot.id ? { id: shot, n: myShot.n + 1 } : { id: shot, n: 0 };
     const me = last && last.players.find((p) => p.id === meId);
-    const hit = zombieHitDamage(c, perks, { boss: !!(z && z.boss), hpFrac: z ? z.hpFrac : 1 }, { myHpFrac: me ? me.hp / Math.max(1, me.maxHp) : 1, nth: wave ? 0 : myShot.n });
+    const hit = zombieHitDamage(c, perks, { boss: !!(z && z.boss), hpFrac: z ? z.hpFrac : 1 }, { myHpFrac: me ? me.hp / Math.max(1, me.maxHp) : 1, nth: wave ? 0 : myShot.n, air: airNow() });
     if (!hit) return;
     const at = Array.isArray(c.point) ? c.point : z ? [z.pos[0], z.pos[1] + 1.7, z.pos[2]] : null;
     if (at) W('hordeDamageNumber', at, Math.max(1, Math.round(hit.dmg)), hit.melee ? 'melee' : hit.part);
@@ -585,7 +590,7 @@ export function createHordeClient(o) {
   }) : null;
   // 내 수류탄 피해 숫자(내 화면이 잰 폭발)
   const offBlast = typeof world.on === 'function' ? world.on('explosion', (x) => {
-    if (!x || !x.local) return;
+    if (!x || !x.local || x.kind === 'gravity') return;   // 중력건은 피해가 없다(끌어당기기만)
     for (const v of Array.isArray(x.victims) ? x.victims : []) {
       if (String(v.id)[0] !== 'z') continue;
       const z = zombieOf(v.id);
