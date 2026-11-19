@@ -201,7 +201,7 @@ await world.loadMap(mapId, { mode, ruleset });
 | `setHordeInteract({ hint, touch } \| null)` | 좀비 멀티 동료 살리기 안내. `hint`는 HUD 안내 줄(잠금 안내 다음 순서), `touch`가 바뀌면 bus `touch:use { on, label: '살리기' }`(휴대폰 설치/해체 버튼). 안내가 있는 동안 F는 무기 살펴보기를 하지 않는다. `loadMap`·`unloadMap`이 지운다 |
 | C4 | `sticky`면 손 수류탄을 `kind: 'c4'`로 던지고 `grenade` 이벤트에 `kind: 'c4'`·`fuse`를 싣는다(`actorGrenade`도 받는다). 내 것·남의 것 모두 좀비에 닿으면(`horde.touchingZombie`) `nades.stick`으로 붙여 그 좀비를 따라 옮기고, 좀비가 사라지면 `unstick`으로 떨어뜨린다. 터지는 것은 신관대로, 폭발은 손 수류탄과 같다(`explosion` 이벤트 `kind: 'c4'`) |
 | 검기 | `waveRange`가 있으면 칼을 휘두를 때마다(빗맞아도) `horde.wave({ local: true })`를 날리고, 닿은 좀비마다 `hitClaim`(`kind: 'wave'`·`'waveStab'`, `part: 'body'`, `dist` = 날아간 거리, 검기마다 새 `shotId`)을 낸다. 남의 칼질(`actorFire`)은 windup만큼 늦게 보이기만 하는 검기를 날린다 |
-| `hordeDamageNumber(pos, amount, kind)` | 좀비에게 준 피해 숫자를 띄운다. `kind` = `head`(크고 노랗게) · `body` · `legs` · `melee` · `nade` |
+| `hordeDamageNumber(pos, amount, kind)` | 좀비에게 준 피해 숫자를 띄운다. `kind` = `head`(크고 노랗게) · `body` · `legs` · `melee` · `nade` · `crit`(가장 크게 빨강 + '!', 방장의 `crit` 이벤트) |
 | `equipSidearm(id)` | (증강) 보조무기 칸을 이 무기로 바꾼다(새 탄 가득). 유탄 발사기 `gl_m32`·바주카포 `rl_b9` |
 | `openSwapList()` | 교체 창이 켜져 있으면 무기 목록을 바로 연다(무기 교체권) |
 | 발사체 무기 | `def.projectile`이 있는 총(좀비 모드)은 총알 대신 수류탄 시스템의 발사체(`kind` 'gl'·'rocket', `weapons/grenade.js PROJECTILES`)를 쏘고 `grenade` 이벤트에 `kind`·`fuse`를 싣는다. 좀비 몸에 닿으면(`horde.touching`) 바로 터지고, `explosion` 이벤트에 `kind`가 실린다 |

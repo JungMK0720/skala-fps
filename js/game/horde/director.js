@@ -997,13 +997,14 @@ export function createHorde(o = {}) {
       shotCounts.set(P.id, { shotId: shot, n: nth });
       if (nth > Math.round(k.pierce || 0)) return [{ type: 'reject', reason: 'pierce' }];
     }
-    // 피해 공식은 화면의 피해 숫자(client.js)와 같은 함수를 쓴다. 치명타만 방장이 굴린다
+    // 피해 공식은 화면의 피해 숫자(client.js)와 같은 함수를 쓴다. 치명타만 방장이 굴리고, 터지면 'crit' 이벤트로 쏜 사람 화면에 큰 숫자를 띄운다
     const hit = zombieHitDamage({ ...c, dist }, k, { boss: !!Z.boss, hpFrac: Z.hp / Z.maxHp }, { myHpFrac: P.hp / Math.max(1, P.maxHp), nth, air: !!P.air });
     if (!hit) return [{ type: 'reject', reason: 'bad_weapon' }];
     let dmg = hit.dmg;
     let crit = false;
     if (k.crit > 0 && rng() < k.crit) { crit = true; dmg *= 1.5 + k.critDmg; }
     const ev = [];
+    if (crit) ev.push({ type: 'crit', by: P.id, z: Z.id, dmg: Math.max(1, Math.round(dmg)) });
     hurtZombie(Z, dmg, P, { head: hit.head, crit, kind: melee ? 'melee' : 'shot' }, ev);
     maybeCards(ev);
     return ev;
