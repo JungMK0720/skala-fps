@@ -407,8 +407,8 @@ describe('보스 · 스테이지 규칙', () => {
     for (let axis = 0; axis < 3; axis++) assert.ok(near(again.body.pos[axis], seen.pos[axis]), `복원된 발 좌표 ${axis}`);
   });
 
-  test('경험치: 레벨마다 10·15·20…, 시간 안에 다 잡으면 남은 1초당 1, 강한 좀비일수록 많다', () => {
-    assert.deepEqual([1, 2, 3, 4].map((l) => xpNeed(l)), [10, 15, 20, 25]);
+  test('경험치: 레벨마다 10·20·30…, 시간 안에 다 잡으면 남은 1초당 1, 강한 좀비일수록 많다', () => {
+    assert.deepEqual([1, 2, 3, 4].map((l) => xpNeed(l)), [10, 20, 30, 40]);
     assert.equal(timeBonusXp(0), 0);
     assert.equal(timeBonusXp(999), 0);
     assert.equal(timeBonusXp(1000), 1);
