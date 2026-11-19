@@ -189,6 +189,9 @@ props 없음. 계정에서 읽습니다. 닉네임 변경(같은 검사 + 저장
   - 개인전: 2명 이상이고 방장을 뺀 전원이 준비일 때만 켜집니다.
 - [준비하기]는 누르는 즉시 화면에 반영(낙관적 갱신)되고 `room:ready`를 보냅니다. 다음 `update`가 오면 그 값이 우선합니다.
 - 채팅: 최근 30줄을 보여 줍니다. **보낸 메시지는 UI가 직접 넣지 않습니다.** 엔진이 자기 메시지도 `chat` 배열에 넣어 `update`하세요(Supabase broadcast는 기본적으로 자기에게 되돌아오지 않습니다).
+- **🎒 내 장비**(계정이 있을 때만, 오른쪽 칸 맨 위): 주무기 · 보조무기 · 근접 · 수류탄 칸에 지금 장비와 포인트를 보여 줍니다. 칸을 누르면 그 칸의 무기 창(상점에서 파는 무기, 좀비 전용 제외)이 뜹니다.
+  가진 무기는 [장착], 안 가진 무기는 [구매 후 장착](`account.buy` → `account.equip`, `ui:sound { name:'purchase' }`)이고, 포인트가 모자라면 "N P 부족"으로 꺼집니다. 고르면 창이 닫히고 칸 아래에 결과 한 줄이 붙습니다.
+  수류탄은 팔지 않고 계정 장비에도 없어 보기만 합니다. 시작하는 중(`starting`)에는 칸이 꺼집니다. 계정이 바뀌면 `ui.refreshAccount()`가 이 칸만 다시 그립니다.
 
 ### `loadout`
 ```js
@@ -361,9 +364,9 @@ ui.chat.open() / close() / isOpen() / clear() / scope() / setScope('all' | 'team
 |---|---|---|
 | `needCursor` | `true` / `false` | 커서가 필요한 화면이 생기거나 없어질 때만 발생 |
 | `menu:sandbox` | `{ name, account }` | 연습장(설정 시트) |
-| `menu:multi` | `{ name, account }` | 멀티플레이(좀비 고르기 시트의 '로비에서 좀비 방 찾기'도 같다) |
-| `menu:zombie` | `{ name, account }` | 좀비 고르기 시트의 '혼자 하기'(연습장 설정 시트를 좀비 모드로) |
-| `menu:zombieRoom` | `{ name, account }` | 좀비 고르기 시트의 '같이 하기 · 공개 방 만들기'(로비를 열고 곧바로 공개 좀비 방을 만든다). 멀티플레이를 못 쓰면 꺼진다 |
+| `menu:multi` | `{ name, account }` | 멀티플레이 |
+| `menu:zombie` | `{ name, account }` | 좀비 고르기 시트에서 '혼자 하기'를 고르고 [확인](연습장 설정 시트를 좀비 모드로) |
+| `menu:zombieRoom` | `{ name, account }` | 좀비 고르기 시트에서 '같이 하기 · 공개 방 만들기'를 고르고 [확인](로비를 열고 곧바로 공개 좀비 방을 만든다). 시트는 이 칸을 고른 채로 열린다. 멀티플레이를 못 쓰면 꺼지고 혼자 하기를 고른다 |
 | `menu:mypage` / `menu:shop` | `{ name, account }` | 마이페이지 / 상점 |
 | `mypage:back` / `mypage:shop` / `shop:back` | `{}` / `{ tab? }` / `{}` | 메뉴로 돌아가기 / 마이페이지에서 상점으로(캐릭터 칸의 버튼은 `tab:'avatar'`) / 상점에서 돌아가기 |
 | `ui:sound` | `{ name }` | 효과음 요청. 버튼을 누를 때 `ui_click`, 살 때 `purchase` |

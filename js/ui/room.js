@@ -1,19 +1,27 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 대기실 화면. 팀 또는 개인전 명단, 준비와 시작, 모드·규칙·개인전 목표 킬·맵 변경, 채팅을 다룬다.
+ * Purpose: 대기실 화면. 팀 또는 개인전 명단, 준비와 시작, 모드·규칙·개인전 목표 킬·맵 변경, 채팅, 내 장비 칸(주무기·보조무기·근접·수류탄)을 다룬다.
  *          폭파 미션은 팀 칼럼에 전반 진영(먼저 공격/수비)을 붙이고, 규칙은 클래식, 맵은 미션 맵만 고른다.
  *          자리 비움으로 방이 곧 닫히면(idleLeft) 위에 남은 초와 [계속 기다리기] 띠를 띄운다. 화면을 누르거나 키를 치면 'room:active'(1초에 한 번까지).
+ *          장비 칸을 누르면 그 칸의 무기 창이 뜨고, 가진 무기는 바로 장착, 안 가진 무기는 포인트로 사서 바로 장착한다(account.buy·equip).
  */
 // SKALA 작전 UI — 방(대기실): 팀 칼럼(팀전·폭파 미션) / 한 줄 명단(개인전), 준비/시작, 모드·규칙·목표 킬·맵 변경, 채팅
-import { h, btn, setText, num, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, modeLabel, MODE_ICON, MODE_NAME, SIDE_NAME, bombSide } from './dom.js';
-import { makeScreen, mapCard, createChoiceRow, createStepper } from './parts.js';
+import { h, btn, setText, num, fmtPoints, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, modeLabel, MODE_ICON, MODE_NAME, SIDE_NAME, bombSide } from './dom.js';
+import { makeScreen, mapCard, createChoiceRow, createStepper, createModal, sheet, normWeapon, summaryChips, pointsBadge } from './parts.js';
 import { mapList, mapInfo } from './icons.js';
 import { RULE_CHOICES, MODE_IDS, ZOMBIE_MAX, mapsForMode, missionMaps, ruleForMode } from './lobby.js';
 import { RULESETS, normalizeRuleset, FFA_KILLS, FFA_KILL_PRESETS, normalizeKillTarget } from '../game/modes.js';
 
 const CHAT_MAX = 30;
 const CHAT_LEN = 120;
+/** 대기실 장비 칸. 수류탄은 팔지 않고 계정 장비에도 없다(언제나 기본 지급) */
+const GEAR_SLOTS = [
+  { key: 'primary', slot: 1, label: '주무기' },
+  { key: 'secondary', slot: 2, label: '보조무기' },
+  { key: 'melee', slot: 3, label: '근접' },
+  { key: 'grenade', slot: 4, label: '수류탄' },
+];
 
 function normPlayers(p) {
   return (Array.isArray(p.players) ? p.players : []).map((x, i) => ({
@@ -187,6 +195,124 @@ export function createRoom(ctx) {
     ctx.emit('room:ready', { ready });
   }
 
+  // ---------- 내 장비: 칸을 누르면 그 칸의 무기 창(장착 · 바로 구매) ----------
+  const modal = createModal();
+  const gearPoints = pointsBadge();
+  const gearNote = h('p', { class: 'sk-set-hint sk-rgear-note', role: 'status' });
+  const gearSlots = GEAR_SLOTS.map((g) => {
+    const ico = h('span', { class: 'sk-lo-ico', 'aria-hidden': 'true' });
+    const name = h('b', { class: 'sk-rgear-name' });
+    const el = h('button', { type: 'button', class: 'sk-rgear-slot', onclick: () => openGear(g) },
+      ico, h('span', { class: 'sk-rgear-txt' }, h('small', { class: 'sk-rgear-label', text: g.label }), name));
+    return { ...g, el, ico, name };
+  });
+  const gearBox = h('section', { class: 'sk-panel sk-steel sk-rgear', 'aria-label': '내 장비' },
+    h('header', { class: 'sk-rgear-head' }, h('h2', { class: 'sk-panel-title', text: '🎒 내 장비' }), gearPoints.el),
+    h('div', { class: 'sk-rgear-slots' }, gearSlots.map((s) => s.el)),
+    gearNote);
+  const gearSheetNote = h('p', { class: 'sk-set-hint sk-rgear-sheetnote', role: 'status' });
+  let gearOpen = null;   // 창이 열린 칸(GEAR_SLOTS 항목)
+  let gearRows = [];
+
+  /** 상점에서 파는 그 칸의 무기(좀비 전용·카드 전용은 빠진다). 무기 정의 순서 그대로 */
+  const slotWeapons = (slot) => [...ctx.weapons.values()].filter((w) => w.slot === slot && !w.zombieOnly && !w.cardOnly);
+  function equippedId(g) {
+    if (g.key !== 'grenade') return ctx.account.loadout[g.key];
+    const first = slotWeapons(g.slot)[0];
+    return first ? first.id : null;
+  }
+
+  function gearRow(g, d) {
+    const w = normWeapon(ctx.weapons, d);
+    const state = h('span', { class: 'sk-shop-state' });
+    const action = h('button', { type: 'button', class: 'sk-btn sk-btn--sm sk-rgear-act', onclick: () => pickGear(g, w) });
+    const el = h('article', { class: 'sk-rgear-item', 'aria-label': w.name },
+      h('span', { class: 'sk-lo-ico', text: w.icon, 'aria-hidden': 'true' }),
+      h('div', { class: 'sk-rgear-itext' },
+        h('b', { class: 'sk-rgear-iname', text: w.name }, w.premium ? h('span', { class: 'sk-premium', text: '프리미엄' }) : null),
+        w.tagline ? h('span', { class: 'sk-lo-tagline', text: w.tagline }) : null,
+        w.summary.length ? summaryChips(w.summary) : null),
+      h('div', { class: 'sk-rgear-iside' }, state, action));
+    return { id: w.id, w, el, state, action };
+  }
+
+  function openGear(g) {
+    if (!ctx.account || p.starting) return;
+    gearOpen = g;
+    setText(gearSheetNote, g.key === 'grenade' ? '수류탄은 모두에게 기본으로 지급돼요.' : '가진 무기는 바로 장착하고, 없는 무기는 포인트로 사서 바로 장착해요.');
+    gearRows = slotWeapons(g.slot).map((d) => gearRow(g, d));
+    modal.open(sheet({
+      title: `${g.label} 고르기`, onClose: () => modal.close(), cls: 'sk-rgear-sheet',
+      body: [gearSheetNote, h('div', { class: 'sk-rgear-list' }, gearRows.map((r) => r.el))],
+    }), () => { gearOpen = null; gearRows = []; });
+    paintGearRows();
+    const on = gearRows.find((r) => r.el.classList.contains('is-on'));
+    if (on && typeof on.el.scrollIntoView === 'function') on.el.scrollIntoView({ block: 'nearest' });
+  }
+
+  function paintGearRows() {
+    const g = gearOpen;
+    const a = ctx.account;
+    if (!g || !a) return;
+    const now = equippedId(g);
+    const fixed = g.key === 'grenade';
+    for (const r of gearRows) {
+      const owned = fixed || a.isOwned(r.id);
+      const on = r.id === now;
+      const short = owned ? 0 : Math.max(0, r.w.price - a.profile.points);
+      r.el.classList.toggle('is-on', on);
+      r.el.classList.toggle('is-owned', owned);
+      setText(r.state, on ? '장착 중' : owned ? '보유' : fmtPoints(r.w.price));
+      setText(r.action, on ? '장착 중' : owned ? '장착' : short ? `${fmtPoints(short)} 부족` : '구매 후 장착');
+      r.action.disabled = on || fixed || short > 0 || !!p.starting;
+      r.action.classList.toggle('sk-btn--primary', !owned && !short);
+      r.action.classList.toggle('sk-btn--ghost', on);
+    }
+  }
+
+  function pickGear(g, w) {
+    const a = ctx.account;
+    if (!a || p.starting || g.key === 'grenade') return;
+    let bought = null;
+    if (!a.isOwned(w.id)) {
+      const r = a.buy(w.id);
+      if (!r.ok) {
+        setText(gearSheetNote, r.reason === 'points' ? `포인트가 모자라요. ${fmtPoints(w.price - r.points)} 더 필요해요.` : '이 무기는 살 수 없어요.');
+        paintGearRows();
+        return;
+      }
+      ctx.emit('ui:sound', { name: 'purchase' });
+      bought = r;
+    }
+    if (!a.equip(g.key, w.id).ok) {
+      setText(gearSheetNote, '이 무기는 장착할 수 없어요.');
+      paintGear();
+      return;
+    }
+    setText(gearNote, bought
+      ? `${w.name}을(를) 사서 장착했어요. 남은 포인트 ${fmtPoints(bought.points)}.`
+      : `${g.label} 칸에 ${w.name}을(를) 장착했어요.`);
+    modal.close();
+    paintGear();
+  }
+
+  /** 장비 칸과(열려 있으면) 무기 창. 계정이 바뀔 때(index.js refreshAccount)도 부른다 */
+  function paintGear() {
+    const a = ctx.account;
+    gearBox.hidden = !a;
+    if (!a) return;
+    gearPoints.set(a.profile.points);
+    for (const s of gearSlots) {
+      const id = equippedId(s);
+      const w = id ? normWeapon(ctx.weapons, id) : null;
+      setText(s.ico, w ? w.icon : '—');
+      setText(s.name, w ? w.name : '없음');
+      s.el.title = `${s.label} 바꾸기`;
+      s.el.disabled = !!p.starting;
+    }
+    paintGearRows();
+  }
+
   // ---------- 자리 비움 안내: 방장이 곧 방을 닫는다 ----------
   const idleText = h('span', { class: 'sk-room-idle-text' });
   const idleBar = h('div', { class: 'sk-room-idle', role: 'alert', hidden: true },
@@ -207,9 +333,11 @@ export function createRoom(ctx) {
           ffaCol,
           h('section', { class: 'sk-panel sk-steel sk-chat' }, h('h2', { class: 'sk-panel-title', text: '💬 채팅' }), chatLog, chatForm)),
         h('aside', { class: 'sk-room-side' },
+          gearBox,
           h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title', text: '🎮 규칙' }), rulePick.el, ruleDesc, killBox),
           h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title', text: '🗺️ 맵' }), mapCur, mapPick, mapNote))),
-      h('footer', { class: 'sk-room-foot sk-steel' }, status, h('div', { class: 'sk-room-foot-actions' }, readyBtn, startBtn))));
+      h('footer', { class: 'sk-room-foot sk-steel' }, status, h('div', { class: 'sk-room-foot-actions' }, readyBtn, startBtn))),
+    modal.el);
 
   // 대기실을 누르거나 키를 치면 자리 비움을 처음부터 센다(방장 것만 쓰인다). 1초에 한 번까지만 알린다
   let activeAt = -Infinity;
@@ -328,6 +456,7 @@ export function createRoom(ctx) {
     }
 
     renderChat(p.chat);
+    paintGear();
 
     // 시작 조건(방장은 자동 준비)
     //   팀전·폭파 미션: 양 팀 1명 이상 + 팀 미배정 없음 + 방장 외 전원 준비
@@ -360,6 +489,7 @@ export function createRoom(ctx) {
     status.classList.toggle('is-ok', isHost && !reason);
   }
 
-  screen = makeScreen(el, { render });
+  screen = makeScreen(el, { render, onHide: () => modal.close() });
+  screen.onAccount = () => paintGear();
   return screen;
 }

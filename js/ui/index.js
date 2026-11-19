@@ -33,7 +33,7 @@ const PAGES = ['menu', 'mypage', 'shop', 'lobby', 'room', 'results']; // 서로 
 const GAME_LAYERS = ['hud', 'horde', 'cards', 'chat', 'emotes', 'loadout', 'pause', 'scoreboard']; // 게임 중 레이어
 const CURSOR_SCREENS = ['menu', 'nickname', 'mypage', 'shop', 'lobby', 'room', 'loadout', 'cards', 'results', 'pause']; // 커서가 필요한 화면(emotes는 아님)
 const Z_ORDER = ['hud', 'horde', 'chat', 'emotes', 'scoreboard', 'loadout', 'cards', 'pause', 'results', 'room', 'lobby', 'shop', 'mypage', 'menu', 'nickname']; // 아래 → 위
-const ACCOUNT_SCREENS = ['menu', 'nickname', 'mypage', 'shop', 'loadout']; // 계정이 바뀌면 다시 그리는 화면
+const ACCOUNT_SCREENS = ['menu', 'nickname', 'mypage', 'shop', 'room', 'loadout']; // 계정이 바뀌면 다시 그리는 화면(room은 장비 칸만)
 
 const cleanName = (n) => cleanNickname(n).slice(0, NICKNAME_MAX);
 

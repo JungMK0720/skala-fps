@@ -154,23 +154,23 @@ export default {
       t.check(zmaps.join() === '고속도로 휴게소,지하철 환승역', '좀비 방의 맵은 좀비 전용 맵 둘', zmaps);
       await guest.clickText('.sk-create-sheet .sk-form-actions .sk-btn', '취소');
       await guest.waitFor(`!document.querySelector('.sk-create-sheet')`, 3000, { label: '방 만들기 시트 닫힘' });
-      // 방장: 메뉴 → 좀비 물량 막기 → 같이 하기(로비를 거쳐 바로 대기실)
+      // 방장: 메뉴 → 좀비 물량 막기 → 같이 하기(고른 채로 열린다) → 확인(로비를 거쳐 바로 대기실)
       await host.clickText('.sk-menu-btn', '좀비 물량 막기');
       await host.waitFor('!!document.querySelector(".sk-sheet.sk-zpick")', 5000, { label: '좀비 고르기 시트' });
       const zp = await host.eval(`(() => {
         const room = document.querySelector('.sk-zpick .sk-zpick-opt--room'), note = document.querySelector('.sk-zpick .sk-zpick-note');
-        return { roomOff: room.disabled, roomSub: room.querySelector('.sk-zpick-sub').textContent, findOff: document.querySelector('.sk-zpick .sk-zpick-find').disabled,
+        return { roomOff: room.disabled, roomOn: room.getAttribute('aria-checked') === 'true', roomSub: room.querySelector('.sk-zpick-sub').textContent,
           note: note.hidden ? '' : note.textContent, focusRoom: document.activeElement === room };
       })()`);
-      t.check(!zp.roomOff && !zp.findOff && !zp.note && /로비에 바로 보이는 좀비 방을 만들어요 · 최대 4명/.test(zp.roomSub), '온라인이면 같이 하기·로비에서 찾기가 켜져 있다', zp);
+      t.check(!zp.roomOff && zp.roomOn && !zp.note && /로비에 바로 보이는 좀비 방을 만들어요 · 최대 4명/.test(zp.roomSub), '온라인이면 같이 하기가 켜져 있고 고른 채로 열린다', zp);
       t.check(zp.focusRoom, '시트를 열면 같이 하기에 포커스', zp);
       await t.shot('zombie-pick-online');
-      await host.clickText('.sk-zpick-opt', '같이 하기');
+      await host.clickText('.sk-zpick .sk-btn', '확인');
       await host.waitFor('__qa.ctx.screen === "room" && __qa.ui.isVisible("room")', 20000, { label: '한 번에 대기실' });
       const meta = await host.eval(`(() => { const s = window.__skalafpsSession, m = s.room.meta;
         return { name: m.name, mode: m.mode, max: m.max, locked: !!m.locked, mapId: m.mapId, isHost: s.isHost, title: __qa.text('.sk-room-title'), map: __qa.text('.sk-room-mapcur'),
           zpick: !!document.querySelector('.sk-zpick') }; })()`);
-      t.check(meta.isHost && meta.mode === 'zombie' && meta.name === '방장의 좀비 방' && meta.title === '방장의 좀비 방', '같이 하기 한 번으로 내 이름의 좀비 방을 만들고 방장으로 대기실에 들어간다', meta);
+      t.check(meta.isHost && meta.mode === 'zombie' && meta.name === '방장의 좀비 방' && meta.title === '방장의 좀비 방', '같이 하기 + 확인으로 내 이름의 좀비 방을 만들고 방장으로 대기실에 들어간다', meta);
       t.check(meta.max === 4 && !meta.locked && meta.mapId === 'restarea' && /고속도로 휴게소/.test(meta.map), '공개 방(비밀번호 없음) · 최대 4명 · 첫 좀비 전용 맵', meta);
       const solo = await host.eval(`!document.querySelector('.sk-room-foot .sk-btn--primary').disabled`);
       t.check(solo, '좀비 방은 혼자서도 시작할 수 있다');

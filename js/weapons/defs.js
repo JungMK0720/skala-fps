@@ -191,9 +191,9 @@ function meleeStats(w) {
   return [row(w.melee.slash), row(w.melee.stab), { label: '이동', value: pct(w.moveMul) }];
 }
 
-/** 표의 값에 프리미엄 여부와 카드 문구를 더한다. 프리미엄 총의 reserve는 Infinity라 재장전 계산이 그대로 돈다 */
+/** 표의 값에 프리미엄 여부와 카드 문구를 더한다. 프리미엄 총의 reserve는 Infinity라 재장전 계산이 그대로 돈다. premium: false를 적으면 비싸도 예비가 정해진 총이다 */
 function gun(o) {
-  const premium = o.price >= PREMIUM_PRICE;
+  const premium = o.premium ?? o.price >= PREMIUM_PRICE;
   const w = { pellets: 1, headIgnoresFalloff: false, ...o, premium, reserve: premium ? Infinity : o.reserve };
   return { ...w, stats: gunStats(w) };
 }
@@ -261,8 +261,9 @@ const WEAPON_TABLE = {
   }),
 
   // 몸 6발이라 교전이 느리다. 그 대신 반동 40%와 좁은 탄퍼짐, 돌격소총 중 가장 높은 머리 120으로 '머리만 노리는' 사람의 무기가 된다.
+  // 요청(2026-11-20)으로 탄약은 25/100: 가격은 프리미엄대지만 예비가 무제한이 아니다(premium: false).
   ar_line: gun({
-    id: 'ar_line', slot: 1, kind: 'rifle', category: 'rifle', fire: 'auto', price: 1200,
+    id: 'ar_line', slot: 1, kind: 'rifle', category: 'rifle', fire: 'auto', price: 1200, premium: false,
     name: 'LN-3 헤드라인', nameEn: 'LN-3 Headline', short: 'LN-3', role: '정밀',
     icon: '📏', color: '#35e0ff', sound: 'rifle', fxKind: 'rifle',
     tagline: '몸에는 약하고, 머리에는 정확하다.',
@@ -277,7 +278,7 @@ const WEAPON_TABLE = {
 
     rpm: 480, fireInterval: 60 / 480,
 
-    mag: 25, reload: 2.2, reloadEmpty: 2.6,
+    mag: 25, reserve: 100, reload: 2.2, reloadEmpty: 2.6,
     drawTime: 0.7, moveMul: 0.95,
 
     spread: { hip: 0.8, ads: 0.06, move: 2.0, adsMove: 0.7, air: 5, adsAir: 4,
@@ -458,14 +459,14 @@ const WEAPON_TABLE = {
     zoom: null,
   }),
 
-  // 자동 산탄총(프리미엄: 예비 탄약 무제한). 펠릿 8발 × 9로 한 발은 가까이서 72이고 두 발이면 쓰러진다. 0.3초마다 쏘는 대신 한 발마다 BX-12의 3분의 2 위력이라
+  // 자동 산탄총. 탄약은 요청(2026-11-20)으로 12/60(premium: false). 펠릿 8발 × 9로 한 발은 가까이서 72이고 두 발이면 쓰러진다. 0.3초마다 쏘는 대신 한 발마다 BX-12의 3분의 2 위력이라
   // 근거리 TTK는 비슷하고 연속 교전에 강하다. 이동이 느리고 탄이 넓게 퍼지며 20 m 밖에서는 35%뿐이다.
   sg_auto: gun({
-    id: 'sg_auto', slot: 1, kind: 'shotgun', category: 'shotgun', fire: 'auto', price: 1500,
+    id: 'sg_auto', slot: 1, kind: 'shotgun', category: 'shotgun', fire: 'auto', price: 1500, premium: false,
     name: 'AS-12 스톰브레이커', nameEn: 'AS-12 Stormbreaker', short: 'AS-12', role: '자동',
     icon: '🌩️', color: '#e0572b', sound: 'shotgun', fxKind: 'rifle',
     tagline: '방아쇠를 당기고 있는 한 계속 터진다.',
-    desc: '방아쇠를 누르고 있으면 계속 나가는 자동 산탄총이다. 한 발은 약하지만 연사가 빨라 가까운 적을 몰아붙이기 좋고, 예비 탄약이 무제한이다.',
+    desc: '방아쇠를 누르고 있으면 계속 나가는 자동 산탄총이다. 한 발은 약하지만 연사가 빨라 가까운 적을 몰아붙이기 좋고, 예비 탄약이 60발로 넉넉하다.',
     recoilNote: '연사하면 좌우로 흔들린다',
     bars: { power: 62, rate: 40, accuracy: 24, mobility: 70 },
 
@@ -476,7 +477,7 @@ const WEAPON_TABLE = {
 
     rpm: 200, fireInterval: 0.3,
 
-    mag: 12, reserve: 36, reload: 3.2, reloadEmpty: 3.6,
+    mag: 12, reserve: 60, reload: 3.2, reloadEmpty: 3.6,
     drawTime: 0.8, moveMul: 0.93,
 
     spread: { hip: 3.6, move: 1.0, air: 3, bloomPerShot: 0.3, bloomMax: 1.5, bloomDecay: 5, max: 8 },
@@ -513,14 +514,14 @@ const WEAPON_TABLE = {
   }),
 
   // ───────────────────────────── 슬롯 1 · 기관총(상점) ─────────────────────────────
-  // 회전 총열 미니건(프리미엄). 1200rpm(초당 20발)에 탄창 200발이라 한 탄창 피해가 2,400이지만 몸 12로 9발(0.4초)이 필요하다.
-  // 대가: 이동 58%, 꺼내기 1.4초, 재장전 6초, 조준 없음. 프리미엄이라 예비 탄약이 무제한이다. 좀비 전용 MG-100(100발)과 다른 총이다.
+  // 회전 총열 미니건. 1200rpm(초당 20발)에 탄창 200발이라 한 탄창 피해가 2,400이지만 몸 12로 9발(0.4초)이 필요하다.
+  // 대가: 이동 58%, 꺼내기 1.4초, 재장전 6초, 조준 없음. 요청(2026-11-20)으로 탄약은 200/200: 가격은 프리미엄대지만 예비가 무제한이 아니다(premium: false). 좀비 전용 MG-100(100발)과 다른 총이다.
   mg_minigun: gun({
-    id: 'mg_minigun', slot: 1, kind: 'lmg', category: 'lmg', fire: 'auto', price: 2800,
+    id: 'mg_minigun', slot: 1, kind: 'lmg', category: 'lmg', fire: 'auto', price: 2800, premium: false,
     name: 'MN-6 미니건', nameEn: 'MN-6 Minigun', short: 'MN-6', role: '제압',
     icon: '🌀', color: '#7a8f9e', sound: 'lmg', fxKind: 'rifle',
     tagline: '총열이 돌면, 탄이 멈추지 않는다.',
-    desc: '회전하는 여섯 총열로 초당 20발을 쏟아붓는 중화기다. 탄창이 200발이고 예비 탄약이 무제한이지만, 들고 있으면 걸음이 아주 느리고 꺼내기·재장전이 길다.',
+    desc: '회전하는 여섯 총열로 초당 20발을 쏟아붓는 중화기다. 탄창 200발에 예비도 200발이라 아껴 써야 하고, 들고 있으면 걸음이 아주 느리고 꺼내기·재장전이 길다.',
     recoilNote: '천천히 오르며 흔들린다',
     bars: { power: 62, rate: 94, accuracy: 36, mobility: 8 },
 
@@ -530,7 +531,7 @@ const WEAPON_TABLE = {
 
     rpm: 1200, fireInterval: 60 / 1200,
 
-    mag: 200, reserve: 400, reload: 6.0, reloadEmpty: 6.6,
+    mag: 200, reserve: 200, reload: 6.0, reloadEmpty: 6.6,
     drawTime: 1.4, moveMul: 0.58,
 
     spread: { hip: 2.8, move: 3.5, air: 6, bloomPerShot: 0.06, bloomMax: 2.4, bloomDecay: 3, max: 9 },
@@ -569,9 +570,9 @@ const WEAPON_TABLE = {
       hideViewmodelAt: 0.9, moveMul: 0.8, unzoomOnFire: true },
   }),
 
-  // SK-7과 위력이 같다. 9배를 얻는 대신 볼트·줌·이동이 조금씩 느려서 장거리가 아니면 손해다.
+  // SK-7과 위력이 같다. 9배를 얻는 대신 볼트·줌·이동이 조금씩 느려서 장거리가 아니면 손해다. 탄약은 요청(2026-11-20)으로 5/20(premium: false).
   sr_twin: gun({
-    id: 'sr_twin', slot: 1, kind: 'sniper', category: 'sniper', fire: 'bolt', price: 1500,
+    id: 'sr_twin', slot: 1, kind: 'sniper', category: 'sniper', fire: 'bolt', price: 1500, premium: false,
     name: 'T-2 트윈옵틱', nameEn: 'T-2 Twin Optic', short: 'T-2', role: '2단 저격',
     icon: '🔭', color: '#5b82d6', sound: 'sniper', fxKind: 'sniper',
     tagline: '4배로 찾고 9배로 끝낸다.',
@@ -586,7 +587,7 @@ const WEAPON_TABLE = {
     bolt: 1.35,
     emptyShotRecover: 0.4,
 
-    mag: 5, reload: 3.2, reloadEmpty: 3.6,
+    mag: 5, reserve: 20, reload: 3.2, reloadEmpty: 3.6,
     drawTime: 0.9, moveMul: 0.82,
 
     spread: { hip: 9, ads: 0, move: 2.2, adsMove: 1.7, air: 6.5, adsAir: 6.5,
@@ -626,9 +627,9 @@ const WEAPON_TABLE = {
       hideViewmodelAt: 0.9, moveMul: 0.88, unzoomOnFire: true },
   }),
 
-  // 머리·몸·다리가 1발이고 반샷도 70으로 가장 크다. 볼트 1.9초와 탄 4/12, 이동 75%가 빗나갔을 때의 대가다.
+  // 머리·몸·다리가 1발이고 반샷도 70으로 가장 크다. 볼트 1.9초와 탄 4/20(요청 2026-11-20, premium: false), 이동 75%가 빗나갔을 때의 대가다.
   sr_heavy: gun({
-    id: 'sr_heavy', slot: 1, kind: 'sniper', category: 'sniper', fire: 'bolt', price: 2500,
+    id: 'sr_heavy', slot: 1, kind: 'sniper', category: 'sniper', fire: 'bolt', price: 2500, premium: false,
     name: 'H-50 타이탄', nameEn: 'H-50 Titan', short: 'H-50', role: '대물 저격',
     icon: '🗿', color: '#7a8799', sound: 'sniper', fxKind: 'sniper',
     tagline: '한 발이면 충분하지만, 다음 발은 멀다.',
@@ -643,7 +644,7 @@ const WEAPON_TABLE = {
     bolt: 1.9,
     emptyShotRecover: 0.5,
 
-    mag: 4, reload: 3.8, reloadEmpty: 4.4,
+    mag: 4, reserve: 20, reload: 3.8, reloadEmpty: 4.4,
     drawTime: 1.1, moveMul: 0.75,
 
     spread: { hip: 11, ads: 0, move: 3, adsMove: 2.2, air: 8, adsAir: 8,

@@ -353,7 +353,7 @@ export default {
       await tap(page, '.sk-sheet-foot .sk-btn', '취소');
       await page.waitFor('!document.querySelector(".sk-sheet")', 3000, { label: '터치로 시트 닫힘' });
 
-      // 좀비 물량 막기 고르기 시트(같이 하기 · 혼자 하기 · 로비에서 찾기). 시험 서버는 오프라인이라 같이 하기가 꺼지고 사유 한 줄이 붙는다
+      // 좀비 물량 막기 고르기 시트(같이 하기 · 혼자 하기 + 확인). 시험 서버는 오프라인이라 같이 하기가 꺼지고 사유 한 줄이 붙는다
       await tap(page, '.sk-menu-btn', '좀비 물량 막기');
       await page.waitFor('!!document.querySelector(".sk-sheet.sk-zpick")', 3000, { label: '터치로 좀비 고르기 시트' });
       await see('zombie-pick', '.sk-zpick');

@@ -748,7 +748,7 @@ describe('보스 · 스테이지 규칙', () => {
 
   test('탄약: 재장전 탄창은 기존 맵의 3배(무제한 총은 탄창 2개 × 3)', () => {
     assert.deepEqual(hordeAmmo(WEAPONS.ar_std), { mag: 30, reserve: 180 });
-    assert.deepEqual(hordeAmmo(WEAPONS.ar_line), { mag: 25, reserve: 150 });
+    assert.deepEqual(hordeAmmo(WEAPONS.dm_mark), { mag: 15, reserve: 90 });
     assert.equal(hordeAmmo(WEAPONS.ml_knife), null);
   });
 
@@ -768,10 +768,10 @@ describe('무기 배율(카드)', () => {
     const am = a.getAmmo('ar_std');
     assert.equal(am.magSize, 45);
     assert.equal(am.reserve, 180);
-    const b = createArsenal({ primary: 'ar_line' });
+    const b = createArsenal({ primary: 'dm_mark' });
     b.setMods(modsFromPerks(computePerks([])));
     b.resetRound({});
-    assert.equal(b.getAmmo('ar_line').reserve, 150, '무제한이던 프리미엄 총도 이 모드에서는 셀 수 있는 탄');
+    assert.equal(b.getAmmo('dm_mark').reserve, 90, '무제한이던 프리미엄 총도 이 모드에서는 셀 수 있는 탄');
     const c = createArsenal({ primary: 'ar_std' });
     c.setMods(modsFromPerks(computePerks(['ammo2'])));
     c.resetRound({});
@@ -1063,11 +1063,11 @@ describe('좀비 문 · 바닥 보급품', () => {
     const drops = [...d.internals.loot.values()].filter((L) => Math.hypot(L.x - boss.body.pos[0], L.z - boss.body.pos[2]) < 2);
     assert.deepEqual(drops.map((L) => L.kind), ['chest']);
     const chest = drops[0];
-    // 스냅샷 왕복: 보물 상자는 일반 보급품보다 오래 남는다
+    // 스냅샷 왕복: 보물 상자는 chestMs 동안 남는다(일반 보급품은 lootMs)
     const v = applyHordeSnapshot(JSON.parse(JSON.stringify(d.snapshot())));
     const vc = v.loot.find((x) => x.id === chest.id);
     assert.ok(vc && vc.kind === 'chest' && Math.abs(vc.pos[0] - chest.x) < 0.02);
-    assert.ok(vc.leftMs > HORDE.lootMs && vc.leftMs <= HORDE.chestMs, `${vc.leftMs}`);
+    assert.ok(vc.leftMs > HORDE.chestMs - 1000 && vc.leftMs <= HORDE.chestMs, `${vc.leftMs}`);
     // 멀리서는 못 줍는다
     me.pos = [chest.x + 8, chest.y, chest.z];
     assert.equal(d.claimLoot('p1', chest.id)[0].reason, 'far');

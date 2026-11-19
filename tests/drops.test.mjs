@@ -28,10 +28,11 @@ function drain(a, id, maxSeconds = 300) {
 }
 
 describe('프리미엄 총', () => {
-  test('상점 가격 기준으로 정해지고 여섯 자루다', () => {
+  test('상점 가격 기준으로 정해지되 정의가 premium: false로 뺄 수 있다', () => {
     const premium = GUNS.filter(isPremium).sort();
-    assert.deepEqual(premium, ['ar_line', 'dm_mark', 'mg_minigun', 'sg_auto', 'sr_heavy', 'sr_twin']);
-    for (const id of GUNS) assert.equal(WEAPONS[id].premium, WEAPONS[id].price >= PREMIUM_PRICE, id);
+    assert.deepEqual(premium, ['dm_mark']);
+    const optOut = ['ar_line', 'mg_minigun', 'sg_auto', 'sr_heavy', 'sr_twin'];
+    for (const id of GUNS) assert.equal(WEAPONS[id].premium, !optOut.includes(id) && WEAPONS[id].price >= PREMIUM_PRICE, id);
     assert.equal(isPremium('ml_katana'), false, '칼은 탄약이 없다');
     assert.equal(isPremium('없는무기'), false);
   });
@@ -39,7 +40,8 @@ describe('프리미엄 총', () => {
   test('프리미엄은 예비가 무제한이고 나머지는 예비 2탄창이다', () => {
     for (const id of GUNS.filter((x) => !WEAPONS[x].zombieOnly)) {
       const d = WEAPONS[id];
-      assert.equal(d.reserve, d.premium ? Infinity : d.mag * 2, id);
+      const fixed = { ar_line: 100, mg_minigun: 200, sg_auto: 60, sr_heavy: 20, sr_twin: 20 };   // 요청으로 정한 예비(2026-11-20)
+      assert.equal(d.reserve, d.premium ? Infinity : fixed[id] ?? d.mag * 2, id);
     }
     // 좀비 전용 발사기는 프리미엄이 아니고 예비가 정해져 있다(2탄창 규칙 대신 좀비 모드의 탄약 규칙을 따른다)
     for (const id of ZOMBIE_ONLY) {
@@ -50,7 +52,7 @@ describe('프리미엄 총', () => {
   });
 
   test('프리미엄 총은 재장전해도 예비가 줄지 않고 탄창 크기는 그대로다', () => {
-    const a = createArsenal({ primary: 'ar_line' });
+    const a = createArsenal({ primary: 'dm_mark' });
     const ammo0 = a.getAmmo();
     assert.equal(ammo0.reserve, Infinity);
     assert.equal(ammo0.infinite, true);
@@ -58,10 +60,10 @@ describe('프리미엄 총', () => {
     for (let i = 0; i < 12; i++) a.update(DT, { fireDown: true });
     a.update(DT, {});
     const fired = a.getAmmo().mag;
-    assert.ok(fired < WEAPONS.ar_line.mag);
+    assert.ok(fired < WEAPONS.dm_mark.mag);
     a.update(DT, { reloadPressed: true });
-    for (let t = 0; t < WEAPONS.ar_line.reload + 0.2; t += DT) a.update(DT, {});
-    assert.equal(a.getAmmo().mag, WEAPONS.ar_line.mag);
+    for (let t = 0; t < WEAPONS.dm_mark.reload + 0.2; t += DT) a.update(DT, {});
+    assert.equal(a.getAmmo().mag, WEAPONS.dm_mark.mag);
     assert.equal(a.getAmmo().reserve, Infinity);
     assert.equal(a.isPrimaryEmpty(), false);
   });
@@ -116,9 +118,9 @@ describe('총 줍기(arsenal)', () => {
     a.takePrimary('ar_std', { mag: 999, reserve: 999 });
     assert.equal(a.getAmmo('ar_std').mag, WEAPONS.ar_std.mag);
     assert.equal(a.getAmmo('ar_std').reserve, WEAPONS.ar_std.reserve);
-    a.takePrimary('sr_twin', { mag: 2, reserve: 0 });
-    assert.equal(a.getAmmo('sr_twin').mag, 2);
-    assert.equal(a.getAmmo('sr_twin').reserve, Infinity);
+    a.takePrimary('dm_mark', { mag: 2, reserve: 0 });
+    assert.equal(a.getAmmo('dm_mark').mag, 2);
+    assert.equal(a.getAmmo('dm_mark').reserve, Infinity);
     a.takePrimary('ar_std', { mag: -5, reserve: Number.NaN });
     assert.equal(a.getAmmo('ar_std').mag, 0);
     assert.equal(a.getAmmo('ar_std').reserve, WEAPONS.ar_std.reserve, '값이 없으면 가득 준다');
@@ -226,7 +228,7 @@ describe('바닥의 총 목록(drops.js)', () => {
     const big = normalizeDrop(gun({ mag: 9999, reserve: 9999 }));
     assert.equal(big.mag, WEAPONS.ar_std.mag);
     assert.equal(big.reserve, WEAPONS.ar_std.reserve);
-    assert.equal(normalizeDrop(gun({ weaponId: 'sr_twin', reserve: 3 })).reserve, Infinity, '프리미엄은 언제나 무제한');
+    assert.equal(normalizeDrop(gun({ weaponId: 'dm_mark', reserve: 3 })).reserve, Infinity, '프리미엄은 언제나 무제한');
     assert.equal(normalizeDrop(gun({ mag: 3.9 })).mag, 3);
   });
 
