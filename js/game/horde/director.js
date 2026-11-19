@@ -909,11 +909,11 @@ export function createHorde(o = {}) {
     const melee = !!def.melee;
     const k = P.perks;
     const shot = num(c.shotId, 0) | 0;
-    if (c.kind === 'wave') return [{ type: 'reject', reason: 'no_wave' }]; // 좌클릭 베기는 검기를 낼 수 없다
-    if (c.kind === 'waveStab') {
-      // 우클릭 찌르기 검기: 칼·증강·거리·검기 하나의 적중 상한을 검증한다.
+    if (c.kind === 'wave' || c.kind === 'waveStab') {
+      // 검기: 좌클릭 베기는 검기 거리, 우클릭 찌르기는 2배. 칼·증강·거리·검기 하나의 적중 상한을 검증한다.
       if (!melee || !(k.wave > 0)) return [{ type: 'reject', reason: 'no_wave' }];
-      if (dist > k.wave + R.waveSlackM + (Z.boss ? 1.2 : 0)) return [{ type: 'reject', reason: 'out_of_range' }];
+      const range = k.wave * (c.kind === 'waveStab' ? 2 : 1);
+      if (dist > range + R.waveSlackM + (Z.boss ? 1.2 : 0)) return [{ type: 'reject', reason: 'out_of_range' }];
       if (!countWave(P.id, shot)) return [{ type: 'reject', reason: 'wave_cap' }];
     } else {
       const reach = melee ? Math.max(def.melee.slash.range, def.melee.stab.range) + MELEE_SLACK + (Z.boss ? 1.2 : 0) : def.maxRange * RANGE_SLACK;

@@ -69,7 +69,7 @@ export const HORDE = Object.freeze({
   reviveKeepMs: 900,      // 이 시간 동안 '살리는 중' 신호가 다시 오지 않으면 끊는다(화면은 0.3초마다 보낸다)
   waveSpeed: 26,          // 검기 속도(m/s)
   waveRadius: 0.7,        // 검기 판정 반지름(m)
-  waveMaxHits: 6,         // 검기 하나가 맞히는 좀비 상한
+  waveMaxHits: 1,         // 검기 하나가 맞히는 좀비 상한(단일 대상)
   waveSlackM: 2.5         // 방장이 검기 거리를 받아 주는 여유(m)
 });
 

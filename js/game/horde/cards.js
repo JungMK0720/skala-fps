@@ -197,7 +197,8 @@ const SPECIALS = [
  */
 const ADDED = [
   { key: 'reflex', name: '반사 신경', icon: '✨', stat: 'iframe', vals: [0.2, 0.3, 0.4, 0.5], text: (v) => `맞은 뒤 무적 시간 +${fx(v)}초 (기본 0.1초)` },
-  { key: 'wave', name: '검기', icon: '🌙', stat: 'wave', vals: [6, 8, 10, 13], minTier: 1, text: (v) => `칼로 우클릭 찌르기를 할 때 검기가 ${v} m 날아가 닿는 좀비에게 칼과 같은 피해 (좌클릭 베기에는 검기 없음 · 겹치면 더 멀리)` },
+  // 검기: 전설 한 장(IV)만 제안에 나온다. I~III은 번호만 남긴다(예전 기록·전송을 읽게). 3 m · 좀비 한 마리
+  { key: 'wave', name: '검기', icon: '🌙', stat: 'wave', vals: [3, 3, 3, 3], only: true, max: 1, retire: [0, 1, 2], text: (v) => `칼을 휘두르면 검기가 날아가 처음 닿는 좀비 한 마리에게 칼과 같은 피해 (좌클릭 베기 ${v} m · 우클릭 찌르기 ${v * 2} m)` },
   { key: 'anchor', name: '부동자세', icon: '⚓', tier: 'epic', max: 1, fx: { noKnock: 1 }, desc: '맞아도 밀려나지 않는다(보스의 밀치기·내려찍기도)' },
   { key: 'c4', name: 'C4 수류탄', icon: '🧲', tier: 'epic', max: 1, fx: { stickyNade: 1 }, nade: true, desc: '내 수류탄이 C4로 바뀐다. 좀비에 닿으면 그 몸에 붙어 따라가다 터진다' },
   { key: 'shieldKnife', name: '방패 칼', icon: '🛡️', tier: 'epic', max: 1, fx: { guard: 0.45 }, desc: '칼을 들면 방패를 함께 든다. 앞에서 때리는 공격의 피해 −45% (총·수류탄을 들면 방패를 내린다)' },

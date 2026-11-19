@@ -384,7 +384,7 @@ describe('검기·쓰러진 동료·좀비 찾기(view.js, three.js 대역)', ()
   test('검기 상수는 규칙 값을 따른다', () => {
     assert.equal(HORDE.waveSpeed, 26);
     assert.equal(HORDE.waveRadius, 0.7);
-    assert.equal(HORDE.waveMaxHits, 6);
+    assert.equal(HORDE.waveMaxHits, 1);
   });
 
   test('AI 안경은 전방 15° 안의 보이는 몸통으로만 탄도를 돌린다', () => {
@@ -399,7 +399,7 @@ describe('검기·쓰러진 동료·좀비 찾기(view.js, three.js 대역)', ()
     assert.equal(v.autoAim(eye, forward, 30), null);
   });
 
-  test('내 검기: 지나가는 좀비를 가까운 순서로 한 번씩, exclude는 건너뛰고 상한(6)까지 맞힌다', () => {
+  test('내 검기: 지나가는 좀비 중 가장 가까운 한 마리만(exclude는 건너뛴다) 맞힌다', () => {
     const zs = [];
     for (let i = 1; i <= 8; i++) zs.push(zombie(i, 0, -(1 + 2 * i)));   // 3, 5, …, 17 m
     zs.push(zombie(20, 3, -6));                                         // 옆으로 비켜 선 좀비
@@ -408,7 +408,7 @@ describe('검기·쓰러진 동료·좀비 찾기(view.js, three.js 대역)', ()
     assert.equal(v.wave({ origin: [0, 1.6, 0], dir: [0, 0, -2], range: 30, local: true, kind: 'wave', exclude: 'z1', onHit: (h) => hits.push(h) }), true);
     assert.equal(v.stats.waves, 1);
     frame(90);
-    assert.deepEqual(hits.map((h) => h.id), ['z2', 'z3', 'z4', 'z5', 'z6', 'z7']);
+    assert.deepEqual(hits.map((h) => h.id), ['z2']);
     for (const h of hits) {
       const n = Number(h.id.slice(1));
       assert.ok(near(h.dist, 1 + 2 * n - (0.32 + 0.7), 1e-6), `${h.id} ${h.dist}`);
