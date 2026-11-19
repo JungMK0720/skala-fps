@@ -227,7 +227,7 @@ export function createHorde(o = {}) {
     return ev;
   }
 
-  /** 인원이 많을수록 좀비 수만 는다(혼자 1배, 4명이면 2.35배). 체력은 인원과 상관없다 */
+  /** 인원이 많을수록 좀비가 늘고 보스가 단단해진다(혼자 1배, 4명이면 좀비 2.35배·보스 체력 3.1배) */
   const crowd = () => Math.max(1, Math.min(R.maxPlayers, connected().length));
   function buildQueue(stage) {
     const q = [];
@@ -497,7 +497,7 @@ export function createHorde(o = {}) {
     const stage = Math.max(1, S.stage);
     const jitter = 0.92 + rng() * 0.16;
     const base = boss || t;
-    const maxHp = Math.round((boss ? boss.hp * bossHpMul(stage) : t.hp * hpMul(stage)) * (extra.hpMul || 1));
+    const maxHp = Math.round((boss ? boss.hp * bossHpMul(stage) * (1 + 0.7 * (crowd() - 1)) : t.hp * hpMul(stage)) * (extra.hpMul || 1));
     const Z = {
       id, t, boss, code: boss ? BOSS_CODE_BASE + boss.code : t.code,
       body: { pos: [at[0], at[1] + (t && t.flying ? FLY_HEIGHT : 0), at[2]], vel: [0, 0, 0], onGround: !(t && t.flying) },
