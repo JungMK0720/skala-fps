@@ -72,14 +72,13 @@ const FLY_CRUISE = 5;           // 비행 좀비는 노리는 사람의 발보�
 const FLY_CLIMB = 3.5;          // 오르내리는 속도(m/s)
 const FLY_BODY = 1.4;           // 비행 좀비 몸 높이(천장과 띄우는 값)
 const FLY_NAV_MS = 2500;        // 곧장 날다 막히면 이 시간 동안 바닥 길찾기 방향을 빌린다
-const BOSS_NO_HEAL_MS = 10000; // 30스테이지부터 보스에게 맞으면 회복 불가
 const BOSS_BURN_MS = 5000;     // 40스테이지부터 보스에게 맞으면 5초 화상(초당 4 피해)
 const BOSS_BURN_TICK_MS = 1000;
 const BOSS_BURN_DAMAGE = 4;
 const BOSS_STUN_MS = 2000;     // 50스테이지부터 보스에게 맞으면 2초 기절·띄우기
 const BOSS_STUN_UP = 8;
-// 50까지 없음, 51스테이지 1%에서 100스테이지 90%까지 오르고 이후에는 90%로 고정
-const stageHealReduction = (stage) => stage <= 50 ? 0 : Math.round(1 + Math.min(49, stage - 51) * 89 / 49) / 100;
+const LEAP_LEAD_MAX = 12;      // 보스 도약이 사람의 움직임을 앞질러 잡는 최대 거리(m)
+const VEL_MAX = 12;            // 사람 속도 추정의 상한(m/s). 부활·끌려감 같은 순간 이동이 튀지 않게
 const NADE_RADIUS = (getDef('gr_frag') && getDef('gr_frag').explosion && getDef('gr_frag').explosion.radius) || 5;
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -161,7 +160,8 @@ export function createHorde(o = {}) {
       picks: 0, chestPicks: 0,        // 고를 증강 수(레벨업은 모두, 보물 상자는 주운 사람), 그중 보물 상자 몫
       offerUntil: 0, invulnUntil: 0,  // 이 제안의 마감 시각(멀티), 증강을 고른 뒤 무적이 끝나는 시각
       hitUntil: 0,                    // 맞은 뒤 무적이 끝나는 시각(HORDE.hitInvulnMs + 증강 '반사 신경')
-      burnUntil: 0, burnNext: 0, noHealUntil: 0, // 보스 화상·회복 금지(방장 이전에도 남긴다)
+      burnUntil: 0, burnNext: 0, noHealUntil: 0, // 보스 화상·마녀 저주 회복 금지(방장 이전에도 남긴다)
+      vel: [0, 0, 0], movedAt: 0,     // 위치가 바뀐 간격으로 잰 수평 속도(m/s)와 마지막으로 움직인 시각. 보스 도약·침이 앞질러 노린다
       knockSeq: 0, knockAt: -Infinity, knockV: null,   // 좀비에게 맞아 밀려남: 번호, 시각, 속도 [x, y, z](m/s). 스냅샷에 knockKeepMs 동안 싣는다
       downPos: null, downAt: 0,       // 쓰러진 자리 [x, y, z]와 시각(멀티에서 동료가 여기서 살린다)
       joinedStage: S.stage
@@ -179,8 +179,7 @@ export function createHorde(o = {}) {
   }
   function healPlayer(P, amount) {
     if (!P.alive || !(amount > 0)) return 0;
-    if (P.noHealUntil > S.clock) return 0;   // 저주·30스테이지 이후 보스 공격: 어떤 회복도 받지 않는다
-    amount *= 1 - stageHealReduction(S.stage);
+    if (P.noHealUntil > S.clock) return 0;   // 마녀 저주: 어떤 회복도 받지 않는다
     // 산성·화염·거미줄·냉각 등 장판 안에 서 있으면 회복량은 절반. 겹쳐도 한 번만 줄인다
     if (P.pos) for (const h of hazards) {
       if (S.clock < h.until && hyp2(P.pos[0] - h.x, P.pos[2] - h.z) <= h.r && Math.abs(P.pos[1] - h.y) < 1.2) { amount *= 0.5; break; }
@@ -197,7 +196,7 @@ export function createHorde(o = {}) {
     for (const P of players.values()) {
       const r = raw[P.id];
       const p = pos3(r);
-      if (p) P.pos = p;
+      if (p) { trackVelocity(P, p); P.pos = p; }
       // 방패(바라보는 방향·든 무기 슬롯)와 공중 강타(점프 중)가 읽는다. 모르면 비워 둔다(방패는 쓰이지 않는다)
       if (p && r && !Array.isArray(r)) {
         P.yaw = Number.isFinite(+r.yaw) ? +r.yaw : null;
@@ -205,6 +204,20 @@ export function createHorde(o = {}) {
         P.air = r.air === true;
       }
     }
+  }
+  /** 원격 위치는 띄엄띄엄 오므로 바뀐 때만 그 간격으로 속도를 잰다. 0.3초 넘게 그대로면 멈춘 것으로 본다 */
+  function trackVelocity(P, p) {
+    const q = P.pos;
+    if (q && (p[0] !== q[0] || p[2] !== q[2])) {
+      const dt = (S.clock - P.movedAt) / 1000;
+      if (dt > 0 && dt <= 0.3) {
+        let vx = (p[0] - q[0]) / dt, vz = (p[2] - q[2]) / dt;
+        const sp = hyp2(vx, vz);
+        if (sp > VEL_MAX) { vx *= VEL_MAX / sp; vz *= VEL_MAX / sp; }
+        P.vel[0] += (vx - P.vel[0]) * 0.5; P.vel[2] += (vz - P.vel[2]) * 0.5;
+      }
+      P.movedAt = S.clock;
+    } else if (S.clock - P.movedAt > 300) P.vel[0] = P.vel[2] = 0;
   }
 
   /** 사람 스폰 자리(블루 진영 스폰을 돌아가며) */
@@ -274,7 +287,7 @@ export function createHorde(o = {}) {
     if (S.startedAt == null) S.startedAt = S.clock;
     for (const P of players.values()) P.secondUsed = false;
     const bosses = S.queue.filter((x) => x.boss).map((x) => { const b = bossById(x.boss); return { id: b.id, name: b.name, icon: b.icon }; });
-    setPhase('wave', 0, ev, { count: S.total, bosses, stageMs: R.stageMs, healReduction: Math.round(stageHealReduction(S.stage) * 100) });
+    setPhase('wave', 0, ev, { count: S.total, bosses, stageMs: R.stageMs });
     if (bosses.length) ev.push({ type: 'boss', stage: S.stage, bosses });
   }
 
@@ -563,10 +576,6 @@ export function createHorde(o = {}) {
     if (P.hp <= 0) downPlayer(P, ev);
   }
   function bossHitEffects(P, ev) {
-    if (S.stage >= 30) {
-      P.noHealUntil = Math.max(P.noHealUntil, S.clock + BOSS_NO_HEAL_MS);
-      ev.push({ type: 'noHeal', id: P.id, ms: BOSS_NO_HEAL_MS, source: 'boss' });
-    }
     if (S.stage >= 40) {
       if (P.burnUntil <= S.clock) P.burnNext = S.clock + BOSS_BURN_TICK_MS;
       P.burnUntil = Math.max(P.burnUntil, S.clock + BOSS_BURN_MS);
@@ -1347,7 +1356,7 @@ export function createHorde(o = {}) {
   /* ------------------------------------------------------------------ 투사체 · 장판 */
   function addProjectile(kind, from, vel, opts) {
     if (projectiles.length >= R.maxProjectiles) projectiles.shift();
-    projectiles.push({ id: S.nextProj++, kind, pos: from.slice(), vel: vel.slice(), arc: !!opts.arc, dmg: opts.dmg || 0, blast: opts.blast || null, pool: opts.pool || null, slow: opts.slow || null, pull: opts.pull || 0, boss: !!opts.boss, noHeal: opts.noHeal || 0, born: S.clock, life: opts.life || 4000 });
+    projectiles.push({ id: S.nextProj++, kind, pos: from.slice(), vel: vel.slice(), arc: !!opts.arc, dmg: opts.dmg || 0, blast: opts.blast || null, pool: opts.pool || null, slow: opts.slow || null, pull: opts.pull || 0, boss: !!opts.boss, noHeal: opts.noHeal || 0, chain: opts.chain || null, born: S.clock, life: opts.life || 4000 });
   }
   function aimVelocity(from, to, speed, arc) {
     const dx = to[0] - from[0], dy = to[1] - from[1], dz = to[2] - from[2];
@@ -1384,7 +1393,29 @@ export function createHorde(o = {}) {
     if (hazards.length >= R.maxHazards) hazards.shift();
     hazards.push({ id: S.nextHaz++, kind: HAZARD_KINDS[kind] || 1, kindName: kind, x, y, z, r: h.r, until: S.clock + h.ms, ms: h.ms, dps: (h.dps || 0) * dmgMul(S.stage), slow: h.slow || 0, boss, afflicted: boss ? new Set() : null, tick: 0 });
   }
+  /**
+   * 연쇄 번개 구체가 사람에게 닿으면: 그 사람에게서 hop m 안의 보이는 다른 사람 중 가장 가까운 쪽으로 새 구체가 날아간다.
+   * 이미 맞은 사람·무적인 사람은 건너뛰고, 튈 때마다 피해는 80%
+   */
+  function chainBolt(pr, from) {
+    const hit = pr.chain.hit.concat(from.id);
+    const at = [from.pos[0], from.pos[1] + 1.2, from.pos[2]];
+    let best = null, bd = pr.chain.hop;
+    for (const P of aliveList()) {
+      if (!P.pos || hit.includes(P.id) || invulnerable(P)) continue;
+      const to = [P.pos[0], P.pos[1] + 1.1, P.pos[2]];
+      const d = Math.hypot(to[0] - at[0], to[1] - at[1], to[2] - at[2]);
+      if (d < bd && (!world || lineOfSight(world, at, to))) { bd = d; best = to; }
+    }
+    if (!best) return null;
+    const speed = Math.hypot(pr.vel[0], pr.vel[1], pr.vel[2]) || 1;
+    return {
+      kind: pr.kind, at, vel: aimVelocity(at, best, speed, false),
+      opts: { dmg: pr.dmg * 0.8, boss: pr.boss, chain: { left: pr.chain.left - 1, hop: pr.chain.hop, hit }, life: (bd / speed) * 1000 + 300 }
+    };
+  }
   function stepProjectiles(dt, ev) {
+    const bounced = [];
     for (let i = projectiles.length - 1; i >= 0; i--) {
       const pr = projectiles[i];
       const p0 = pr.pos.slice();
@@ -1392,7 +1423,7 @@ export function createHorde(o = {}) {
       pr.pos[0] += pr.vel[0] * dt; pr.pos[1] += pr.vel[1] * dt; pr.pos[2] += pr.vel[2] * dt;
       let hitPlayer = null;
       for (const P of aliveList()) {
-        if (!P.pos) continue;
+        if (!P.pos || (pr.chain && pr.chain.hit.includes(P.id))) continue;   // 튄 번개는 이미 맞은 사람을 지나간다
         const cx = P.pos[0], cz = P.pos[2];
         const dh = hyp2(pr.pos[0] - cx, pr.pos[2] - cz);
         if (dh < 0.55 && pr.pos[1] > P.pos[1] - 0.1 && pr.pos[1] < P.pos[1] + 1.9) { hitPlayer = P; break; }
@@ -1424,13 +1455,19 @@ export function createHorde(o = {}) {
           ev.push({ type: 'grabbed', id: hitPlayer.id }, { type: 'stun', id: hitPlayer.id, ms: 2000 });
         }
       }
+      if (hitPlayer && pr.chain && pr.chain.left > 0) {
+        const nx = chainBolt(pr, hitPlayer);
+        if (nx) bounced.push(nx);
+      }
       if (pr.blast) explodeAt(at, pr.blast.r, pr.blast.dmg * dmgMul(S.stage), null, ev, 'barrel', pr.boss);
       if (pr.pool) {
         const gy = world ? getGroundY(world, at[0], at[2], at[1] + 0.5) : 0;
         addHazard(pr.pool.kind, at[0], gy, at[2], pr.pool, pr.boss);
       }
-      if (!pr.blast && !hitPlayer) addFx('splat', at, 0.8);
+      if (pr.chain) addFx('shock', at, 1.2);
+      else if (!pr.blast && !hitPlayer) addFx('splat', at, 0.8);
     }
+    for (const b of bounced) addProjectile(b.kind, b.at, b.vel, b.opts);
   }
   function stepHazards(dt, ev) {
     for (let i = hazards.length - 1; i >= 0; i--) {
@@ -1482,11 +1519,27 @@ export function createHorde(o = {}) {
         !lineOfSight(world, [p[0], p[1] + 2, p[2]], [T.pos[0], T.pos[1] + 1.2, T.pos[2]])) continue;
       Z.skillReady[i] = S.clock + s.cd * cdMul * (0.9 + rng() * 0.25);
       Z.skill = { i, s, phase: 'wind', until: S.clock + s.windup, tx: T.pos[0], ty: T.pos[1], tz: T.pos[2], target: T.id, t0: S.clock, hit: new Set(), r: 0 };
+      if (s.kind === 'leap') aimLeap(Z.skill, T);
       Z.body.vel[0] = Z.body.vel[2] = 0;
-      ev.push({ type: 'skill', z: Z.id, boss: b.id, kind: s.kind, x: Math.round(T.pos[0] * 100) / 100, z2: Math.round(T.pos[2] * 100) / 100, ms: s.windup });
+      ev.push({ type: 'skill', z: Z.id, boss: b.id, kind: s.kind, x: Math.round(Z.skill.tx * 100) / 100, z2: Math.round(Z.skill.tz * 100) / 100, ms: s.windup });
       return true;
     }
     return false;
+  }
+  /**
+   * 도약 착지점: 예고+체공 시간 동안 사람이 지금 속도로 달려갈 자리(최대 LEAP_LEAD_MAX m 앞)를 처음에 한 번 정한다.
+   * 걸을 수 없는 자리면 가까운 걸을 수 있는 칸, 그것도 없으면 지금 사람 자리 쪽 칸
+   */
+  function aimLeap(k, T) {
+    const lead = (k.s.windup + k.s.flightMs) / 1000;
+    let dx = T.vel ? T.vel[0] * lead : 0, dz = T.vel ? T.vel[2] * lead : 0;
+    const l = hyp2(dx, dz);
+    if (l > LEAP_LEAD_MAX) { dx *= LEAP_LEAD_MAX / l; dz *= LEAP_LEAD_MAX / l; }
+    const want = { x: T.pos[0] + dx, y: T.pos[1], z: T.pos[2] + dz };
+    const near = (q) => (nav && nav.nearestWalkable ? nav.nearestWalkable(q, 3) : null);
+    const n = near(want) || near({ x: T.pos[0], y: T.pos[1], z: T.pos[2] });
+    k.to = n ? [n.x, n.y, n.z] : [want.x, want.y, want.z];
+    k.tx = k.to[0]; k.ty = k.to[1]; k.tz = k.to[2];
   }
 
   function stepSkill(Z, T, dt, ev) {
@@ -1497,8 +1550,8 @@ export function createHorde(o = {}) {
     const dmgK = dmgMul(S.stage) * (rage ? rage.dmg : 1);
     if (k.phase === 'wind') {
       if (s.kind === 'charge' || s.kind === 'leap' || s.kind === 'volley' || s.kind === 'chain' || s.kind === 'pool') {
-        // 예고 동안은 목표를 따라 돈다(마지막 0.3초는 고정 → 피할 틈)
-        if (T && T.pos && k.until - S.clock > 300) { k.tx = T.pos[0]; k.ty = T.pos[1]; k.tz = T.pos[2]; }
+        // 예고 동안은 목표를 따라 돈다(마지막 0.3초는 고정 → 피할 틈). 도약은 처음 정한 예상 착지점을 바꾸지 않는다
+        if (s.kind !== 'leap' && T && T.pos && k.until - S.clock > 300) { k.tx = T.pos[0]; k.ty = T.pos[1]; k.tz = T.pos[2]; }
         faceTo(Z, k.tx, k.tz, dt, 6);
       }
       if (world) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius });
@@ -1527,8 +1580,6 @@ export function createHorde(o = {}) {
         case 'nova': k.until = S.clock + (s.radius / s.speed) * 1000; addFx(s.shock ? 'shock' : 'nova', p, s.radius); break;
         case 'leap': {
           k.from = p.slice();
-          const n = nav && nav.nearestWalkable ? nav.nearestWalkable({ x: k.tx, y: k.ty, z: k.tz }, 3) : null;
-          k.to = n ? [n.x, n.y, n.z] : [k.tx, k.ty, k.tz];
           k.until = S.clock + s.flightMs;
           break;
         }
@@ -1575,7 +1626,11 @@ export function createHorde(o = {}) {
           return;
         }
         case 'pool': {
-          addHazard(s.hazard.kind, k.tx, k.ty, k.tz, s.hazard, true);
+          // 장판 덩어리를 포물선으로 던진다. 떨어진 자리(사람에게 맞으면 그 자리)에 장판이 생긴다
+          const from = [p[0], p[1] + 1.8 * Math.min(1.4, Z.scale), p[2]];
+          addProjectile(PROJECTILE_KINDS[s.proj] || PROJECTILE_KINDS.ice, from, aimVelocity(from, [k.tx, k.ty + 0.3, k.tz], s.speed, true), {
+            arc: true, pool: s.hazard, boss: true, life: 4000
+          });
           Z.skill = null;
           return;
         }
@@ -1604,25 +1659,12 @@ export function createHorde(o = {}) {
           return;
         }
         case 'chain': {
-          const pts = [[p[0], p[1] + 2.2, p[2]]];
-          let cur = [p[0], p[1] + 1.2, p[2]];
-          const hit = new Set();
-          let dmg = s.dmg * dmgK;
-          for (let j = 0; j < s.jumps; j++) {
-            let best = null, bd = j === 0 ? s.range : 9;
-            for (const P of aliveList()) {
-              if (!P.pos || hit.has(P.id) || invulnerable(P)) continue;   // 무적인 사람에게는 번개가 튀지 않는다
-              const d = Math.hypot(P.pos[0] - cur[0], P.pos[1] + 1 - cur[1], P.pos[2] - cur[2]);
-              if (d < bd && (!world || lineOfSight(world, cur, [P.pos[0], P.pos[1] + 1.2, P.pos[2]]))) { bd = d; best = P; }
-            }
-            if (!best) break;
-            hit.add(best.id);
-            hurtPlayer(best, dmg, Z, ev);
-            cur = [best.pos[0], best.pos[1] + 1.2, best.pos[2]];
-            pts.push(cur);
-            dmg *= 0.8;
-          }
-          if (pts.length > 1) ev.push({ type: 'chain', z: Z.id, pts: pts.map((q) => q.map((v) => Math.round(v * 100) / 100)) });
+          // 곧게 날아가는 번개 구체. 맞은 사람에게서 다른 사람에게 튄다(stepProjectiles chainBolt)
+          const from = [p[0], p[1] + 2.2, p[2]];
+          const to = [k.tx, k.ty + 1.1, k.tz];
+          addProjectile(PROJECTILE_KINDS.bolt, from, aimVelocity(from, to, s.speed, false), {
+            dmg: s.dmg * dmgK, boss: true, chain: { left: s.jumps - 1, hop: s.hop, hit: [] }, life: (s.range / s.speed) * 1000 + 300
+          });
           Z.skill = null;
           return;
         }

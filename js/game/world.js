@@ -2099,7 +2099,7 @@ function buildWorld(ctx, opts) {
         if (av) av.setAiGlasses(hordeGlasses.has(p.id));
       }
     },
-    /** 방장 이벤트 중 연출이 필요한 것(skill·chain·enrage) */
+    /** 방장 이벤트 중 연출이 필요한 것(skill·enrage·bossSpawn) */
     hordeEvent: (ev) => horde.event(ev),
     /** 증강 효과(내 화면 몫): { mods, speed, maxSpeed, jump, pierce, maxHp, nadeMulti, nadeRadiusOf(owner), sticky, waveRange, waveRangeOf(owner) } | null */
     setHordePerks,

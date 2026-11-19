@@ -12,7 +12,7 @@ import { buildCollision, isZombieMap } from '../js/maps/collision.js';
 import { buildNavGrid } from '../js/game/navgrid.js';
 import { getGroundY, createWorld, makeBox, moveCharacter } from '../js/engine/physics.js';
 import { CARDS, CARD_COUNT, TIERS, computePerks, perkMaxHp, perkSummary, makeOffer, encodeCards, decodeCards, cardById, cardAvailable } from '../js/game/horde/cards.js';
-import { BOSSES, pickBosses, SKILL_KINDS } from '../js/game/horde/bosses.js';
+import { BOSSES, pickBosses, SKILL_KINDS, PROJECTILE_KINDS } from '../js/game/horde/bosses.js';
 import {
   HORDE, bossCount, zombieCount, hpMul, dmgMul, hordeAmmo, makeRng, zombieMix, LOOT_TYPES, rollDrop, lootByCode, xpNeed, timeBonusXp, zombieXp, ZOMBIE_IDS, ZOMBIE_TYPES
 } from '../js/game/horde/rules.js';
@@ -82,6 +82,7 @@ function step(d, n = 1) {
   return ev;
 }
 const alive = (d) => [...d.internals.zombies.values()].filter((Z) => Z.state !== 'dead');
+const boltsOf = (d) => d.internals.projectiles.filter((x) => x.kind === PROJECTILE_KINDS.bolt);
 
 /**
  * 벽 없는 시험장(world·nav 없음): 좀비는 곧장 걷고, 좀비가 나오는 자리는 400 m 밖이라 일부러 옮기지 않으면 사람에게 닿지 않는다.
@@ -559,7 +560,7 @@ describe('보스 · 스테이지 규칙', () => {
     assert.ok(p.hp > 50, '저주가 끝나면 회복한다');
   });
 
-  test('보스 타격: 30~ 회복 금지, 40~ 화상, 50~ 2초 기절·띄우기', () => {
+  test('보스 타격: 회복 금지 없음, 40~ 화상, 50~ 2초 기절·띄우기', () => {
     for (const stage of [29, 30, 40, 50]) {
       const { d, pos, P } = makeFlat({ startStage: stage });
       const S = d.internals.S, Z = bossAt(d, 'butcher', [1, 0, 0], 'slam'), p = P('p1');
@@ -568,16 +569,14 @@ describe('보스 · 스테이지 규칙', () => {
       swing(d, Z, [1, 0, 0]);
       const ev = step(d);
       assert.ok(p.hp < 1000, `스테이지 ${stage}: 보스에게 맞았다`);
-      assert.equal(ev.some((e) => e.type === 'noHeal' && e.source === 'boss'), stage >= 30, '30부터 회복 금지');
+      assert.ok(!ev.some((e) => e.type === 'noHeal'), '보스에게 맞아도 회복은 막히지 않는다');
       assert.equal(ev.some((e) => e.type === 'burn' && e.ms === 5000), stage >= 40, '40부터 화상');
       assert.equal(ev.some((e) => e.type === 'stun' && e.ms === 2000), stage >= 50, '50부터 2초 기절');
       if (stage >= 50) assert.equal(p.knockV[1], 8, '보스에게 맞으면 공중으로 뜬다');
-      if (stage >= 30) {
-        const hp = p.hp, id = S.nextLoot++;
-        d.internals.loot.set(id, { id, kind: 'med', x: pos.p1[0], y: 0, z: 0, until: S.clock + 30000 });
-        d.claimLoot('p1', id);
-        assert.equal(p.hp, hp, '회복 금지 중 구급 상자로도 못 낫는다');
-      }
+      const hp = p.hp, id = S.nextLoot++;
+      d.internals.loot.set(id, { id, kind: 'med', x: pos.p1[0], y: 0, z: 0, until: S.clock + 30000 });
+      d.claimLoot('p1', id);
+      assert.equal(p.hp, hp + 10, '보스에게 맞은 뒤에도 구급 상자로 낫는다');
       if (stage >= 40) {
         Z.body.pos[0] = 100; Z.skillReady.fill(Infinity);
         const hp = p.hp;
@@ -585,7 +584,7 @@ describe('보스 · 스테이지 규칙', () => {
         assert.equal(hp - p.hp, 4, '화상은 피격 무적과 별개로 초당 4 피해');
         const snap = JSON.parse(JSON.stringify(d.snapshot()));
         const v = applyHordeSnapshot(snap);
-        assert.ok(v.players[0].burnMs > 3000 && v.players[0].noHealMs > 8000, '남은 디버프 시간을 전송');
+        assert.ok(v.players[0].burnMs > 3000 && v.players[0].noHealMs === 0, '남은 디버프 시간을 전송');
         const r = restoreHorde(snap, { players: [{ id: 'p1', name: 'P1' }], world: null, nav: null, spawns: FAR_SPAWNS, getPositions: () => pos });
         assert.ok(r.internals.players.get('p1').burnUntil > r.internals.S.clock, '방장 이전에도 화상 유지');
       }
@@ -593,7 +592,7 @@ describe('보스 · 스테이지 규칙', () => {
   });
 
   test('보스 투사체·장판도 보스 타격이며, 산성·냉각 등 장판 안에서는 회복 절반', () => {
-    const { d, pos, P } = makeFlat({ startStage: 30 });
+    const { d, pos, P } = makeFlat({ startStage: 40 });
     const S = d.internals.S, p = P('p1');
     p.maxHp = p.hp = 1000;
     const Z = bossAt(d, 'plague', [6, 0, 0], 'volley');
@@ -603,9 +602,10 @@ describe('보스 · 스테이지 규칙', () => {
     assert.ok(pr, '보스 투사체에 출처를 표시');
     pr.pos = [pos.p1[0], 1, pos.p1[2]]; pr.vel = [0, 0, 0];
     const ev = step(d);
-    assert.ok(ev.some((e) => e.type === 'noHeal' && e.source === 'boss'), '투사체도 회복 금지');
+    assert.ok(ev.some((e) => e.type === 'burn' && e.id === 'p1'), '투사체도 보스 타격(화상)');
+    assert.ok(!ev.some((e) => e.type === 'noHeal'), '보스 투사체는 회복을 막지 않는다');
     assert.ok(d.internals.hazards.some((h) => h.boss), '투사체가 남긴 장판도 보스 출처를 유지');
-    p.noHealUntil = 0; Z.body.pos[0] = 100; Z.skillReady.fill(Infinity);
+    Z.body.pos[0] = 100; Z.skillReady.fill(Infinity);
     for (const kind of ['acid', 'frost', 'web', 'fire']) {
       p.hp = 50; d.internals.hazards.length = 0;
       d.internals.hazards.push({ kindName: kind, x: 0, y: 0, z: 0, r: 2, until: S.clock + 5000, dps: 0, tick: 0 });
@@ -621,23 +621,21 @@ describe('보스 · 스테이지 규칙', () => {
     assert.equal(p.hp, 60, '장판 밖 회복은 그대로');
   });
 
-  test('51~100스테이지 전역 치유 감소는 1~90%이며 장판 감소와 곱해진다', () => {
-    for (const [stage, heal] of [[50, 10], [51, 9.9], [75, 5.5], [100, 1], [120, 1]]) {
+  test('스테이지가 올라도 전역 회복 감소는 없고, 장판 안에서만 절반', () => {
+    for (const stage of [50, 51, 75, 100, 120]) {
       const { d, P } = makeFlat({ startStage: stage });
       const p = P('p1'), S = d.internals.S;
       p.hp = 50;
       const id = S.nextLoot++;
       d.internals.loot.set(id, { id, kind: 'med', x: 0, y: 0, z: 0, until: S.clock + 30000 });
       d.claimLoot('p1', id);
-      assert.ok(near(p.hp - 50, heal, 0.01), `스테이지 ${stage}: 회복 ${heal}`);
-      if (stage === 100) {
-        p.hp = 50;
-        d.internals.hazards.push({ x: 0, y: 0, z: 0, r: 2, until: S.clock + 5000, dps: 0, tick: 0 });
-        const id2 = S.nextLoot++;
-        d.internals.loot.set(id2, { id: id2, kind: 'med', x: 0, y: 0, z: 0, until: S.clock + 30000 });
-        d.claimLoot('p1', id2);
-        assert.ok(near(p.hp - 50, 0.5), '90% 전역 감소와 장판 50% 감소는 함께 적용');
-      }
+      assert.ok(near(p.hp - 50, 10, 0.01), `스테이지 ${stage}: 회복 10 그대로`);
+      p.hp = 50;
+      d.internals.hazards.push({ x: 0, y: 0, z: 0, r: 2, until: S.clock + 5000, dps: 0, tick: 0 });
+      const id2 = S.nextLoot++;
+      d.internals.loot.set(id2, { id: id2, kind: 'med', x: 0, y: 0, z: 0, until: S.clock + 30000 });
+      d.claimLoot('p1', id2);
+      assert.ok(near(p.hp - 50, 5, 0.01), `스테이지 ${stage}: 장판 안 회복 5`);
     }
   });
 
@@ -671,7 +669,7 @@ describe('보스 · 스테이지 규칙', () => {
     assert.equal(p.shield, 100, '방패도 고정 피해를 막지 못한다');
   });
 
-  test('보스 장판은 고정 피해를 계속 주지만 기절·화상·회복 금지는 진입할 때만 적용한다', () => {
+  test('보스 장판은 고정 피해를 계속 주지만 기절·화상은 진입할 때만 적용한다', () => {
     const { d, pos, P } = makeFlat({ startStage: 50 });
     const S = d.internals.S, p = P('p1');
     S.queue.length = 0; S.queue.push({ type: 'walker' }); S.spawnAt = Infinity;
@@ -702,6 +700,74 @@ describe('보스 · 스테이지 규칙', () => {
     const dealt = p.damage;
     d.claimExplosion({ attackerId: 'p1', center: [0, 0, 0], victims: [{ id: 'z' + Z.id, dmg: 100 }] });
     assert.ok(near(p.hp - 50, (p.damage - dealt) * 0.5 * 0.2), `폭발 흡혈 ${p.hp - 50}, 피해 ${p.damage - dealt}`);
+  });
+
+  /** 보스를 세우고 skill을 쓰기 시작해 예고가 끝나 내놓을 때까지 돈다 → { Z, ev } */
+  function castSkill(d, bossId, at, skill, onStep) {
+    const Z = bossAt(d, bossId, at, skill);
+    d.internals.S.queue.length = 0; d.internals.S.spawnAt = Infinity;
+    const ev = [];
+    for (let i = 0; i < 90 && !(Z.skill === null && ev.some((e) => e.type === 'skill')); i++) { if (onStep) onStep(Z); ev.push(...step(d)); }
+    assert.ok(ev.some((e) => e.type === 'skill' && e.kind === skill), `${bossId}: ${skill}을 썼다`);
+    return { Z, ev };
+  }
+
+  test('연쇄 번개는 날아가는 구체: 내놓는 순간에는 아무도 안 맞고, 닿은 사람에게서 옆 사람에게 튄다', () => {
+    const { d, P } = makeFlat({ ids: ['p1', 'p2'] });
+    const hp1 = P('p1').hp, hp2 = P('p2').hp;
+    castSkill(d, 'volt', [2, 0, 12], 'chain');
+    assert.equal(boltsOf(d).length, 1, '번개 구체 한 발');
+    assert.equal(P('p1').hp, hp1); assert.equal(P('p2').hp, hp2);
+    const fired = d.internals.S.nextProj;
+    for (let i = 0; i < 60 && (boltsOf(d).length || d.internals.S.nextProj === fired); i++) step(d);
+    assert.equal(d.internals.S.nextProj - fired, 1, '맞은 사람에게서 한 번 튀었다');
+    assert.ok(P('p1').hp < hp1 && P('p2').hp < hp2, '두 사람 모두 맞았다');
+  });
+
+  test('연쇄 번개는 쏜 뒤 비켜서면 피한다', () => {
+    const { d, pos, P } = makeFlat();
+    const hp = P('p1').hp;
+    castSkill(d, 'volt', [0, 0, 12], 'chain');
+    pos.p1 = [3, 0, 0];
+    step(d, 45);
+    assert.equal(P('p1').hp, hp);
+    assert.equal(boltsOf(d).length, 0, '빗나간 구체는 사라진다');
+  });
+
+  test('서리 망령의 장판은 던진 얼음 덩어리가 떨어진 자리에 생긴다', () => {
+    const { d } = makeFlat();
+    castSkill(d, 'frost', [0, 0, 12], 'pool');
+    assert.equal(d.internals.hazards.length, 0, '내놓는 순간 발밑에 생기지 않는다');
+    assert.ok(d.internals.projectiles.some((x) => x.kind === PROJECTILE_KINDS.ice), '얼음 덩어리가 날아간다');
+    for (let i = 0; i < 60 && !d.internals.hazards.length; i++) step(d);
+    const h = d.internals.hazards[0];
+    assert.ok(h && h.kindName === 'frost' && Math.hypot(h.x, h.z) < 1, '서 있던 자리에 냉각 장판');
+  });
+
+  test('도약: 달리는 사람의 예고+체공 뒤 자리를 처음에 정하고, 예고 동안 따라가지 않는다', () => {
+    const { d, pos } = makeFlat();
+    const v = 5, dx = v * STEP / 1000;
+    const Z = bossAt(d, 'brood', [0, 0, 15], 'leap');
+    d.internals.S.queue.length = 0; d.internals.S.spawnAt = Infinity;
+    const si = Z.boss.skills.findIndex((s) => s.kind === 'leap');
+    const sk = Z.boss.skills[si];
+    Z.skillReady[si] = Infinity;
+    const run = () => { pos.p1 = [pos.p1[0] + dx, 0, 0]; return step(d); };
+    for (let i = 0; i < 15; i++) run();
+    Z.skillReady[si] = 0;
+    let x0 = null;
+    for (let i = 0; i < 5 && !Z.skill; i++) { x0 = pos.p1[0] + dx; run(); }
+    assert.ok(Z.skill && Z.skill.s.kind === 'leap', '도약 시작');
+    const want = x0 + v * (sk.windup + sk.flightMs) / 1000;
+    const tx = Z.skill.tx;
+    assert.ok(Math.abs(tx - want) < 0.3, `예상 착지점 ${tx.toFixed(2)} ≈ ${want.toFixed(2)}`);
+    while (Z.skill && Z.skill.phase === 'wind') {
+      run();
+      if (Z.skill) assert.equal(Z.skill.tx, tx, '예고 동안 착지점이 그대로');
+    }
+    for (let i = 0; i < 60 && Z.skill; i++) run();
+    assert.ok(Math.abs(Z.body.pos[0] - tx) < 0.01 && Math.abs(Z.body.pos[2]) < 0.01, '정한 자리에 내려앉는다');
+    assert.ok(Math.abs(pos.p1[0] - tx) < 1, '계속 달린 사람 자리에 떨어졌다');
   });
 
   test('치명타: 손님이 쏴도 방장이 손님 증강으로 굴리고, 쏜 사람 화면에만 큰 치명타 숫자가 뜬다', () => {
@@ -1226,9 +1292,9 @@ describe('증강을 고르는 사람(멀티): 좀비가 노리지 않는다', ()
         const slows = ev.filter((e) => e.type === 'slow').map((e) => e.id);
         assert.deepEqual(slows, ['p2'], '비명은 고르는 사람을 느리게 하지 않는다');
       } else {
-        const ch = ev.find((e) => e.type === 'chain');
-        assert.ok(ch, '연쇄 번개');
-        assert.equal(ch.pts.length, 2, '번개는 p2에게만 튀었다');
+        const fired = d.internals.S.nextProj;
+        for (let i = 0; i < 60 && boltsOf(d).length; i++) step(d);
+        assert.equal(d.internals.S.nextProj, fired, '번개는 무적인 p1에게 튀지 않았다');
         assert.equal(P('p1').hp, hp1);
         assert.ok(P('p2').hp < hp2);
       }

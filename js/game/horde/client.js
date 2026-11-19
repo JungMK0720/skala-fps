@@ -159,7 +159,6 @@ export function createHordeClient(o) {
     switch (ev.type) {
       case 'phase':
         phase = ev.phase; stage = ev.stage | 0; centerFor(ev);
-        if (ev.phase === 'wave' && ev.healReduction > 0 && H) H.callout(`🩹 스테이지 ${stage}: 모든 회복량 −${ev.healReduction}%`);
         if (ev.phase === 'over' && ui && ui.isVisible('cards')) ui.hide('cards');
         // 무기는 준비 시간에만 바꾼다. 1스테이지가 시작되면 교체 창을 닫는다(무기 교체권으로 연 창은 한 번 바꿀 때까지 둔다)
         if (ev.phase === 'over' || (ev.phase !== 'prep' && !swapTicket)) { swapTicket = false; W('closeSwap'); }
@@ -211,7 +210,7 @@ export function createHordeClient(o) {
       case 'slow': if (String(ev.id) === meId) { W('slowLocal', 1 - (Number(ev.mul) || 0), ev.ms); if (H) H.callout('❄️ 느려졌어요'); } break;
       case 'stun': if (String(ev.id) === meId) { W('stunLocal', ev.ms); if (H) H.callout('💫 기절!'); } break;
       case 'grabbed': if (String(ev.id) === meId && H) H.callout('🪝 그랩에 끌려가요!'); break;
-      case 'noHeal': if (String(ev.id) === meId && H) H.callout(`${ev.source === 'boss' ? '👑 보스 타격!' : '🧪 저주!'} ${Math.round((Number(ev.ms) || 0) / 1000)}초 동안 회복 불가`); break;
+      case 'noHeal': if (String(ev.id) === meId && H) H.callout(`🧪 저주! ${Math.round((Number(ev.ms) || 0) / 1000)}초 동안 회복 불가`); break;
       case 'burn': if (String(ev.id) === meId && H) H.callout(`🔥 화상! ${Math.round((Number(ev.ms) || 0) / 1000)}초 동안 지속 피해`); break;
       case 'second': if (String(ev.id) === meId && H) H.banner({ icon: '🪽', title: '두 번째 기회!', sub: '쓰러질 피해를 버텼어요' }); break;
       case 'boss':
@@ -231,7 +230,7 @@ export function createHordeClient(o) {
       case 'reroll': if (String(ev.id) === meId) W('sound', 'card_shuffle'); break;
       case 'loot': onLoot(ev); break;
       case 'crit': onCrit(ev); break;
-      case 'skill': case 'chain': case 'enrage': case 'bossSpawn': W('hordeEvent', ev); break;
+      case 'skill': case 'enrage': case 'bossSpawn': W('hordeEvent', ev); break;
       case 'over': overAt = performance.now(); break;
       case 'join': if (H && String(ev.id) !== meId) H.callout(`${ev.name || '동료'}님 합류 · 다음 스테이지부터`); break;
       case 'leave': if (H && String(ev.id) !== meId) H.callout(`${nameOf(String(ev.id)) || '동료'}님이 나갔어요`); break;

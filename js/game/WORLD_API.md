@@ -191,7 +191,7 @@ await world.loadMap(mapId, { mode, ruleset });
 |---|---|
 | `setMode('zombie')` / `loadMap(mapId, { mode: 'zombie' })` | 모두 블루 팀(`team: 'owner'`) 화면 + 좀비 무리. 상단 팀 점수는 숨긴다. `world.mode === 'zombie'` |
 | `hordePush(view, t)` | 방장 뷰(`applyHordeSnapshot` 결과)를 받은 시각과 함께 넣는다. 좀비·보스·투사체·장판을 시간축으로 보간해 그린다. 쓰러진 동료 표시(빨간 고리·초록 진행 원판·벽 너머 이름표)는 World가 내 id를 넘겨 나를 뺀다(`horde.push(view, t, local.id)`) |
-| `hordeEvent(ev)` | 연출이 필요한 방장 이벤트(skill·chain·enrage) |
+| `hordeEvent(ev)` | 연출이 필요한 방장 이벤트(skill·enrage·bossSpawn) |
 | `setHordePerks(o \| null)` | 카드 효과의 내 화면 몫 `{ mods, speed, maxSpeed, jump, pierce, maxHp }`. `mods`는 `arsenal.setMods`(탄창·연사·재장전·탄퍼짐·반동·예비 배율 등). null이면 기본값 |
 | `slowLocal(mul, ms)` | 비명·얼음 가시·붙잡힘: ms 동안 이동 속도 ×mul(0.2~1) |
 | `pushLocal([vx, vy, vz])` | 보스 돌진·내려찍기에 밀려남, 좀비에게 맞아 밀려남(스냅샷 사람 행의 `knock`, 번호가 바뀔 때 한 번) |
