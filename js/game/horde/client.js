@@ -242,16 +242,9 @@ export function createHordeClient(o) {
     const a = world.internals && world.internals.arsenal;
     let text = '';
     if (ev.kind === 'mag' && a) {
-      // 장전 1회분(탄띠 증강만큼 더). 든 총이 가득하거나 칼·수류탄을 들었으면 주무기, 그다음 보조무기에
-      const held = a.getAmmo();
-      const lo = a.getLoadout();
-      let n = 0;
-      for (const id of [held && held.kind === 'mag' ? held.weaponId : null, lo.primary, lo.secondary]) {
-        const am = id ? a.getAmmo(id) : null;
-        if (am && am.kind === 'mag') n = W('addReserve', Math.max(1, Math.round(am.magSize * (1 + (perks.ammoMags || 0)))), id) || 0;
-        if (n > 0) break;
-      }
-      text = n > 0 ? `🧷 탄창 +${n}발` : '🧷 탄창 · 예비 탄이 가득해요';
+      // 주무기·보조무기의 탄창과 예비 탄을 모두 최대까지 채운다
+      W('refillAmmo');
+      text = '🧷 탄약 · 모든 총 탄 가득';
       // 탄창은 수류탄도 최대까지 채운다(늘었을 때만 알린다)
       const nade = a.getAmmo(GRENADE_IDS[0]);
       const before = nade && nade.kind === 'count' ? nade.mag : null;
