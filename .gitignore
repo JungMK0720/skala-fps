@@ -11,5 +11,10 @@ server/relay/.dev.vars
 server/api/node_modules/
 server/api/.wrangler/
 server/api/.dev.vars
+# Supabase CLI가 만드는 로컬 연결 정보와 함수용 비밀 파일(docs/FEEDBACK.md 7절). 비밀은 supabase secrets set으로만 올린다
+supabase/.temp/
+supabase/.branches/
+supabase/.env
+supabase/functions/.env
 # 운영자 열쇠(전체 공지 서명용, tools/make-notice-key.mjs) 보관 폴더. 비밀 열쇠는 저장소에 올리지 않는다
 .secrets/
