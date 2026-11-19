@@ -10,7 +10,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCollision, isZombieMap } from '../js/maps/collision.js';
 import { buildNavGrid } from '../js/game/navgrid.js';
-import { getGroundY } from '../js/engine/physics.js';
+import { getGroundY, createWorld, makeBox } from '../js/engine/physics.js';
 import { CARDS, CARD_COUNT, TIERS, computePerks, perkMaxHp, perkSummary, makeOffer, encodeCards, decodeCards, cardById, cardAvailable } from '../js/game/horde/cards.js';
 import { BOSSES, pickBosses, SKILL_KINDS } from '../js/game/horde/bosses.js';
 import {
@@ -394,7 +394,7 @@ describe('보스 · 스테이지 규칙', () => {
     assert.equal(zombieMix(20).length, 7);
   });
 
-  test('20스테이지 비행 좀비: 떠서 나오고 높이를 지키며 접근·원거리 공격하고 방장 이전에도 남는다', () => {
+  test('20스테이지 비행 좀비: 떠서 나오고 공중으로 올라 접근·원거리 공격하고 방장 이전에도 남는다', () => {
     const { d, pos } = makeFlat({ startStage: 20 });
     const S = d.internals.S;
     S.queue.length = 0;
@@ -414,7 +414,9 @@ describe('보스 · 스테이지 규칙', () => {
     Z.rangedAt = Infinity;
     step(d, 15);
     assert.ok(Z.body.pos[0] < 12, '공중에서 사람 쪽으로 다가간다');
-    assert.ok(near(Z.body.pos[1], 1.25, 0.02), '다가가는 동안 발 높이를 지킨다');
+    assert.ok(Z.body.pos[1] > 1.5, '다가가며 위로 오른다');
+    step(d, 60);
+    assert.ok(near(Z.body.pos[1], 5, 0.05), '사람 발보다 5 m 높이에서 난다');
 
     Z.rangedAt = 0;
     let spit = null;
@@ -437,6 +439,24 @@ describe('보스 · 스테이지 규칙', () => {
     const again = restored.internals.zombies.get(Z.id);
     assert.equal(again?.t?.id, 'flyer');
     for (let axis = 0; axis < 3; axis++) assert.ok(near(again.body.pos[axis], seen.pos[axis]), `복원된 발 좌표 ${axis}`);
+  });
+
+  test('비행 좀비는 높은 벽을 돌아가지 않고 위로 넘어 곧장 온다', () => {
+    // 바닥(0)과 사람(x 0)과 좀비(x 16) 사이를 가로막는 높이 6 m, 길이 60 m 벽(x 10~11)
+    const world = createWorld([makeBox(-40, -1, -40, 40, 0, 40), makeBox(10, 0, -30, 11, 6, 30)]);
+    const { d } = makeFlat({ startStage: 20, world });
+    const S = d.internals.S;
+    S.queue.length = 0; S.queue.push({ type: 'flyer' }); S.spawnAt = 0;
+    step(d);
+    const Z = alive(d).find((z) => z.t?.id === 'flyer');
+    S.queue.length = 0; S.spawnAt = Infinity;
+    Z.state = 'move'; Z.rangedAt = Infinity;
+    Z.body.pos[0] = 16; Z.body.pos[1] = 1.25; Z.body.pos[2] = 0;
+    let top = 0;
+    for (let i = 0; i < 300 && Z.body.pos[0] > 9; i++) { step(d); top = Math.max(top, Z.body.pos[1]); }
+    assert.ok(Z.body.pos[0] < 10, `벽을 넘어왔다 (x ${Z.body.pos[0].toFixed(2)})`);
+    assert.ok(top > 6, `벽 위로 넘었다 (가장 높이 ${top.toFixed(2)})`);
+    assert.ok(Math.abs(Z.body.pos[2]) < 1, '옆으로 돌아가지 않았다');
   });
 
   test('30스테이지 블리츠: 가끔 섞이고, 그랩에 맞으면 블리츠 앞으로 끌려가고(20초 쿨타임), 평타에 맞으면 기절하며 뜬다', () => {
@@ -1040,6 +1060,14 @@ describe('맞은 뒤 무적', () => {
       if (q.hp === 100) { dodged++; assert.equal(q.hitUntil, 0, '피한 공격은 무적을 만들지 않는다'); } else landed++;
     }
     assert.ok(landed >= 10 && landed <= 60, `회피 상한 90%: 300번 중 ${landed}번 맞음`);
+    // 광역 공격(폭발)은 회피로 피하지 못한다
+    for (let i = 0; i < 30; i++) {
+      q.hp = 100; q.hitUntil = 0;
+      spitAt(d2, pos2.p1, 0);
+      d2.internals.projectiles.at(-1).blast = { r: 3, dmg: 10 };
+      step(d2);
+      assert.ok(q.hp < 100, `폭발은 회피 90%여도 맞는다 (${i}번째)`);
+    }
     q.perks.dodge = 0;
     q.hp = 100; q.hitUntil = 0;
     spitAt(d2, pos2.p1, 10);

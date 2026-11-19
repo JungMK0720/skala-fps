@@ -26,7 +26,7 @@
  * 세션의 이벤트는 3초 동안 스냅샷마다 다시 실리기 때문이다(SYNC_API.md 2절).
  * 좀비 전용 맵(o.gates)이면 좀비는 그 좀비 문에서만 나온다.
  */
-import { moveCharacter, lineOfSight, getGroundY } from '../../engine/physics.js';
+import { moveCharacter, lineOfSight, getGroundY, raycastWorld } from '../../engine/physics.js';
 import { PLAYER } from '../../core/consts.js';
 import { computeDamage, getDef, explosionFalloff } from '../../weapons/defs.js';
 import {
@@ -67,7 +67,11 @@ const STUCK_RECYCLE_MS = 9000;    // 이만큼 사람에게 다가가지 못한 
 const GRAVITY = -12;
 const PULL_UP = 5;                // 그랩에 끌려갈 때 위로 뜨는 속도(m/s)
 const PLAYER_GRAVITY = PLAYER.GRAVITY;
-const FLY_HEIGHT = 1.25;        // 비행 좀비의 발 높이(바닥 위 m). 작은 모형의 머리는 약 2.6 m
+const FLY_HEIGHT = 1.25;        // 비행 좀비가 바닥에서 나올 때의 발 높이(바닥 위 m)
+const FLY_CRUISE = 5;           // 비행 좀비는 노리는 사람의 발보다 이만큼 높이 떠서 난다(지붕·차 위를 곧장 넘는다)
+const FLY_CLIMB = 3.5;          // 오르내리는 속도(m/s)
+const FLY_BODY = 1.4;           // 비행 좀비 몸 높이(천장과 띄우는 값)
+const FLY_NAV_MS = 2500;        // 곧장 날다 막히면 이 시간 동안 바닥 길찾기 방향을 빌린다
 const NADE_RADIUS = (getDef('gr_frag') && getDef('gr_frag').explosion && getDef('gr_frag').explosion.radius) || 5;
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -535,14 +539,14 @@ export function createHorde(o = {}) {
 
   /* ------------------------------------------------------------------ 피해 */
   /**
-   * 사람이 맞음. from = 좀비(없으면 장판 등). opt = { melee, at: 맞은 쪽 자리, knock: 밀려남 배율, zombie: from이 없어도 좀비·보스가 낸 피해(침·투사체·폭발) }.
+   * 사람이 맞음. from = 좀비(없으면 장판 등). opt = { melee, area: 광역(폭발·장판·내려찍기·충격파, 회피로 못 피한다), at: 맞은 쪽 자리, knock: 밀려남 배율, zombie: from이 없어도 좀비·보스가 낸 피해(침·투사체·폭발) }.
    * 맞으면(피하지 않았으면) 잠깐 무적이고, knock이 있으면 맞은 쪽 반대로 밀려난다(보호막이 막아도). 좀비·보스에게 맞으면 폭발 반응 장갑이 터진다
    */
   function hurtPlayer(P, amount, from, ev, opt = {}) {
     if (!P || !P.alive || !(amount > 0) || S.phase !== 'wave') return 0;
     if (invulnerable(P)) return 0;    // 증강을 고르는 중(멀티)이거나 고른 직후 3초, 동료가 살려 일어난 직후 2초
     if (S.clock < P.hitUntil) return 0;   // 맞은 뒤 무적(여러 마리에게 한꺼번에 맞아도 한 번만 들어간다)
-    if (P.perks.dodge > 0 && rng() < Math.min(DODGE_CAP, P.perks.dodge)) return 0;
+    if (!opt.area && P.perks.dodge > 0 && rng() < Math.min(DODGE_CAP, P.perks.dodge)) return 0;
     P.hitUntil = S.clock + R.hitInvulnMs + 1000 * Math.max(0, P.perks.iframe || 0);
     if (opt.knock > 0 && !(P.perks.noKnock > 0)) pushPlayer(P, from && from.body ? from.body.pos : opt.at, opt.knock);
     if ((from || opt.zombie) && P.perks.reactive > 0) reactiveBlast(P, ev);
@@ -826,7 +830,7 @@ export function createHorde(o = {}) {
       const d = Math.hypot(T.pos[0] - p[0], (T.pos[1] + 1) - (p[1] + 0.6), T.pos[2] - p[2]);
       if (d > radius) continue;
       if (world && !lineOfSight(world, [p[0], p[1] + 0.8, p[2]], [T.pos[0], T.pos[1] + 1.2, T.pos[2]])) continue;
-      hurtTarget(T, dmg * (1 - 0.6 * (d / radius)), null, ev, { at: [p[0], p[1] + 1, p[2]], knock: 1.5, zombie: true });
+      hurtTarget(T, dmg * (1 - 0.6 * (d / radius)), null, ev, { at: [p[0], p[1] + 1, p[2]], knock: 1.5, zombie: true, area: true });
     }
   }
 
@@ -1099,19 +1103,37 @@ export function createHorde(o = {}) {
     Z.yaw += d * Math.min(1, dt * rate);
   }
 
-  /** 비행 좀비는 바닥 길찾기의 수평 방향만 빌리고, 충돌선을 확인하며 바닥 위를 떠서 이동한다. */
-  function flyMove(Z, vx, vz, dt) {
+  /**
+   * 비행 좀비: 공중에서 움직인다. 노리는 사람의 발보다 FLY_CRUISE 높이(천장이 있으면 그 아래, 바닥보다는 늘 FLY_HEIGHT 위)로
+   * 오르내리며 수평으로 곧장 날고, 앞이 막히면 먼저 위로 올라 넘는다. 오를 수도 없으면(천장) 잠깐 바닥 길찾기 방향을 빌린다.
+   * T가 없으면(끌려가는 중 등) 지금 높이를 지킨다.
+   */
+  function flyMove(Z, vx, vz, dt, T) {
     const p = Z.body.pos;
-    const x = p[0] + vx * dt, z = p[2] + vz * dt;
-    const floor = world ? getGroundY(world, x, z, p[1] + 0.5) : p[1] - FLY_HEIGHT;
-    const y = Number.isFinite(floor) ? floor + FLY_HEIGHT : p[1];
-    if (world && (!lineOfSight(world, [p[0], p[1] + 0.12, p[2]], [x, y + 0.12, z]) ||
-      !lineOfSight(world, [p[0], p[1] + 1.15, p[2]], [x, y + 1.15, z]))) {
-      Z.body.vel[0] = Z.body.vel[1] = Z.body.vel[2] = 0;
-      return;
+    const floorAt = (x, z) => { const g = world ? getGroundY(world, x, z, p[1] + 0.5) : -Infinity; return Number.isFinite(g) ? g : -Infinity; };
+    const floor = floorAt(p[0], p[2]);
+    let want = T && T.pos ? T.pos[1] + FLY_CRUISE : p[1];
+    if (world) {
+      const up = raycastWorld(world, [p[0], p[1] + 0.6, p[2]], [0, 1, 0], FLY_CRUISE + FLY_BODY + 2);
+      if (up) want = Math.min(want, p[1] + 0.6 + up.dist - FLY_BODY - 0.2);
     }
-    Z.body.vel[0] = vx; Z.body.vel[1] = (y - p[1]) / dt; Z.body.vel[2] = vz;
-    p[0] = x; p[1] = y; p[2] = z;
+    want = Math.max(want, floor + FLY_HEIGHT);
+    const vy = clamp((want - p[1]) * 2.5, -FLY_CLIMB, FLY_CLIMB);
+    const clear = (a, b) => !world || (lineOfSight(world, [a[0], a[1] + 0.12, a[2]], [b[0], b[1] + 0.12, b[2]]) &&
+      lineOfSight(world, [a[0], a[1] + FLY_BODY - 0.15, a[2]], [b[0], b[1] + FLY_BODY - 0.15, b[2]]));
+    let nx = p[0] + vx * dt, nz = p[2] + vz * dt;
+    let ny = Math.max(p[1] + vy * dt, floorAt(nx, nz) + 0.3);
+    if (!clear(p, [nx, ny, nz])) {
+      // 앞이 막혔다: 제자리에서 위로 오른다. 오를 수도 없으면 잠깐 바닥 길찾기를 따른다
+      nx = p[0]; nz = p[2]; ny = p[1] + FLY_CLIMB * dt;
+      if (!clear(p, [nx, ny, nz])) {
+        Z.flyNavUntil = S.clock + FLY_NAV_MS;
+        Z.body.vel[0] = Z.body.vel[1] = Z.body.vel[2] = 0;
+        return;
+      }
+    }
+    Z.body.vel[0] = (nx - p[0]) / dt; Z.body.vel[1] = (ny - p[1]) / dt; Z.body.vel[2] = (nz - p[2]) / dt;
+    p[0] = nx; p[1] = ny; p[2] = nz;
   }
 
   const wish = { x: 0, z: 0, jump: false };
@@ -1121,15 +1143,18 @@ export function createHorde(o = {}) {
     if (T && T.pos) {
       const dx = T.pos[0] - p[0], dz = T.pos[2] - p[2];
       const d = hyp2(dx, dz);
-      // 가까우면 보이는지 확인하고 곧장, 멀면 흐름장
-      if (d < 9 && S.clock >= Z.losAt) {
+      const fly = Z.t && Z.t.flying;
+      // 비행 좀비는 곧장 난다(막혀서 오를 수도 없을 때만 잠깐 바닥 길찾기). 걷는 좀비는 가까우면 보이는지 확인하고 곧장, 멀면 흐름장
+      if (fly) Z.los = !(S.clock < (Z.flyNavUntil || 0));
+      else if (d < 9 && S.clock >= Z.losAt) {
         Z.losAt = S.clock + LOS_MS;
-        Z.los = !world || (Z.t && Z.t.flying
-          ? lineOfSight(world, [p[0], p[1] + 0.6, p[2]], [T.pos[0], T.pos[1] + 1.0, T.pos[2]])
-          : Math.abs(T.pos[1] - p[1]) < 1.2 && lineOfSight(world, [p[0], p[1] + 1.2, p[2]], [T.pos[0], T.pos[1] + 1.0, T.pos[2]]));
+        Z.los = !world || (Math.abs(T.pos[1] - p[1]) < 1.2 && lineOfSight(world, [p[0], p[1] + 1.2, p[2]], [T.pos[0], T.pos[1] + 1.0, T.pos[2]]));
       } else if (d >= 9) Z.los = false;
       let step = null;
-      if (!Z.los && S.flowOk) step = nav.flowStep(Z.t && Z.t.flying ? { x: p[0], y: p[1] - FLY_HEIGHT, z: p[2] } : p, Z.node);
+      if (!Z.los && S.flowOk) {
+        const g = fly && world ? getGroundY(world, p[0], p[2], p[1] + 0.5) : NaN;
+        step = nav.flowStep(fly ? { x: p[0], y: Number.isFinite(g) ? g : p[1] - FLY_HEIGHT, z: p[2] } : p, Z.node);
+      }
       if (step) Z.node = step.node;
       if (step && step.next) {
         const tx = step.next.x - p[0], tz = step.next.z - p[2];
@@ -1154,7 +1179,7 @@ export function createHorde(o = {}) {
     if (l > 1) { dirX /= l; dirZ /= l; }
     const sp = Z.speed * speedK;
     wish.x = dirX * sp; wish.z = dirZ * sp;
-    if (Z.t && Z.t.flying) flyMove(Z, wish.x, wish.z, dt);
+    if (Z.t && Z.t.flying) flyMove(Z, wish.x, wish.z, dt, T);
     else if (world) {
       const before = hyp2(Z.body.vel[0], Z.body.vel[2]);
       moveCharacter(world, Z.body, wish, dt, { radius: Z.radius, height: Math.min(2.4, 1.8 * Math.min(1.3, Z.scale)) });
@@ -1265,7 +1290,7 @@ export function createHorde(o = {}) {
       // 너무 가까우면 뒤로 물러난다
       const l = d || 1;
       wish.x = (-dx / l) * Z.speed * 0.8 * speedK; wish.z = (-dz / l) * Z.speed * 0.8 * speedK;
-      if (Z.t && Z.t.flying) flyMove(Z, wish.x, wish.z, dt);
+      if (Z.t && Z.t.flying) flyMove(Z, wish.x, wish.z, dt, T);
       else if (world) moveCharacter(world, Z.body, wish, dt, { radius: Z.radius });
       faceTo(Z, T.pos[0], T.pos[2], dt, 8);
       return;
@@ -1375,7 +1400,7 @@ export function createHorde(o = {}) {
       h.tick = 0;
       for (const P of aliveList()) {
         if (!P.pos) continue;
-        if (hyp2(P.pos[0] - h.x, P.pos[2] - h.z) <= h.r && Math.abs(P.pos[1] - h.y) < 1.2) hurtPlayer(P, h.dps * k, null, ev, { at: [h.x, h.y + 0.5, h.z] });
+        if (hyp2(P.pos[0] - h.x, P.pos[2] - h.z) <= h.r && Math.abs(P.pos[1] - h.y) < 1.2) hurtPlayer(P, h.dps * k, null, ev, { at: [h.x, h.y + 0.5, h.z], area: true });
       }
     }
   }
@@ -1440,7 +1465,7 @@ export function createHorde(o = {}) {
             if (!P.pos) continue;
             const d = hyp2(P.pos[0] - p[0], P.pos[2] - p[2]);
             if (d <= s.radius && Math.abs(P.pos[1] - p[1]) < 2.5) {
-              hurtPlayer(P, s.dmg * dmgK * (1 - 0.4 * d / s.radius), Z, ev);
+              hurtPlayer(P, s.dmg * dmgK * (1 - 0.4 * d / s.radius), Z, ev, { area: true });
               knock(P, p, s.knock, ev);
             }
           }
@@ -1583,7 +1608,7 @@ export function createHorde(o = {}) {
           const gy = world ? getGroundY(world, P.pos[0], P.pos[2], P.pos[1] + 0.1) : 0;
           k.hit.add(P.id);
           if (P.pos[1] - gy > 0.45) continue;
-          hurtPlayer(P, s.dmg * dmgK, Z, ev);
+          hurtPlayer(P, s.dmg * dmgK, Z, ev, { area: true });
         }
         if (world) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius });
         if (S.clock >= k.until) Z.skill = null;
@@ -1604,7 +1629,7 @@ export function createHorde(o = {}) {
           for (const P of aliveList()) {
             if (!P.pos) continue;
             const d = hyp2(P.pos[0] - p[0], P.pos[2] - p[2]);
-            if (d <= s.radius && Math.abs(P.pos[1] - p[1]) < 2.5) { hurtPlayer(P, s.dmg * dmgK * (1 - 0.4 * d / s.radius), Z, ev); knock(P, p, 7, ev); }
+            if (d <= s.radius && Math.abs(P.pos[1] - p[1]) < 2.5) { hurtPlayer(P, s.dmg * dmgK * (1 - 0.4 * d / s.radius), Z, ev, { area: true }); knock(P, p, 7, ev); }
           }
           Z.skill = null;
           Z.attackReady = S.clock + 500;
