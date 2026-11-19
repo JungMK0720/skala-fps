@@ -117,6 +117,8 @@ language sql immutable set search_path = public, extensions as $$
   select case p_id
     when 'ar_std' then 0 when 'ar_rapid' then 800 when 'ar_line' then 1200 when 'ar_burst' then 1000 when 'dm_mark' then 1500
     when 'sm_vx3' then 600 when 'sg_bx12' then 700
+    when 'sg_pump' then 900 when 'sg_double' then 1000 when 'sg_auto' then 1500
+    when 'sm_uzi_dual' then 1100 when 'mg_minigun' then 2800
     when 'sr_bolt' then 0 when 'sr_twin' then 1500 when 'sr_swift' then 1000 when 'sr_heavy' then 2500
     when 'pt_std' then 0 when 'pt_magnum' then 500
     when 'ml_knife' then 0 when 'ml_tanto' then 500 when 'ml_gurkha' then 800 when 'ml_katana' then 1200

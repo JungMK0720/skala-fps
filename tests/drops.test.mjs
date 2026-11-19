@@ -28,9 +28,9 @@ function drain(a, id, maxSeconds = 300) {
 }
 
 describe('프리미엄 총', () => {
-  test('상점 가격 기준으로 정해지고 네 자루다', () => {
+  test('상점 가격 기준으로 정해지고 여섯 자루다', () => {
     const premium = GUNS.filter(isPremium).sort();
-    assert.deepEqual(premium, ['ar_line', 'dm_mark', 'sr_heavy', 'sr_twin']);
+    assert.deepEqual(premium, ['ar_line', 'dm_mark', 'mg_minigun', 'sg_auto', 'sr_heavy', 'sr_twin']);
     for (const id of GUNS) assert.equal(WEAPONS[id].premium, WEAPONS[id].price >= PREMIUM_PRICE, id);
     assert.equal(isPremium('ml_katana'), false, '칼은 탄약이 없다');
     assert.equal(isPremium('없는무기'), false);

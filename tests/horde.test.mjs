@@ -220,9 +220,9 @@ describe('새 카드: 이미 있는 카드의 전송 번호는 그대로', () =>
   const OLD_SPECIALS = ('second glass wall chain luck wide medkit syringe drop hunter thrift perfect giant thirst runngun drum samurai iron ' +
     'tactical react dread coin adrenaline bunker fireNade iceNade decoyNade multiNade rearm sideGl sideRl').split(' ');
   const OLD = [...OLD_FAMILIES.flatMap((f) => [1, 2, 3, 4].map((n) => `${f}${n}`)), ...OLD_SPECIALS];
-  const ADDED = ['reflex1', 'reflex2', 'reflex3', 'reflex4', 'wave1', 'wave2', 'wave3', 'wave4', 'anchor', 'c4'];
+  const ADDED = ['reflex1', 'reflex2', 'reflex3', 'reflex4', 'wave1', 'wave2', 'wave3', 'wave4', 'anchor', 'c4', 'shieldKnife', 'airStrike', 'sideGravity'];
 
-  test('예전 카드 187장은 번호가 같고, 새 카드 10장은 그 뒤에 붙는다', () => {
+  test('예전 카드 187장은 번호가 같고, 새 카드 13장은 그 뒤에 붙는다', () => {
     assert.equal(OLD.length, 187);
     OLD.forEach((id, i) => assert.equal(cardById(id) && cardById(id).idx, i, id));
     assert.deepEqual(CARDS.slice(OLD.length).map((c) => c.id), ADDED);
@@ -290,7 +290,7 @@ describe('수류탄 증강: 최대 수류탄 +2 · C4', () => {
     assert.equal(a.refillGrenades(), 7);
   });
 
-  test('C4 폭발은 손으로 던진 수류탄과 같다(배율 1.6 · 빙결 같은 수류탄 증강이 붙는다)', () => {
+  test('C4 폭발은 손으로 던진 수류탄과 같다(배율 10 · 빙결 같은 수류탄 증강이 붙는다)', () => {
     assert.equal(nadeDamage(50, {}, false, 'c4'), nadeDamage(50, {}, false));
     const { d, pos, P } = makeFlat();
     runUntil(d, () => alive(d).length >= 2, 8000);
@@ -302,7 +302,7 @@ describe('수류탄 증강: 최대 수류탄 +2 · C4', () => {
     p.perks = computePerks(p.cards);
     const center = { x: pos.p1[0] + 5, y: 0, z: pos.p1[2] };
     d.claimExplosion({ attackerId: 'p1', center, kind: 'c4', victims: [{ id: 'z' + a.id, dmg: 50 }] });
-    assert.equal(a.hp, 10000 - Math.round(50 * 1.6));
+    assert.equal(a.hp, 10000 - Math.round(50 * 10));   // 폭심 100 → 1000(QA 요청: 수류탄 기본 피해 1000)
     assert.ok(a.frozenUntil > d.internals.S.clock, 'C4에도 빙결이 붙는다');
     d.claimExplosion({ attackerId: 'p1', center, kind: 'gl', victims: [{ id: 'z' + b.id, dmg: 50 }] });
     assert.ok(!(b.frozenUntil > d.internals.S.clock), '유탄에는 수류탄 증강이 붙지 않는다');
@@ -350,7 +350,10 @@ describe('보스 · 스테이지 규칙', () => {
     assert.ok(zombieCount(10) > zombieCount(1));
     assert.ok(hpMul(20) > hpMul(10));
     assert.ok(zombieMix(1).every((m) => m.type.id === 'walker'));
-    assert.ok(zombieMix(12).length === 6);
+    assert.ok(zombieMix(12).length === 5, '원거리 스피터는 20스테이지부터');
+    assert.ok(!zombieMix(19).some((m) => m.type.id === 'spitter'));
+    assert.ok(zombieMix(20).some((m) => m.type.id === 'spitter'));
+    assert.ok(zombieMix(20).length === 6);
   });
 
   test('경험치: 레벨마다 10·20·30…, 시간 안에 다 잡으면 남은 2초당 1, 강한 좀비일수록 많다', () => {

@@ -54,7 +54,7 @@ async function fireAndReload(t, page, id) {
   await page.eval('__qa.clearLogs()');
 
   if (def.fire === 'auto') {
-    await clickFire(page, 12);
+    await clickFire(page, Math.max(12, Math.ceil(def.fireInterval * 60 * 2.6)));   // 느린 자동 총(자동 샷건 0.3초)도 두 발 이상 나가게
     await waitTicks(page, 2);
   } else {
     await clickFire(page, 2);

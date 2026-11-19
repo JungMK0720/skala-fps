@@ -132,9 +132,9 @@ describe('상점 화면', () => {
     assert.equal(s.onTab(), '캐릭터', '새로 열 때 tab을 주면 그 탭');
   });
 
-  test('좀비 전용 무기(zombieOnly: 기관총·유탄 발사기·바주카포)는 무기 표에 들어 있어도 상점 탭과 카드에 나오지 않는다', (t) => {
+  test('좀비 전용 무기(zombieOnly: 기관총·유탄 발사기·바주카포·중력건)는 무기 표에 들어 있어도 상점 탭과 카드에 나오지 않는다', (t) => {
     const zombieOnly = Object.keys(WEAPONS).filter((id) => WEAPONS[id].zombieOnly);
-    assert.deepEqual(zombieOnly.sort(), ['gl_m32', 'mg_m249', 'rl_b9']);
+    assert.deepEqual(zombieOnly.sort(), ['gl_m32', 'gv_gun', 'mg_m249', 'rl_b9']);
     const s = makeShop(t, offlineAccount(t));
     s.shop.show({ tab: null });
     const tabs = s.shop.el.all((k) => k.classList.contains('sk-tab')).map((k) => k.textContent);

@@ -1486,13 +1486,15 @@ export function createSession(options = {}) {
     const out = {};
     if (current && current.localAlive) {
       const lp = vec((call(world, 'getLocalState') || {}).pos);
-      if (lp) out[me] = { x: lp[0], y: lp[1], z: lp[2] };
+      // yaw·slot·air: 좀비 모드의 방패(든 무기·바라보는 방향)와 공중 강타(점프 중)가 읽는다. 다른 모드는 x·y·z만 쓴다
+      const ls = call(world, 'getLocalState') || {};
+      if (lp) out[me] = { x: lp[0], y: lp[1], z: lp[2], yaw: ls.yaw, slot: ls.slot, air: ls.onGround === false };
     }
     if (sync) {
       for (const id of sync.remoteIds()) {
         const r = sync.remote(id);
         const p = r && r.state && r.state.alive !== false ? vec(r.state.pos) : null;
-        if (p) out[id] = { x: p[0], y: p[1], z: p[2] };
+        if (p) out[id] = { x: p[0], y: p[1], z: p[2], yaw: r.state.yaw, slot: r.state.slot, air: r.state.onGround === false };
       }
     }
     return out;
@@ -3045,7 +3047,7 @@ export function createSession(options = {}) {
   wOn('grenade', (g) => {
     if (!inRound() || current.phase !== 'live') return;
     // 종류: 손 수류탄(없음) · 유탄 발사기 'gl' · 바주카포 'rocket' · C4 수류탄 'c4'(좀비 모드 증강, 좀비에 붙는다)
-    sync.sendGrenade({ pos: g.pos, vel: g.vel, t: localT(g.t), kind: g.kind === 'gl' || g.kind === 'rocket' || g.kind === 'c4' ? g.kind : undefined, fuse: g.fuse });
+    sync.sendGrenade({ pos: g.pos, vel: g.vel, t: localT(g.t), kind: g.kind === 'gl' || g.kind === 'rocket' || g.kind === 'c4' || g.kind === 'gravity' ? g.kind : undefined, fuse: g.fuse });
   });
   // 총은 죽은 뒤에 버리므로 살아 있는지(inRound)는 보지 않는다
   wOn('weaponDrop', (d) => {

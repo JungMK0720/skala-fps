@@ -322,7 +322,8 @@ export default {
     const list = await page.eval(`({ cards: [...document.querySelectorAll('.sk-loadout .sk-lo-card .sk-lo-name')].map((e) => e.textContent),
       extras: [...document.querySelectorAll('.sk-loadout .sk-lo-extra')].filter((e) => !e.hidden).map((e) => e.querySelectorAll('.sk-choice').length),
       title: __qa.text('.sk-lo-title'), count: !document.querySelector('.sk-lo-count').hidden })`);
-    t.check(list.cards.length === 12 && list.cards[11] === WEAPONS.mg_m249.name, '주무기 12자루가 모두 나온다(가진 것과 상관없이, 좀비 전용 기관총이 맨 끝)', list.cards);
+    const primaries = Object.values(WEAPONS).filter((w) => w.slot === 1).length;
+    t.check(list.cards.length === primaries && list.cards[primaries - 1] === WEAPONS.mg_m249.name, `주무기 ${primaries}자루가 모두 나온다(가진 것과 상관없이, 좀비 전용 기관총이 맨 끝)`, list.cards);
     t.check(list.extras.length === 2 && list.extras[0] === 2 && list.extras[1] === 4, '보조 2·근접 4 빠른 교체 줄도 모두(좀비 전용 발사기는 증강으로만)', list.extras);
     t.check(/좀비 물량 막기/.test(list.title) && !list.count, '좀비 모드 교체 창은 시간 막대 없이 준비 시간 동안 열린다', list);
     await t.shot('swap-list');

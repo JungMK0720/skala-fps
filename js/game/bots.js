@@ -145,6 +145,7 @@ const KIND_STYLE = Object.freeze({
   dmr: Object.freeze({ approach: 70, closer: false, zoomFrom: 5, aimTol: 1.1, stopToFire: true }),
   smg: Object.freeze({ approach: 14, closer: true, zoomFrom: 20, aimTol: 1.3, stopToFire: false }),
   shotgun: Object.freeze({ approach: 7, closer: true, zoomFrom: Infinity, aimTol: 1.6, stopToFire: false }),
+  lmg: Object.freeze({ approach: 30, closer: false, zoomFrom: Infinity, aimTol: 1.3, stopToFire: false }),
   pistol: Object.freeze({ approach: 22, closer: false, zoomFrom: Infinity, aimTol: 1.1, stopToFire: false })
 });
 const styleOf = (info) => KIND_STYLE[info.kind] || KIND_STYLE.rifle;
