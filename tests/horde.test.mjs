@@ -704,6 +704,30 @@ describe('보스 · 스테이지 규칙', () => {
     assert.ok(near(p.hp - 50, (p.damage - dealt) * 0.5 * 0.2), `폭발 흡혈 ${p.hp - 50}, 피해 ${p.damage - dealt}`);
   });
 
+  test('치명타: 손님이 쏴도 방장이 손님 증강으로 굴리고, 쏜 사람 화면에만 큰 치명타 숫자가 뜬다', () => {
+    const { d, P } = makeFlat({ ids: ['p1', 'p2'], startStage: 1 });
+    const q = P('p2'), Z = bossAt(d, 'butcher', [6, 0, 0], 'slam');
+    d.internals.S.queue.length = 0; d.internals.S.spawnAt = Infinity;
+    q.perks.crit = 1; q.perks.critDmg = 0.5;   // 언제나 터지고 ×2
+    const hit = zombieHitDamage({ weaponId: 'ar_std', part: 'body', dist: 2, kind: 'shot', count: 1 }, q.perks, { boss: true, hpFrac: 1 }, { myHpFrac: q.hp / q.maxHp, nth: 0, air: false });
+    const hp = Z.hp;
+    const ev = d.claimHit({ attackerId: 'p2', victimId: 'z' + Z.id, weaponId: 'ar_std', part: 'body', dist: 2, kind: 'shot', count: 1, shotId: 7 });
+    const crit = ev.find((e) => e.type === 'crit');
+    assert.ok(crit && crit.by === 'p2' && crit.z === Z.id, JSON.stringify(ev));
+    assert.equal(crit.dmg, Math.round(hit.dmg * 2));
+    assert.equal(hp - Z.hp, crit.dmg, '좀비 체력도 치명타만큼 깎인다');
+    assert.ok(!d.claimHit({ attackerId: 'p1', victimId: 'z' + Z.id, weaponId: 'ar_std', part: 'body', dist: 2, kind: 'shot', count: 1, shotId: 8 }).some((e) => e.type === 'crit'), '증강 없는 방장은 터지지 않는다');
+    const shown = (me) => {
+      const nums = [];
+      const client = createHordeClient({ world: { hordeDamageNumber: (pos, amount, kind) => nums.push([amount, kind]) }, ui: null, meId: me });
+      client.apply(applyHordeSnapshot(JSON.parse(JSON.stringify(d.snapshot()))), [crit]);
+      client.dispose();
+      return nums;
+    };
+    assert.deepEqual(shown('p2'), [[crit.dmg, 'crit']], '쏜 손님 화면에 치명타 숫자');
+    assert.deepEqual(shown('p1'), [], '다른 사람 화면에는 띄우지 않는다');
+  });
+
   test('ESC 능력치 자료는 획득한 증강·회피·피해·무적 시간·현재 보호막·방패 조건을 반영한다', () => {
     const { d, P } = makeFlat({ startStage: 1 });
     const p = P('p1');

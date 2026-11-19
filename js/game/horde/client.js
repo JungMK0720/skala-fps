@@ -230,12 +230,22 @@ export function createHordeClient(o) {
       }
       case 'reroll': if (String(ev.id) === meId) W('sound', 'card_shuffle'); break;
       case 'loot': onLoot(ev); break;
+      case 'crit': onCrit(ev); break;
       case 'skill': case 'chain': case 'enrage': case 'bossSpawn': W('hordeEvent', ev); break;
       case 'over': overAt = performance.now(); break;
       case 'join': if (H && String(ev.id) !== meId) H.callout(`${ev.name || '동료'}님 합류 · 다음 스테이지부터`); break;
       case 'leave': if (H && String(ev.id) !== meId) H.callout(`${nameOf(String(ev.id)) || '동료'}님이 나갔어요`); break;
       default: break;
     }
+  }
+
+  /** 방장이 굴린 치명타. 쏜 사람 화면에만 그 좀비 머리 위에 큰 빨간 숫자를 띄운다(먼저 뜬 보통 숫자보다 위) */
+  function onCrit(ev) {
+    if (String(ev.by) !== meId) return;
+    const z = zombieOf('z' + ev.z);
+    if (!z) return;
+    const scale = z.boss ? z.boss.scale || 1 : 1;
+    W('hordeDamageNumber', [z.pos[0], z.pos[1] + 2.1 * scale, z.pos[2]], ev.dmg, 'crit');
   }
 
   /** 방장이 확정한 보급품 줍기. 내가 주운 것만 내 무기에 넣는다(구급 상자 체력·보물 상자 증강은 방장이 준다) */
@@ -621,7 +631,7 @@ export function createHordeClient(o) {
     if (!c || String(c.victimId)[0] !== 'z') return;
     // 좀비를 맞힌 순간의 히트마커(방장 확인 전에 보여 준다. 처치 표시는 스냅샷이 확인한다)
     W('feedbackDamage', { amount: 0, head: c.part === 'head', kill: false, incoming: false });
-    // 피해 숫자: 방장과 같은 공식(치명타는 방장만 굴려 빠진다). 머리는 크고 노랗게, 몸은 작게
+    // 피해 숫자: 방장과 같은 공식. 치명타는 방장이 굴려 'crit' 이벤트로 오면 따로 크게 띄운다(onCrit). 머리는 크고 노랗게, 몸은 작게
     const z = zombieOf(c.victimId);
     // 검기는 한 번에 여러 마리를 맞혀도 칼과 같은 피해다(관통처럼 줄지 않는다): 관통 순서를 세지 않는다
     const wave = c.kind === 'wave' || c.kind === 'waveStab';

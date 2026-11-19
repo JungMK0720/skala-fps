@@ -35,13 +35,14 @@ const WAVE_DT_MAX = 0.1;        // 한 프레임에 검기를 움직이는 최�
 const REVIVE_HOLD_MS = HORDE.reviveHoldMs || 3000;
 const REVIVE_RING_R = 0.95;     // 쓰러진 자리 고리 반지름(m)
 const LABEL_W = 384;            // 쓰러진 동료 이름표 캔버스 폭(높이 64). 긴 닉네임과 '62%'가 한 줄에 들어가게
-// 피해 숫자 모양: 머리는 크고 노랗게, 몸은 작게 하양, 다리는 더 작게, 칼은 하늘색, 수류탄은 주황(scale = 화면 높이 기준 크기)
+// 피해 숫자 모양: 머리는 크고 노랗게, 몸은 작게 하양, 다리는 더 작게, 칼은 하늘색, 수류탄은 주황, 치명타는 가장 크게 빨강 + '!'(scale = 화면 높이 기준 크기)
 const NUM_STYLE = Object.freeze({
   head: { color: '#ffd23a', scale: 0.085, dur: 950, rise: 0.8 },
   body: { color: '#ffffff', scale: 0.052, dur: 750, rise: 0.55 },
   legs: { color: '#d4dae2', scale: 0.046, dur: 700, rise: 0.5 },
   melee: { color: '#8ff3ff', scale: 0.064, dur: 800, rise: 0.6 },
-  nade: { color: '#ff9a3c', scale: 0.066, dur: 900, rise: 0.7 }
+  nade: { color: '#ff9a3c', scale: 0.066, dur: 900, rise: 0.7 },
+  crit: { color: '#ff3d3d', scale: 0.13, dur: 1200, rise: 1.0, mark: '!' }
 });
 const DELAY_MIN = 45, DELAY_MAX = 260;
 const EXTRAP_MS = 140;
@@ -737,7 +738,7 @@ export function createHordeView(o) {
     scene.add(sp);
     return { sp, canvas, g: canvas.getContext('2d'), tex, at: -1e9, dur: 1, alive: false, x: 0, y: 0, z: 0, style: NUM_STYLE.body };
   }
-  /** 좀비에게 준 피해 숫자 하나를 pos 위에 띄운다. kind = 'head' | 'body' | 'legs' | 'melee' | 'nade' */
+  /** 좀비에게 준 피해 숫자 하나를 pos 위에 띄운다. kind = 'head' | 'body' | 'legs' | 'melee' | 'nade' | 'crit' */
   function damageNumber(pos, amount, kind) {
     if (!active || !pos || typeof document === 'undefined') return;
     const v = Math.max(0, Math.round(Number(amount) || 0));
@@ -746,13 +747,17 @@ export function createHordeView(o) {
     let n = nums.find((x) => !x.alive);
     if (!n) n = nums.length < MAX_NUMS ? (nums.push(makeNum()), nums[nums.length - 1]) : nums.reduce((a, b) => (a.at < b.at ? a : b));
     const g = n.g;
+    const text = String(v) + (style.mark || '');
     g.clearRect(0, 0, 128, 64);
     g.font = '900 44px system-ui, -apple-system, "Segoe UI", sans-serif';
+    // 자리 수가 많으면(치명타 '12345!') 캔버스 폭 안에 들어가게 글자를 줄인다
+    const w = g.measureText(text).width;
+    if (w > 116) g.font = `900 ${Math.floor(44 * 116 / w)}px system-ui, -apple-system, "Segoe UI", sans-serif`;
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.lineJoin = 'round'; g.lineWidth = 8; g.strokeStyle = 'rgba(0, 0, 0, 0.85)';
-    g.strokeText(String(v), 64, 34);
+    g.strokeText(text, 64, 34);
     g.fillStyle = style.color;
-    g.fillText(String(v), 64, 34);
+    g.fillText(text, 64, 34);
     n.tex.needsUpdate = true;
     n.x = pos[0] + (Math.random() - 0.5) * 0.35; n.y = pos[1] + 0.1; n.z = pos[2] + (Math.random() - 0.5) * 0.35;
     n.at = performance.now(); n.dur = style.dur; n.style = style; n.alive = true;
