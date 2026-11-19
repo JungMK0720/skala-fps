@@ -62,6 +62,7 @@ const LOS_MS = 300;
 const JUMP_GAP_MS = 1100;
 const STUCK_RECYCLE_MS = 9000;    // 이만큼 사람에게 다가가지 못한 좀비는 다른 자리에서 다시 나온다
 const GRAVITY = -12;
+const FLY_HEIGHT = 1.25;        // 비행 좀비의 발 높이(바닥 위 m). 작은 모형의 머리는 약 2.6 m
 const NADE_RADIUS = (getDef('gr_frag') && getDef('gr_frag').explosion && getDef('gr_frag').explosion.radius) || 5;
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -474,7 +475,7 @@ export function createHorde(o = {}) {
       }
       if (score > bestScore) { bestScore = score; best = c; }
     }
-    const y = Number.isFinite(best[1]) ? best[1] : world ? getGroundY(world, best[0], best[2], 50) : 0;
+    const y = Number.isFinite(best[1]) ? best[1] : world ? getGroundY(world, best[0], best[2], 2) : 0;
     // 좀비 문: 한 자리에 겹쳐 서지 않게 문 둘레 1 m 안의 같은 높이 걷기 칸으로 흩는다
     if (gates.length && nav && typeof nav.nearestWalkable === 'function') {
       const n = nav.nearestWalkable({ x: best[0] + (rng() - 0.5) * 2.2, y, z: best[2] + (rng() - 0.5) * 2.2 }, 1.5);
@@ -493,7 +494,7 @@ export function createHorde(o = {}) {
     const maxHp = Math.round((boss ? boss.hp * bossHpMul(stage) * (1 + 0.7 * (crowd() - 1)) : t.hp * hpMul(stage)) * (extra.hpMul || 1));
     const Z = {
       id, t, boss, code: boss ? BOSS_CODE_BASE + boss.code : t.code,
-      body: { pos: [at[0], at[1], at[2]], vel: [0, 0, 0], onGround: true },
+      body: { pos: [at[0], at[1] + (t && t.flying ? FLY_HEIGHT : 0), at[2]], vel: [0, 0, 0], onGround: !(t && t.flying) },
       yaw: rng() * Math.PI * 2, hp: maxHp, maxHp,
       dmg: base.damage * dmgMul(stage), speed: base.speed * (boss ? 1 : speedMul(stage)) * (boss ? 1 : jitter),
       range: base.range, radius: Math.min(0.5, base.radius), scale: base.scale,
@@ -1065,6 +1066,21 @@ export function createHorde(o = {}) {
     Z.yaw += d * Math.min(1, dt * rate);
   }
 
+  /** 비행 좀비는 바닥 길찾기의 수평 방향만 빌리고, 충돌선을 확인하며 바닥 위를 떠서 이동한다. */
+  function flyMove(Z, vx, vz, dt) {
+    const p = Z.body.pos;
+    const x = p[0] + vx * dt, z = p[2] + vz * dt;
+    const floor = world ? getGroundY(world, x, z, p[1] + 0.5) : p[1] - FLY_HEIGHT;
+    const y = Number.isFinite(floor) ? floor + FLY_HEIGHT : p[1];
+    if (world && (!lineOfSight(world, [p[0], p[1] + 0.12, p[2]], [x, y + 0.12, z]) ||
+      !lineOfSight(world, [p[0], p[1] + 1.15, p[2]], [x, y + 1.15, z]))) {
+      Z.body.vel[0] = Z.body.vel[1] = Z.body.vel[2] = 0;
+      return;
+    }
+    Z.body.vel[0] = vx; Z.body.vel[1] = (y - p[1]) / dt; Z.body.vel[2] = vz;
+    p[0] = x; p[1] = y; p[2] = z;
+  }
+
   const wish = { x: 0, z: 0, jump: false };
   function moveZombie(Z, T, dt, speedK) {
     const p = Z.body.pos;
@@ -1075,10 +1091,12 @@ export function createHorde(o = {}) {
       // 가까우면 보이는지 확인하고 곧장, 멀면 흐름장
       if (d < 9 && S.clock >= Z.losAt) {
         Z.losAt = S.clock + LOS_MS;
-        Z.los = !world || (Math.abs(T.pos[1] - p[1]) < 1.2 && lineOfSight(world, [p[0], p[1] + 1.2, p[2]], [T.pos[0], T.pos[1] + 1.0, T.pos[2]]));
+        Z.los = !world || (Z.t && Z.t.flying
+          ? lineOfSight(world, [p[0], p[1] + 0.6, p[2]], [T.pos[0], T.pos[1] + 1.0, T.pos[2]])
+          : Math.abs(T.pos[1] - p[1]) < 1.2 && lineOfSight(world, [p[0], p[1] + 1.2, p[2]], [T.pos[0], T.pos[1] + 1.0, T.pos[2]]));
       } else if (d >= 9) Z.los = false;
       let step = null;
-      if (!Z.los && S.flowOk) step = nav.flowStep(p, Z.node);
+      if (!Z.los && S.flowOk) step = nav.flowStep(Z.t && Z.t.flying ? { x: p[0], y: p[1] - FLY_HEIGHT, z: p[2] } : p, Z.node);
       if (step) Z.node = step.node;
       if (step && step.next) {
         const tx = step.next.x - p[0], tz = step.next.z - p[2];
@@ -1092,6 +1110,7 @@ export function createHorde(o = {}) {
     // 서로 밀어내기
     let sx = 0, sz = 0;
     for (const O of neighbors(Z, nb)) {
+      if (Math.abs(O.body.pos[1] - p[1]) > 1) continue;
       const ox = p[0] - O.body.pos[0], oz = p[2] - O.body.pos[2];
       const d = hyp2(ox, oz);
       const want = (Z.radius + O.radius) * 1.15;
@@ -1102,7 +1121,8 @@ export function createHorde(o = {}) {
     if (l > 1) { dirX /= l; dirZ /= l; }
     const sp = Z.speed * speedK;
     wish.x = dirX * sp; wish.z = dirZ * sp;
-    if (world) {
+    if (Z.t && Z.t.flying) flyMove(Z, wish.x, wish.z, dt);
+    else if (world) {
       const before = hyp2(Z.body.vel[0], Z.body.vel[2]);
       moveCharacter(world, Z.body, wish, dt, { radius: Z.radius, height: Math.min(2.4, 1.8 * Math.min(1.3, Z.scale)) });
       const after = hyp2(Z.body.vel[0], Z.body.vel[2]);
@@ -1120,7 +1140,7 @@ export function createHorde(o = {}) {
   /** 떨어졌거나 오래 막힌 좀비: 다른 자리에서 다시 나온다(체력은 그대로) */
   function recycle(Z) {
     const at = pickSpawnPoint(R.spawnSafeM);
-    Z.body.pos[0] = at[0]; Z.body.pos[1] = at[1]; Z.body.pos[2] = at[2];
+    Z.body.pos[0] = at[0]; Z.body.pos[1] = at[1] + (Z.t && Z.t.flying ? FLY_HEIGHT : 0); Z.body.pos[2] = at[2];
     Z.body.vel[0] = Z.body.vel[1] = Z.body.vel[2] = 0;
     Z.state = 'rise'; Z.until = S.clock + 600; Z.node = -1; Z.progressAt = S.clock; Z.bestDist = Infinity; Z.stuck = 0;
   }
@@ -1134,7 +1154,7 @@ export function createHorde(o = {}) {
     if (Z.boss && !Z.enraged && Z.hp < Z.maxHp * Z.boss.enrage.at) { Z.enraged = true; ev.push({ type: 'enrage', z: Z.id, boss: Z.boss.id }); }
     if (Z.state === 'rise') { if (now >= Z.until) Z.state = 'move'; else return; }
     // 얼어붙음: 제자리에 서서 아무것도 못 한다
-    if (Z.frozenUntil > now) { Z.body.vel[0] = Z.body.vel[2] = 0; if (world) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius }); return; }
+    if (Z.frozenUntil > now) { Z.body.vel[0] = Z.body.vel[2] = 0; if (world && !(Z.t && Z.t.flying)) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius }); return; }
     // 중력건에 끌려가는 중: 폭심으로 빨려 들어가고, 닿으면 그 자리에서 멈춘다(보스는 느리게). 그동안 때리지 못한다
     if (Z.pullUntil > now && Z.pullTo) {
       const p0 = Z.body.pos;
@@ -1142,7 +1162,8 @@ export function createHorde(o = {}) {
       const d0 = hyp2(dx0, dz0);
       const sp0 = d0 > 0.35 ? GRAVITY_PULL_SPEED * (Z.boss ? 0.45 : 1) : 0;
       const wish0 = { x: sp0 > 0 ? (dx0 / d0) * sp0 : 0, z: sp0 > 0 ? (dz0 / d0) * sp0 : 0 };
-      if (world) moveCharacter(world, Z.body, wish0, dt, { radius: Z.radius, height: Math.min(2.4, 1.8 * Math.min(1.3, Z.scale)) });
+      if (Z.t && Z.t.flying) flyMove(Z, wish0.x, wish0.z, dt);
+      else if (world) moveCharacter(world, Z.body, wish0, dt, { radius: Z.radius, height: Math.min(2.4, 1.8 * Math.min(1.3, Z.scale)) });
       else { p0[0] += wish0.x * dt; p0[2] += wish0.z * dt; Z.body.vel[0] = wish0.x; Z.body.vel[2] = wish0.z; }
       if (sp0 > 0) faceTo(Z, Z.pullTo[0], Z.pullTo[2], dt, 8);
       Z.progressAt = now; Z.bestDist = Infinity; Z.stuck = 0;
@@ -1158,7 +1179,7 @@ export function createHorde(o = {}) {
       Z.body.vel[0] = Z.body.vel[2] = 0;
       Z.progressAt = S.clock; Z.bestDist = Infinity;
       if (Z.state === 'wind') { Z.state = 'move'; Z.windRanged = false; }
-      if (world) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius });
+      if (world && !(Z.t && Z.t.flying)) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius });
       return;
     }
     const p = Z.body.pos;
@@ -1168,7 +1189,7 @@ export function createHorde(o = {}) {
     // 공격 예고(휘두르기) 중
     if (Z.state === 'wind') {
       faceTo(Z, T.pos[0], T.pos[2], dt, 12);
-      if (world) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius });
+      if (world && !(Z.t && Z.t.flying)) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius });
       if (now < Z.until) return;
       Z.state = 'move';
       Z.attackReady = now + Z.attackMs * (rage ? rage.cd : 1);
@@ -1189,7 +1210,7 @@ export function createHorde(o = {}) {
     }
     if (d <= reach && Math.abs(dy) < 1.6) {
       faceTo(Z, T.pos[0], T.pos[2], dt, 12);
-      if (world) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius });
+      if (world && !(Z.t && Z.t.flying)) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius });
       if (now >= Z.attackReady) { Z.state = 'wind'; Z.until = now + Z.windupMs; }
       return;
     }
@@ -1197,7 +1218,8 @@ export function createHorde(o = {}) {
       // 너무 가까우면 뒤로 물러난다
       const l = d || 1;
       wish.x = (-dx / l) * Z.speed * 0.8 * speedK; wish.z = (-dz / l) * Z.speed * 0.8 * speedK;
-      if (world) moveCharacter(world, Z.body, wish, dt, { radius: Z.radius });
+      if (Z.t && Z.t.flying) flyMove(Z, wish.x, wish.z, dt);
+      else if (world) moveCharacter(world, Z.body, wish, dt, { radius: Z.radius });
       faceTo(Z, T.pos[0], T.pos[2], dt, 8);
       return;
     }
@@ -1747,6 +1769,8 @@ export function createHorde(o = {}) {
         if (vz.dead) continue;
         const spec = vz.boss ? { boss: vz.boss.id } : { type: (vz.type || ZOMBIE_TYPES.walker).id };
         const Z = makeZombie(spec, vz.pos.slice());
+        // 스냅샷에는 이미 비행 높이가 들어 있다. makeZombie의 스폰 높이를 두 번 더하지 않는다.
+        if (Z.t && Z.t.flying) Z.body.pos[1] = vz.pos[1];
         // 번호를 그대로 이어 써서 화면의 좀비가 바뀌지 않게 한다
         zombies.delete(Z.id);
         Z.id = vz.id;

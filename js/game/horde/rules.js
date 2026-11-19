@@ -98,7 +98,7 @@ export function rollDrop(rng, medP = HORDE.medChance, magP = HORDE.magChance) {
 }
 
 /** 좀비 종류별 경험치(강한 특수 좀비일수록 많다). 보스는 HORDE.bossXp, 보스가 불러낸 좀비는 1 */
-export const ZOMBIE_XP = Object.freeze({ walker: 1, crawler: 1, runner: 2, spitter: 2, bomber: 2, brute: 4 });
+export const ZOMBIE_XP = Object.freeze({ walker: 1, crawler: 1, runner: 2, spitter: 2, bomber: 2, brute: 4, flyer: 3 });
 export const zombieXp = (typeId) => ZOMBIE_XP[typeId] || 1;
 
 /** 이 레벨에서 다음 레벨까지 필요한 경험치: 1레벨 10, 2레벨 15, 3레벨 20, … */
@@ -147,6 +147,11 @@ export const ZOMBIE_TYPES = Object.freeze({
   crawler: Object.freeze({
     id: 'crawler', code: 6, name: '크롤러', hp: 55, speed: 4.0, damage: 8, attackMs: 900, windupMs: 300, range: 1.15,
     radius: 0.33, scale: 0.9, from: 12, weight: 3, color: 0x7d6f5a, cloth: 0x3d3328, low: true
+  }),
+  flyer: Object.freeze({
+    id: 'flyer', code: 7, name: '비행 좀비', hp: 85, speed: 4.5, damage: 10, attackMs: 1000, windupMs: 300, range: 1.4,
+    radius: 0.3, scale: 0.72, from: 20, weight: 2, color: 0x9aabd2, cloth: 0x41476c, flying: true,
+    ranged: Object.freeze({ every: 3300, speed: 17, dmg: 12, keep: 7, range: 20, windupMs: 450 })
   })
 });
 

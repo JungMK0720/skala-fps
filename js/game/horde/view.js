@@ -504,6 +504,21 @@ export function createHordeView(o) {
       put('eye', partM(M, 0.07, 0.53, -0.79, 0, 0, 0), C);
       return;
     }
+    if (type && type.flying) {
+      // Airborne feet are already in the snapshot position. Keep the torso and head
+      // on the standing hitboxes, while the legs fold back and the arms form wings.
+      put('torso', partM(M, 0, 1.2, 0, -0.12, 0, 0), clothC);
+      put('head', partM(M, 0, 1.67, -0.08, -0.05, 0, 0), skinC);
+      put('leg', partM(M, -0.13, 0.88, 0.12, -1.15, 0, 0, -0.43), clothC);
+      put('leg', partM(M, 0.13, 0.88, 0.12, -1.15, 0, 0, -0.43), clothC);
+      const flap = Math.sin(now * 0.009 + e.walk) * 0.18;
+      put('arm', partM(M, -0.35, 1.43, -0.04, wind ? 0.4 : 0, 1.35, -0.18 - flap, 0, -0.65).multiply(S.makeScale(1.4, 1.5, 2.2)), clothC);
+      put('arm', partM(M, 0.35, 1.43, -0.04, wind ? 0.4 : 0, -1.35, 0.18 + flap, 0, -0.65).multiply(S.makeScale(1.4, 1.5, 2.2)), clothC);
+      C.setHex(wind ? 0xff2a2a : 0xfff27a);
+      put('eye', partM(M, -0.075, 1.71, -0.25, 0, 0, 0), C);
+      put('eye', partM(M, 0.075, 1.71, -0.25, 0, 0, 0), C);
+      return;
+    }
     const lean = boss ? 0.12 : 0.22;
     put('leg', partM(M, -0.13, 0.88, 0, swing, 0, 0, -0.43), clothC);
     put('leg', partM(M, 0.13, 0.88, 0, -swing, 0, 0, -0.43), clothC);

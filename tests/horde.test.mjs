@@ -350,9 +350,58 @@ describe('보스 · 스테이지 규칙', () => {
     assert.ok(hpMul(20) > hpMul(10));
     assert.ok(zombieMix(1).every((m) => m.type.id === 'walker'));
     assert.ok(zombieMix(12).length === 5, '원거리 스피터는 20스테이지부터');
-    assert.ok(!zombieMix(19).some((m) => m.type.id === 'spitter'));
+    assert.ok(!zombieMix(19).some((m) => m.type.id === 'spitter' || m.type.id === 'flyer'));
     assert.ok(zombieMix(20).some((m) => m.type.id === 'spitter'));
-    assert.ok(zombieMix(20).length === 6);
+    const flyer20 = zombieMix(20).find((m) => m.type.id === 'flyer');
+    const flyer24 = zombieMix(24).find((m) => m.type.id === 'flyer');
+    assert.ok(flyer20 && flyer24, '20스테이지부터 비행 좀비가 열린다');
+    assert.ok(flyer20.weight > 0 && flyer20.weight < flyer24.weight, '24스테이지까지 등장 비율이 오른다');
+    assert.equal(zombieMix(20).length, 7);
+  });
+
+  test('20스테이지 비행 좀비: 떠서 나오고 높이를 지키며 접근·원거리 공격하고 방장 이전에도 남는다', () => {
+    const { d, pos } = makeFlat({ startStage: 20 });
+    const S = d.internals.S;
+    S.queue.length = 0;
+    S.queue.push({ type: 'flyer' });
+    S.spawnAt = 0;
+    step(d);
+    const Z = alive(d).find((z) => z.t?.id === 'flyer');
+    assert.ok(Z, '비행 좀비를 직접 대기열에서 소환한다');
+    assert.equal(Z.code, 7);
+    assert.ok(near(Z.body.pos[1], 1.25), '나온 발이 지면보다 1.25 m 높다');
+    S.queue.length = 0;
+    S.spawnAt = Infinity;
+
+    Z.state = 'move';
+    Z.body.pos[0] = 12;
+    Z.body.pos[2] = pos.p1[2];
+    Z.rangedAt = Infinity;
+    step(d, 15);
+    assert.ok(Z.body.pos[0] < 12, '공중에서 사람 쪽으로 다가간다');
+    assert.ok(near(Z.body.pos[1], 1.25, 0.02), '다가가는 동안 발 높이를 지킨다');
+
+    Z.rangedAt = 0;
+    let spit = null;
+    for (let i = 0; i < 45 && !spit; i++) {
+      step(d);
+      spit = d.internals.projectiles.find((p) => p.kind === 1);
+    }
+    assert.ok(spit, '근접 거리 밖에서도 직접 침을 쏜다');
+    assert.ok(spit.pos[1] > Z.body.pos[1], '침은 공중의 몸에서 발사된다');
+
+    const snap = JSON.parse(JSON.stringify(d.snapshot()));
+    const view = applyHordeSnapshot(snap);
+    const seen = view.zombies.find((z) => z.id === Z.id);
+    assert.equal(seen?.type?.id, 'flyer');
+    assert.ok(near(seen.pos[1], Z.body.pos[1], 0.01), '스냅샷에 공중 발 높이가 실린다');
+    const restored = restoreHorde(snap, {
+      players: [{ id: 'p1', name: 'P1' }], world: null, nav: null, spawns: FAR_SPAWNS,
+      getPositions: () => pos
+    });
+    const again = restored.internals.zombies.get(Z.id);
+    assert.equal(again?.t?.id, 'flyer');
+    for (let axis = 0; axis < 3; axis++) assert.ok(near(again.body.pos[axis], seen.pos[axis]), `복원된 발 좌표 ${axis}`);
   });
 
   test('경험치: 레벨마다 10·15·20…, 시간 안에 다 잡으면 남은 1초당 1, 강한 좀비일수록 많다', () => {
