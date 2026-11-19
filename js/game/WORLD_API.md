@@ -215,4 +215,4 @@ await world.loadMap(mapId, { mode, ruleset });
 - **붙잡힘**: 좀비 몸 둘레(0.75 m + 좀비 크기에 따라 0.1~0.3 m) 안이면 이동이 ×0.72. 각 화면이 자기 몸으로 잰다(방장에게 묻지 않는다).
 - **체력**: HUD의 최대 체력은 카드로 늘어난 값(`maxHp`)을 쓴다.
 - **멀티**: 좀비 모드에서는 방장이 매 틱 스냅샷을 보내고(`session.js`), 이동 속도 카드·밀려남 때문에 이동 검사(moveGuard)를 끈다.
-- **바닥 보급품**: 그리기는 `game/horde/view.js`(상자 InstancedMesh + 바닥 고리), 줍기 판단은 `game/horde/client.js`(1.15 m 안이면 방장에게 청함), 확정은 방장의 `director.claimLoot`(2.6 m). World는 확정된 몫을 `addReserve`·`addGrenades`로 받는다.
+- **바닥 보급품**: 그리기는 `game/horde/view.js`(초록 십자가·회복 빛의 구급품, 탄환 모양 탄약, 보라색 빛 기둥이 솟는 보스 보물 상자와 바닥 고리), 줍기 판단은 `game/horde/client.js`(1.15 m 안이면 방장에게 청함), 확정은 방장의 `director.claimLoot`(2.6 m). World는 확정된 몫을 `addReserve`·`addGrenades`로 받는다.

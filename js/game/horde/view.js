@@ -16,9 +16,8 @@ const MAX_PROJ = 48;
 const MAX_HAZ = 16;
 const MAX_LOOT = HORDE.maxLoot + 4;
 const LOOT_BLINK_MS = 5000;     // 사라지기 이만큼 전부터 깜박인다
-// 보급품 모양(가로·높이·세로 m)과 바닥 고리 색
-const LOOT_SIZE = Object.freeze({ mag: [0.3, 0.12, 0.2], med: [0.44, 0.26, 0.3], chest: [0.7, 0.46, 0.46] });
-const LOOT_RING = Object.freeze({ mag: 0xffd34a, med: 0xff5c5c, chest: 0xffc83a });
+// 보급품 몸체는 같은 상자/원통 인스턴스 풀에 부품별로 채운다.
+const LOOT_RING = Object.freeze({ mag: 0xffd34a, med: 0x45ff83, chest: 0xb66bff });
 const MAX_BARS = 48;            // 한 번에 그리는 체력바(다친 좀비·분신)
 const BAR_RANGE = 40;           // 이 거리 안의 다친 좀비만 체력바를 띄운다
 const MAX_NUMS = 28;            // 한 번에 떠 있는 피해 숫자
@@ -200,12 +199,28 @@ export function createHordeView(o) {
   wisps.instanceColor.setUsage(THREE.DynamicDrawUsage);
   scene.add(wisps);
   const fxRings = decalPool(ringGeo, 12, 0xffffff, 0.6);
-  // 바닥 보급품: 종류별 색 상자와 발밑 고리(밤 맵에서도 보이게 고리는 빛나는 색)
-  const lootMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-  const lootMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), lootMat, MAX_LOOT);
-  lootMesh.frustumCulled = false; lootMesh.count = 0; lootMesh.name = 'horde:loot'; lootMesh.visible = false; lootMesh.castShadow = true;
-  lootMesh.setColorAt(0, new THREE.Color(1, 1, 1));
-  scene.add(lootMesh);
+  // 탄약(탄창·탄두), 구급 상자(빛나는 십자·반짝임), 보물 상자(뚜껑·띠·자물쇠)는 공통 부품 풀을 쓴다.
+  const lootBoxMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const lootRoundMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const lootTipMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const lootBeaconMat = new THREE.MeshBasicMaterial({ color: 0xac62ff, transparent: true, opacity: 0.42, depthWrite: false, blending: THREE.AdditiveBlending });
+  const lootSparkMat = new THREE.MeshBasicMaterial({ color: 0x91ffab, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
+  const lootBoxes = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), lootBoxMat, MAX_LOOT * 10);
+  const lootRounds = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 8), lootRoundMat, MAX_LOOT * 3);
+  const lootTips = new THREE.InstancedMesh(new THREE.ConeGeometry(0.5, 1, 8), lootTipMat, MAX_LOOT * 3);
+  const lootBeacon = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.35, 0.17, 1, 10, 1, true), lootBeaconMat, MAX_LOOT);
+  const lootSparkles = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), lootSparkMat, MAX_LOOT * 4);
+  const lootMeshes = [lootBoxes, lootRounds, lootTips, lootBeacon, lootSparkles];
+  for (const m of lootMeshes) {
+    m.frustumCulled = false; m.count = 0; m.visible = false; m.name = 'horde:loot';
+    m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    if (m !== lootBeacon && m !== lootSparkles) {
+      m.setColorAt(0, new THREE.Color(0xffffff));
+      m.instanceColor.setUsage(THREE.DynamicDrawUsage);
+      m.castShadow = true;
+    }
+    scene.add(m);
+  }
   const lootRings = decalPool(ringGeo, MAX_LOOT, 0xffffff, 0.6);
   // 화염 수류탄 불길(바닥 원판 두 겹이 일렁인다)과 어그로 분신(푸른 반투명 사람 + 발밑 고리)
   const fireDiscs = decalPool(discGeo, MAX_FIELDS, 0xff5a12, 0.38);
@@ -278,7 +293,7 @@ export function createHordeView(o) {
     if (!active) clear();
     for (const m of Object.values(parts)) m.visible = active;
     projMesh.visible = active;
-    lootMesh.visible = active;
+    for (const m of lootMeshes) m.visible = active;
     wisps.visible = active;
     barBg.visible = barFg.visible = active;
   }
@@ -731,35 +746,78 @@ export function createHordeView(o) {
     }
   }
 
-  /** 바닥 보급품: 천천히 돌며 떠 있고, 사라지기 5초 전부터 깜박인다 */
+  /** 모든 부품은 재사용하는 단위 기하에 크기·위치만 넣는다. base는 보급품의 회전 행렬. */
+  function lootPart(mesh, index, base, x, y, z, sx, sy, sz, color) {
+    T.makeTranslation(x, y, z);
+    S.makeScale(sx, sy, sz);
+    P.copy(base).multiply(T).multiply(S);
+    mesh.setMatrixAt(index, P);
+    if (color != null) mesh.setColorAt(index, C.setHex(color));
+  }
+
+  /** 바닥 보급품: 탄환/십자/뚜껑이 서로 다른 실루엣, 소멸 직전에는 모두 깜박인다. */
   function drawLoot(now) {
     lootRings.begin();
-    let n = 0;
+    let boxes = 0, rounds = 0, tips = 0, beacons = 0, sparks = 0;
+    let drawn = 0;
     for (const L of loot) {
-      if (n >= MAX_LOOT) break;
+      if (drawn >= MAX_LOOT) break;
       const left = L.leftMs - (now - lootAt);
-      if (left <= 0) continue;
-      if (left < LOOT_BLINK_MS && Math.floor(now / 180) % 2) continue;
-      const sz = LOOT_SIZE[L.kind] || LOOT_SIZE.mag;
-      const y = L.pos[1] + 0.22 + sz[1] / 2 + 0.05 * Math.sin(now / 320 + L.id);
+      if (left <= 0 || (left < LOOT_BLINK_MS && Math.floor(now / 180) % 2)) continue;
+      drawn++;
+      const bob = 0.045 * Math.sin(now / 320 + L.id);
+      const y = L.pos[1] + 0.29 + bob;
       M.makeTranslation(L.pos[0], y, L.pos[2]);
       Rm.makeRotationY(now / 650 + L.id);
-      S.makeScale(sz[0], sz[1], sz[2]);
-      M.multiply(Rm).multiply(S);
-      lootMesh.setMatrixAt(n, M);
-      lootMesh.setColorAt(n, C.setHex((LOOT_TYPES[L.kind] || LOOT_TYPES.mag).color));
-      n++;
+      M.multiply(Rm);
+      if (L.kind === 'med') {
+        M.multiply(S.makeScale(1.45, 1.45, 1.45));
+        lootPart(lootBoxes, boxes++, M, 0, 0, 0, 0.43, 0.24, 0.32, 0x174a31);
+        // 윗면과 앞면에 밝은 초록 십자: 어느 쪽에서 접근해도 구급품으로 읽힌다.
+        lootPart(lootBoxes, boxes++, M, 0, 0.124, 0, 0.08, 0.014, 0.23, 0x76ff9c);
+        lootPart(lootBoxes, boxes++, M, 0, 0.125, 0, 0.25, 0.014, 0.075, 0x76ff9c);
+        lootPart(lootBoxes, boxes++, M, 0, 0, -0.164, 0.07, 0.17, 0.014, 0x76ff9c);
+        lootPart(lootBoxes, boxes++, M, 0, 0, -0.165, 0.20, 0.055, 0.014, 0x76ff9c);
+        for (let j = 0; j < 4; j++) {
+          const phase = now / 360 + L.id + j * Math.PI / 2;
+          const size = 0.026 + 0.016 * (0.5 + 0.5 * Math.sin(phase * 1.7));
+          lootPart(lootSparkles, sparks++, M, Math.cos(phase) * 0.32, 0.08 + (phase % 2.6) * 0.14, Math.sin(phase) * 0.25, size, size, size);
+        }
+      } else if (L.kind === 'chest') {
+        lootPart(lootBoxes, boxes++, M, 0, -0.045, 0, 0.70, 0.34, 0.48, 0x815126);
+        lootPart(lootBoxes, boxes++, M, 0, 0.17, 0, 0.75, 0.13, 0.51, LOOT_TYPES.chest.color);
+        lootPart(lootBoxes, boxes++, M, -0.22, 0.01, 0, 0.07, 0.47, 0.54, 0xe5b857);
+        lootPart(lootBoxes, boxes++, M, 0.22, 0.01, 0, 0.07, 0.47, 0.54, 0xe5b857);
+        lootPart(lootBoxes, boxes++, M, 0, 0.10, -0.265, 0.12, 0.18, 0.035, 0xffe287);
+        // 투명한 세로 빛기둥은 상자 위에 고정돼 먼 곳에서도 위치를 알 수 있다.
+        T.makeTranslation(L.pos[0], L.pos[1] + 3.15, L.pos[2]);
+        S.makeScale(1, 6.3, 1);
+        P.copy(T).multiply(S);
+        lootBeacon.setMatrixAt(beacons++, P);
+      } else {
+        lootPart(lootBoxes, boxes++, M, 0, -0.11, 0, 0.34, 0.18, 0.23, 0x39434a);
+        lootPart(lootBoxes, boxes++, M, 0, -0.013, 0, 0.36, 0.035, 0.24, 0x121e27);
+        for (let j = -1; j <= 1; j++) {
+          lootPart(lootRounds, rounds++, M, j * 0.105, 0.11, 0, 0.085, 0.24, 0.085, LOOT_TYPES.mag.color);
+          lootPart(lootTips, tips++, M, j * 0.105, 0.275, 0, 0.08, 0.09, 0.08, 0xd48948);
+        }
+      }
       const r = lootRings.take();
       if (r) {
+        const pulse = 0.5 + 0.5 * Math.sin(now / 210 + L.id);
         r.position.set(L.pos[0], L.pos[1] + 0.03, L.pos[2]);
-        r.scale.setScalar(0.42);
-        r.material.color.setHex(LOOT_RING[L.kind] || 0xffffff);
-        r.material.opacity = 0.45 + 0.25 * Math.sin(now / 200 + L.id);
+        r.scale.setScalar(L.kind === 'med' ? 0.39 + 0.16 * pulse : L.kind === 'chest' ? 0.52 : 0.42);
+        r.material.color.setHex(LOOT_RING[L.kind] || LOOT_RING.mag);
+        r.material.opacity = 0.42 + 0.32 * pulse;
       }
     }
-    lootMesh.count = n;
-    lootMesh.instanceMatrix.needsUpdate = true;
-    if (lootMesh.instanceColor) lootMesh.instanceColor.needsUpdate = true;
+    lootBoxes.count = boxes; lootRounds.count = rounds; lootTips.count = tips;
+    lootBeacon.count = beacons; lootSparkles.count = sparks;
+    for (let i = 0; i < lootMeshes.length; i++) {
+      const m = lootMeshes[i];
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    }
     lootRings.end();
   }
 
@@ -1238,6 +1296,8 @@ export function createHordeView(o) {
     return rendered.map((z) => ({ id: z.id, x: z.x, z: z.z, boss: z.boss, d: Math.hypot(z.x - pos[0], z.z - pos[2]) })).sort((a, b) => a.d - b.d).slice(0, n);
   }
 
+  function forEachVisible(cb) { for (const z of rendered) cb(z); }
+
   function clear() {
     ents.clear();
     myHits.clear();
@@ -1255,7 +1315,7 @@ export function createHordeView(o) {
     lastPushAt = 0;
     for (const m of Object.values(parts)) { m.count = 0; m.instanceMatrix.needsUpdate = true; }
     projMesh.count = 0;
-    lootMesh.count = 0;
+    for (const m of lootMeshes) m.count = 0;
     wisps.count = 0;
     for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, hazRings, fxRings, lootRings, fireDiscs, fireRings, decoyRings, reviveRings, reviveDiscs]) { pool.begin(); pool.end(); }
   }
@@ -1265,7 +1325,7 @@ export function createHordeView(o) {
     scene.remove(wisps); wispGeo.dispose(); wispMat.dispose();
     for (const m of Object.values(parts)) { scene.remove(m); m.geometry.dispose(); m.dispose && m.dispose(); }
     scene.remove(projMesh); projMesh.geometry.dispose(); projMesh.material.dispose();
-    scene.remove(lootMesh); lootMesh.geometry.dispose(); lootMat.dispose();
+    for (const m of lootMeshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); if (m.dispose) m.dispose(); }
     mat.dispose(); eyeMat.dispose(); zapMat.dispose();
     ringGeo.dispose(); discGeo.dispose(); planeGeo.dispose();
     for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, hazRings, fxRings, lootRings, fireDiscs, fireRings, decoyRings, reviveRings, reviveDiscs]) pool.dispose();
@@ -1283,7 +1343,7 @@ export function createHordeView(o) {
   }
 
   return {
-    setActive, push, event, frame, ray, autoAim, melee, blastTargets, grabbed, touching, touchingZombie, zombieAt, wave, nearest, noteHit, damageNumber, clear, dispose,
+    setActive, push, event, frame, ray, autoAim, melee, blastTargets, grabbed, touching, touchingZombie, zombieAt, wave, nearest, noteHit, damageNumber, forEachVisible, clear, dispose,
     get active() { return active; },
     get count() { return rendered.length; },
     get delay() { return delay; },

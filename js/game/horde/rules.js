@@ -80,7 +80,7 @@ export const HORDE = Object.freeze({
  */
 export const LOOT_TYPES = Object.freeze({
   mag: Object.freeze({ id: 'mag', code: 1, name: '탄창', icon: '🧷', color: 0xd8b24a }),
-  med: Object.freeze({ id: 'med', code: 4, name: '구급 상자', icon: '➕', color: 0xeeeeea }),
+  med: Object.freeze({ id: 'med', code: 4, name: '구급 상자', icon: '➕', color: 0x20bd63 }),
   chest: Object.freeze({ id: 'chest', code: 5, name: '보물 상자', icon: '🎁', color: 0xe0a428 })
 });
 const LOOT_BY_CODE = new Map(Object.values(LOOT_TYPES).map((l) => [l.code, l]));
