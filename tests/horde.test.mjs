@@ -237,25 +237,26 @@ describe('새 카드: 이미 있는 카드의 전송 번호는 그대로', () =>
   test('반사 신경·검기·부동자세·C4: 등급·능력치·상한·요약', () => {
     const tiers = (ids) => ids.map((id) => cardById(id).tier);
     assert.deepEqual(tiers(ADDED.slice(0, 4)), ['common', 'rare', 'epic', 'legend']);
-    assert.deepEqual(tiers(ADDED.slice(4, 8)), ['rare', 'rare', 'epic', 'legend'], '검기는 희귀부터');
+    assert.deepEqual(tiers(ADDED.slice(4, 8)), ['common', 'rare', 'epic', 'legend']);
+    assert.deepEqual(ADDED.slice(4, 7).map((id) => !!cardById(id).retired), [true, true, true], '검기는 전설 한 장만 제안에 나온다');
+    assert.equal(cardById('wave4').max, 1);
     assert.deepEqual(ADDED.slice(0, 4).map((id) => cardById(id).fx.iframe), [0.2, 0.3, 0.4, 0.5]);
-    assert.deepEqual(ADDED.slice(4, 8).map((id) => cardById(id).fx.wave), [6, 8, 10, 13]);
+    assert.deepEqual(ADDED.slice(4, 8).map((id) => cardById(id).fx.wave), [3, 3, 3, 3]);
     assert.match(cardById('reflex1').desc, /맞은 뒤 무적 시간 \+0\.2초/);
-    assert.match(cardById('wave3').desc, /검기가 10 m/);
+    assert.match(cardById('wave4').desc, /좌클릭 베기 3 m · 우클릭 찌르기 6 m/);
     const anchor = cardById('anchor'), c4 = cardById('c4');
     assert.deepEqual([anchor.tier, anchor.max, anchor.fx.noKnock, anchor.icon], ['epic', 1, 1, '⚓']);
     assert.deepEqual([c4.tier, c4.max, c4.fx.stickyNade, c4.nade, c4.icon], ['epic', 1, 1, true, '🧲']);
     assert.ok(!cardAvailable(anchor, ['anchor']) && !cardAvailable(c4, ['c4']), '한 장뿐');
     const base = computePerks([]);
     for (const k of ['iframe', 'noKnock', 'stickyNade', 'wave']) assert.equal(base[k], 0, k);
-    const k = computePerks(['reflex4', 'reflex4', 'wave4', 'wave4', 'wave1']);
+    const k = computePerks(['reflex4', 'reflex4', 'wave4']);
     assert.ok(Math.abs(k.iframe - 1) < 1e-9, '반사 신경은 상한 없이 겹친다');
-    assert.equal(k.wave, 32, '검기 거리도 상한 없이 겹친다');
-    assert.equal(computePerks(['wave1', 'wave2']).wave, 14, '검기는 겹치면 더 멀리');
-    assert.ok(cardAvailable(cardById('wave1'), ['wave4', 'wave4']), '검기는 여러 번 골라도 제안에 나온다');
-    const rows = perkSummary(computePerks(['reflex1', 'anchor', 'c4', 'wave1']));
+    assert.equal(k.wave, 3, '검기 3 m');
+    assert.ok(!cardAvailable(cardById('wave4'), ['wave4']), '검기는 한 번만');
+    const rows = perkSummary(computePerks(['reflex1', 'anchor', 'c4', 'wave4']));
     const row = (label) => (rows.find((r) => r.label === label) || {}).value;
-    assert.deepEqual([row('맞은 뒤 무적'), row('밀려남'), row('C4'), row('검기')], ['+0.2초', '없음', '붙음', '6 m']);
+    assert.deepEqual([row('맞은 뒤 무적'), row('밀려남'), row('C4'), row('검기')], ['+0.2초', '없음', '붙음', '3 m']);
     assert.equal(perkSummary(base).length, 0, '증강이 없으면 요약도 없다');
   });
 
@@ -1284,8 +1285,8 @@ describe('검기', () => {
     assert.equal(zombieHitDamage({ weaponId: 'ml_katana', kind: 'waveStab' }, k0, {}, {}).dmg, WEAPONS.ml_katana.melee.stab.damage);
   });
 
-  test('방장 판정: 증강이 없거나 총이면 거절, 검기 거리 + 여유 안은 칼과 같은 피해, 밖은 거절, 검기 하나에 6마리까지', () => {
-    assert.equal(HORDE.waveMaxHits, 6);
+  test('방장 판정: 증강이 없거나 총이면 거절, 검기 거리 + 여유 안은 칼과 같은 피해, 밖은 거절, 검기 하나에 한 마리', () => {
+    assert.equal(HORDE.waveMaxHits, 1);
     const { d, P } = makeFlat();
     runUntil(d, () => alive(d).length >= 1, 5000);
     const Z = alive(d)[0];
@@ -1297,13 +1298,12 @@ describe('검기', () => {
     const p = P('p1');
     assert.equal(claim()[0].reason, 'no_wave', '검기 증강이 없다');
     assert.equal(took(), 0);
-    p.cards = ['wave1'];
+    p.cards = ['wave4'];
     p.perks = computePerks(p.cards);
-    assert.equal(claim({ kind: 'wave' })[0].reason, 'no_wave', '좌클릭 베기는 검기를 내지 않는다');
-    assert.equal(took(), 0);
-    assert.ok(!claim({ dist: 8 }).some((e) => e.type === 'reject'), '6 m + 여유 2.5 m 안');
-    assert.equal(took(), WEAPONS.ml_knife.melee.stab.damage);
-    claim({ dist: 8 });
+    assert.ok(!claim({ kind: 'wave', dist: 5 }).some((e) => e.type === 'reject'), '좌클릭 베기 검기: 3 m + 여유 2.5 m 안');
+    assert.equal(took(), WEAPONS.ml_knife.melee.slash.damage, '베기 검기는 베기 피해');
+    assert.equal(claim({ kind: 'wave', dist: 6 })[0].reason, 'out_of_range');
+    assert.ok(!claim({ dist: 8 }).some((e) => e.type === 'reject'), '우클릭 찌르기 검기: 6 m + 여유 2.5 m 안');
     assert.equal(took(), WEAPONS.ml_knife.melee.stab.damage);
     assert.equal(claim({ dist: 9 })[0].reason, 'out_of_range');
     assert.equal(claim({ weaponId: 'ar_std' })[0].reason, 'no_wave', '총은 검기가 없다');
@@ -1312,19 +1312,16 @@ describe('검기', () => {
     assert.ok(!claim({ kind: 'slash', dist: 3 }).some((e) => e.type === 'reject'));
     assert.equal(took(), WEAPONS.ml_knife.melee.slash.damage);
     assert.equal(claim({ kind: 'slash', dist: 8 })[0].reason, 'out_of_range');
-    // 칼 증강이 붙는다 · 겹치면 더 멀리
-    p.cards = ['wave1', 'wave2', 'blade1'];
+    // 칼 증강이 붙는다
+    p.cards = ['wave4', 'blade1'];
     p.perks = computePerks(p.cards);
-    claim({ dist: 16 });
+    claim({ dist: 5 });
     assert.equal(took(), Math.round(WEAPONS.ml_knife.melee.stab.damage * 1.2));
-    // 검기 하나(shotId)에 6마리까지, 다른 검기는 따로 센다(날아가는 검기 둘이 섞여도)
-    for (let i = 0; i < 6; i++) assert.ok(!claim({ shotId: 500 }).some((e) => e.type === 'reject'), `${i + 1}번째`);
+    // 검기 하나(shotId)에 한 마리, 다른 검기는 따로 센다
+    assert.ok(!claim({ shotId: 500 }).some((e) => e.type === 'reject'));
     assert.equal(claim({ shotId: 500 })[0].reason, 'wave_cap');
     assert.ok(!claim({ shotId: 501 }).some((e) => e.type === 'reject'));
-    for (let i = 0; i < 5; i++) claim({ shotId: 501 });
-    assert.ok(!claim({ shotId: 502 }).some((e) => e.type === 'reject'));
     assert.equal(claim({ shotId: 501 })[0].reason, 'wave_cap');
-    assert.equal(claim({ shotId: 500 })[0].reason, 'wave_cap');
   });
 });
 

@@ -372,12 +372,12 @@ describe('탄창 줍기', () => {
 describe('증강 값', () => {
   test('C4·검기 증강을 World에 넘기고, 남의 검기 거리도 그 사람 증강으로 잰다', (t) => {
     const env = rig(t);
-    env.apply([player('me', { cards: ['c4', 'wave2'] }), player('b', { cards: ['wave1'] })]);
+    env.apply([player('me', { cards: ['c4', 'wave4'] }), player('b', { cards: ['wave4'] })]);
     const k = env.world.last('setHordePerks');
     assert.equal(k.sticky, true);
-    assert.equal(k.waveRange, 8);
-    assert.equal(k.waveRangeOf('me'), 8);
-    assert.equal(k.waveRangeOf('b'), 6);
+    assert.equal(k.waveRange, 3);
+    assert.equal(k.waveRangeOf('me'), 3);
+    assert.equal(k.waveRangeOf('b'), 3);
     assert.equal(k.waveRangeOf('nobody'), 0);
     env.apply([player('me', { cards: ['power1'] })]);
     const k2 = env.world.last('setHordePerks');
