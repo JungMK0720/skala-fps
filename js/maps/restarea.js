@@ -103,11 +103,26 @@ const restroom = [
 
 /* ---------------- 방음벽(북) · 갓길 · 좀비 문 G1·G2 ---------------- */
 
-const noiseWall = [
-  rect(-HALF_X, NOISE_Z - 0.15, -27, NOISE_Z + 0.15, 0, NOISE_H, 'concrete'),
-  rect(-24, NOISE_Z - 0.15, 24, NOISE_Z + 0.15, 0, NOISE_H, 'concrete'),
-  rect(27, NOISE_Z - 0.15, HALF_X, NOISE_Z + 0.15, 0, NOISE_H, 'concrete')
-];
+// 방음벽 구간(사이 두 틈으로 갓길에 드나든다). 위로 넘지 못하게 막는 clip은 이 구간 그대로 덮는다
+const NOISE_SPANS = [[-HALF_X, -27], [-24, 24], [27, HALF_X]];
+const noiseSpans = NOISE_SPANS.map(([x0, x1]) => rect(x0, NOISE_Z - 0.15, x1, NOISE_Z + 0.15, 0, NOISE_H, 'concrete'));
+/**
+ * 고속도로 방음벽: 두꺼운 콘크리트 아랫단(1 m) 위에 철판 패널(4.3 m까지), 맨 위 콘크리트 덮개, 4 m마다 H형 철 기둥.
+ * 바깥 크기(높이 4.5, 두께 0.3)는 예전과 같아 갓길이 보이지 않는다
+ */
+const noiseWall = NOISE_SPANS.flatMap(([x0, x1]) => {
+  const out = [
+    rect(x0, NOISE_Z - 0.2, x1, NOISE_Z + 0.2, 0, 1.0, 'concrete'),     // 아랫단
+    rect(x0, NOISE_Z - 0.1, x1, NOISE_Z + 0.1, 1.0, 4.3, 'steel'),      // 철판 패널
+    rect(x0, NOISE_Z - 0.18, x1, NOISE_Z + 0.18, 4.3, NOISE_H, 'concrete')   // 덮개
+  ];
+  const n = Math.max(1, Math.round((x1 - x0) / 4));
+  for (let i = 0; i <= n; i++) {
+    const x = Math.min(x1 - 0.15, Math.max(x0 + 0.15, x0 + ((x1 - x0) * i) / n));
+    out.push(rect(x - 0.15, NOISE_Z - 0.22, x + 0.15, NOISE_Z + 0.22, 0, NOISE_H, 'metal_dark'));   // H형 기둥
+  }
+  return out;
+});
 const shoulder = [
   // 갓길에 버려진 승용차(동서로 섬, 앉으면 가려진다)
   sedan(-14.9, -22, 'container_red', 'x'),
@@ -116,9 +131,49 @@ const shoulder = [
 
 /* ---------------- 북동: 트레일러 · 뒷골목 ---------------- */
 
+/**
+ * 세미 트레일러 트럭(동서로 길게, 운전석은 동쪽). 빨간 컨테이너(골판 무늬 띠·뒷문 잠금대)가 차대 위에 얹혀 있고,
+ * 뒤 2축 바퀴와 앞쪽 받침 다리, 흰 운전석(앞 유리·옆 창·라디에이터 그릴·전조등·범퍼·연료 탱크·배기관·앞 2축)이 붙는다.
+ * 컨테이너 밑(0.9 m)은 사람이 지나가지 못하는 높이다
+ */
+const truck = (() => {
+  const z0 = -15.5, z1 = -12.9, zc = (z0 + z1) / 2;
+  const out = [
+    rect(13, z0, 26.6, z1, 1.2, 3.9, 'container_red'),              // 컨테이너
+    rect(13.2, zc - 0.5, 27.6, zc + 0.5, 0.9, 1.2, 'metal_dark'),   // 차대
+    rect(12.96, z0 + 0.1, 13, z1 - 0.1, 1.3, 3.8, 'rust'),          // 뒷문
+    rect(12.92, zc - 0.03, 12.96, zc + 0.03, 1.3, 3.8, 'metal_dark'),   // 문 가운데 이음매
+    rect(13.2, z0 + 0.05, 26.4, z1 - 0.05, 3.9, 3.96, 'steel')      // 지붕 테두리
+  ];
+  for (const z of [zc - 0.75, zc - 0.35, zc + 0.35, zc + 0.75]) out.push(rect(12.88, z - 0.04, 12.92, z + 0.04, 1.35, 3.75, 'steel'));   // 뒷문 잠금대
+  for (let x = 13.6; x < 26.4; x += 1.4) {                          // 옆면 골판 띠(양쪽)
+    out.push(rect(x, z0 - 0.04, x + 0.12, z0, 1.25, 3.85, 'rust'));
+    out.push(rect(x, z1, x + 0.12, z1 + 0.04, 1.25, 3.85, 'rust'));
+  }
+  for (const x of [14.4, 15.6]) out.push(rect(x - 0.5, z0 + 0.05, x + 0.5, z1 - 0.05, 0, 1.0, 'metal_dark'));   // 뒤 2축 바퀴
+  for (const z of [zc - 0.7, zc + 0.7]) out.push(rect(24.4, z - 0.06, 24.52, z + 0.06, 0, 0.9, 'steel'));          // 받침 다리
+  // 운전석(x 27.1~30)
+  const c0 = -15.3, c1 = -13.1;
+  out.push(
+    rect(27.1, c0, 30, c1, 0.9, 2.9, 'white'),                        // 운전석 몸통
+    rect(27.3, c0 + 0.15, 29.4, c1 - 0.15, 2.9, 3.6, 'white'),        // 지붕 바람막이
+    rect(30, c0 + 0.15, 30.04, c1 - 0.15, 1.8, 2.7, 'glass'),         // 앞 유리
+    rect(28.8, c0 - 0.04, 29.8, c0, 1.8, 2.6, 'glass'),               // 옆 창(양쪽)
+    rect(28.8, c1, 29.8, c1 + 0.04, 1.8, 2.6, 'glass'),
+    rect(30, c0 + 0.4, 30.06, c1 - 0.4, 1.0, 1.65, 'metal_dark'),     // 라디에이터 그릴
+    rect(30, c0 + 0.1, 30.05, c0 + 0.35, 1.1, 1.35, 'yellow'),        // 전조등
+    rect(30, c1 - 0.35, 30.05, c1 - 0.1, 1.1, 1.35, 'yellow'),
+    rect(30, c0, 30.16, c1, 0.5, 0.9, 'metal_dark'),                  // 범퍼
+    rect(27.9, c0 - 0.25, 28.8, c0, 0.55, 1.05, 'steel'),             // 연료 탱크(남쪽)
+    rect(29.0, c0 - 0.12, 29.7, c0, 1.0, 1.25, 'metal_dark')          // 발판
+  );
+  out.push(cyl(27.25, 2.9, c1 - 0.05, 0.08, 1.2, 'steel'));          // 배기관
+  for (const x of [27.8, 29.3]) out.push(rect(x - 0.48, c0 - 0.05, x + 0.48, c1 + 0.05, 0, 1.0, 'metal_dark'));   // 운전석 바퀴
+  return out;
+})();
+
 const northEast = [
-  rect(13, -15.5, 27, -12.9, 0, 3.9, 'container_red'),
-  rect(27, -15.3, 30, -13.1, 0, 3.2, 'white'),
+  ...truck,
   // 편의점 뒷골목 쓰레기 컨테이너
   rect(-6, -18.6, -3.6, -17.3, 0, 1.4, 'steel'),
   rect(2, -18.6, 4.4, -17.3, 0, 1.4, 'steel')
@@ -134,7 +189,11 @@ const yard = [
   rect(26.15, 6.7, HALF_X, 7, 0, 2.6, 'rust'),
   // 마당 안 기름통 더미
   cyl(30.4, 0, -6.8, 0.6, 1.2, 'tank'),
-  cyl(30.4, 0, -5.3, 0.6, 1.2, 'tank')
+  cyl(30.4, 0, -5.3, 0.6, 1.2, 'tank'),
+  // 정비 리프트 기둥 둘(움직이는 판은 movers의 yard_lift, 북쪽 가장자리)과 위 가로대. 드나드는 길(남쪽)은 비워 둔다
+  rect(27.25, -4.25, 27.55, -3.95, 0, 3.4, 'metal_dark'),
+  rect(30.45, -4.25, 30.75, -3.95, 0, 3.4, 'metal_dark'),
+  rect(27.25, -4.25, 30.75, -3.95, 3.4, 3.6, 'yellow')
 ];
 
 /* ---------------- 주유소(남서) ---------------- */
@@ -150,7 +209,9 @@ const station = [
   ...[-23.2, -20.8, -17.2, -14.8].map((x) => rect(x - 0.4, 7.7, x + 0.4, 8.3, 0.25, 1.7, 'yellow')),
   // 계산 부스(서쪽 끝)
   rect(-30.6, 6, -28.2, 10, 0, 2.6, 'plaster'),
-  rect(-30.8, 5.8, -28, 10.2, 2.6, 2.8, 'metal_dark')
+  rect(-30.8, 5.8, -28, 10.2, 2.6, 2.8, 'metal_dark'),
+  // 계산 부스 옥상 사다리(동쪽 벽 바깥, 주유소 쪽): 가파른 철제 계단(한 칸 0.35 m). 위가 부스 지붕(2.8 m)
+  ...stairs(-27.15, 0, 8, 2.1, 2.8, 0.9, '-x', 'metal_dark', 8)
 ];
 
 /* ---------------- 주차장(남동) ---------------- */
@@ -222,14 +283,57 @@ const parking = [
 
 /* ---------------- 앞마당 · 생울타리(남) · 좀비 문 G5·G6 ---------------- */
 
+/**
+ * 피크닉 탁자(동서 2.6 m · 남북 1.2 m): 널빤지 상판 셋, 양옆 긴 의자, 양 끝 다리·의자 받침, 가운데 파라솔.
+ * 상판(0.78 m) 아래로 몸을 숙이면 상판·의자에 가려진다. canopy = 파라솔 천 재질
+ */
+function picnic(cx, cz, canopy) {
+  const r = (x0, z0, x1, z1, y0, y1, m) => rect(cx + x0, cz + z0, cx + x1, cz + z1, y0, y1, m);
+  const out = [];
+  for (const z of [-0.33, -0.11, 0.11]) out.push(r(-1.3, z, 1.3, z + 0.21, 0.72, 0.78, 'wood'));   // 상판 널빤지 셋(틈 0.01)
+  for (const s of [-1, 1]) {
+    out.push(r(-1.3, s * 0.45 - 0.14, 1.3, s * 0.45 + 0.14, 0.42, 0.47, 'wood'));                    // 긴 의자
+    out.push(r(s * 1.0 - 0.05, -0.6, s * 1.0 + 0.05, 0.6, 0.36, 0.42, 'wood_dark'));                 // 의자 받침(양 끝)
+    out.push(r(s * 1.0 - 0.05, -0.12, s * 1.0 + 0.05, 0.12, 0, 0.72, 'wood_dark'));                  // 탁자 다리(양 끝)
+    out.push(r(s * 1.0 - 0.05, -0.5, s * 1.0 + 0.05, -0.38, 0, 0.42, 'wood_dark'));                  // 의자 다리
+    out.push(r(s * 1.0 - 0.05, 0.38, s * 1.0 + 0.05, 0.5, 0, 0.42, 'wood_dark'));
+  }
+  out.push(cyl(cx, 0.78, cz, 0.04, 1.5, 'steel'));                                                      // 파라솔 기둥
+  out.push(r(-0.9, -0.9, 0.9, 0.9, 2.28, 2.34, canopy));                                               // 파라솔 천
+  out.push(r(-0.55, -0.55, 0.55, 0.55, 2.34, 2.42, canopy));
+  return out;
+}
+
+/**
+ * 자판기(폭 x0~x1, 앞면은 남쪽 z −3.4). 몸통 위에 진열창(유리 뒤로 색색 음료 줄 셋), 오른쪽 동전·버튼 판,
+ * 아래 꺼내는 칸, 위 빛나는 이름판, 밑받침. 몸통 크기(높이 1.9)는 예전과 같다
+ */
+function vending(x0, x1, body, sign) {
+  const zb = -4.6, zf = -3.4;
+  const out = [
+    rect(x0 - 0.03, zb - 0.03, x1 + 0.03, zf + 0.03, 0, 0.08, 'metal_dark'),   // 밑받침
+    rect(x0, zb, x1, zf, 0.08, 1.9, body),                                      // 몸통
+    rect(x0 + 0.06, zf, x1 - 0.25, zf + 0.02, 0.9, 1.72, 'metal_dark'),         // 진열창 바탕
+    rect(x0 + 0.06, zf + 0.04, x1 - 0.25, zf + 0.06, 0.9, 1.72, 'glass'),       // 진열창 유리
+    rect(x1 - 0.22, zf, x1 - 0.05, zf + 0.03, 0.95, 1.65, 'metal_dark'),        // 동전·버튼 판
+    rect(x1 - 0.17, zf + 0.03, x1 - 0.1, zf + 0.05, 1.45, 1.55, 'neon_cyan'),   // 버튼
+    rect(x0 + 0.1, zf, x1 - 0.1, zf + 0.04, 0.2, 0.45, 'metal_dark'),           // 꺼내는 칸
+    rect(x0 + 0.03, zf, x1 - 0.03, zf + 0.03, 1.76, 1.88, sign)                 // 이름판(빛남)
+  ];
+  // 진열창 안 음료 줄 셋(색이 다른 캔)
+  const rows = [['container_red', 1.5], ['yellow', 1.25], ['neon_pink', 1.0]];
+  for (const [m, y] of rows) out.push(rect(x0 + 0.1, zf + 0.02, x1 - 0.29, zf + 0.04, y, y + 0.14, m));
+  return out;
+}
+
 const front = [
-  // 피크닉 탁자(앉으면 가려진다)
-  rect(-8.2, 1, -5.6, 2.2, 0, 0.75, 'wood'),
-  rect(5.6, 1, 8.2, 2.2, 0, 0.75, 'wood'),
+  // 피크닉 탁자 둘(차양 앞)
+  ...picnic(-6.9, 1.6, 'container_red'),
+  ...picnic(6.9, 1.6, 'yellow'),
   // 자판기 셋(차양 기둥 옆)
-  rect(-14.5, -4.6, -13.6, -3.4, 0, 1.9, 'container_red'),
-  rect(-13.4, -4.6, -12.5, -3.4, 0, 1.9, 'white'),
-  rect(12.5, -4.6, 13.4, -3.4, 0, 1.9, 'container_red')
+  ...vending(-14.5, -13.6, 'container_red', 'neon_pink'),
+  ...vending(-13.4, -12.5, 'white', 'neon_cyan'),
+  ...vending(12.5, 13.4, 'container_red', 'neon_pink')
 ];
 const hedge = [
   rect(-HALF_X, HEDGE_Z - 0.35, -22.5, HEDGE_Z + 0.35, 0, 1.9, 'moss'),
@@ -270,6 +374,9 @@ const decor = [
   // 화장실 옥상 사다리 양옆 손잡이
   { type: 'pipe', from: [-23.25, 0, -13.47], to: [-25.5, 4.3, -13.47], r: 0.04, mat: 'steel' },
   { type: 'pipe', from: [-23.25, 0, -12.53], to: [-25.5, 4.3, -12.53], r: 0.04, mat: 'steel' },
+  // 계산 부스 옥상 사다리 양옆 손잡이
+  { type: 'pipe', from: [-26.1, 0, 7.53], to: [-28.2, 3.6, 7.53], r: 0.04, mat: 'steel' },
+  { type: 'pipe', from: [-26.1, 0, 8.47], to: [-28.2, 3.6, 8.47], r: 0.04, mat: 'steel' },
   // 옥상 계단 난간
   { type: 'pipe', from: [-12.05, 1.1, -6], to: [-12.05, 5.1, -13], r: 0.04, mat: 'yellow' },
   // 구석 상자 더미
@@ -300,7 +407,7 @@ const props = [
   { type: 'barrel', x: -11.2, y: 0, z: 9.5 },
   { type: 'barrel', x: -27.3, y: 0, z: 12.2 },
   { type: 'crate', x: 6.2, y: 0, z: -17.6, size: 0.8 },
-  { type: 'crate', x: 28.6, y: 0, z: -3.2 }
+  { type: 'crate', x: 27.4, y: 0, z: -7.6 }
 ];
 
 export default {
@@ -323,7 +430,7 @@ export default {
     ffa: []
   },
   solids: [
-    ...store, ...roofStairs, ...restroom, ...noiseWall, ...clipAbove(noiseWall, 6), ...shoulder,
+    ...store, ...roofStairs, ...restroom, ...noiseWall, ...clipAbove(noiseSpans, 6), ...shoulder,
     ...northEast, ...yard, ...station, ...parking, ...front, ...hedge, ...scenery
   ],
   decor,
@@ -331,5 +438,8 @@ export default {
   portals: [],
   secrets: [],
   props,
-  movers: []
+  // 정비 마당 리프트: 바닥에 묻힌 판(높이 2.6)이 2.4 m 올라와 울타리 높이(2.6 m)까지 오른다. 쉴 때 윗면은 0.2라 그냥 올라선다
+  movers: [
+    { id: 'yard_lift', x: 29, y: -2.4, z: -2.5, w: 2.6, h: 2.6, d: 2.6, mat: 'yellow', axis: 'y', dist: 2.4, period: 12, hold: 3, phase: 0 }
+  ]
 };
