@@ -375,9 +375,9 @@ describe('증강 값', () => {
     env.apply([player('me', { cards: ['c4', 'wave4'] }), player('b', { cards: ['wave4'] })]);
     const k = env.world.last('setHordePerks');
     assert.equal(k.sticky, true);
-    assert.equal(k.waveRange, 3);
-    assert.equal(k.waveRangeOf('me'), 3);
-    assert.equal(k.waveRangeOf('b'), 3);
+    assert.equal(k.waveRange, 10);
+    assert.equal(k.waveRangeOf('me'), 10);
+    assert.equal(k.waveRangeOf('b'), 10);
     assert.equal(k.waveRangeOf('nobody'), 0);
     env.apply([player('me', { cards: ['power1'] })]);
     const k2 = env.world.last('setHordePerks');
