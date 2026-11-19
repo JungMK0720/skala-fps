@@ -53,6 +53,8 @@ const EYE = 1.6;
 const PIERCE_FALLOFF = 0.7;
 const PIERCE_MIN = 0.3;           // 무제한 관통에서도 이만큼은 남는다(뚫을 때마다 70%, 최소 30%)
 const GUARD_COS = 0.34;           // 방패: 바라보는 방향에서 이 각(약 70°) 안의 공격만 막는다
+const DODGE_CAP = 0.9;            // 회피 확률 상한
+const REDUCE_CAP = 0.9;           // 받는 피해 감소(방어·방패를 합친 값) 상한
 const GRAVITY_PULL_MS = 2600;     // 중력건에 끌려가는 시간
 const GRAVITY_PULL_SPEED = 13;    // 끌려가는 속도(m/s)
 const MELEE_SLACK = 2.2;          // 칼 주장 거리 여유(m, 지연 보간 몫)
@@ -536,12 +538,14 @@ export function createHorde(o = {}) {
     if (!P || !P.alive || !(amount > 0) || S.phase !== 'wave') return 0;
     if (invulnerable(P)) return 0;    // 증강을 고르는 중(멀티)이거나 고른 직후 3초, 동료가 살려 일어난 직후 2초
     if (S.clock < P.hitUntil) return 0;   // 맞은 뒤 무적(여러 마리에게 한꺼번에 맞아도 한 번만 들어간다)
-    if (P.perks.dodge > 0 && rng() < P.perks.dodge) return 0;
+    if (P.perks.dodge > 0 && rng() < Math.min(DODGE_CAP, P.perks.dodge)) return 0;
     P.hitUntil = S.clock + R.hitInvulnMs + 1000 * Math.max(0, P.perks.iframe || 0);
     if (opt.knock > 0 && !(P.perks.noKnock > 0)) pushPlayer(P, from && from.body ? from.body.pos : opt.at, opt.knock);
     if ((from || opt.zombie) && P.perks.reactive > 0) reactiveBlast(P, ev);
-    let dmg = amount * (1 - clamp(P.perks.armor || 0, 0, 0.75));
-    if (guarded(P, from, opt)) dmg *= 1 - clamp(P.perks.guard, 0, 0.95);
+    // 받는 피해 감소(방탄복·벙커·불굴 + 방패 칼)는 모두 합쳐 90%까지
+    let keep = 1 - clamp(P.perks.armor || 0, 0, REDUCE_CAP);
+    if (guarded(P, from, opt)) keep *= 1 - clamp(P.perks.guard, 0, REDUCE_CAP);
+    let dmg = amount * Math.max(1 - REDUCE_CAP, keep);
     if (P.shield > 0) { const a = Math.min(P.shield, dmg); P.shield -= a; dmg -= a; }
     dmg = Math.round(dmg);
     if (dmg <= 0) return 0;
@@ -909,11 +913,11 @@ export function createHorde(o = {}) {
     const melee = !!def.melee;
     const k = P.perks;
     const shot = num(c.shotId, 0) | 0;
-    if (c.kind === 'wave' || c.kind === 'waveStab') {
-      // 검기: 좌클릭 베기는 검기 거리, 우클릭 찌르기는 2배. 칼·증강·거리·검기 하나의 적중 상한을 검증한다.
+    if (c.kind === 'wave') return [{ type: 'reject', reason: 'no_wave' }]; // 좌클릭 베기는 검기를 낼 수 없다
+    if (c.kind === 'waveStab') {
+      // 우클릭 찌르기 검기: 칼·증강·거리·검기 하나의 적중 상한을 검증한다.
       if (!melee || !(k.wave > 0)) return [{ type: 'reject', reason: 'no_wave' }];
-      const range = k.wave * (c.kind === 'waveStab' ? 2 : 1);
-      if (dist > range + R.waveSlackM + (Z.boss ? 1.2 : 0)) return [{ type: 'reject', reason: 'out_of_range' }];
+      if (dist > k.wave + R.waveSlackM + (Z.boss ? 1.2 : 0)) return [{ type: 'reject', reason: 'out_of_range' }];
       if (!countWave(P.id, shot)) return [{ type: 'reject', reason: 'wave_cap' }];
     } else {
       const reach = melee ? Math.max(def.melee.slash.range, def.melee.stab.range) + MELEE_SLACK + (Z.boss ? 1.2 : 0) : def.maxRange * RANGE_SLACK;

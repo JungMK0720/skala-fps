@@ -78,7 +78,7 @@ export const PERK_BASE = Object.freeze({
   noKnock: 0,      // H  1이면 맞아도 밀려나지 않는다(보스의 밀치기도)
   stickyNade: 0,   // C  1이면 내 수류탄이 좀비에 닿으면 붙는 C4가 된다
   wave: 0,         // HC 칼 우클릭 찌르기에만 검기가 이 거리(m)까지 날아간다
-  reloadCut: 0,    // C  재장전 시간 −비율(0.5 = 절반, 1 = 재장전 없이 계속 쏜다)
+  reloadCut: 0,    // C  재장전 시간 −비율(0.5 = 절반, 1 = 거의 즉시. 탄은 그대로 줄어든다)
   guard: 0,        // H  칼을 들면 방패를 든다: 정면에서 오는 공격의 피해 −비율
   airDmg: 0,       // H  점프로 떠 있는 동안 주는 피해 +배율(5 = +500%)
   autoAim: 0,      // C  총을 쏠 때 앞쪽 조준 원뿔 안의 좀비 몸통을 자동 조준
@@ -107,8 +107,8 @@ const FAMILIES = [
   { key: 'blade', name: '칼잡이', icon: '🔪', stat: 'melee', vals: [0.2, 0.35, 0.55, 0.9], text: (v) => `칼 피해 +${pc(v)}` },
   { key: 'demo', name: '폭파병', icon: '🧨', stat: 'nade', vals: [0.18, 0.3, 0.48, 0.75], text: (v) => `수류탄 피해 +${pc(v)} · ${NADE_UP}`, nade: true },
   { key: 'trigger', name: '방아쇠', icon: '⚡', stat: 'fireRate', vals: [0.06, 0.1, 0.15, 0.22], text: (v) => `연사 속도 +${pc(v)}` },
-  // 재장전 시간 −50%, 최대 2번(번호가 밀리지 않게 II~IV 자리는 남기고 제안에서만 뺀다). 두 번 고르면 100% 줄어 재장전 없이 계속 쏜다
-  { key: 'hands', name: '빠른 손', icon: '🔄', stat: 'reloadCut', vals: [0.5, 0.5, 0.5, 0.5], text: () => '재장전 시간 −50% (최대 2번 · 두 번 고르면 재장전 없이 계속 쏜다)', minTier: 2, only: 1, max: 2, retire: [1, 2, 3] },
+  // 재장전 시간 −50%, 최대 2번(번호가 밀리지 않게 II~IV 자리는 남기고 제안에서만 뺀다). 두 번이면 재장전이 거의 즉시다(탄은 그대로 줄어든다)
+  { key: 'hands', name: '빠른 손', icon: '🔄', stat: 'reloadCut', vals: [0.5, 0.5, 0.5, 0.5], text: () => '재장전 시간 −50% (최대 2번 · 두 번 고르면 재장전이 거의 즉시, 탄은 그대로 줄어든다)', minTier: 2, only: 1, max: 2, retire: [1, 2, 3] },
   { key: 'mag', name: '탄창 확장', icon: '📦', stat: 'mag', vals: [0.12, 0.2, 0.32, 0.5], text: (v) => `최대 탄창 +${pc(v)}` },
   {
     key: 'ammo', name: '탄약 상자', icon: '🧰', stat: 'reserve', vals: [0.5, 1, 1.5, 2],
@@ -197,8 +197,8 @@ const SPECIALS = [
  */
 const ADDED = [
   { key: 'reflex', name: '반사 신경', icon: '✨', stat: 'iframe', vals: [0.2, 0.3, 0.4, 0.5], text: (v) => `맞은 뒤 무적 시간 +${fx(v)}초 (기본 0.1초)` },
-  // 검기: 전설 한 장(IV)만 제안에 나온다. I~III은 번호만 남긴다(예전 기록·전송을 읽게). 3 m · 좀비 한 마리
-  { key: 'wave', name: '검기', icon: '🌙', stat: 'wave', vals: [3, 3, 3, 3], only: true, max: 1, retire: [0, 1, 2], text: (v) => `칼을 휘두르면 검기가 날아가 처음 닿는 좀비 한 마리에게 칼과 같은 피해 (좌클릭 베기 ${v} m · 우클릭 찌르기 ${v * 2} m)` },
+  // 검기: 전설 한 장(IV)만 제안에 나온다. I~III은 번호만 남긴다(예전 기록·전송을 읽게). 우클릭 찌르기만 · 10 m · 좀비 한 마리
+  { key: 'wave', name: '검기', icon: '🌙', stat: 'wave', vals: [10, 10, 10, 10], only: true, max: 1, retire: [0, 1, 2], text: (v) => `칼로 우클릭 찌르기를 할 때 검기가 ${v} m 날아가 처음 닿는 좀비 한 마리에게 칼과 같은 피해 (좌클릭 베기에는 검기 없음)` },
   { key: 'anchor', name: '부동자세', icon: '⚓', tier: 'epic', max: 1, fx: { noKnock: 1 }, desc: '맞아도 밀려나지 않는다(보스의 밀치기·내려찍기도)' },
   { key: 'c4', name: 'C4 수류탄', icon: '🧲', tier: 'epic', max: 1, fx: { stickyNade: 1 }, nade: true, desc: '내 수류탄이 C4로 바뀐다. 좀비에 닿으면 그 몸에 붙어 따라가다 터진다' },
   { key: 'shieldKnife', name: '방패 칼', icon: '🛡️', tier: 'epic', max: 1, fx: { guard: 0.45 }, desc: '칼을 들면 방패를 함께 든다. 앞에서 때리는 공격의 피해 −45% (총·수류탄을 들면 방패를 내린다)' },
@@ -381,7 +381,7 @@ export function perkSummary(stats) {
   add('탄창 확률', s.ammoDrop, plus); add('탄창 양', s.ammoMags, (v) => `+${fx(v)}회분`);
   add('맞은 뒤 무적', s.iframe, (v) => `+${fx(v)}초`); add('밀려남', s.noKnock, () => '없음');
   add('C4', s.stickyNade, () => '붙음'); add('검기', s.wave, (v) => `${fx(v)} m`); add('AI 안경', s.autoAim, () => '몸통 자동 조준');
-  add('재장전 시간', s.reloadCut, (v) => (v >= 1 ? '없음' : `−${Math.round(v * 100)}%`)); add('방패', s.guard, (v) => `−${Math.round(v * 100)}%`);
+  add('재장전 시간', s.reloadCut, (v) => (v >= 1 ? '거의 즉시' : `−${Math.round(v * 100)}%`)); add('방패', s.guard, (v) => `−${Math.round(v * 100)}%`);
   add('공중 피해', s.airDmg, (v) => `+${Math.round(v * 100)}%`);
   add('보조무기 마스터', s.sideMaster, () => '주무기 봉인 · 보조 연사 2배 · 피해 +500% · 탄창 2배');
   add('반응 장갑', s.reactive, (v) => `${fx(1 / v)}초에 한 번`);

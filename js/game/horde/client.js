@@ -26,13 +26,13 @@ const HAZARD_LABEL = Object.freeze({
 
 /** 카드 능력치 → 무기 배율(arsenal.setMods) */
 export function modsFromPerks(k, frenzyStacks = 0) {
-  // 재장전 시간 −reloadCut(0.5 = 절반). 100%(두 번 고름)면 재장전이 필요 없다: 탄이 줄지 않고(thrift 1) 재장전도 거의 즉시
+  // 재장전 시간 −reloadCut(0.5 = 절반, 1 = 거의 즉시). 탄은 그대로 줄고 가진 탄만큼만 쏜다
   const cut = Math.min(1, Math.max(0, k.reloadCut || 0));
   return {
     mag: 1 + k.mag, fire: (1 + k.fireRate) * (1 + (k.frenzy || 0) * Math.min(FRENZY_MAX, frenzyStacks)),
     reload: Math.max(0.3, 1 + k.reload) / Math.max(0.02, 1 - cut),
     draw: 1 + k.draw, spread: Math.max(0.2, 1 - k.spread), recoil: Math.max(0.2, 1 - k.recoil),
-    reserve: HORDE.reserveMul * (1 + k.reserve), finiteMags: HORDE.premiumReserveMags, nades: Math.round(k.nades), thrift: cut >= 1 ? 1 : k.thrift,
+    reserve: HORDE.reserveMul * (1 + k.reserve), finiteMags: HORDE.premiumReserveMags, nades: Math.round(k.nades), thrift: k.thrift,
     // 보조무기 마스터: 보조무기만 연사 2배 · 탄창 2배
     sideFire: k.sideMaster > 0 ? 2 : 1, sideMag: k.sideMaster > 0 ? 2 : 1
   };

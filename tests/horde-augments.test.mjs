@@ -101,7 +101,7 @@ describe('QA 요청 증강 묶음', () => {
     assert.equal(head, WEAPONS.ar_std.damage.head * 2, '머리 +100%');
   });
 
-  test('재장전 시간 −50%, 최대 2번, 두 번이면 재장전 없이 계속 쏜다', () => {
+  test('재장전 시간 −50%, 최대 2번, 두 번이면 재장전이 거의 즉시지만 탄은 그대로 줄어든다', () => {
     const c = cardById('hands1');
     assert.equal(c.max, 2);
     assert.equal(c.fx.reloadCut, 0.5);
@@ -113,16 +113,19 @@ describe('QA 요청 증강 묶음', () => {
     assert.equal(one.reload / base.reload, 2, '시간이 절반');
     assert.equal(one.thrift, 0);
     const two = modsFromPerks(computePerks(['hands1', 'hands1']));
-    assert.equal(two.thrift, 1);
-    // 실제 무기: 오래 쏴도 탄창이 줄지 않는다
+    assert.equal(two.thrift, 0, '빠른 손은 탄을 아껴 주지 않는다');
+    // 실제 무기: 재장전이 거의 즉시라 계속 쏘지만, 쏜 만큼 예비 탄이 줄고 가진 탄만큼만 쏜다
     const a = createArsenal({ primary: 'ar_std', rng: () => 0.999 });
     a.setMods(two);
     a.resetRound({});
-    const mag0 = a.getAmmo('ar_std').mag;
+    const start = a.getAmmo('ar_std');
+    const total = start.mag + start.reserve;
     let shots = 0;
     for (let i = 0; i < 600; i++) for (const e of a.update(1 / 60, { fireDown: true })) if (e.type === 'fire') shots++;   // 10초 동안 누르고 있는다
+    const end = a.getAmmo('ar_std');
     assert.ok(shots > 40, `10초 동안 ${shots}발`);
-    assert.equal(a.getAmmo('ar_std').mag, mag0, '쏴도 탄창이 줄지 않는다');
+    assert.ok(shots <= total, '가진 탄보다 많이 쏘지 못한다');
+    assert.equal(end.mag + end.reserve, total - shots, '쏜 만큼 탄이 줄었다');
     // 증강이 없으면 같은 시간에 탄창이 비어 재장전한다
     const b = createArsenal({ primary: 'ar_std', rng: () => 0.999 });
     b.setMods(base);
@@ -132,10 +135,10 @@ describe('QA 요청 증강 묶음', () => {
     assert.ok(reloads > 0 || b.getAmmo('ar_std').mag < mag0, '증강이 없으면 탄이 줄고 재장전이 필요하다');
   });
 
-  test('원거리 좀비(스피터)는 20스테이지부터 나온다', () => {
-    assert.equal(ZOMBIE_TYPES.spitter.from, 20);
-    for (let s = 1; s < 20; s++) assert.ok(!zombieMix(s).some((m) => m.type.id === 'spitter'), `${s}`);
-    assert.ok(zombieMix(20).some((m) => m.type.id === 'spitter'));
+  test('원거리 좀비(스피터)는 11스테이지부터 나온다', () => {
+    assert.equal(ZOMBIE_TYPES.spitter.from, 11);
+    for (let s = 1; s < 11; s++) assert.ok(!zombieMix(s).some((m) => m.type.id === 'spitter'), `${s}`);
+    assert.ok(zombieMix(11).some((m) => m.type.id === 'spitter'));
   });
 
   test('새 카드는 제안에 나온다', () => {

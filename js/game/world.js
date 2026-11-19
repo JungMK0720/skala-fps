@@ -1357,8 +1357,8 @@ function buildWorld(ctx, opts) {
         t: performance.now(), point: hit.point, origin: r3(eye), count: 1, shotId: ++shotSeq
       });
     }
-    // 좀비 물량 막기 '검기': 좌클릭 베기는 검기 거리, 우클릭 찌르기는 그 2배까지 날아간다
-    if (zombie && hordePerk.waveRange > 0) launchWave(ev, eye, fwd, hit ? hit.id : null, def);
+    // 좀비 물량 막기 '검기': 우클릭 찌르기에만 검기가 나간다. 좌클릭 베기는 칼 타격만 한다.
+    if (zombie && ev.kind === 'stab' && hordePerk.waveRange > 0) launchWave(ev, eye, fwd, hit ? hit.id : null, def);
   }
 
   /**
@@ -1366,13 +1366,13 @@ function buildWorld(ctx, opts) {
    * 판정은 내 화면이 그린 좀비로 하고(사격과 같다), 방장이 거리·검기 증강·한 검기 상한을 다시 본다
    */
   function launchWave(ev, eye, fwd, exclude, def) {
-    const kind = ev.kind === 'stab' ? 'waveStab' : 'wave';
+    const kind = 'waveStab';
     const weaponId = ev.weaponId;
     const shotId = ++shotSeq;
     const origin = r3(eye);
     const back = [-fwd[0], -fwd[1], -fwd[2]];
     horde.wave({
-      origin: eye, dir: fwd, range: hordePerk.waveRange * (kind === 'waveStab' ? 2 : 1), local: true, kind, exclude, los: worldLos,
+      origin: eye, dir: fwd, range: hordePerk.waveRange, local: true, kind, exclude, los: worldLos,
       onHit: (h) => {
         // 날아가는 사이에 쓰러졌으면 더 맞히지 않는다(방장도 쓰러진 사람의 주장은 받지 않는다)
         if (!active || mode !== 'zombie' || !h || !local.spawned || !local.alive) return;
@@ -1656,13 +1656,12 @@ function buildWorld(ctx, opts) {
       play(o.kind === 'stab' ? def.heavySound : def.sound, { pos: origin });
       const av = avatars.get(String(o.id));
       if (av) av.swing(o.kind);                  // 3인칭: 든 칼을 휘두른다
-      // 검기 재현: 베기는 검기 거리, 찌르기는 2배
-      const stab = o.kind === 'stab';
-      const range = mode === 'zombie' ? waveRangeOfActor(String(o.id)) * (stab ? 2 : 1) : 0;
+      // 우클릭 찌르기의 검기만 재현한다. 베기 애니메이션에는 검기가 없다.
+      const range = mode === 'zombie' && o.kind === 'stab' ? waveRangeOfActor(String(o.id)) : 0;
       if (range > 0) {
-        const m = stab ? def.melee.stab : def.melee.slash;
+        const m = def.melee.stab;
         horde.wave({
-          origin, dir: d, range, local: false, kind: stab ? 'waveStab' : 'wave', los: worldLos,
+          origin, dir: d, range, local: false, kind: 'waveStab', los: worldLos,
           delayMs: Math.round(clamp(num(m && m.windup, 0.1), 0, 1) * 1000)
         });
       }

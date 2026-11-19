@@ -241,9 +241,9 @@ describe('새 카드: 이미 있는 카드의 전송 번호는 그대로', () =>
     assert.deepEqual(ADDED.slice(4, 7).map((id) => !!cardById(id).retired), [true, true, true], '검기는 전설 한 장만 제안에 나온다');
     assert.equal(cardById('wave4').max, 1);
     assert.deepEqual(ADDED.slice(0, 4).map((id) => cardById(id).fx.iframe), [0.2, 0.3, 0.4, 0.5]);
-    assert.deepEqual(ADDED.slice(4, 8).map((id) => cardById(id).fx.wave), [3, 3, 3, 3]);
+    assert.deepEqual(ADDED.slice(4, 8).map((id) => cardById(id).fx.wave), [10, 10, 10, 10]);
     assert.match(cardById('reflex1').desc, /맞은 뒤 무적 시간 \+0\.2초/);
-    assert.match(cardById('wave4').desc, /좌클릭 베기 3 m · 우클릭 찌르기 6 m/);
+    assert.match(cardById('wave4').desc, /우클릭 찌르기를 할 때 검기가 10 m/);
     const anchor = cardById('anchor'), c4 = cardById('c4');
     assert.deepEqual([anchor.tier, anchor.max, anchor.fx.noKnock, anchor.icon], ['epic', 1, 1, '⚓']);
     assert.deepEqual([c4.tier, c4.max, c4.fx.stickyNade, c4.nade, c4.icon], ['epic', 1, 1, true, '🧲']);
@@ -252,11 +252,11 @@ describe('새 카드: 이미 있는 카드의 전송 번호는 그대로', () =>
     for (const k of ['iframe', 'noKnock', 'stickyNade', 'wave']) assert.equal(base[k], 0, k);
     const k = computePerks(['reflex4', 'reflex4', 'wave4']);
     assert.ok(Math.abs(k.iframe - 1) < 1e-9, '반사 신경은 상한 없이 겹친다');
-    assert.equal(k.wave, 3, '검기 3 m');
+    assert.equal(k.wave, 10, '검기 10 m');
     assert.ok(!cardAvailable(cardById('wave4'), ['wave4']), '검기는 한 번만');
     const rows = perkSummary(computePerks(['reflex1', 'anchor', 'c4', 'wave4']));
     const row = (label) => (rows.find((r) => r.label === label) || {}).value;
-    assert.deepEqual([row('맞은 뒤 무적'), row('밀려남'), row('C4'), row('검기')], ['+0.2초', '없음', '붙음', '3 m']);
+    assert.deepEqual([row('맞은 뒤 무적'), row('밀려남'), row('C4'), row('검기')], ['+0.2초', '없음', '붙음', '10 m']);
     assert.equal(perkSummary(base).length, 0, '증강이 없으면 요약도 없다');
   });
 
@@ -960,15 +960,27 @@ describe('맞은 뒤 무적', () => {
     // 피하면(회피) 무적이 생기지 않는다
     const { d: d2, pos: pos2, P: P2 } = makeFlat();
     const q = P2('p1');
-    q.perks.dodge = 1;
-    spitAt(d2, pos2.p1, 10);
-    step(d2);
-    assert.equal(q.hp, 100);
-    assert.equal(q.hitUntil, 0, '피한 공격은 무적을 만들지 않는다');
+    q.perks.dodge = 5;                 // 상한 90%: 열에 한 번쯤은 맞는다
+    let dodged = 0, landed = 0;
+    for (let i = 0; i < 300; i++) {
+      q.hp = 100; q.hitUntil = 0;
+      spitAt(d2, pos2.p1, 10);
+      step(d2);
+      if (q.hp === 100) { dodged++; assert.equal(q.hitUntil, 0, '피한 공격은 무적을 만들지 않는다'); } else landed++;
+    }
+    assert.ok(landed >= 10 && landed <= 60, `회피 상한 90%: 300번 중 ${landed}번 맞음`);
     q.perks.dodge = 0;
+    q.hp = 100; q.hitUntil = 0;
     spitAt(d2, pos2.p1, 10);
     step(d2);
-    assert.equal(q.hp, 90, '피한 바로 다음 공격은 맞는다');
+    assert.equal(q.hp, 90, '회피가 없으면 맞는다');
+    // 받는 피해 감소는 90%까지(방탄복을 아무리 쌓아도 10%는 들어온다)
+    q.perks.armor = 5;
+    q.hp = 100; q.hitUntil = 0;
+    spitAt(d2, pos2.p1, 100);
+    step(d2);
+    assert.equal(q.hp, 90, '피해 100 → 10');
+    q.perks.armor = 0;
     // 보호막이 막아도 무적은 시작된다
     const { d: d3, pos: pos3, P: P3 } = makeFlat();
     const s = P3('p1');
@@ -1300,12 +1312,11 @@ describe('검기', () => {
     assert.equal(took(), 0);
     p.cards = ['wave4'];
     p.perks = computePerks(p.cards);
-    assert.ok(!claim({ kind: 'wave', dist: 5 }).some((e) => e.type === 'reject'), '좌클릭 베기 검기: 3 m + 여유 2.5 m 안');
-    assert.equal(took(), WEAPONS.ml_knife.melee.slash.damage, '베기 검기는 베기 피해');
-    assert.equal(claim({ kind: 'wave', dist: 6 })[0].reason, 'out_of_range');
-    assert.ok(!claim({ dist: 8 }).some((e) => e.type === 'reject'), '우클릭 찌르기 검기: 6 m + 여유 2.5 m 안');
+    assert.equal(claim({ kind: 'wave', dist: 2 })[0].reason, 'no_wave', '좌클릭 베기는 검기를 내지 않는다');
+    assert.equal(took(), 0);
+    assert.ok(!claim({ dist: 12 }).some((e) => e.type === 'reject'), '우클릭 찌르기 검기: 10 m + 여유 2.5 m 안');
     assert.equal(took(), WEAPONS.ml_knife.melee.stab.damage);
-    assert.equal(claim({ dist: 9 })[0].reason, 'out_of_range');
+    assert.equal(claim({ dist: 13 })[0].reason, 'out_of_range');
     assert.equal(claim({ weaponId: 'ar_std' })[0].reason, 'no_wave', '총은 검기가 없다');
     assert.equal(took(), 0);
     // 칼의 보통 베기는 그대로(검기 거리를 받지 않는다)
