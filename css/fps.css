@@ -598,6 +598,15 @@
 .sk-reload i { display: block; height: 100%; background: var(--sk-accent); transform-origin: left; }
 
 /* 킬피드 */
+/* Static map canvas plus moving marks; keep it clear of the central score. */
+.sk-minimap {
+  position: absolute; top: 12px; right: max(14px, env(safe-area-inset-right));
+  width: var(--sk-minimap-size, 152px); height: var(--sk-minimap-size, 152px);
+  border: 1px solid rgba(112, 181, 208, .65); border-radius: 8px;
+  background: rgba(6, 14, 25, .92); box-shadow: 0 4px 18px rgba(0, 0, 0, .45);
+}
+.sk-hud.has-minimap .sk-killfeed { top: calc(20px + var(--sk-minimap-size, 152px)); }
+
 .sk-killfeed { position: absolute; top: 12px; right: 14px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; max-width: 40vw; }
 .sk-kf {
   display: flex; align-items: center; gap: 7px; max-width: 100%; padding: 4px 10px; border-radius: 4px;
@@ -1331,7 +1340,7 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
 }
 .sk-notice-text { min-width: 0; font-size: 14px; font-weight: 800; line-height: 1.45; text-shadow: 0 1px 2px rgba(0, 0, 0, .6); }
 /* 공지가 떠 있는 동안 경기 HUD의 윗줄을 띠 높이만큼 내린다(top 값이 화면 크기마다 달라 margin으로 민다) */
-.sk-ui.sk-has-notice .sk-top, .sk-ui.sk-has-notice .sk-killfeed, .sk-ui.sk-has-notice .sk-bomb,
+.sk-ui.sk-has-notice .sk-top, .sk-ui.sk-has-notice .sk-killfeed, .sk-ui.sk-has-notice .sk-minimap, .sk-ui.sk-has-notice .sk-bomb,
 .sk-ui.sk-has-notice .sk-hud-banner { margin-top: var(--sk-notice-h, 0px); }
 @media (prefers-reduced-motion: reduce) { .sk-notice { transition: none; } }
 
@@ -1387,6 +1396,9 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
   .sk-timer { font-size: 20px; }
   .sk-tc-sub { font-size: 9px; }
   .sk-killfeed { top: 78px; right: 8px; max-width: 76vw; }
+  .sk-hud { --sk-minimap-size: 112px; }
+  .sk-minimap { top: 8px; right: max(8px, env(safe-area-inset-right)); }
+  .sk-hud.has-minimap .sk-killfeed { top: calc(16px + var(--sk-minimap-size)); }
   .sk-kf { padding: 3px 8px; font-size: 11.5px; }
   .sk-center-main { padding: 4px 10px; font-size: 22px; white-space: normal; }
   .sk-scoreboard { padding: 8px; }

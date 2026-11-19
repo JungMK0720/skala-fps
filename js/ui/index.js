@@ -272,6 +272,9 @@ export function createUI(rootEl, options = {}) {
 
     hud: {
       set: (p) => hud.set(p),
+      setMinimapMap: (mapData) => hud.setMinimapMap(mapData),
+      minimapFrame: (position, yaw, actors, avatars, team, mode, hordeView) =>
+        hud.minimapFrame(position, yaw, actors, avatars, team, mode, hordeView),
       hitmarker: (head, kill, opts) => hud.hitmarker(head, kill, opts),
       damageFrom: (angle) => hud.damageFrom(angle),
       center: (text, ms, opts) => hud.center(text, ms, opts),

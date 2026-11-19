@@ -602,6 +602,7 @@ function buildWorld(ctx, opts) {
     ctx.setRendering(true);
     input.setEnabled(input.locked || !!(ctx.flags && ctx.flags.autoplay));
     if (ui) { ui.show('hud', { crosshair: false, hp: 100 }); ui.hud.reset(); ui.scope.set(0); }
+    if (ui) ui.hud.setMinimapMap(built.data);
     // 폭파 미션 칸(구역 · 진영 스폰, 스폰 높이는 빌더 스폰처럼 바닥을 찾아 채운다). 미션이 없는 맵이면 null
     // extra = 16인방(진영당 8명)에서 진영 스폰이 모자랄 때만 경기가 쓰는 보조 자리
     const mission = missionCrowd(placeMission(normalizeMission(built.data), built.world, findFloor, getGroundY), built.world, built.bounds);
@@ -645,6 +646,7 @@ function buildWorld(ctx, opts) {
     player.setFrozen(false);
     player.setSpeedScale(1);
     if (ui) { for (const s of ['hud', 'scoreboard', 'pause', 'loadout']) ui.hide(s); ui.scope.set(0); }
+    if (ui) ui.hud.setMinimapMap(null);
     R.setFov(R.baseFov);
     input.setLookScale(1);
     input.exitLock();
@@ -1989,6 +1991,7 @@ function buildWorld(ctx, opts) {
     p.swap = prompt ? { seconds: swap.free ? 0 : swapLeft(), weaponName: held ? held.short || held.name : '', note: swap.props.note || '' } : null;
     p.spectate = !alive && local.spawned ? spec.name : '';
     ui.hud.set(p);
+    ui.hud.minimapFrame(alive ? player.state.pos : null, player.state.yaw, actors.values(), avatars, local.team, mode, mode === 'zombie' ? horde : null);
   }
 
   offs.push(ctx.onTick(tick, -90));

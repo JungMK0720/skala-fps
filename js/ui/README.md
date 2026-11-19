@@ -270,6 +270,8 @@ props에 `title`(레벨 업·보물 상자), `sub`(덧붙일 안내), `seconds`(
 - 진영 패널은 `side`·`goal`·`status`·`timer` 중 하나라도 있으면 보입니다. 패널이 있는 동안 상단 배너는 그 아래로 내려갑니다.
 - 휴대폰(`html.pc-touch`)은 패널을 줄인 점수 바로 아래에 좁게 두고, 속도계와 배너를 그 아래로 내립니다. 위쪽 버튼 줄과 아래 조작 버튼을 가리지 않습니다.
 
+- `setMinimapMap(mapData | null)`: 맵을 불러올 때 지형을 미리 그린다. 맵을 내릴 때 `null`로 지운다. `minimapFrame(position, yaw, actors, avatars, localTeam, mode, hordeView)`: 매 프레임 우측 상단에 내 위치·방향과 살아 있는 동료를 그리며, 좀비 모드에서는 동기화된 좀비도 표시한다. 개인전·적 플레이어 위치는 공개하지 않는다. 라운드 `reset()`은 맵을 유지한다.
+
 - `hitmarker(head, kill)`: 헤드샷은 핑크, 킬은 빨강으로 표시합니다.
 - `damageFrom(angle)`: 화면 중앙을 도는 붉은 호가 1.3초 동안 보이고 가장자리가 번쩍입니다. 동시에 최대 6개까지 표시합니다.
 - `center(text, ms = 2000, { sub, tone })`: `ms`가 0, 음수, Infinity이면 다음 호출 때까지 유지합니다. `''`이면 지웁니다. `tone`을 생략하면 문구에 '블루'/'레드'/'매치 포인트'가 있는지 보고 색을 정합니다.

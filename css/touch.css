@@ -107,6 +107,9 @@ html.pc-touch .sk-slot-ico { font-size: 20px; }
 html.pc-touch .sk-top { top: calc(4px + env(safe-area-inset-top)); transform: translateX(-50%) scale(.72); transform-origin: top center; }
 html.pc-touch .sk-speed { top: 46px; bottom: auto; width: 96px; margin-left: -48px; }
 html.pc-touch .sk-killfeed { top: calc(48px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); max-width: 34vw; font-size: 11px; }
+html.pc-touch .sk-hud { --sk-minimap-size: 112px; }
+html.pc-touch .sk-minimap { top: calc(50px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); }
+html.pc-touch .sk-hud.has-minimap .sk-killfeed { top: calc(58px + env(safe-area-inset-top) + var(--sk-minimap-size)); }
 /* 전체 공지 띠: 양쪽 위 귀퉁이의 버튼(일시정지·점수판)을 가리지 않게 폭을 줄인다 */
 html.pc-touch .sk-notice { top: calc(4px + env(safe-area-inset-top)); max-width: calc(100% - 230px); padding: 5px 10px 5px 8px; }
 html.pc-touch .sk-notice-text { font-size: 12.5px; }
@@ -161,4 +164,5 @@ html.pc-touch input, html.pc-touch textarea, html.pc-touch select { font-size: 1
 /* 세로 화면: 경기는 가로 안내가 덮지만 부활 패널과 겹치지 않게 안내 줄을 무기 칸 바로 위에 둔다 */
 @media (orientation: portrait) {
   html.pc-touch .sk-hint { bottom: calc(76px + env(safe-area-inset-bottom)); max-width: 86vw; }
+  html.pc-touch .sk-hud { --sk-minimap-size: 96px; }
 }

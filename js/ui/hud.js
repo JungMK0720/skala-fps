@@ -14,6 +14,8 @@ import { PLAYER, MOVE } from '../core/consts.js';
 const KILLFEED_MAX = 5;
 const KILLFEED_MS = 5000;
 const DMG_MAX = 6;
+const MINIMAP_PX = 192;
+const MINIMAP_PAD = 10;
 
 // 속도계: 막대는 걷기 속도 ~ 이동 상한. 이 값을 넘어야 보인다
 const SPEED_SHOW_ABOVE = 5.5;
@@ -306,6 +308,15 @@ export function createHud(ctx) {
   });
 
   const feed = h('div', { class: 'sk-killfeed', 'aria-label': '킬피드' });
+  // Static terrain is drawn only when a map loads; the visible canvas gets moving marks each frame.
+  const minimap = h('canvas', { class: 'sk-minimap', width: MINIMAP_PX, height: MINIMAP_PX, hidden: true, 'aria-label': '미니맵' });
+  const minimapCtx = minimap.getContext('2d');
+  const minimapTerrain = document.createElement('canvas');
+  minimapTerrain.width = minimapTerrain.height = MINIMAP_PX;
+  const terrainCtx = minimapTerrain.getContext('2d');
+  let mapScale = 0;
+  let mapX = 0, mapZ = 0;
+
   const centerMain = h('div', { class: 'sk-center-main' });
   const centerSub = h('div', { class: 'sk-center-sub', hidden: true });
   const centerEl = h('div', { class: 'sk-center', 'aria-live': 'polite' }, centerMain, centerSub);
@@ -336,11 +347,93 @@ export function createHud(ctx) {
 
   // 순서: 설치/해체 막대 → 폭탄 안내 → 이모트 안내. css가 형제 선택자로 겹침을 푼다(안내가 뜨면 이모트 안내를 올리고, 터치 화면은 막대가 뜨면 안내를 가린다)
   const el = h('section', { class: 'sk-screen sk-hud', hidden: true, 'aria-label': 'HUD' },
-    vignette, flash, dmgs, bombMarks, xhair, hit, calloutBox, mkEl, protectEl, bombProg, top, bombPanel, bannerEl, feed, centerEl, respawnEl, specEl,
+    vignette, flash, dmgs, bombMarks, xhair, hit, calloutBox, mkEl, protectEl, bombProg, top, bombPanel, bannerEl, minimap, feed, centerEl, respawnEl, specEl,
     bombPrompt, emoteEl, swapEl, hintEl, speedEl, hpEl,
     h('div', { class: 'sk-br' }, slotsEl, ammoEl));
 
   ctx.listen(window, 'resize', () => { viewH = 0; if (st.gap >= 0) applySpread(); });
+
+  /** The map is centered on world origin (the collision bounds are ±size/2). */
+  function setMinimapMap(mapData) {
+    const sx = Number(mapData?.size?.x), sz = Number(mapData?.size?.z);
+    mapScale = sx > 0 && sz > 0 && Number.isFinite(sx) && Number.isFinite(sz)
+      ? (MINIMAP_PX - MINIMAP_PAD * 2) / Math.max(sx, sz) : 0;
+    minimap.hidden = !mapScale;
+    el.classList.toggle('has-minimap', !!mapScale);
+    if (!mapScale) return;
+    mapX = MINIMAP_PX / 2;
+    mapZ = MINIMAP_PX / 2;
+    const w = sx * mapScale, d = sz * mapScale;
+    terrainCtx.clearRect(0, 0, MINIMAP_PX, MINIMAP_PX);
+    terrainCtx.fillStyle = '#101c2c';
+    terrainCtx.fillRect(mapX - w / 2, mapZ - d / 2, w, d);
+    terrainCtx.strokeStyle = '#70b5d0';
+    terrainCtx.lineWidth = 2;
+    terrainCtx.strokeRect(mapX - w / 2, mapZ - d / 2, w, d);
+    for (const s of mapData.solids || []) {
+      if (!s || s.mat === 'clip') continue;
+      const x = mapX + s.x * mapScale, z = mapZ + s.z * mapScale;
+      terrainCtx.fillStyle = s.type === 'ramp' ? '#486b83' : '#354b60';
+      if (s.type === 'cyl') {
+        terrainCtx.beginPath();
+        terrainCtx.arc(x, z, Math.max(0, s.r * mapScale), 0, Math.PI * 2);
+        terrainCtx.fill();
+      } else if (s.type === 'box' || s.type === 'ramp') {
+        terrainCtx.fillRect(x - s.w * mapScale / 2, z - s.d * mapScale / 2, s.w * mapScale, s.d * mapScale);
+      }
+    }
+    minimapCtx.drawImage(minimapTerrain, 0, 0);
+  }
+
+  function drawMinimapDot(x, z, radius, color) {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+    minimapCtx.beginPath();
+    minimapCtx.arc(mapX + x * mapScale, mapZ + z * mapScale, radius, 0, Math.PI * 2);
+    minimapCtx.fillStyle = color;
+    minimapCtx.fill();
+  }
+
+  // Reuse this callback instead of allocating one per frame/zombie.
+  function drawZombieMark(z) {
+    if (z) drawMinimapDot(z.x, z.z, z.boss ? 4 : 2, z.boss ? '#c478ff' : '#ff6662');
+  }
+
+  /** Only same-team living actors are shown; FFA never reveals opponents. */
+  function minimapFrame(position, yaw, actorValuesIterable, avatars, localTeam, mode, hordeView) {
+    if (!mapScale || !minimapCtx) return;
+    if (minimap.hidden) {
+      minimap.hidden = false;
+      el.classList.add('has-minimap');
+    }
+    minimapCtx.clearRect(0, 0, MINIMAP_PX, MINIMAP_PX);
+    minimapCtx.drawImage(minimapTerrain, 0, 0);
+    if (mode !== 'ffa' && teamKey(localTeam) && actorValuesIterable) {
+      for (const actor of actorValuesIterable) {
+        if (!actor || !actor.alive || !actor.state?.pos || actor.team !== localTeam) continue;
+        const avatar = avatars?.get(actor.id);
+        const p = avatar?.pos || actor.state?.pos;
+        if (p) drawMinimapDot(p[0], p[2], 3, '#7edfff');
+      }
+    }
+    if (mode === 'zombie' && hordeView?.forEachVisible) hordeView.forEachVisible(drawZombieMark);
+    if (!position || !Number.isFinite(position[0]) || !Number.isFinite(position[2])) return;
+    const x = mapX + position[0] * mapScale, z = mapZ + position[2] * mapScale;
+    minimapCtx.save();
+    minimapCtx.translate(x, z);
+    minimapCtx.rotate(Number.isFinite(yaw) ? yaw : 0);
+    minimapCtx.beginPath();
+    minimapCtx.moveTo(0, -7);
+    minimapCtx.lineTo(5, 5);
+    minimapCtx.lineTo(0, 2);
+    minimapCtx.lineTo(-5, 5);
+    minimapCtx.closePath();
+    minimapCtx.fillStyle = '#fff';
+    minimapCtx.fill();
+    minimapCtx.strokeStyle = '#0b1827';
+    minimapCtx.lineWidth = 1.5;
+    minimapCtx.stroke();
+    minimapCtx.restore();
+  }
 
   // ---------- 적용 ----------
   function applyHp(v) {
@@ -920,6 +1013,8 @@ export function createHud(ctx) {
   }
 
   function reset() {
+    minimap.hidden = true;
+    el.classList.remove('has-minimap');
     feed.replaceChildren();
     dmgs.replaceChildren();
     center('');
@@ -949,7 +1044,7 @@ export function createHud(ctx) {
 
   const screen = makeScreen(el, { render: (_props, { patch }) => set(patch) });
   return Object.assign(screen, {
-    set, hitmarker, damageFrom, center, callout, banner, multiKill, reset,
+    set, hitmarker, damageFrom, center, callout, banner, multiKill, reset, setMinimapMap, minimapFrame,
     killfeed: { push: pushKill, clear: () => feed.replaceChildren() },
   });
 }
