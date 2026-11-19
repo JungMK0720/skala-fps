@@ -51,8 +51,8 @@ const HIT_FLASH_MS = 90;
 const GROAN_MIN = 3500, GROAN_SPREAD = 6000;
 const SKILL_CODE = Object.freeze(Object.fromEntries(Object.entries(SKILL_KINDS).map(([k, v]) => [v, k])));
 const HAZ_COLOR = Object.freeze({ [HAZARD_KINDS.acid]: 0x7dff3a, [HAZARD_KINDS.fire]: 0xff7a1a, [HAZARD_KINDS.web]: 0xe8e2d0, [HAZARD_KINDS.frost]: 0x8fdcff, [HAZARD_KINDS.shock]: 0x6ff0ff });
-const PROJ_COLOR = Object.freeze({ [PROJECTILE_KINDS.spit]: 0x9dff4a, [PROJECTILE_KINDS.acid]: 0x6dff2a, [PROJECTILE_KINDS.barrel]: 0x8a4b1c, [PROJECTILE_KINDS.web]: 0xf2ecdc, [PROJECTILE_KINDS.shard]: 0xbfeaff });
-const PROJ_SIZE = Object.freeze({ [PROJECTILE_KINDS.barrel]: 0.34, [PROJECTILE_KINDS.shard]: 0.14 });
+const PROJ_COLOR = Object.freeze({ [PROJECTILE_KINDS.spit]: 0x9dff4a, [PROJECTILE_KINDS.acid]: 0x6dff2a, [PROJECTILE_KINDS.barrel]: 0x8a4b1c, [PROJECTILE_KINDS.web]: 0xf2ecdc, [PROJECTILE_KINDS.shard]: 0xbfeaff, [PROJECTILE_KINDS.hook]: 0xffd34a, [PROJECTILE_KINDS.curse]: 0xb04cff });
+const PROJ_SIZE = Object.freeze({ [PROJECTILE_KINDS.barrel]: 0.34, [PROJECTILE_KINDS.shard]: 0.14, [PROJECTILE_KINDS.hook]: 0.3, [PROJECTILE_KINDS.curse]: 0.24 });
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;

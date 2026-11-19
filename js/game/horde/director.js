@@ -27,6 +27,7 @@
  * 좀비 전용 맵(o.gates)이면 좀비는 그 좀비 문에서만 나온다.
  */
 import { moveCharacter, lineOfSight, getGroundY } from '../../engine/physics.js';
+import { PLAYER } from '../../core/consts.js';
 import { computeDamage, getDef, explosionFalloff } from '../../weapons/defs.js';
 import {
   HORDE, ZOMBIE_TYPES, zombieByCode, zombieCount, hpMul, dmgMul, speedMul, spawnGapMs, spawnBurst, bossCount, bossHpMul,
@@ -64,6 +65,8 @@ const LOS_MS = 300;
 const JUMP_GAP_MS = 1100;
 const STUCK_RECYCLE_MS = 9000;    // 이만큼 사람에게 다가가지 못한 좀비는 다른 자리에서 다시 나온다
 const GRAVITY = -12;
+const PULL_UP = 5;                // 그랩에 끌려갈 때 위로 뜨는 속도(m/s)
+const PLAYER_GRAVITY = PLAYER.GRAVITY;
 const FLY_HEIGHT = 1.25;        // 비행 좀비의 발 높이(바닥 위 m). 작은 모형의 머리는 약 2.6 m
 const NADE_RADIUS = (getDef('gr_frag') && getDef('gr_frag').explosion && getDef('gr_frag').explosion.radius) || 5;
 
@@ -163,6 +166,7 @@ export function createHorde(o = {}) {
   }
   function healPlayer(P, amount) {
     if (!P.alive || !(amount > 0)) return 0;
+    if (P.noHealUntil > S.clock) return 0;   // 마녀의 저주: 정해진 시간 동안 어떤 회복도 받지 않는다
     const before = P.hp;
     P.hp = Math.min(P.maxHp, P.hp + amount);
     return P.hp - before;
@@ -504,7 +508,7 @@ export function createHorde(o = {}) {
       state: 'rise', until: S.clock + (boss ? 1800 : 650), attackReady: S.clock + 900,
       target: null, targetAt: 0, node: -1, losAt: 0, los: false, jumpAt: 0, stuck: 0, progressAt: S.clock, bestDist: Infinity,
       slowUntil: 0, slowMul: 1, hasteUntil: 0, hasteMul: 1, armorUntil: 0, armorMul: 1, enraged: false,
-      rangedAt: S.clock + 1500 + rng() * 1500, skill: null, skillReady: boss ? boss.skills.map((s, i) => S.clock + 2500 + i * 1800 + rng() * 1200) : null,
+      rangedAt: S.clock + 1500 + rng() * 1500, grabAt: S.clock + 3000 + rng() * 3000, windGrab: false, skill: null, skillReady: boss ? boss.skills.map((s, i) => S.clock + 2500 + i * 1800 + rng() * 1200) : null,
       summoned: !!extra.summoned, deadAt: 0, killer: null, exploded: false, airFrom: null
     };
     zombies.set(id, Z);
@@ -588,6 +592,30 @@ export function createHorde(o = {}) {
     P.knockSeq++;
     P.knockAt = S.clock;
     P.knockV = [dx * sp, R.knockUp * Math.min(1, k), dz * sp];
+  }
+
+  /** 밀려남 대신 속도를 그대로 싣는다(그랩·기절 띄우기). 같은 간격에 이미 밀려남이 있으면 덮어쓴다 */
+  function setKnock(P, v) {
+    if (P.knockAt !== S.clock) P.knockSeq++;
+    P.knockAt = S.clock;
+    P.knockV = v;
+  }
+  /** 블리츠 그랩: 사람을 Z 바로 앞(1.4 m)까지 날려 끌어온다. 위로 5 m/s 띄워 날아가는 시간 동안 수평으로 다가간다 */
+  function pullPlayer(P, Z) {
+    if (!P.pos) return;
+    const zp = Z.body.pos;
+    let ux = P.pos[0] - zp[0], uz = P.pos[2] - zp[2];
+    const l = hyp2(ux, uz) || 1;
+    ux /= l; uz /= l;
+    const tx = zp[0] + ux * 1.4 - P.pos[0], tz = zp[2] + uz * 1.4 - P.pos[2];
+    const flight = (2 * PULL_UP) / -PLAYER_GRAVITY;
+    setKnock(P, [tx / flight, PULL_UP, tz / flight]);
+  }
+  /** 블리츠 평타: 기절(ms 동안 움직이지도 쏘지도 못함)하며 공중에 뜬다 */
+  function stunPlayer(P, st, ev) {
+    const v = P.knockAt === S.clock && P.knockV ? [P.knockV[0] * 0.3, st.up, P.knockV[2] * 0.3] : [0, st.up, 0];
+    setKnock(P, v);
+    ev.push({ type: 'stun', id: P.id, ms: st.ms });
   }
 
   /** 좀비가 노린 표적(사람 또는 분신)이 맞음 */
@@ -1200,8 +1228,13 @@ export function createHorde(o = {}) {
       Z.attackReady = now + Z.attackMs * (rage ? rage.cd : 1);
       if (Z.t && Z.t.explode) { killSelfExplode(Z, ev); return; }
       if (Z.windRanged) { Z.windRanged = false; shootSpit(Z, T); return; }
-      // 맞으면 좀비 반대쪽으로 밀려난다(큰 좀비일수록 멀리)
-      if (d <= reach * 1.3 && Math.abs(dy) < 1.8) hurtTarget(T, Z.dmg * (rage ? rage.dmg : 1), Z, ev, { melee: true, knock: clamp(Z.scale, 0.8, 1.8) });
+      if (Z.windGrab) { Z.windGrab = false; shootGrab(Z, T); return; }
+      // 맞으면 좀비 반대쪽으로 밀려난다(큰 좀비일수록 멀리). 블리츠의 평타는 기절시키며 공중에 띄운다
+      if (d <= reach * 1.3 && Math.abs(dy) < 1.8) {
+        const before = T.hitUntil;
+        hurtTarget(T, Z.dmg * (rage ? rage.dmg : 1), Z, ev, { melee: true, knock: clamp(Z.scale, 0.8, 1.8) });
+        if (Z.t && Z.t.stun && !T.decoy && T.hitUntil !== before) stunPlayer(T, Z.t.stun, ev);
+      }
       return;
     }
     // 스피터: 거리를 두고 침을 뱉는다(분신에게는 다가가 할퀸다)
@@ -1213,10 +1246,19 @@ export function createHorde(o = {}) {
         return;
       }
     }
+    // 블리츠: 그랩(쿨타임마다). 보이는 사람에게만 던진다
+    const gb = Z.t && Z.t.grab && !T.decoy ? Z.t.grab : null;
+    if (gb && now >= Z.grabAt && d <= gb.range && d > 3) {
+      if (world && !lineOfSight(world, [p[0], p[1] + 1.4, p[2]], [T.pos[0], T.pos[1] + 1.2, T.pos[2]])) Z.grabAt = now + 600;
+      else {
+        Z.state = 'wind'; Z.until = now + gb.windupMs; Z.windGrab = true; Z.grabAt = now + gb.every;
+        return;
+      }
+    }
     if (d <= reach && Math.abs(dy) < 1.6) {
       faceTo(Z, T.pos[0], T.pos[2], dt, 12);
       if (world && !(Z.t && Z.t.flying)) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius });
-      if (now >= Z.attackReady) { Z.state = 'wind'; Z.until = now + Z.windupMs; }
+      if (now >= Z.attackReady) { Z.state = 'wind'; Z.until = now + Z.windupMs; Z.windRanged = false; Z.windGrab = false; }
       return;
     }
     if (rg && d < rg.keep) {
@@ -1241,7 +1283,7 @@ export function createHorde(o = {}) {
   /* ------------------------------------------------------------------ 투사체 · 장판 */
   function addProjectile(kind, from, vel, opts) {
     if (projectiles.length >= R.maxProjectiles) projectiles.shift();
-    projectiles.push({ id: S.nextProj++, kind, pos: from.slice(), vel: vel.slice(), arc: !!opts.arc, dmg: opts.dmg || 0, blast: opts.blast || null, pool: opts.pool || null, slow: opts.slow || null, born: S.clock, life: opts.life || 4000 });
+    projectiles.push({ id: S.nextProj++, kind, pos: from.slice(), vel: vel.slice(), arc: !!opts.arc, dmg: opts.dmg || 0, blast: opts.blast || null, pool: opts.pool || null, slow: opts.slow || null, pull: opts.pull || 0, noHeal: opts.noHeal || 0, born: S.clock, life: opts.life || 4000 });
   }
   function aimVelocity(from, to, speed, arc) {
     const dx = to[0] - from[0], dy = to[1] - from[1], dz = to[2] - from[2];
@@ -1262,7 +1304,16 @@ export function createHorde(o = {}) {
     const tp = T.pos;
     const to = [tp[0], tp[1] + 1.1, tp[2]];
     if (T.vel) { to[0] += T.vel[0] * lead; to[2] += T.vel[2] * lead; }
-    addProjectile(PROJECTILE_KINDS.spit, from, aimVelocity(from, to, rg.speed, false), { dmg: rg.dmg * dmgMul(S.stage), life: 2500 });
+    // 종류(침·저주 물약)와 궤적(곧게·포물선)은 좀비 표의 ranged가 정한다
+    const kind = (rg.kind && PROJECTILE_KINDS[rg.kind]) || PROJECTILE_KINDS.spit;
+    addProjectile(kind, from, aimVelocity(from, to, rg.speed, !!rg.arc), { arc: !!rg.arc, dmg: rg.dmg * dmgMul(S.stage), noHeal: rg.noHealMs || 0, life: 2500 });
+  }
+  /** 블리츠 그랩: 곧게 날아가는 갈고리. 맞은 사람은 그 블리츠 앞으로 끌려간다 */
+  function shootGrab(Z, T) {
+    const gb = Z.t.grab;
+    const from = [Z.body.pos[0], Z.body.pos[1] + 1.3 * Z.scale, Z.body.pos[2]];
+    const to = [T.pos[0], T.pos[1] + 1.0, T.pos[2]];
+    addProjectile(PROJECTILE_KINDS.hook, from, aimVelocity(from, to, gb.speed, false), { dmg: gb.dmg * dmgMul(S.stage), pull: Z.id, life: (gb.range / gb.speed) * 1000 + 150 });
   }
   function addHazard(kind, x, y, z, h) {
     if (hazards.length >= R.maxHazards) hazards.shift();
@@ -1293,8 +1344,17 @@ export function createHorde(o = {}) {
       if (expired && !hitPlayer && !hitWorld) continue;
       const at = pr.pos;
       if (hitPlayer && pr.dmg > 0) {
-        hurtPlayer(hitPlayer, pr.dmg, null, ev, { at: [p0[0], p0[1], p0[2]], knock: 0.6, zombie: true });
+        const before = hitPlayer.hitUntil;
+        hurtPlayer(hitPlayer, pr.dmg, null, ev, { at: [p0[0], p0[1], p0[2]], knock: pr.pull ? 0 : 0.6, zombie: true });
         if (pr.slow) ev.push({ type: 'slow', id: hitPlayer.id, mul: pr.slow.mul, ms: pr.slow.ms });
+        // 마녀의 저주: 피하지 않고 맞았으면 정해진 시간 동안 회복 불가
+        if (pr.noHeal > 0 && hitPlayer.hitUntil !== before) {
+          hitPlayer.noHealUntil = Math.max(hitPlayer.noHealUntil || 0, S.clock + pr.noHeal);
+          ev.push({ type: 'noHeal', id: hitPlayer.id, ms: pr.noHeal });
+        }
+        // 그랩: 피하지 않고 맞았으면 던진 블리츠 앞으로 끌려간다(블리츠가 이미 쓰러졌으면 아무 일 없음)
+        const G = pr.pull ? zombies.get(pr.pull) : null;
+        if (G && G.state !== 'dead' && hitPlayer.hitUntil !== before) { pullPlayer(hitPlayer, G); ev.push({ type: 'grabbed', id: hitPlayer.id }); }
       }
       if (pr.blast) explodeAt(at, pr.blast.r, pr.blast.dmg * dmgMul(S.stage), null, ev, 'barrel');
       if (pr.pool) {

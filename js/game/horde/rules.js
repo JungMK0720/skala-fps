@@ -98,7 +98,7 @@ export function rollDrop(rng, medP = HORDE.medChance, magP = HORDE.magChance) {
 }
 
 /** 좀비 종류별 경험치(강한 특수 좀비일수록 많다). 보스는 HORDE.bossXp, 보스가 불러낸 좀비는 1 */
-export const ZOMBIE_XP = Object.freeze({ walker: 1, crawler: 1, runner: 2, spitter: 2, bomber: 2, brute: 4, flyer: 3 });
+export const ZOMBIE_XP = Object.freeze({ walker: 1, crawler: 1, runner: 2, spitter: 2, bomber: 2, brute: 4, flyer: 3, grabber: 5, witch: 4 });
 export const zombieXp = (typeId) => ZOMBIE_XP[typeId] || 1;
 
 /** 이 레벨에서 다음 레벨까지 필요한 경험치: 1레벨 10, 2레벨 20, 3레벨 30, … */
@@ -152,6 +152,19 @@ export const ZOMBIE_TYPES = Object.freeze({
     id: 'flyer', code: 7, name: '비행 좀비', hp: 85, speed: 4.5, damage: 10, attackMs: 1000, windupMs: 300, range: 1.4,
     radius: 0.3, scale: 0.72, from: 20, weight: 2, color: 0x9aabd2, cloth: 0x41476c, flying: true,
     ranged: Object.freeze({ every: 3300, speed: 17, dmg: 12, keep: 7, range: 20, windupMs: 450 })
+  }),
+  // 블리츠: 30스테이지부터 가끔. 20초마다 그랩(맞으면 블리츠 앞으로 끌려간다), 평타에 맞으면 기절하며 공중에 뜬다
+  grabber: Object.freeze({
+    id: 'grabber', code: 8, name: '블리츠', hp: 700, speed: 2.4, damage: 14, attackMs: 1400, windupMs: 450, range: 1.6,
+    radius: 0.45, scale: 1.3, from: 30, weight: 0.8, color: 0xd2a63a, cloth: 0x5a4a3a,
+    grab: Object.freeze({ every: 20000, range: 20, speed: 26, windupMs: 600, dmg: 8 }),
+    stun: Object.freeze({ ms: 1200, up: 7 })
+  }),
+  // 마녀: 40스테이지부터. 포물선으로 저주 물약을 던진다. 맞으면 10초 동안 회복 불가
+  witch: Object.freeze({
+    id: 'witch', code: 9, name: '마녀', hp: 160, speed: 2.6, damage: 9, attackMs: 1200, windupMs: 400, range: 1.3,
+    radius: 0.34, scale: 0.95, from: 40, weight: 1.2, color: 0x7b4f9e, cloth: 0x2a1b3a,
+    ranged: Object.freeze({ every: 4500, speed: 12, dmg: 6, keep: 9, range: 22, windupMs: 600, kind: 'curse', arc: true, noHealMs: 10000 })
   })
 });
 
