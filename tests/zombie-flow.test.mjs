@@ -121,7 +121,7 @@ describe('무기 고르기 창(준비 시간)', () => {
     assert.equal(swap.free, true);
     assert.equal(swap.ruleset, 'classic');
     // 카드는 무기 id로 그린다(UI 무기 표에 좀비 전용 무기도 들어 있다: game/index.js ui.setWeapons)
-    assert.deepEqual(swap.weapons, [...PRIMARY_IDS], '모든 주무기가 표 순서대로, 기관총이 맨 끝');
+    assert.deepEqual(swap.weapons, PRIMARY_IDS.filter((id) => !WEAPONS[id].cardOnly), '카드 전용 주무기는 준비 목록에서 제외');
     assert.equal(swap.weapons.at(-1), 'mg_m249');
     assert.ok(WEAPONS.mg_m249.stats.some((s) => s.label === '이동' && s.value === '70%'), '카드 자료에 이동 70%가 있다');
     assert.equal(swap.ammo.mg_m249, '100/600');

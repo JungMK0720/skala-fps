@@ -1,9 +1,9 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 좀비 물량 막기의 방장 시뮬레이션. 스테이지 진행(준비 → 40초 스테이지가 이어짐. 시간 안에 다 잡으면 남은 2초당 경험치 1을 받고
+ * Purpose: 좀비 물량 막기의 방장 시뮬레이션. 스테이지 진행(준비 → 40초 스테이지가 이어짐. 시간 안에 다 잡으면 남은 1초당 경험치 1을 받고
  *          바로 다음 스테이지), 팀 경험치·레벨업, 증강 제안·선택(혼자면 고르는 동안 좀비·시간이 멈추고, 멀티는 고르는 사람만 무적이고 좀비도 노리지 않는다 ·
- *          20초 안에 안 고르면 무작위 · 고른 뒤 3초 무적), 좀비 생성·길찾기·공격, 보스 스킬, 투사체·장판,
+ *          20초 안에 안 고르면 무작위 · 고른 뒤 멀티 2초/혼자 3초 무적), 좀비 생성·길찾기·공격, 보스 스킬, 투사체·장판,
  *          피해 확정(맞은 뒤 0.1초 무적 · 밀려남), 검기 판정, 쓰러진 동료 살리기(멀티 · F 3초), 바닥 보급품(구급 상자·탄창·보스의 보물 상자),
  *          수류탄 증강(불길·빙결·분신), 스냅샷과 방장 이전 복원을 맡는다.
  *          연습장(혼자)과 멀티 방장이 같은 코드를 돈다.
@@ -266,7 +266,7 @@ export function createHorde(o = {}) {
     beginStage(ev);
   }
 
-  /** 시간 안에 다 잡았다: 남은 시간 2초당 경험치 1, 체력 회복, 바로 다음 스테이지 */
+  /** 시간 안에 다 잡았다: 남은 시간 1초당 경험치 1, 체력 회복, 바로 다음 스테이지 */
   function clearStage(ev) {
     const leftMs = Math.max(0, S.stageEnd - S.clock);
     const bonus = timeBonusXp(leftMs, R);
@@ -417,7 +417,7 @@ export function createHorde(o = {}) {
     if (!takeCard(P, cardId, ev, auto)) { P.offer = null; return false; }
     P.picks = Math.max(0, P.picks - 1);
     if (chest) P.chestPicks = Math.max(0, P.chestPicks - 1);
-    // 고른 직후 3초 무적(멀티는 고르는 동안에도 무적이었다)
+    // 고른 직후 멀티는 2초, 혼자는 3초 무적(멀티는 고르는 동안에도 무적이었다)
     P.invulnUntil = S.clock + R.pickInvulnMs;
     if (P.picks > 0) giveOffer(P);
     return true;
@@ -902,12 +902,14 @@ export function createHorde(o = {}) {
     if (!P || !P.alive) return [{ type: 'reject', reason: 'dead_attacker' }];
     const def = getDef(c.weaponId);
     if (!def || def.explosion) return [{ type: 'reject', reason: 'bad_weapon' }];
+    if (def.cardOnly && !((def.id === 'fl_horde' && P.cards.includes('flameGun')) || (def.id === 'rg_horde' && P.cards.includes('railGun')))) return [{ type: 'reject', reason: 'bad_weapon' }];
     const dist = Math.max(0, num(c.dist));
     const melee = !!def.melee;
     const k = P.perks;
     const shot = num(c.shotId, 0) | 0;
-    if (c.kind === 'wave' || c.kind === 'waveStab') {
-      // 검기(증강): 칼을 휘두를 때 날아간 검기가 맞힌 좀비. 칼이고 검기 증강이 있어야 하며, 검기 거리 + 여유 안, 검기 하나에 waveMaxHits마리까지
+    if (c.kind === 'wave') return [{ type: 'reject', reason: 'no_wave' }]; // 좌클릭 베기는 검기를 낼 수 없다
+    if (c.kind === 'waveStab') {
+      // 우클릭 찌르기 검기: 칼·증강·거리·검기 하나의 적중 상한을 검증한다.
       if (!melee || !(k.wave > 0)) return [{ type: 'reject', reason: 'no_wave' }];
       if (dist > k.wave + R.waveSlackM + (Z.boss ? 1.2 : 0)) return [{ type: 'reject', reason: 'out_of_range' }];
       if (!countWave(P.id, shot)) return [{ type: 'reject', reason: 'wave_cap' }];

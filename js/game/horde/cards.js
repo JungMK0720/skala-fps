@@ -77,10 +77,11 @@ export const PERK_BASE = Object.freeze({
   iframe: 0,       // H  맞은 뒤 무적 시간 +초
   noKnock: 0,      // H  1이면 맞아도 밀려나지 않는다(보스의 밀치기도)
   stickyNade: 0,   // C  1이면 내 수류탄이 좀비에 닿으면 붙는 C4가 된다
-  wave: 0,         // HC 칼을 휘두르면 검기가 이 거리(m)까지 날아간다
+  wave: 0,         // HC 칼 우클릭 찌르기에만 검기가 이 거리(m)까지 날아간다
   reloadCut: 0,    // C  재장전 시간 −비율(0.5 = 절반, 1 = 재장전 없이 계속 쏜다)
   guard: 0,        // H  칼을 들면 방패를 든다: 정면에서 오는 공격의 피해 −비율
-  airDmg: 0        // H  점프로 떠 있는 동안 주는 피해 +배율(5 = +500%)
+  airDmg: 0,       // H  점프로 떠 있는 동안 주는 피해 +배율(5 = +500%)
+  autoAim: 0       // C  총을 쏠 때 앞쪽 조준 원뿔 안의 좀비 몸통을 자동 조준
 });
 
 /* ------------------------------------------------------------------ 카드 표 (바꾸면 docs/AUGMENTS.md도 고친다) */
@@ -195,13 +196,19 @@ const SPECIALS = [
  */
 const ADDED = [
   { key: 'reflex', name: '반사 신경', icon: '✨', stat: 'iframe', vals: [0.2, 0.3, 0.4, 0.5], text: (v) => `맞은 뒤 무적 시간 +${fx(v)}초 (기본 0.1초)` },
-  { key: 'wave', name: '검기', icon: '🌙', stat: 'wave', vals: [6, 8, 10, 13], minTier: 1, text: (v) => `칼을 휘두를 때마다 검기가 ${v} m 날아가 닿는 좀비에게 칼과 같은 피해 (겹치면 더 멀리)` },
+  { key: 'wave', name: '검기', icon: '🌙', stat: 'wave', vals: [6, 8, 10, 13], minTier: 1, text: (v) => `칼로 우클릭 찌르기를 할 때 검기가 ${v} m 날아가 닿는 좀비에게 칼과 같은 피해 (좌클릭 베기에는 검기 없음 · 겹치면 더 멀리)` },
   { key: 'anchor', name: '부동자세', icon: '⚓', tier: 'epic', max: 1, fx: { noKnock: 1 }, desc: '맞아도 밀려나지 않는다(보스의 밀치기·내려찍기도)' },
   { key: 'c4', name: 'C4 수류탄', icon: '🧲', tier: 'epic', max: 1, fx: { stickyNade: 1 }, nade: true, desc: '내 수류탄이 C4로 바뀐다. 좀비에 닿으면 그 몸에 붙어 따라가다 터진다' },
   { key: 'shieldKnife', name: '방패 칼', icon: '🛡️', tier: 'epic', max: 1, fx: { guard: 0.45 }, desc: '칼을 들면 방패를 함께 든다. 앞에서 때리는 공격의 피해 −45% (총·수류탄을 들면 방패를 내린다)' },
   { key: 'airStrike', name: '공중 강타', icon: '🦅', tier: 'epic', max: 1, fx: { airDmg: 5 }, desc: '점프로 공중에 떠 있는 동안 총·칼 피해 +500%' },
   // 보조무기를 중력건으로 바꾸는 증강(낮은 확률). 쏘면 앞쪽에서 중력이 생겨 좀비를 한 점으로 끌어 뭉친다
-  { key: 'sideGravity', name: '중력건', icon: '🌀', tier: 'epic', w: 2, max: 1, minStage: 2, instant: { side: 'gv_gun' }, desc: '보조무기가 GV-1 중력건으로 바뀐다(쏘면 앞쪽에 중력이 생겨 좀비가 한곳으로 뭉친다 · 맞히지는 못한다)' }
+  { key: 'sideGravity', name: '중력건', icon: '🌀', tier: 'epic', w: 2, max: 1, minStage: 2, instant: { side: 'gv_gun' }, desc: '보조무기가 GV-1 중력건으로 바뀐다(쏘면 앞쪽에 중력이 생겨 좀비가 한곳으로 뭉친다 · 맞히지는 못한다)' },
+  { key: 'flameGun', name: '화염 방사기', icon: '🔥', tier: 'legend', max: 1, minStage: 3,
+    instant: { primary: 'fl_horde' }, desc: '주무기가 FL-12 화염 방사기로 바뀐다(12 m 화염 5갈래 · 연료 100 · 연속 분사)' },
+  { key: 'railGun', name: '레일건', icon: '⚡', tier: 'legend', max: 1, minStage: 3,
+    instant: { primary: 'rg_horde' }, desc: '주무기가 RG-5 레일건으로 바뀐다(몸 400 · 머리 800 · 5발 탄창 · 1.5초마다 사격)' },
+  { key: 'aiGlasses', name: 'AI 안경', icon: '🥽', tier: 'legend', max: 1, minStage: 3,
+    fx: { autoAim: 1 }, desc: '안경을 쓰고 총을 쏘면 앞쪽 조준 원뿔 안에 있는 좀비의 몸통을 자동 조준한다' }
 ];
 
 /** 묶음 하나 → 카드 네 장(I 일반 · II 희귀 · III 영웅 · IV 전설, minTier가 있으면 그 등급부터) */
@@ -369,7 +376,7 @@ export function perkSummary(stats) {
   add('구급 상자 확률', s.medDrop, plus); add('구급 상자 회복', s.medHeal, (v) => `+${v}`);
   add('탄창 확률', s.ammoDrop, plus); add('탄창 양', s.ammoMags, (v) => `+${fx(v)}회분`);
   add('맞은 뒤 무적', s.iframe, (v) => `+${fx(v)}초`); add('밀려남', s.noKnock, () => '없음');
-  add('C4', s.stickyNade, () => '붙음'); add('검기', s.wave, (v) => `${fx(v)} m`);
+  add('C4', s.stickyNade, () => '붙음'); add('검기', s.wave, (v) => `${fx(v)} m`); add('AI 안경', s.autoAim, () => '몸통 자동 조준');
   add('재장전 시간', s.reloadCut, (v) => (v >= 1 ? '없음' : `−${Math.round(v * 100)}%`)); add('방패', s.guard, (v) => `−${Math.round(v * 100)}%`);
   add('공중 피해', s.airDmg, (v) => `+${Math.round(v * 100)}%`);
   add('반응 장갑', s.reactive, (v) => `${fx(1 / v)}초에 한 번`);

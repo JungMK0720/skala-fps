@@ -2,7 +2,7 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 좀비 물량 막기 모드의 규칙 값(인원·시간·탄약 배율·경험치·보급품·수류탄 효과)과 일반 좀비 6종, 스테이지마다 늘어나는 수·체력·피해·속도 공식을 둔다.
- *          스테이지는 40초씩 시간으로 넘어가고(다 잡으면 남은 2초당 경험치 1을 받고 바로 넘어간다), 팀 경험치가 차면 레벨이 올라 증강을 고른다.
+ *          스테이지는 40초씩 시간으로 넘어가고(다 잡으면 남은 1초당 경험치 1을 받고 바로 넘어간다), 팀 경험치가 차면 레벨이 올라 증강을 고른다.
  *          three.js·DOM에 의존하지 않는 순수 모듈이라 방장 시뮬레이션(director.js)과 node 시험이 그대로 쓴다.
  */
 
@@ -16,13 +16,13 @@ export const HORDE = Object.freeze({
   premiumReserveMags: 2,  // 예비가 무제한인 프리미엄 총도 이 모드에서는 탄창 2개 × 배율만큼만 든다
   prepMs: 12000,          // 첫 스테이지 시작 전 준비 시간(무기는 이때만 고른다)
   stageMs: 40000,         // 스테이지 하나의 시간. 지나면 다음 스테이지가 시작된다(남은 좀비는 그대로 남는다)
-  timeXpMs: 2000,         // 시간 안에 다 잡으면 남은 시간 이만큼마다 경험치 1
+  timeXpMs: 1000,         // 시간 안에 다 잡으면 남은 시간 이만큼마다 경험치 1
   xpBase: 10,             // 1레벨 → 2레벨에 필요한 경험치
   xpStep: 5,              // 레벨마다 필요한 경험치가 이만큼 는다(10, 15, 20, …)
   bossXp: 20,             // 보스 처치 경험치(보물 상자는 따로 떨어진다)
   cardMs: 20000,          // 증강 고르기 제한 시간(지나면 제안 중 하나를 무작위로 받는다)
   pauseOnCards: false,    // true(혼자)면 고르는 동안 좀비·스테이지 시간이 멈춘다. 멀티는 멈추지 않고 고르는 사람만 무적이다
-  pickInvulnMs: 3000,     // 증강을 고른 직후 무적 시간
+  pickInvulnMs: 2000,     // 멀티에서 증강을 고른 직후 무적 시간(혼자는 별도 규칙)
   clearHealFrac: 0.25,    // 시간 안에 스테이지를 깨면 최대 체력의 25%를 회복한다
   reviveHpFrac: 0.5,      // 쓰러진 사람은 다음 스테이지에 최대 체력의 50%로 일어난다
   maxAlive: 34,           // 한 번에 맵에 있는 일반 좀비 상한(보스·소환 제외). 넘으면 죽는 만큼 이어서 나온다
@@ -106,7 +106,7 @@ export function xpNeed(level, rules = HORDE) {
   return rules.xpBase + rules.xpStep * (Math.max(1, Math.floor(Number(level) || 1)) - 1);
 }
 
-/** 시간 안에 다 잡았을 때의 남은 시간 경험치(남은 2초당 1) */
+/** 시간 안에 다 잡았을 때의 남은 시간 경험치(남은 1초당 1) */
 export function timeBonusXp(leftMs, rules = HORDE) {
   return Math.max(0, Math.floor((Number(leftMs) || 0) / rules.timeXpMs));
 }

@@ -33,7 +33,7 @@ export const VIEWMODEL_LAYER = 30;
 /** 모형을 가진 무기 id(DESIGN 3.2 표 순서) */
 export const VIEWMODEL_IDS = Object.freeze([
   'ar_std', 'ar_rapid', 'ar_line', 'ar_burst', 'dm_mark', 'sm_vx3', 'sg_bx12', 'sg_pump', 'sg_double', 'sg_auto', 'sm_uzi_dual', 'mg_minigun',
-  'sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy', 'mg_m249', 'pt_std', 'pt_magnum', 'ml_knife', 'ml_tanto', 'ml_gurkha', 'ml_katana', 'gr_frag',
+  'sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy', 'mg_m249', 'fl_horde', 'rg_horde', 'pt_std', 'pt_magnum', 'ml_knife', 'ml_tanto', 'ml_gurkha', 'ml_katana', 'gr_frag',
 ]);
 
 const RO = 10000;                 // renderOrder 기준(월드의 투명 물체보다 뒤에 그려지도록 크게)
@@ -2151,6 +2151,88 @@ export function createViewmodel(camera, opts = {}) {
     };
   }
 
+  // 연료 탱크 두 개와 벌어진 세라믹 분사구가 보이는 화염 방사기.
+  function buildFlHorde() {
+    const g = new THREE.Group(), parts = {};
+    const dark = paint(0x282c31, { rough: 0.62, metal: 0.35 });
+    const copper = paint(0x9e552c, { rough: 0.36, metal: 0.72 });
+    const orange = paint(0xff6b1a, { rough: 0.3, metal: 0.35, glow: 0.65 });
+    prof([[-0.18, 0.04], [0.1, 0.04], [0.14, 0.012], [0.1, -0.055], [-0.18, -0.055]], 0.085, dark, g);
+    box(0.086, 0.034, 0.26, copper, g, 0, 0.015, -0.26);
+    for (const s of [-1, 1]) {
+      cyl(0.018, 0.018, 0.24, M.black, g, 'z', s * 0.032, 0.012, -0.28);
+      for (let i = 0; i < 4; i++) box(0.013, 0.041, 0.013, orange, g, s * 0.04, 0.012, -0.19 - i * 0.058);
+    }
+    cyl(0.022, 0.036, 0.11, copper, g, 'z', 0, 0.008, -0.46);
+    cyl(0.022, 0.034, 0.035, M.black, g, 'z', 0, 0.008, -0.53);
+    torus(0.029, 0.004, orange, g, 0, 0.008, -0.545);
+    for (const s of [-1, 1]) {
+      const hose = torus(0.075, 0.007, M.black, g, s * 0.049, -0.05, -0.03);
+      hose.rotation.y = Math.PI / 2;
+      hose.scale.set(1.1, 0.6, 1);
+    }
+    pistolGrip(g, -0.055, 0.075, dark);
+    triggerGroup(g, -0.052, 0.053);
+    const mag = new THREE.Group();
+    mag.position.set(0, -0.08, 0.045); g.add(mag);
+    for (const s of [-1, 1]) {
+      cyl(0.031, 0.031, 0.21, copper, mag, 'z', s * 0.045, -0.02, 0, 12);
+      cyl(0.035, 0.035, 0.018, M.gunmetal, mag, 'z', s * 0.045, -0.02, -0.095);
+      box(0.061, 0.009, 0.028, orange, mag, s * 0.045, -0.018, 0.032);
+    }
+    parts.mag = mag;
+    label(g, 'FL-12', 0.09, 0.021, -0.043, 0.01, -0.01, '#ffbc69');
+    const muzzle = new THREE.Object3D(); muzzle.position.set(0, 0.008, -0.552); g.add(muzzle);
+    return {
+      g, parts, muzzle,
+      arms: {
+        R: makeArm('R', [0, -0.103, 0.085], [0, -0.085, 0.07], [0.8, 0, 0.6], 0.019),
+        L: makeArm('L', [0, -0.035, -0.25], [0, 0, 1], [-0.4, -0.92, 0], 0.028),
+      },
+      hip: [0.15, -0.16, -0.36], hipRot: [0.02, 0.03, 0.01],
+      ads: null, kick: { z: 0.008, pitch: 0.018, roll: 0.006 }, flash: 0.7,
+    };
+  }
+
+  // 분리된 양쪽 레일 사이에 빛나는 가속 코어가 있는 정밀 에너지 소총.
+  function buildRgHorde() {
+    const g = new THREE.Group(), parts = {};
+    const shell = paint(0x253449, { rough: 0.4, metal: 0.65 });
+    const blue = paint(0x65c9ff, { rough: 0.17, metal: 0.16, glow: 1.1 });
+    const trim = paint(0x357aa9, { rough: 0.32, metal: 0.6, glow: 0.25 });
+    prof([[-0.12, 0.039], [0.14, 0.039], [0.18, -0.014], [0.11, -0.064], [-0.12, -0.048]], 0.07, shell, g);
+    prof([[0.14, 0.02], [0.31, 0.018], [0.33, -0.045], [0.27, -0.065], [0.17, -0.04]], 0.045, shell, g);
+    box(0.048, 0.068, 0.017, M.black, g, 0, -0.014, 0.32);
+    for (const s of [-1, 1]) {
+      box(0.023, 0.048, 0.42, shell, g, s * 0.046, 0.015, -0.3);
+      box(0.006, 0.013, 0.33, blue, g, s * 0.046, 0.044, -0.32);
+      for (let i = 0; i < 5; i++) box(0.009, 0.05, 0.012, trim, g, s * 0.06, 0.014, -0.14 - i * 0.068);
+    }
+    cyl(0.014, 0.014, 0.39, blue, g, 'z', 0, 0.017, -0.29);
+    for (let i = 0; i < 6; i++) torus(0.028, 0.003, trim, g, 0, 0.017, -0.12 - i * 0.06);
+    box(0.1, 0.06, 0.035, M.gunmetal, g, 0, 0.016, -0.51);
+    box(0.04, 0.012, 0.05, blue, g, 0, 0.059, -0.5);
+    pistolGrip(g, -0.06, 0.06, shell);
+    triggerGroup(g, -0.05, 0.03);
+    const mag = new THREE.Group(); mag.position.set(0, -0.065, -0.045); g.add(mag);
+    box(0.06, 0.11, 0.11, M.black, mag, 0, -0.045, 0);
+    for (const s of [-1, 1]) box(0.002, 0.075, 0.065, blue, mag, s * 0.031, -0.045, 0);
+    parts.mag = mag;
+    box(0.08, 0.025, 0.1, M.gunmetal, g, 0, 0.07, 0.0);
+    box(0.048, 0.013, 0.048, M.lens, g, 0, 0.094, -0.016);
+    label(g, 'RG-5', 0.075, 0.018, -0.036, 0.012, 0.045, '#a8dcff');
+    const muzzle = new THREE.Object3D(); muzzle.position.set(0, 0.017, -0.53); g.add(muzzle);
+    return {
+      g, parts, muzzle,
+      arms: {
+        R: makeArm('R', [0, -0.115, 0.073], [0, -0.09, 0.06], [0.8, 0, 0.6], 0.019),
+        L: makeArm('L', [0, -0.02, -0.31], [0, 0, 1], [-0.4, -0.92, 0], 0.029),
+      },
+      hip: [0.16, -0.17, -0.38], hipRot: [0.01, 0.035, 0.01],
+      ads: [0, -0.095, -0.2], kick: { z: 0.09, pitch: 0.16, roll: 0.025 }, flash: 1.2,
+    };
+  }
+
   // ── 모형 등록 ───────────────────────────────────────────────
   const BUILDERS = {
     ar_std: () => buildRifle({
@@ -2197,6 +2279,8 @@ export function createViewmodel(camera, opts = {}) {
       mag: { w: 0.05, h: 0.092, d: 0.112 }, bipod: 'open', hip: [0.185, -0.205, -0.45], adsZ: -0.38, kick: { z: 0.12, pitch: 0.26, roll: 0.05 }, flash: 2.2,
     }),
     mg_m249: buildMgM249,
+    fl_horde: buildFlHorde,
+    rg_horde: buildRgHorde,
     pt_std: buildPtStd,
     pt_magnum: buildPtMagnum,
     ml_knife: buildMlKnife,

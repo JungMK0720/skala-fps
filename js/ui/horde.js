@@ -25,6 +25,9 @@ export function createHordeHud(ctx) {
   const bossBox = h('div', { class: 'sk-hz-bosses' });
   const teamBox = h('ul', { class: 'sk-hz-team', 'aria-label': '동료' });
   const warn = h('div', { class: 'sk-hz-warn', hidden: true });
+  const field = h('div', { class: 'sk-hz-field', hidden: true, 'aria-hidden': 'true' });
+  const fieldText = h('span', { class: 'sk-hz-field-text' });
+  field.append(fieldText);
   // 스테이지 남은 시간(40초가 줄어든다)과 팀 레벨·경험치 막대
   const stageTime = h('b', { class: 'sk-hz-time' });
   const lvText = h('b', { class: 'sk-hz-lv', text: 'Lv 1' });
@@ -40,7 +43,7 @@ export function createHordeHud(ctx) {
   const reviveFill = h('i');
   const revive = h('div', { class: 'sk-hz-revive', hidden: true }, reviveText, h('span', { class: 'sk-hz-revive-bar' }, reviveFill));
   const el = h('section', { class: 'sk-screen sk-hz', hidden: true, 'aria-label': '좀비 물량 막기 상황', 'aria-live': 'off' },
-    top, xpRow, bossBox, teamBox, warn, revive);
+    field, top, xpRow, bossBox, teamBox, warn, revive);
 
   const bossRows = [];
   function bossRow(i) {
@@ -100,6 +103,17 @@ export function createHordeHud(ctx) {
     setText(reviveText, rv.text || '');
     reviveFill.style.transform = `scaleX(${clamp(num(rv.frac, 0), 0, 1).toFixed(3)})`;
   }
+  const FIELD_TEXT = Object.freeze({ acid: '산성 장판', fire: '화염 장판', web: '거미줄 장판', frost: '빙결 장판', shock: '감전 장판' });
+  let fieldKind = null;
+  function renderField(kind) {
+    const label = FIELD_TEXT[kind] || '';
+    if ((label ? kind : null) === fieldKind) return;
+    fieldKind = label ? kind : null;
+    field.hidden = !label;
+    field.className = `sk-hz-field${label ? ` is-${kind}` : ''}`;
+    setText(fieldText, label ? `${label} 안에 있어요` : '');
+  }
+
 
   function render(p) {
     const phase = p.phase || 'prep';
@@ -138,7 +152,8 @@ export function createHordeHud(ctx) {
     setText(warn, p.warn || '');
     warn.hidden = !p.warn;
     renderRevive(p.revive);
+    renderField(p.field);
   }
 
-  return makeScreen(el, { render, onHide: () => { teamSig = ''; renderRevive(null); } });
+  return makeScreen(el, { render, onHide: () => { teamSig = ''; renderRevive(null); renderField(null); } });
 }

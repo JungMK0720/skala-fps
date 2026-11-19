@@ -189,6 +189,16 @@ export function createHordeView(o) {
   const teleRings = decalPool(ringGeo, 10, 0xff4a2a, 0.7);
   const teleRects = decalPool(planeGeo, 4, 0xff2a2a, 0.3);
   const hazDiscs = decalPool(discGeo, MAX_HAZ, 0x7dff3a, 0.32);
+  const hazRings = decalPool(ringGeo, MAX_HAZ, 0x7dff3a, 0.65);
+  // 장판 위로 피어오르는 색 입자. 한 InstancedMesh로 묶어 장판 수만큼 draw call이 늘지 않게 한다.
+  const wispGeo = new THREE.CylinderGeometry(0.02, 0.11, 1, 5);
+  const wispMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.65, depthWrite: false, blending: THREE.AdditiveBlending });
+  const wisps = new THREE.InstancedMesh(wispGeo, wispMat, (MAX_HAZ + MAX_FIELDS) * 3);
+  wisps.frustumCulled = false; wisps.count = 0; wisps.name = 'horde:field-wisps'; wisps.renderOrder = 3;
+  wisps.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  wisps.setColorAt(0, new THREE.Color(1, 1, 1));
+  wisps.instanceColor.setUsage(THREE.DynamicDrawUsage);
+  scene.add(wisps);
   const fxRings = decalPool(ringGeo, 12, 0xffffff, 0.6);
   // 바닥 보급품: 종류별 색 상자와 발밑 고리(밤 맵에서도 보이게 고리는 빛나는 색)
   const lootMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
@@ -252,6 +262,7 @@ export function createHordeView(o) {
   const ents = new Map();            // 좀비 번호 → { hist: [{t, pos, yaw, f, hp}], ... }
   let lastPushAt = 0, interval = 100, delay = 120;
   let bosses = [], projectiles = [], projAt = 0, hazards = [], hazAt = 0, loot = [], lootAt = 0, fields = [], fieldAt = 0, decoys = [], decoyAt = 0;
+  let wispCount = 0;
   const seenFx = new Set();
   const fxAnims = [];                // { kind, pos, r, at, color }
   const rendered = [];               // 이번 프레임에 그린 좀비(사격 판정용)
@@ -268,6 +279,7 @@ export function createHordeView(o) {
     for (const m of Object.values(parts)) m.visible = active;
     projMesh.visible = active;
     lootMesh.visible = active;
+    wisps.visible = active;
     barBg.visible = barFg.visible = active;
   }
 
@@ -557,14 +569,32 @@ export function createHordeView(o) {
     stepWaves(dt, now, frozen);        // 이번 프레임에 그린 좀비로 판정한다(맞히면 피해 숫자가 이 프레임에 뜬다)
     drawTelegraphs(now);
     drawProjectiles(now);
+    wispCount = 0;
     drawHazards(now);
     drawFields(now);
+    wisps.count = wispCount;
+    wisps.instanceMatrix.needsUpdate = true;
+    if (wisps.instanceColor) wisps.instanceColor.needsUpdate = true;
     drawDecoys(now);
     drawLoot(now);
     drawRevives(now);
     drawFx(now);
     drawBars();
     drawNumbers(now);
+  }
+
+  /** 바닥 장판에서 위로 떠오르는 입자 세 개. 위치·크기·색만 프레임마다 갱신한다. */
+  function drawWisps(f, now, color, height) {
+    for (let j = 0; j < 3 && wispCount < wisps.instanceMatrix.count; j++) {
+      const u = (now * 0.0008 + f.id * 0.17 + j / 3) % 1;
+      const a = f.id * 2.4 + j * 2.094 + now * 0.0003;
+      const radius = f.r * (0.2 + 0.38 * u);
+      M.makeTranslation(f.pos[0] + Math.cos(a) * radius, f.pos[1] + 0.12 + u * height, f.pos[2] + Math.sin(a) * radius);
+      const width = 1.8 * (1 - 0.6 * u);
+      S.makeScale(width, 0.3 + 0.35 * (1 - u), width);
+      wisps.setMatrixAt(wispCount, M.multiply(S));
+      wisps.setColorAt(wispCount++, C.setHex(color).multiplyScalar(1 - 0.7 * u));
+    }
   }
 
   /** 화염 수류탄 불길: 주황 원판이 일렁이고 테두리가 빛난다. 꺼지기 0.6초 전부터 흐려진다 */
@@ -576,6 +606,7 @@ export function createHordeView(o) {
       const left = f.leftMs - dt;
       if (left <= 0) continue;
       const fade = Math.min(1, left / 600);
+      drawWisps(f, now, 0xff7a1a, 1.4);
       const d = fireDiscs.take();
       if (d) {
         d.position.set(f.pos[0], f.pos[1] + 0.035, f.pos[2]);
@@ -797,7 +828,7 @@ export function createHordeView(o) {
   }
 
   function drawHazards(now) {
-    hazDiscs.begin();
+    hazDiscs.begin(); hazRings.begin();
     const dt = now - hazAt;
     for (const h of hazards) {
       const left = h.leftMs - dt;
@@ -806,10 +837,19 @@ export function createHordeView(o) {
       if (!d) break;
       d.position.set(h.pos[0], h.pos[1] + 0.03, h.pos[2]);
       d.scale.setScalar(h.r);
-      d.material.color.setHex(HAZ_COLOR[h.kind] || 0x7dff3a);
+      const color = HAZ_COLOR[h.kind] || 0x7dff3a;
+      d.material.color.setHex(color);
       d.material.opacity = Math.min(1, left / 600) * (0.26 + 0.08 * Math.sin(now / 210 + h.id));
+      const ring = hazRings.take();
+      if (ring) {
+        ring.position.set(h.pos[0], h.pos[1] + 0.05, h.pos[2]);
+        ring.scale.setScalar(h.r);
+        ring.material.color.setHex(color);
+        ring.material.opacity = Math.min(1, left / 600) * (0.5 + 0.15 * Math.sin(now / 180 + h.id));
+      }
+      drawWisps(h, now, color, h.kind === HAZARD_KINDS.fire ? 1.4 : 0.9);
     }
-    hazDiscs.end();
+    hazDiscs.end(); hazRings.end();
   }
 
   function drawFx(now) {
@@ -1072,6 +1112,30 @@ export function createHordeView(o) {
     return out.slice(0, Math.max(1, n));
   }
 
+  /** AI 안경: 전방 15° 안의 보이는 좀비 몸통 중심을 고른다. 가장 조준점에 가까운 대상, 동률이면 가까운 대상. */
+  function autoAim(origin, dir, maxDist, los) {
+    if (!active) return null;
+    const len = Math.hypot(dir[0], dir[1], dir[2]);
+    if (!(len > 0)) return null;
+    const dx = dir[0] / len, dy = dir[1] / len, dz = dir[2] / len;
+    let best = null, bestDot = Math.cos(15 * Math.PI / 180), bestDist = Infinity;
+    for (const z of rendered) {
+      if (z.rising) continue;
+      const hb = z.low ? HB_LOW : HB_STAND;
+      const x = z.x - origin[0], y = z.y + (hb.body.y0 + hb.body.y1) * 0.5 * z.s - origin[1], zz = z.z - origin[2];
+      const dist = Math.hypot(x, y, zz);
+      if (!(dist > 0) || dist > maxDist) continue;
+      const dot = (x * dx + y * dy + zz * dz) / dist;
+      if (dot < bestDot || (dot === bestDot && dist >= bestDist)) continue;
+      const point = [origin[0] + x, origin[1] + y, origin[2] + zz];
+      if (los && !los(origin, point)) continue;
+      best = [x / dist, y / dist, zz / dist];
+      bestDot = dot;
+      bestDist = dist;
+    }
+    return best;
+  }
+
   /** 칼: 눈 앞 사거리·원뿔 안에서 가장 가까운 좀비 → { id, part, dist, point } | null (벽 가림은 World가 본다) */
   function melee(eye, fwd, range, arc, los) {
     if (!active) return null;
@@ -1177,17 +1241,19 @@ export function createHordeView(o) {
     for (const m of Object.values(parts)) { m.count = 0; m.instanceMatrix.needsUpdate = true; }
     projMesh.count = 0;
     lootMesh.count = 0;
-    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, fxRings, lootRings, fireDiscs, fireRings, decoyRings, reviveRings, reviveDiscs]) { pool.begin(); pool.end(); }
+    wisps.count = 0;
+    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, hazRings, fxRings, lootRings, fireDiscs, fireRings, decoyRings, reviveRings, reviveDiscs]) { pool.begin(); pool.end(); }
   }
 
   function dispose() {
     clear();
+    scene.remove(wisps); wispGeo.dispose(); wispMat.dispose();
     for (const m of Object.values(parts)) { scene.remove(m); m.geometry.dispose(); m.dispose && m.dispose(); }
     scene.remove(projMesh); projMesh.geometry.dispose(); projMesh.material.dispose();
     scene.remove(lootMesh); lootMesh.geometry.dispose(); lootMat.dispose();
     mat.dispose(); eyeMat.dispose(); zapMat.dispose();
     ringGeo.dispose(); discGeo.dispose(); planeGeo.dispose();
-    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, fxRings, lootRings, fireDiscs, fireRings, decoyRings, reviveRings, reviveDiscs]) pool.dispose();
+    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hazDiscs, hazRings, fxRings, lootRings, fireDiscs, fireRings, decoyRings, reviveRings, reviveDiscs]) pool.dispose();
     for (const g of decoyMeshes) scene.remove(g);
     decoyBodyGeo.dispose(); decoyHeadGeo.dispose(); decoyMat.dispose();
     for (const m of [barBg, barFg]) scene.remove(m);
@@ -1202,7 +1268,7 @@ export function createHordeView(o) {
   }
 
   return {
-    setActive, push, event, frame, ray, melee, blastTargets, grabbed, touching, touchingZombie, zombieAt, wave, nearest, noteHit, damageNumber, clear, dispose,
+    setActive, push, event, frame, ray, autoAim, melee, blastTargets, grabbed, touching, touchingZombie, zombieAt, wave, nearest, noteHit, damageNumber, clear, dispose,
     get active() { return active; },
     get count() { return rendered.length; },
     get delay() { return delay; },

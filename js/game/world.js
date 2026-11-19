@@ -267,8 +267,9 @@ function buildWorld(ctx, opts) {
   // 좀비 물량 막기(game/horde): 좀비·보스 그리기와 내 사격 판정. 판정 결과는 다른 사격처럼 'hitClaim'(victimId 'z12')으로 나간다
   const horde = createHordeView({ THREE, scene: R.scene, camera: R.camera, fx, play: (name, o) => play(name, o) });
   // 좀비 물량 막기 증강의 내 화면 몫. nadeMulti = 한 번에 더 던지는 수류탄 수, nadeRadiusOf(owner) = 그 사람 수류탄의 폭발 반경 배율
-  // sticky = 내 수류탄이 C4(좀비에 붙는다), waveRange = 내 칼의 검기 거리(m), waveRangeOf(owner) = 그 사람의 검기 거리(남의 검기 연출)
-  const hordePerk = { speed: 1, pierce: 0, maxHp: 100, nadeMulti: 0, nadeRadiusOf: null, sticky: false, waveRange: 0, waveRangeOf: null };
+  // sticky = C4, waveRange = 우클릭 검기 거리, autoAim = AI 안경의 전방 몸통 자동 조준
+  const hordePerk = { speed: 1, pierce: 0, maxHp: 100, nadeMulti: 0, nadeRadiusOf: null, sticky: false, waveRange: 0, waveRangeOf: null, autoAim: false };
+  const hordeGlasses = new Set();  // 마지막 좀비 스냅샷에서 AI 안경을 쓴 사람
   let slowUntil = 0, slowMul = 1, grabbedNow = false;
   // 좀비에 붙은 C4: 수류탄 id → { zid(좀비 번호), x, y, z(좀비 발 기준 로컬 오프셋) }. 터지거나 판이 바뀌면 지운다
   const c4Stuck = new Map();
@@ -318,6 +319,7 @@ function buildWorld(ctx, opts) {
     body.slot = player.state.slot;
     body.weaponId = player.state.weapon;
     body.avatar = ctx.account ? ctx.account.avatar : undefined;   // 내 캐릭터(계정 장비)
+    body.aiGlasses = mode === 'zombie' && hordePerk.autoAim;
     return body;
   };
   offs.push(() => { player.getBodyState = bodyStateOf; });
@@ -717,7 +719,10 @@ function buildWorld(ctx, opts) {
   // 이름표 앞 상태 표시: 🛡 부활 보호(개인전), 💣 폭탄을 든 아군(폭파 미션, bombView.carrier는 내가 공격 팀일 때만 채워진다).
   // 적의 이름표는 이름 없이 이 표시만 보인다(engine/nametag.js) → 개인전에서도 다른 사람의 닉네임은 머리 위에 뜨지 않는다
   const avatarBadge = (a) => [a.protectUntil > performance.now() ? '🛡' : '', mode === 'bomb' && bombView.carrier === a.id ? '💣' : ''].filter(Boolean).join(' ');
-  function refreshAvatar(a) { avatars.add(a.id, { name: a.name, badge: avatarBadge(a), team: avatarTeam(a), avatar: a.avatar }); }
+  function refreshAvatar(a) {
+    const av = avatars.add(a.id, { name: a.name, badge: avatarBadge(a), team: avatarTeam(a), avatar: a.avatar });
+    av.setAiGlasses(mode === 'zombie' && hordeGlasses.has(a.id));
+  }
 
   /**
    * 규칙에 맞는 3슬롯 장비. pick = 규칙의 pickSlot 무기. 없거나 이 규칙에서 못 고르는 무기면 직전 선택 → 계정 장비 → 규칙 기본값 순서로 찾는다.
@@ -768,7 +773,7 @@ function buildWorld(ctx, opts) {
   function setHordePerks(o) {
     if (!o) {
       hordePerk.speed = 1; hordePerk.pierce = 0; hordePerk.maxHp = 100; hordePerk.nadeMulti = 0; hordePerk.nadeRadiusOf = null;
-      hordePerk.sticky = false; hordePerk.waveRange = 0; hordePerk.waveRangeOf = null;
+      hordePerk.sticky = false; hordePerk.waveRange = 0; hordePerk.waveRangeOf = null; hordePerk.autoAim = false;
       if (vm && vm.setShield) vm.setShield(false);
       arsenal.setMods(null);
       player.setMoveTuning(null);
@@ -784,6 +789,7 @@ function buildWorld(ctx, opts) {
     hordePerk.sticky = !!o.sticky;
     hordePerk.waveRange = waveRangeOk(o.waveRange);
     hordePerk.waveRangeOf = typeof o.waveRangeOf === 'function' ? o.waveRangeOf : null;
+    hordePerk.autoAim = !!o.autoAim;
     if (vm && vm.setShield) vm.setShield(num(o.guard, 0) > 0);   // 방패 칼: 칼을 들면 방패가 보인다
     player.setMoveTuning({ maxSpeed: num(o.maxSpeed, 1), jump: num(o.jump, 1) });
     player.setSpeedScale(speedScaleNow());
@@ -1266,6 +1272,10 @@ function buildWorld(ctx, opts) {
       // 앉아 있을 때 탄퍼짐 ×0.8은 arsenal이 한다(motion.crouch) — ev.pellets에 이미 반영돼 있다
       const dv = shotDirection(st.yaw, st.pitch, ev, i);
       const d = [dv[0], dv[1], dv[2]];
+      if (zombieMode && hordePerk.autoAim) {
+        const aimed = horde.autoAim(eye, d, range, worldLos);
+        if (aimed) { d[0] = aimed[0]; d[1] = aimed[1]; d[2] = aimed[2]; }
+      }
       let hit = traceShot(map.world, eye, d, range, list);
       if (zombieMode) {
         // 좀비: 벽보다 가까운 좀비. 관통 카드가 있으면 뒤의 좀비까지(한 발짜리 총만, 산탄은 펠릿이 나뉘어 맞는다)
@@ -1281,7 +1291,7 @@ function buildWorld(ctx, opts) {
         }
       }
       if (!muzzle) muzzle = m ? [m.x, m.y, m.z] : [eye[0] + d[0] * 0.6, eye[1] + d[1] * 0.6 - 0.1, eye[2] + d[2] * 0.6];
-      if (i < PELLET_TRACERS) fx.tracer(muzzle, hit.point, fxKind);
+      if (fxKind !== 'flame' && i < PELLET_TRACERS) fx.tracer(muzzle, hit.point, fxKind);
       if (hit.kind === 'world') fx.impact(hit.point, hit.normal, hit.mat, hit.collider && hit.collider.dynamic ? NO_DECAL : null);
       else if (hit.kind === 'player') fx.impact(hit.point, [-d[0], -d[1], -d[2]], 'player');
       props.bulletHit(eye, d, hit.dist);
@@ -1295,7 +1305,8 @@ function buildWorld(ctx, opts) {
         }
       }
     }
-    fx.shellEject(muzzle, shown.d, { groundY: st.pos[1], kind: fxKind });
+    if (fxKind === 'flame') fx.flameSpray(muzzle, shown.hit.point);
+    else if (fxKind !== 'rail') fx.shellEject(muzzle, shown.d, { groundY: st.pos[1], kind: fxKind });
     play((def && def.sound) || 'rifle');
     const t = performance.now();
     const shotId = ++shotSeq;
@@ -1340,8 +1351,8 @@ function buildWorld(ctx, opts) {
         t: performance.now(), point: hit.point, origin: r3(eye), count: 1, shotId: ++shotSeq
       });
     }
-    // 좀비 물량 막기 '검기' 증강: 칼을 휘두를 때마다(빗맞아도) 초승달 검기가 날아가 지나가는 좀비를 벤다. 칼에 맞은 좀비는 건너뛴다
-    if (zombie && hordePerk.waveRange > 0) launchWave(ev, eye, fwd, hit ? hit.id : null, def);
+    // 좀비 물량 막기 '검기': 우클릭 찌르기에만 검기가 나간다. 좌클릭 베기는 칼 타격만 한다.
+    if (zombie && ev.kind === 'stab' && hordePerk.waveRange > 0) launchWave(ev, eye, fwd, hit ? hit.id : null, def);
   }
 
   /**
@@ -1349,7 +1360,7 @@ function buildWorld(ctx, opts) {
    * 판정은 내 화면이 그린 좀비로 하고(사격과 같다), 방장이 거리·검기 증강·한 검기 상한을 다시 본다
    */
   function launchWave(ev, eye, fwd, exclude, def) {
-    const kind = ev.kind === 'stab' ? 'waveStab' : 'wave';
+    const kind = 'waveStab';
     const weaponId = ev.weaponId;
     const shotId = ++shotSeq;
     const origin = r3(eye);
@@ -1639,12 +1650,12 @@ function buildWorld(ctx, opts) {
       play(o.kind === 'stab' ? def.heavySound : def.sound, { pos: origin });
       const av = avatars.get(String(o.id));
       if (av) av.swing(o.kind);                  // 3인칭: 든 칼을 휘두른다
-      // 좀비 물량 막기 '검기': 그 사람의 검기를 보여 준다(맞히는 판정은 그 사람 화면이 한다). 칼이 맞는 순간(windup)에 맞춰 늦게 날린다
-      const range = mode === 'zombie' ? waveRangeOfActor(String(o.id)) : 0;
+      // 우클릭 찌르기의 검기만 재현한다. 베기 애니메이션에는 검기가 없다.
+      const range = mode === 'zombie' && o.kind === 'stab' ? waveRangeOfActor(String(o.id)) : 0;
       if (range > 0) {
-        const m = def.melee[o.kind === 'stab' ? 'stab' : 'slash'] || def.melee.slash;
+        const m = def.melee.stab;
         horde.wave({
-          origin, dir: d, range, local: false, kind: o.kind === 'stab' ? 'waveStab' : 'wave', los: worldLos,
+          origin, dir: d, range, local: false, kind: 'waveStab', los: worldLos,
           delayMs: Math.round(clamp(num(m && m.windup, 0.1), 0, 1) * 1000)
         });
       }
@@ -1657,8 +1668,9 @@ function buildWorld(ctx, opts) {
     fx.muzzleFlash(muzzle, d, kind);
     const range = (def && def.maxRange) || 250;
     const end = o.hitPoint ? arr3(o.hitPoint) : [origin[0] + d[0] * range, origin[1] + d[1] * range, origin[2] + d[2] * range];
-    fx.tracer(muzzle, end, kind);
-    if (def && def.pellets > 1) {
+    if (kind === 'flame') fx.flameSpray(muzzle, end);
+    else fx.tracer(muzzle, end, kind);
+    if (def && def.pellets > 1 && kind !== 'flame') {
       // 원격 사격은 대표 펠릿 하나만 받는다. 나머지는 탄퍼짐 안쪽으로 몇 줄만 그려 산탄처럼 보이게 한다
       const len = Math.hypot(end[0] - origin[0], end[1] - origin[1], end[2] - origin[2]);
       const cone = ((def.spread && def.spread.hip) || 0) * DEG;
@@ -2068,7 +2080,16 @@ function buildWorld(ctx, opts) {
      * 좀비 물량 막기(WORLD_API 9절): 방장 뷰(horde/director.js applyHordeSnapshot)를 받은 시각과 함께 넣으면 좀비·보스·투사체·장판을
      * 시간축으로 보간해 그린다. 내 사격·칼·검기·수류탄은 이 좀비들을 맞히고 'hitClaim'(victimId 'z12')을 낸다. 쓰러진 동료 표시는 나를 빼고 띄운다
      */
-    hordePush: (view, t) => horde.push(view, t, local.id),
+    hordePush: (view, t) => {
+      horde.push(view, t, local.id);
+      hordeGlasses.clear();
+      if (view && Array.isArray(view.players)) for (const p of view.players) {
+        if (Array.isArray(p.cards) && p.cards.includes('aiGlasses')) hordeGlasses.add(p.id);
+        if (p.id === local.id) continue;
+        const av = avatars.get(p.id);
+        if (av) av.setAiGlasses(hordeGlasses.has(p.id));
+      }
+    },
     /** 방장 이벤트 중 연출이 필요한 것(skill·chain·enrage) */
     hordeEvent: (ev) => horde.event(ev),
     /** 증강 효과(내 화면 몫): { mods, speed, maxSpeed, jump, pierce, maxHp, nadeMulti, nadeRadiusOf(owner), sticky, waveRange, waveRangeOf(owner) } | null */
@@ -2077,6 +2098,14 @@ function buildWorld(ctx, opts) {
     setHordeInteract,
     /** 좀비에게 준 피해 숫자를 pos에 띄운다. kind = 'head' | 'body' | 'legs' | 'melee' | 'nade' */
     hordeDamageNumber: (pos, amount, kind) => horde.damageNumber(pos, amount, kind),
+    /** 카드 전용 주무기는 좀비 모드에서만 즉시 장비한다. */
+    equipHordePrimary(id) {
+      if (mode !== 'zombie' || (id !== 'fl_horde' && id !== 'rg_horde') || !local.spawned || !local.alive) return false;
+      if (arsenal.getLoadout().primary === id) return false;
+      const ok = arsenal.equipWith(id);
+      if (ok) { settleArsenal(); play('switch', { gain: 0.8 }); }
+      return ok;
+    },
     /** (좀비 물량 막기 증강) 보조무기 칸을 이 무기로 바꾼다(새 탄 가득). 살아 있을 때만 → 바꿨으면 true */
     equipSidearm(id) {
       const def = getDef(id);
