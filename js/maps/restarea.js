@@ -64,7 +64,9 @@ const store = [
   rect(STORE.x0, STORE.z0, STORE.x1, STORE.z1, STORE_H, ROOF, 'concrete'),
   rect(STORE.x0, STORE.z0, STORE.x1, STORE.z0 + 0.2, ROOF, ROOF + PARAPET, 'concrete'),
   rect(STORE.x0, STORE.z1 - 0.2, STORE.x1, STORE.z1, ROOF, ROOF + PARAPET, 'concrete'),
-  rect(STORE.x1 - 0.2, STORE.z0 + 0.2, STORE.x1, STORE.z1 - 0.2, ROOF, ROOF + PARAPET, 'concrete'),
+  // 동쪽 난간은 트레일러로 건너가는 판자 다리 자리(z -14.4 ~ -13.4)에서 끊긴다
+  rect(STORE.x1 - 0.2, STORE.z0 + 0.2, STORE.x1, -14.4, ROOF, ROOF + PARAPET, 'concrete'),
+  rect(STORE.x1 - 0.2, -13.4, STORE.x1, STORE.z1 - 0.2, ROOF, ROOF + PARAPET, 'concrete'),
   rect(STORE.x0, -13, STORE.x0 + 0.2, STORE.z1 - 0.2, ROOF, ROOF + PARAPET, 'concrete'),
   // 옥상 냉방기(앉으면 가려진다)
   rect(3, -12.5, 6, -10.5, ROOF, ROOF + 1.2, 'steel'),
@@ -216,8 +218,24 @@ const truck = (() => {
   return out;
 })();
 
+/**
+ * 편의점 옥상(4 m)에서 트레일러 지붕(3.96 m)으로 건너가는 나무 판자 다리(폭 1 m, 난간 없음).
+ * 바닥 판 위에 가로 판자 줄과 양옆 받침 보를 댄다. 판자 턱은 2 cm라 그냥 걸어간다
+ */
+const plankBridge = (() => {
+  const za = -14.4, zb = -13.4, xa = 9.8, xb = 13.4;
+  const out = [
+    rect(xa, za, xb, zb, 3.88, 3.98, 'wood'),                     // 바닥 판
+    rect(xa, za - 0.06, xb, za, 3.7, 3.98, 'wood_dark'),          // 받침 보(양옆)
+    rect(xa, zb, xb, zb + 0.06, 3.7, 3.98, 'wood_dark')
+  ];
+  for (let x = xa + 0.15; x < xb - 0.1; x += 0.45) out.push(rect(x, za + 0.03, x + 0.3, zb - 0.03, 3.98, 4.0, 'wood_dark'));   // 가로 판자
+  return out;
+})();
+
 const northEast = [
   ...truck,
+  ...plankBridge,
   // 편의점 뒷골목 쓰레기 컨테이너
   rect(-6, -18.6, -3.6, -17.3, 0, 1.4, 'steel'),
   rect(2, -18.6, 4.4, -17.3, 0, 1.4, 'steel')
@@ -429,6 +447,11 @@ const decor = [
   // 화장실 옥상 사다리 양옆 손잡이
   { type: 'pipe', from: [-23.25, 0, -13.47], to: [-25.5, 4.3, -13.47], r: 0.04, mat: 'steel' },
   { type: 'pipe', from: [-23.25, 0, -12.53], to: [-25.5, 4.3, -12.53], r: 0.04, mat: 'steel' },
+  // 판자 다리 양옆 밧줄(장식)
+  { type: 'pipe', from: [9.9, 4.8, -14.42], to: [13.3, 4.75, -14.42], r: 0.025, mat: 'wood_dark' },
+  { type: 'pipe', from: [9.9, 4.8, -13.38], to: [13.3, 4.75, -13.38], r: 0.025, mat: 'wood_dark' },
+  { type: 'pipe', from: [13.3, 3.96, -14.42], to: [13.3, 4.75, -14.42], r: 0.04, mat: 'wood_dark' },
+  { type: 'pipe', from: [13.3, 3.96, -13.38], to: [13.3, 4.75, -13.38], r: 0.04, mat: 'wood_dark' },
   // 계산 부스 옥상 사다리 양옆 손잡이
   { type: 'pipe', from: [-26.1, 0, 7.53], to: [-28.2, 3.6, 7.53], r: 0.04, mat: 'steel' },
   { type: 'pipe', from: [-26.1, 0, 8.47], to: [-28.2, 3.6, 8.47], r: 0.04, mat: 'steel' },
