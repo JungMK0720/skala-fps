@@ -400,6 +400,22 @@ describe('증강 값', () => {
     const shots = env.world.calls('hordeDamageNumber').slice(3).map((d) => d.n);
     assert.ok(shots[1] < shots[0], `관통한 총알은 줄어든다: ${shots}`);
   });
+
+  test('광란: 총으로 맞힐 때마다 연사가 한 겹씩(칼은 아니다), 7초 뒤 끝나고, 300겹까지', (t) => {
+    const env = rig(t);
+    env.apply([player('me', { cards: ['frenzy4'] })]);
+    const fire = () => env.world.last('setHordePerks').mods.fire;
+    const claim = (kind, weaponId, shotId) => env.world.fire('hitClaim', { victimId: 'z1', part: 'body', weaponId, dist: 3, kind, t: 0, point: [0, 1, 0], count: 1, shotId });
+    assert.equal(fire(), 1);
+    for (let i = 0; i < 3; i++) claim('shot', 'ar_std', 100 + i);
+    assert.ok(Math.abs(fire() - 1.03) < 1e-9, `세 번 맞히면 +3%: ${fire()}`);
+    claim('slash', 'ml_knife', 200);
+    assert.ok(Math.abs(fire() - 1.03) < 1e-9, '칼은 쌓지 않는다');
+    env.frame(7001);
+    assert.equal(fire(), 1, '7초 뒤 끝난다');
+    for (let i = 0; i < 320; i++) claim('shot', 'ar_std', 300 + i);
+    assert.ok(Math.abs(fire() - 4) < 1e-9, `300겹에서 멈춘다: ${fire()}`);
+  });
 });
 
 /* ---------- input.js: F를 누르고 있는 동안 state.interact(가짜 DOM, tests/movement.test.mjs와 같은 방식) ---------- */
@@ -489,9 +505,41 @@ describe('검토 뒤 고친 것', () => {
     client.apply(view([player('me')]), [], 0);
     assert.equal(nade().magSize, 1);
     client.apply(view([player('me', { cards: ['pouch1'] })]), [], 0);
-    assert.deepEqual([nade().mag, nade().magSize], [3, 3], '주머니 I: 최대 +2, 가득');
+    assert.deepEqual([nade().mag, nade().magSize], [6, 6], '주머니 I: 최대 +5, 가득');
     client.apply(view([player('me', { cards: ['pouch1', 'c4'] })]), [], 0);
-    assert.deepEqual([nade().mag, nade().magSize], [5, 5], 'C4도 수류탄 증강: 최대 +2, 가득');
+    assert.deepEqual([nade().mag, nade().magSize], [8, 8], 'C4도 수류탄 증강: 최대 +2, 가득');
+    client.dispose();
+  });
+
+  test('보급 투하: 고른 즉시는 그대로, 다음 스테이지부터 주·보조 총 탄창·예비 탄과 수류탄을 한 번씩 채운다', async (t) => {
+    const { createArsenal } = await import('../js/weapons/logic.js');
+    mockNow(t);
+    const a = createArsenal({ primary: 'ar_std', secondary: 'pt_std' });
+    const world = {
+      localAlive: true, on: () => () => {},
+      setHordePerks: (o) => a.setMods(o ? o.mods : null),
+      refillAmmo: () => a.refillAmmo(),
+      refillGrenades: () => a.refillGrenades()
+    };
+    const client = createHordeClient({ world, ui: fakeUi(), meId: 'me', solo: true, actions: { pick() {}, reroll() {} } });
+    client.apply(view([player('me')], { stage: 2 }), [], 0);
+    a.equipWith('ar_std', { mag: 4, reserve: 2 });
+    a.equipWith('pt_std', { mag: 3, reserve: 1 });
+    a.giveGrenade(-1);
+    client.apply(view([player('me', { cards: ['drop'] })], { stage: 2 }), [], 0);
+    assert.deepEqual([a.getAmmo('ar_std').mag, a.getAmmo('pt_std').mag, a.getAmmo(NADE).mag], [4, 3, 0], '선택 순간에는 채우지 않는다');
+
+    client.apply(view([player('me', { cards: ['drop'] })], { stage: 3 }), [], 0);
+    for (const id of ['ar_std', 'pt_std']) {
+      const ammo = a.getAmmo(id);
+      assert.deepEqual([ammo.mag, ammo.reserve], [ammo.magSize, ammo.reserveMax], id);
+    }
+    assert.equal(a.getAmmo(NADE).mag, a.getAmmo(NADE).magSize);
+    a.equipWith('ar_std', { mag: 1, reserve: 2 });
+    client.apply(view([player('me', { cards: ['drop'] })], { stage: 3 }), [], 0);
+    assert.equal(a.getAmmo('ar_std').mag, 1, '같은 스테이지의 반복 스냅샷은 다시 채우지 않는다');
+    client.apply(view([player('me', { cards: ['drop'] })], { stage: 4 }), [], 0);
+    assert.equal(a.getAmmo('ar_std').mag, a.getAmmo('ar_std').magSize);
     client.dispose();
   });
 

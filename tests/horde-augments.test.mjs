@@ -6,8 +6,8 @@
  */
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CARDS, computePerks, makeOffer, cardById, cardAvailable, PERK_CAPS } from '../js/game/horde/cards.js';
-import { HORDE, zombieMix, ZOMBIE_TYPES } from '../js/game/horde/rules.js';
+import { CARDS, computePerks, perkMaxHp, makeOffer, cardById, cardAvailable } from '../js/game/horde/cards.js';
+import { HORDE, zombieMix, ZOMBIE_TYPES, frostSlowMs } from '../js/game/horde/rules.js';
 import { createHorde, zombieHitDamage, nadeDamage } from '../js/game/horde/director.js';
 import { modsFromPerks } from '../js/game/horde/client.js';
 import { WEAPONS } from '../js/weapons/defs.js';
@@ -64,7 +64,7 @@ describe('QA 요청 증강 묶음', () => {
 
   test('관통탄은 무제한 한 장: 뚫을 때마다 70%지만 최소 30%, 예전 II~IV는 제안에 나오지 않는다', () => {
     const k = computePerks(['pierce1']);
-    assert.equal(k.pierce, PERK_CAPS.pierce);
+    assert.equal(k.pierce, 99);
     assert.ok(k.pierce >= 50, '사실상 무제한');
     assert.equal(cardById('pierce1').max, 1);
     assert.ok(!cardAvailable(cardById('pierce1'), ['pierce1']), '한 장뿐');
@@ -96,7 +96,6 @@ describe('QA 요청 증강 묶음', () => {
 
   test('머리 피해 증강은 예전의 2배', () => {
     assert.deepEqual(['head1', 'head2', 'head3', 'head4'].map((id) => cardById(id).fx.head), [0.24, 0.4, 0.64, 1]);
-    assert.equal(cardById('perfect').fx.head, 0.6);
     const k = computePerks(['head4']);
     const head = zombieHitDamage({ weaponId: 'ar_std', part: 'head', dist: 5, kind: 'shot' }, k, {}, {}).dmg;
     assert.equal(head, WEAPONS.ar_std.damage.head * 2, '머리 +100%');
@@ -108,7 +107,7 @@ describe('QA 요청 증강 묶음', () => {
     assert.equal(c.fx.reloadCut, 0.5);
     for (const id of ['hands2', 'hands3', 'hands4']) assert.ok(cardById(id).retired, id);
     assert.ok(cardAvailable(c, ['hands1']) && !cardAvailable(c, ['hands1', 'hands1']), '두 번까지');
-    assert.equal(computePerks(['hands1', 'hands1', 'hands1']).reloadCut, 1, '상한 100%');
+    assert.equal(computePerks(['hands1', 'hands1']).reloadCut, 1, '두 번이면 100%');
     const base = modsFromPerks(computePerks([]));
     const one = modsFromPerks(computePerks(['hands1']));
     assert.equal(one.reload / base.reload, 2, '시간이 절반');
@@ -146,7 +145,7 @@ describe('QA 요청 증강 묶음', () => {
     assert.ok(CARDS.every((c) => !c.retired || !seen.has(c.id)), '제안에서 뺀 카드는 나오지 않는다');
   });
 
-  test('방패 칼: 칼을 들고 앞에서 맞으면 피해 −90%, 총을 들거나 뒤에서 맞으면 그대로', () => {
+  test('방패 칼: 칼을 들고 앞에서 맞으면 피해 −45%, 총을 들거나 뒤에서 맞으면 그대로', () => {
     const lost = (card, slot, at) => {
       const pos = { p1: { x: 0, y: 0, z: 0, yaw: 0, slot } };
       const { d, p } = makeFlat(pos, card ? [card] : []);
@@ -160,10 +159,10 @@ describe('QA 요청 증강 묶음', () => {
     const base = lost(null, 3, [0, 0, -1]);
     assert.ok(base > 0, `기본 피해 ${base}`);
     const front = lost('shieldKnife', 3, [0, 0, -1]);
-    assert.ok(front > 0 && front <= Math.ceil(base * 0.1) + 1, `앞에서 ${front} / ${base}`);
+    assert.equal(front, Math.round(base * 0.55), `앞에서 ${front} / ${base}`);
     assert.equal(lost('shieldKnife', 1, [0, 0, -1]), base, '총을 들면 방패가 없다');
     assert.equal(lost('shieldKnife', 3, [0, 0, 1]), base, '뒤에서 맞으면 막지 못한다');
-    assert.equal(cardById('shieldKnife').fx.guard, 0.9);
+    assert.equal(cardById('shieldKnife').fx.guard, 0.45);
   });
 
   test('공중 강타: 점프로 떠 있을 때만 피해 +500%(방장 판정과 피해 숫자가 같다)', () => {
@@ -199,5 +198,248 @@ describe('QA 요청 증강 묶음', () => {
     assert.equal(WEAPONS.gv_gun.projectile.kind, 'gravity');
     assert.equal(WEAPONS.gv_gun.zombieOnly, true);
     assert.equal(cardById('sideGravity').instant.side, 'gv_gun');
+  });
+});
+
+describe('완벽주의자', () => {
+  test('머리 총 피해 ×4, 몸·손·다리·발 총 피해 ×0.1, 칼은 그대로', () => {
+    const base = computePerks([]);
+    const perfect = computePerks(['perfect']);
+    const hit = (part, weaponId = 'ar_std') => {
+      const c = { weaponId, part, dist: 5, kind: 'shot' };
+      return [zombieHitDamage(c, base, {}, {}).dmg, zombieHitDamage(c, perfect, {}, {}).dmg];
+    };
+    assert.equal(hit('head')[1], hit('head')[0] * 4);
+    for (const part of ['body', 'hand', 'legs', 'foot']) {
+      const [normal, reduced] = hit(part);
+      assert.ok(Math.abs(reduced - normal * 0.1) < 1e-9, part);
+    }
+    const [knife, perfectKnife] = hit('body', 'ml_knife');
+    assert.equal(perfectKnife, knife);
+    assert.equal(modsFromPerks(perfect).spread, 1, '예전 탄퍼짐 감소 효과는 없다');
+    assert.ok(!cardAvailable(cardById('perfect'), ['perfect']), '한 번만 고른다');
+  });
+});
+
+describe('거인 학살자', () => {
+  test('보스는 네 배, 일반 좀비는 절반: 총·칼·수류탄 피해에 적용', () => {
+    const base = computePerks([]);
+    const giant = computePerks(['giant']);
+    for (const weaponId of ['ar_std', 'ml_knife']) for (const boss of [false, true]) {
+      const c = { weaponId, part: 'body', dist: 2, kind: 'shot' };
+      const normal = zombieHitDamage(c, base, { boss }, {}).dmg;
+      const boosted = zombieHitDamage(c, giant, { boss }, {}).dmg;
+      assert.equal(boosted, normal * (boss ? 4 : 0.5), `${weaponId} ${boss ? '보스' : '일반'}`);
+    }
+    for (const boss of [false, true]) assert.equal(nadeDamage(80, giant, boss), nadeDamage(80, base, boss) * (boss ? 4 : 0.5));
+    assert.ok(!cardAvailable(cardById('giant'), ['giant']));
+  });
+  test('화염 수류탄 장판도 일반 좀비에게 절반만 준다', () => {
+    const burn = (cards) => {
+      const { d } = makeFlat({ p1: [0, 0, 0] }, ['fireNade', ...cards]);
+      const Z = alive(d)[0];
+      Z.hp = Z.maxHp = 1e6;
+      Z.body.pos[0] = 20; Z.body.pos[1] = 0; Z.body.pos[2] = 0;
+      Z.state = 'wind'; Z.until = d.internals.S.clock + 10000;
+      d.claimExplosion({ attackerId: 'p1', center: { x: 20, y: 0, z: 0 }, victims: [] });
+      step(d, 18);
+      return 1e6 - Z.hp;
+    };
+    const base = burn([]);
+    assert.ok(base > 0);
+    assert.equal(burn(['giant']), Math.round(base * 0.5));
+  });
+});
+
+describe('최대 체력 비례 회복', () => {
+  test('불굴 3%와 회복 주사 2%가 최대 체력에 비례해 매초 회복한다', () => {
+    const healed = (cards, maxHp) => {
+      const { d, p } = makeFlat({ p1: [0, 0, 0] }, cards);
+      p.maxHp = maxHp;
+      p.hp = 20;
+      p.regenAcc = 0;
+      d.tick(1000);
+      return p.hp - 20;
+    };
+    assert.equal(healed([], 100), 0);
+    assert.equal(healed(['iron'], 100), 3);
+    assert.equal(healed(['iron'], 200), 6);
+    assert.equal(healed(['syringe'], 100), 2);
+    assert.equal(healed(['iron', 'syringe'], 100), 5);
+  });
+});
+
+describe('희귀 증강', () => {
+  test('다연발 투척은 희귀 등급으로 네 번까지 겹쳐 던지는 수를 늘린다', () => {
+    const card = cardById('multiNade');
+    assert.equal(card.tier, 'rare');
+    assert.ok(cardAvailable(card, ['multiNade', 'multiNade', 'multiNade']));
+    assert.ok(!cardAvailable(card, ['multiNade', 'multiNade', 'multiNade', 'multiNade']));
+    assert.equal(computePerks(['multiNade', 'multiNade', 'multiNade']).nadeMulti, 3);
+  });
+
+  test('사냥 본능 피해 증가와 전술 재장전 탄창 증가가 실제 무기 피해·탄 수에 반영된다', () => {
+    const c = { weaponId: 'ar_std', part: 'body', dist: 5, kind: 'shot' };
+    const base = zombieHitDamage(c, computePerks([]), {}, {}).dmg;
+    assert.ok(Math.abs(zombieHitDamage(c, computePerks(['hunter']), {}, {}).dmg - base * 1.24) < 1e-9);
+    const a = createArsenal({ primary: 'ar_std' });
+    a.setMods(modsFromPerks(computePerks(['tactical'])));
+    a.resetRound({});
+    assert.equal(a.getAmmo('ar_std').magSize, 60);
+  });
+});
+
+describe('철벽', () => {
+  test('최대 체력은 400, 연사는 20% 감소하고 이동 속도는 그대로다', () => {
+    const k = computePerks(['wall']);
+    assert.equal(perkMaxHp(k), 400);
+    assert.equal(k.move, 0);
+    const shots = (cards) => {
+      const a = createArsenal({ primary: 'ar_std', rng: () => 0.5 });
+      a.setMods(modsFromPerks(computePerks(cards)));
+      a.resetRound({});
+      let n = 0;
+      for (let i = 0; i < 60; i++) for (const e of a.update(1 / 60, { fireDown: true }, { speed: 0, onGround: true })) if (e.type === 'fire') n++;
+      return n;
+    };
+    assert.equal(shots([]), 10);
+    assert.equal(shots(['wall']), 8);
+  });
+});
+
+describe('탄약 절약', () => {
+  test('한 장은 45% 확률로 탄을 보존하고 두 장은 90%까지 쌓인다', () => {
+    const spent = (cards, roll) => {
+      const a = createArsenal({ primary: 'ar_std', rng: () => roll });
+      a.setMods(modsFromPerks(computePerks(cards)));
+      a.resetRound({});
+      const before = a.getAmmo('ar_std').mag;
+      a.update(1 / 60, { fireDown: true }, { speed: 0, onGround: true });
+      return before - a.getAmmo('ar_std').mag;
+    };
+    assert.equal(spent(['thrift'], 0.44), 0);
+    assert.equal(spent(['thrift'], 0.45), 1);
+    assert.equal(spent(['thrift', 'thrift'], 0.89), 0);
+    assert.equal(spent(['thrift', 'thrift'], 0.9), 1);
+    assert.ok(cardAvailable(cardById('thrift'), ['thrift']));
+    assert.ok(!cardAvailable(cardById('thrift'), ['thrift', 'thrift']), '효과 없는 세 번째 선택은 제안하지 않는다');
+  });
+});
+
+describe('유리 대포', () => {
+  test('총과 수류탄 피해가 50% 늘어난다', () => {
+    const base = computePerks([]);
+    const glass = computePerks(['glass']);
+    const c = { weaponId: 'ar_std', part: 'body', dist: 5, kind: 'shot' };
+    assert.equal(zombieHitDamage(c, glass, {}, {}).dmg, zombieHitDamage(c, base, {}, {}).dmg * 1.5);
+    assert.equal(nadeDamage(100, glass), nadeDamage(100, base) * 1.5);
+  });
+});
+
+describe('아드레날린', () => {
+  test('체력 35% 이하에서만 총 피해가 두 배가 된다', () => {
+    const k = computePerks(['adrenaline']);
+    const c = { weaponId: 'ar_std', part: 'body', dist: 5, kind: 'shot' };
+    const dmg = (hpFrac) => zombieHitDamage(c, k, {}, { myHpFrac: hpFrac }).dmg;
+    const normal = zombieHitDamage(c, computePerks([]), {}, { myHpFrac: 0.35 }).dmg;
+    assert.equal(dmg(0.36), normal);
+    assert.equal(dmg(0.35), normal * 2);
+    assert.equal(dmg(0.1), normal * 2);
+  });
+});
+
+describe('벙커', () => {
+  test('좀비 피해를 45% 줄이고 스테이지마다 남은 보호막에 100을 더한다', () => {
+    const damageTaken = (cards) => {
+      const { d, p } = makeFlat({ p1: [0, 0, 0] }, cards);
+      swing(d, alive(d)[0], [1.2, 0, 0]);
+      const before = p.hp;
+      step(d);
+      return before - p.hp;
+    };
+    const base = damageTaken([]);
+    assert.ok(base > 0);
+    assert.equal(damageTaken(['bunker']), Math.round(base * 0.55));
+
+    const d = createHorde({ players: [{ id: 'p1', name: 'P1' }], world: null, nav: null, spawns: FAR_SPAWNS, seed: 7, getPositions: () => ({ p1: [0, 0, 0] }), rules: { prepMs: 100, stageMs: 1000, cardMs: 600000 } });
+    d.start();
+    runUntil(d, () => d.phase === 'wave', 2000);
+    const p = d.internals.players.get('p1');
+    p.cards = ['bunker'];
+    p.perks = computePerks(p.cards);
+    p.shield = 50;
+    const stage = d.internals.S.stage;
+    runUntil(d, () => d.internals.S.stage === stage + 1, 3000);
+    assert.equal(p.shield, 150);
+  });
+});
+
+describe('여덟 번째 요청 증강', () => {
+  test('냉각탄: 25%까지 1초, 넘게 겹치면 시간도 비례해서 늘어난다(느려짐 세기는 60%에서 멈춤)', () => {
+    assert.deepEqual([0.08, 0.25, 0.5, 0.75].map((s) => frostSlowMs(s)), [1000, 1000, 2000, 3000]);
+    const slowOf = (cards) => {
+      const { d } = makeFlat({ p1: [0, 0, 0] }, cards);
+      const Z = alive(d)[0];
+      Z.hp = Z.maxHp = 100000;
+      const t0 = d.internals.S.clock;
+      d.claimHit({ attackerId: 'p1', victimId: 'z' + Z.id, weaponId: 'ar_std', part: 'body', dist: 10, kind: 'shot', count: 1, shotId: 1 });
+      return { ms: Math.round(Z.slowUntil - t0), mul: Z.slowMul };
+    };
+    assert.deepEqual(slowOf(['frost4']), { ms: 1000, mul: 0.75 });
+    assert.deepEqual(slowOf(['frost4', 'frost4']), { ms: 2000, mul: 0.5 });
+    const three = slowOf(['frost4', 'frost4', 'frost4']);
+    assert.equal(three.ms, 3000);
+    assert.ok(Math.abs(three.mul - 0.4) < 1e-9, '세기는 60%에서 멈추고 시간만 는다');
+  });
+
+  test('폭발 반응 장갑: 좀비에게 맞으면 내 자리에서 손 수류탄이 터지고(수류탄 피해·반경 증강), 단계만큼 기다렸다 다시 터진다', () => {
+    const run = (cards) => {
+      const { d } = makeFlat({ p1: [0, 0, 0] }, cards);
+      const [Z, near, far] = alive(d);
+      for (const X of [Z, near, far]) X.hp = X.maxHp = 1e6;
+      near.body.pos[0] = 0; near.body.pos[1] = 0; near.body.pos[2] = 3; near.state = 'move';
+      far.body.pos[0] = 0; far.body.pos[1] = 0; far.body.pos[2] = 7.5; far.state = 'move';
+      const fx0 = d.internals.fxList.length;
+      swing(d, Z, [1.2, 0, 0]);
+      step(d);
+      const lost = (X) => 1e6 - X.hp;
+      return { d, Z, near, far, lost, blasts: d.internals.fxList.slice(fx0).filter((x) => x.kind === 'blast').length };
+    };
+    const off = run([]);
+    assert.equal(off.blasts, 0, '증강이 없으면 터지지 않는다');
+    assert.equal(off.lost(off.near), 0);
+    const on = run(['thorn4']);
+    assert.equal(on.blasts, 1, '맞으면 한 번 터진다');
+    assert.ok(on.lost(on.near) >= 500, `3 m 안 좀비는 수류탄 피해: ${on.lost(on.near)}`);
+    assert.equal(on.lost(on.far), 0, '6 m 밖은 맞지 않는다');
+    const wide = run(['thorn4', 'blast4']);
+    assert.ok(wide.lost(wide.far) > 0, '폭발 반경 증강이 붙는다');
+    const strong = run(['thorn4', 'demo4']);
+    assert.ok(strong.lost(strong.near) > on.lost(on.near), '수류탄 피해 증강이 붙는다');
+    const effects = run(['thorn4', 'fireNade', 'iceNade', 'decoyNade']);
+    assert.ok(effects.near.frozenUntil > effects.d.internals.S.clock, '빙결 효과');
+    assert.equal(effects.d.internals.fields.length, 1, '화염 장판');
+    assert.equal(effects.d.internals.decoys.size, 1, '어그로 분신');
+    // 1초(IV)가 지나기 전에 다시 맞으면 터지지 않는다
+    const { d, Z } = on;
+    step(d, 10);
+    const n0 = d.internals.fxList.filter((x) => x.kind === 'blast').length;
+    swing(d, Z, [1.2, 0, 0]);
+    step(d);
+    assert.equal(d.internals.fxList.filter((x) => x.kind === 'blast').length, n0, '대기 중에는 터지지 않는다');
+    assert.deepEqual(['thorn1', 'thorn2', 'thorn3', 'thorn4'].map((id) => +(1 / cardById(id).fx.reactive).toFixed(2)), [4, 3, 2, 1]);
+  });
+
+  test('보호막: 스테이지가 시작할 때마다 남은 보호막에 더해진다', () => {
+    const d = createHorde({ players: [{ id: 'p1', name: 'P1' }], world: null, nav: null, spawns: FAR_SPAWNS, seed: 7, getPositions: () => ({ p1: [0, 0, 0] }), rules: { prepMs: 100, stageMs: 1000, cardMs: 600000 } });
+    d.start();
+    runUntil(d, () => d.phase === 'wave', 2000);
+    const p = d.internals.players.get('p1');
+    p.cards = ['shield1'];
+    p.perks = computePerks(p.cards);
+    p.shield = 50;
+    const stage = d.internals.S.stage;
+    runUntil(d, () => d.internals.S.stage === stage + 1, 3000);
+    assert.equal(p.shield, 250, '깨지지 않은 50에 200을 더한다');
   });
 });

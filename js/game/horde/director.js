@@ -27,10 +27,10 @@
  * 좀비 전용 맵(o.gates)이면 좀비는 그 좀비 문에서만 나온다.
  */
 import { moveCharacter, lineOfSight, getGroundY } from '../../engine/physics.js';
-import { computeDamage, getDef } from '../../weapons/defs.js';
+import { computeDamage, getDef, explosionFalloff } from '../../weapons/defs.js';
 import {
   HORDE, ZOMBIE_TYPES, zombieByCode, zombieCount, hpMul, dmgMul, speedMul, spawnGapMs, spawnBurst, bossCount, bossHpMul,
-  zombieMix, makeRng, hashSeed, pickWeighted, LOOT_TYPES, lootByCode, rollDrop, zombieXp, xpNeed, timeBonusXp
+  zombieMix, makeRng, hashSeed, pickWeighted, LOOT_TYPES, lootByCode, rollDrop, zombieXp, xpNeed, timeBonusXp, frostSlowMs
 } from './rules.js';
 import { computePerks, perkMaxHp, makeOffer, encodeCards, decodeCards, cardById } from './cards.js';
 import { BOSSES, bossById, bossByCode, pickBosses, SKILL_KINDS, HAZARD_KINDS, PROJECTILE_KINDS } from './bosses.js';
@@ -259,7 +259,7 @@ export function createHorde(o = {}) {
       if (!P.connected) continue;
       if (!P.alive) spawnPlayer(P, i, ev, R.reviveHpFrac);
       else if (P.perks.stageHeal > 0) healPlayer(P, P.maxHp * P.perks.stageHeal);
-      P.shield = Math.max(P.shield, Math.round(P.perks.shield || 0));
+      P.shield = Math.round(P.shield + (P.perks.shield || 0));   // 깨지지 않고 남은 보호막에 더해진다
       i++;
     }
     revives.clear();
@@ -528,8 +528,8 @@ export function createHorde(o = {}) {
 
   /* ------------------------------------------------------------------ 피해 */
   /**
-   * 사람이 맞음. from = 좀비(없으면 장판 등). opt = { melee, at: 맞은 쪽 자리, knock: 밀려남 배율 }.
-   * melee면 가시가 되돌려 준다. 맞으면(피하지 않았으면) 잠깐 무적이고, knock이 있으면 맞은 쪽 반대로 밀려난다(보호막이 막아도)
+   * 사람이 맞음. from = 좀비(없으면 장판 등). opt = { melee, at: 맞은 쪽 자리, knock: 밀려남 배율, zombie: from이 없어도 좀비·보스가 낸 피해(침·투사체·폭발) }.
+   * 맞으면(피하지 않았으면) 잠깐 무적이고, knock이 있으면 맞은 쪽 반대로 밀려난다(보호막이 막아도). 좀비·보스에게 맞으면 폭발 반응 장갑이 터진다
    */
   function hurtPlayer(P, amount, from, ev, opt = {}) {
     if (!P || !P.alive || !(amount > 0) || S.phase !== 'wave') return 0;
@@ -538,6 +538,7 @@ export function createHorde(o = {}) {
     if (P.perks.dodge > 0 && rng() < P.perks.dodge) return 0;
     P.hitUntil = S.clock + R.hitInvulnMs + 1000 * Math.max(0, P.perks.iframe || 0);
     if (opt.knock > 0 && !(P.perks.noKnock > 0)) pushPlayer(P, from && from.body ? from.body.pos : opt.at, opt.knock);
+    if ((from || opt.zombie) && P.perks.reactive > 0) reactiveBlast(P, ev);
     let dmg = amount * (1 - clamp(P.perks.armor || 0, 0, 0.75));
     if (guarded(P, from, opt)) dmg *= 1 - clamp(P.perks.guard, 0, 0.95);
     if (P.shield > 0) { const a = Math.min(P.shield, dmg); P.shield -= a; dmg -= a; }
@@ -550,7 +551,6 @@ export function createHorde(o = {}) {
     } else P.hp = Math.max(0, P.hp - dmg);
     P.hurtAt = S.clock;
     P.hurtFrom = from && from.body ? [from.body.pos[0], from.body.pos[1] + 1.2, from.body.pos[2]] : opt.at || null;
-    if (opt.melee && from && P.perks.thorns > 0 && from.state !== 'dead') hurtZombie(from, P.perks.thorns, P, { kind: 'thorns' }, ev);
     if (P.hp <= 0) downPlayer(P, ev);
     return dmg;
   }
@@ -698,7 +698,7 @@ export function createHorde(o = {}) {
     if (P) {
       P.damage += real;
       if (P.perks.lifesteal > 0) healPlayer(P, real * P.perks.lifesteal);
-      if (P.perks.slow > 0 && info.kind !== 'thorns') { Z.slowUntil = S.clock + 1200; Z.slowMul = 1 - clamp(P.perks.slow, 0, 0.6); }
+      if (P.perks.slow > 0) { Z.slowUntil = S.clock + frostSlowMs(P.perks.slow, R); Z.slowMul = 1 - clamp(P.perks.slow, 0, 0.6); }
     }
     if (Z.hp <= 0) killZombie(Z, P, info, ev);
     return real;
@@ -731,7 +731,7 @@ export function createHorde(o = {}) {
       addFx('chain', pos, 3);
       for (const O of zombies.values()) {
         if (O === Z || O.state === 'dead') continue;
-        if (hyp2(O.body.pos[0] - pos[0], O.body.pos[2] - pos[2]) <= 3) hurtZombie(O, dmg, P, { chain: true, kind: 'chain' }, ev);
+        if (hyp2(O.body.pos[0] - pos[0], O.body.pos[2] - pos[2]) <= 3) hurtZombie(O, dmg * targetDamageMul(P.perks, !!O.boss), P, { chain: true, kind: 'chain' }, ev);
       }
     }
   }
@@ -793,8 +793,37 @@ export function createHorde(o = {}) {
       const d = Math.hypot(T.pos[0] - p[0], (T.pos[1] + 1) - (p[1] + 0.6), T.pos[2] - p[2]);
       if (d > radius) continue;
       if (world && !lineOfSight(world, [p[0], p[1] + 0.8, p[2]], [T.pos[0], T.pos[1] + 1.2, T.pos[2]])) continue;
-      hurtTarget(T, dmg * (1 - 0.6 * (d / radius)), null, ev, { at: [p[0], p[1] + 1, p[2]], knock: 1.5 });
+      hurtTarget(T, dmg * (1 - 0.6 * (d / radius)), null, ev, { at: [p[0], p[1] + 1, p[2]], knock: 1.5, zombie: true });
     }
+  }
+
+  /**
+   * 폭발 반응 장갑: 좀비·보스에게 맞으면 내 자리에서 손 수류탄이 터진다(수류탄을 쓰지 않는다, 아군 피해 없음).
+   * 손 수류탄과 같이 수류탄 피해·폭발 반경·화염·빙결·어그로 증강이 붙는다. 다시 터지기까지 1 / reactive 초(겹치면 더 자주)
+   */
+  function reactiveBlast(P, ev) {
+    if (!P.pos || S.clock < (P.reactAt || 0)) return;
+    const k = P.perks;
+    P.reactAt = S.clock + 1000 / k.reactive;
+    const rk = 1 + (k.nadeRadius || 0);
+    const base = getDef('gr_frag').explosion;
+    const ex = { radius: base.radius * rk, inner: base.inner * rk, max: base.max };
+    const c = [P.pos[0], P.pos[1] + 0.12, P.pos[2]];
+    addFx('blast', c, ex.radius);
+    const hit = [];
+    for (const Z of zombies.values()) {
+      if (Z.state === 'dead') continue;
+      const zp = Z.body.pos;
+      const chest = [zp[0], zp[1] + 0.9 * (Z.scale || 1), zp[2]];
+      const d = Math.max(0, Math.hypot(chest[0] - c[0], chest[1] - c[1], chest[2] - c[2]) - (Z.radius || 0));
+      if (d >= ex.radius) continue;
+      if (world && !lineOfSight(world, [c[0], c[1] + 0.5, c[2]], chest)) continue;
+      hurtZombie(Z, nadeDamage(explosionFalloff(d, ex), k, !!Z.boss, null), P, { kind: 'nade' }, ev);
+      hit.push(Z);
+    }
+    if (k.nadeFreeze > 0) for (const Z of hit) freezeZombie(Z, P);
+    if (k.nadeFire > 0) addField(P, c);
+    if (k.nadeDecoy > 0) addDecoy(P, c);
   }
 
   /* ------------------------------------------------------------------ 수류탄 증강: 불길 · 빙결 · 분신 */
@@ -819,7 +848,7 @@ export function createHorde(o = {}) {
       const P = players.get(f.owner) || null;
       for (const Z of zombies.values()) {
         if (Z.state === 'dead') continue;
-        if (hyp2(Z.body.pos[0] - f.x, Z.body.pos[2] - f.z) <= f.r + Z.radius && Math.abs(Z.body.pos[1] - f.y) < 1.6) hurtZombie(Z, f.dps * k, P, { kind: 'fire' }, ev);
+        if (hyp2(Z.body.pos[0] - f.x, Z.body.pos[2] - f.z) <= f.r + Z.radius && Math.abs(Z.body.pos[1] - f.y) < 1.6) hurtZombie(Z, f.dps * k * targetDamageMul(P && P.perks, !!Z.boss), P, { kind: 'fire' }, ev);
       }
     }
   }
@@ -1235,7 +1264,7 @@ export function createHorde(o = {}) {
       if (expired && !hitPlayer && !hitWorld) continue;
       const at = pr.pos;
       if (hitPlayer && pr.dmg > 0) {
-        hurtPlayer(hitPlayer, pr.dmg, null, ev, { at: [p0[0], p0[1], p0[2]], knock: 0.6 });
+        hurtPlayer(hitPlayer, pr.dmg, null, ev, { at: [p0[0], p0[1], p0[2]], knock: 0.6, zombie: true });
         if (pr.slow) ev.push({ type: 'slow', id: hitPlayer.id, mul: pr.slow.mul, ms: pr.slow.ms });
       }
       if (pr.blast) explodeAt(at, pr.blast.r, pr.blast.dmg * dmgMul(S.stage), null, ev, 'barrel');
@@ -1521,9 +1550,11 @@ export function createHorde(o = {}) {
     if (!connected().length) { if (S.phase !== 'over' && S.phase !== 'warmup') gameOver(ev, 'left'); return; }
     // 사람: 회복
     for (const P of players.values()) {
-      if (!P.alive || !(P.perks.regen > 0) || S.phase !== 'wave') continue;
-      P.regenAcc += P.perks.regen * dt;
-      if (P.regenAcc >= 1) { const n = Math.floor(P.regenAcc); P.regenAcc -= n; healPlayer(P, n); }
+      if (!P.alive || S.phase !== 'wave') continue;
+      const regen = P.perks.regen + P.maxHp * P.perks.regenPct;
+      if (regen <= 0) continue;
+      P.regenAcc += regen * dt;
+      if (P.regenAcc >= 1 - 1e-9) { const n = Math.floor(P.regenAcc + 1e-9); P.regenAcc = Math.max(0, P.regenAcc - n); healPlayer(P, n); }
     }
     if (S.phase !== 'wave') return;
     readPositions();
@@ -1863,11 +1894,16 @@ export function hordeSummary(view, meId) {
 /** 폭발 종류별 배율: 손으로 던진 수류탄 10(폭심 기본 피해 1000), 유탄 발사기 1.2(여러 발), 바주카포 2.6(한 발씩) */
 export const BLAST_MUL = Object.freeze({ nade: 10, gl: 1.2, rocket: 2.6 });
 
+/** 대상별 피해 배율: 보스 피해 증가와 일반 좀비 피해 감소를 같은 경로로 적용한다. */
+function targetDamageMul(k, boss) {
+  return boss ? 1 + ((k && k.boss) || 0) : 1 - Math.min(1, (k && k.normalPenalty) || 0);
+}
+
 /** 수류탄·발사체 폭발 피해(화면이 잰 피해 → 이 모드의 피해): 종류 배율 × 모든 피해 × 수류탄 피해(보스면 보스 피해도) */
 export function nadeDamage(dmg, k, boss = false, kind = null) {
   const kk = k || {};
   const base = BLAST_MUL[kind] || BLAST_MUL.nade;
-  return clamp(num(dmg), 0, 100) * base * (1 + (kk.dmg || 0)) * (1 + (kk.nade || 0)) * (boss ? 1 + (kk.boss || 0) : 1);
+  return clamp(num(dmg), 0, 100) * base * (1 + (kk.dmg || 0)) * (1 + (kk.nade || 0)) * targetDamageMul(kk, boss);
 }
 
 /**
@@ -1892,10 +1928,11 @@ export function zombieHitDamage(c = {}, k = {}, z = {}, o = {}) {
   let mul = 1 + (k.dmg || 0);
   const head = part === 'head' && !melee;
   if (head) mul *= 1 + (k.head || 0);
-  if (z.boss) mul *= 1 + (k.boss || 0);
+  else if (!melee && k.bodyPenalty > 0) mul *= 1 - Math.min(1, k.bodyPenalty);
+  mul *= targetDamageMul(k, !!z.boss);
   if (melee) mul *= 1 + (k.melee || 0);
-  if ((k.lastStand || 0) > 0 && num(o.myHpFrac, 1) < 0.35) mul *= 1 + k.lastStand;
-  if ((k.executioner || 0) > 0 && num(z.hpFrac, 1) < 0.25) mul *= 1 + k.executioner;
+  if ((k.lastStand || 0) > 0 && num(o.myHpFrac, 1) <= 0.35) mul *= 1 + k.lastStand;
+  if ((k.executioner || 0) > 0 && num(z.hpFrac, 1) <= 0.25) mul *= 1 + k.executioner;
   const nth = Math.max(0, num(o.nth, 0) | 0);
   if (nth > 0) mul *= Math.max(PIERCE_MIN, Math.pow(PIERCE_FALLOFF, nth));
   if ((k.airDmg || 0) > 0 && o.air) mul *= 1 + k.airDmg;

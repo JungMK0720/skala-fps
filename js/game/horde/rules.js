@@ -18,7 +18,7 @@ export const HORDE = Object.freeze({
   stageMs: 40000,         // 스테이지 하나의 시간. 지나면 다음 스테이지가 시작된다(남은 좀비는 그대로 남는다)
   timeXpMs: 2000,         // 시간 안에 다 잡으면 남은 시간 이만큼마다 경험치 1
   xpBase: 10,             // 1레벨 → 2레벨에 필요한 경험치
-  xpStep: 10,             // 레벨마다 필요한 경험치가 이만큼 는다(10, 20, 30, …)
+  xpStep: 5,              // 레벨마다 필요한 경험치가 이만큼 는다(10, 15, 20, …)
   bossXp: 20,             // 보스 처치 경험치(보물 상자는 따로 떨어진다)
   cardMs: 20000,          // 증강 고르기 제한 시간(지나면 제안 중 하나를 무작위로 받는다)
   pauseOnCards: false,    // true(혼자)면 고르는 동안 좀비·스테이지 시간이 멈춘다. 멀티는 멈추지 않고 고르는 사람만 무적이다
@@ -56,6 +56,8 @@ export const HORDE = Object.freeze({
   maxDecoys: 6,           // 한 번에 서 있는 분신 상한(한 사람은 2개)
   maxFields: 10,          // 한 번에 타는 불길 상한
   hitInvulnMs: 100,       // 맞은 뒤 무적(0.1초). 증강 '반사 신경'(iframe, 초)만큼 늘어난다
+  frostMs: 1000,          // 냉각탄 증강에 맞은 좀비가 느려지는 시간(냉각 frostStep까지)
+  frostStep: 0.25,        // 냉각이 이 비율을 넘으면 넘은 만큼 시간도 늘어난다(50%면 2초)
   knockSpeed: 4.2,        // 좀비에게 맞으면 밀려나는 수평 속도(m/s). 좀비 크기 배율(0.8~1.8)을 곱한다
   knockUp: 2.0,           // 밀려날 때 살짝 뜨는 속도(m/s)
   knockKeepMs: 400,       // 화면은 이보다 오래된 밀려남을 적용하지 않는다(스냅샷에 이 시간 동안 실린다)
@@ -99,7 +101,7 @@ export function rollDrop(rng, medP = HORDE.medChance, magP = HORDE.magChance) {
 export const ZOMBIE_XP = Object.freeze({ walker: 1, crawler: 1, runner: 2, spitter: 2, bomber: 2, brute: 4 });
 export const zombieXp = (typeId) => ZOMBIE_XP[typeId] || 1;
 
-/** 이 레벨에서 다음 레벨까지 필요한 경험치: 1레벨 10, 2레벨 20, 3레벨 30, … */
+/** 이 레벨에서 다음 레벨까지 필요한 경험치: 1레벨 10, 2레벨 15, 3레벨 20, … */
 export function xpNeed(level, rules = HORDE) {
   return rules.xpBase + rules.xpStep * (Math.max(1, Math.floor(Number(level) || 1)) - 1);
 }
@@ -107,6 +109,11 @@ export function xpNeed(level, rules = HORDE) {
 /** 시간 안에 다 잡았을 때의 남은 시간 경험치(남은 2초당 1) */
 export function timeBonusXp(leftMs, rules = HORDE) {
   return Math.max(0, Math.floor((Number(leftMs) || 0) / rules.timeXpMs));
+}
+
+/** 냉각탄에 맞은 좀비가 느려지는 시간(ms): 냉각 25%까지 1초, 넘으면 비례해서 길어진다(50% 2초, 75% 3초) */
+export function frostSlowMs(slow, rules = HORDE) {
+  return Math.round(rules.frostMs * Math.max(1, (Number(slow) || 0) / rules.frostStep));
 }
 
 /**

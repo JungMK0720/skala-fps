@@ -983,6 +983,18 @@ export function createArsenal(opts = {}) {
       if (rmax != null) inv[id].reserve = rmax;
     }
   }
+  /** 지금 가지고 있는 주무기·보조무기의 탄창과 예비 탄을 최대까지 채운다(보급 투하). */
+  function refillAmmo() {
+    for (const slot of [1, 2]) {
+      const id = slotWeapon(slot);
+      if (!id) continue;
+      const w = inv[id];
+      const mag = magOf(id), reserve = reserveOf(id);
+      if (mag != null) w.mag = mag;
+      if (reserve != null) w.reserve = reserve;
+    }
+  }
+
   /** 수류탄을 최대까지 채운다 */
   function refillGrenades() {
     const g = inv[GRENADE_ID];
@@ -1082,6 +1094,7 @@ export function createArsenal(opts = {}) {
     setMods,
     getMods: () => ({ ...mods }),
     refillReserve,
+    refillAmmo,
     refillGrenades,
     addMagAmmo,
     addReserve,

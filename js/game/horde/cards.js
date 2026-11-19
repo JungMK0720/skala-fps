@@ -2,7 +2,7 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 좀비 물량 막기의 증강(강화 카드, 180장 넘게). 팀 레벨이 오르거나 보스의 보물 상자를 주우면 3장(증강으로 4장까지)을 제안하고
- *          제안마다 다시 뽑기 1번을 준다. 카드 목록 → 능력치 계산(상한 포함), 제안 만들기, 짧은 글자로 싣기를 맡는다.
+ *          제안마다 다시 뽑기 1번을 준다. 카드 목록 → 능력치 계산(상한 없음, 한 장 카드는 고를 수 있는 횟수만), 제안 만들기, 짧은 글자로 싣기를 맡는다.
  *          순수 모듈이라 방장·화면·node 시험이 같이 쓴다. 수류탄을 키우는 증강은 모두 최대 수류탄을 2개 늘리고 가득 채운다.
  */
 import { makeRng, hashSeed, pickWeighted } from './rules.js';
@@ -25,18 +25,21 @@ export const PERK_BASE = Object.freeze({
   maxHp: 0,        // H  최대 체력 +
   maxHpPct: 0,     // H  최대 체력 +%(음수 가능)
   regen: 0,        // H  초당 회복
+  regenPct: 0,     // H  초당 최대 체력의 비율만큼 회복(불굴)
   lifesteal: 0,    // H  준 피해의 비율만큼 회복
   armor: 0,        // H  받는 피해 감소
   killHeal: 0,     // H  처치마다 회복
   dmg: 0,          // H  모든 피해 +%
   head: 0,         // H  머리 피해 +%
+  bodyPenalty: 0,  // H  머리 이외 총 피해 감소율(완벽주의자)
+  normalPenalty: 0, // H 일반 좀비에게 주는 피해 감소율(거인 학살자)
   boss: 0,         // H  보스 피해 +%
   melee: 0,        // H  칼 피해 +%
   nade: 0,         // H  수류탄 피해 +%
   crit: 0,         // H  치명타 확률(피해 ×(1.5 + critDmg))
   critDmg: 0,      // H  치명타 피해 +
-  slow: 0,         // H  맞은 좀비가 1.2초 동안 느려지는 비율
-  thorns: 0,       // H  나를 때린 좀비가 받는 피해
+  slow: 0,         // H  맞은 좀비가 느려지는 비율(1초, 25%를 넘으면 그만큼 오래: rules.js frostSlowMs)
+  reactive: 0,     // H  폭발 반응 장갑: 좀비·보스에게 맞으면 내 자리에서 손 수류탄이 터지는 횟수(초당, 1 / 값 초에 한 번)
   dodge: 0,        // H  피해를 통째로 피할 확률
   executioner: 0,  // H  체력 25% 아래 좀비에게 피해 +%
   lastStand: 0,    // H  내 체력이 35% 아래일 때 피해 +%
@@ -60,11 +63,11 @@ export const PERK_BASE = Object.freeze({
   pierce: 0,       // C  탄이 좀비를 뚫고 뒤의 좀비까지 맞는 수(뚫을 때마다 피해 70%, 최소 30%). 99 = 무제한
   killAmmo: 0,     // C  처치마다 탄창으로 돌아오는 탄
   ammoRegen: 0,    // C  초당 예비 탄 회복(탄창 크기의 비율)
-  frenzy: 0,       // C  처치마다 4초 동안 연사 +%(최대 5번 겹침)
+  frenzy: 0,       // C  총으로 좀비를 맞힐 때마다 7초 동안 연사 +%(겹마다, 최대 300번 겹침. client.js)
   thrift: 0,       // C  쏴도 탄이 줄지 않을 확률
   medDrop: 0,      // H  내가 잡은 좀비가 구급 상자를 떨어뜨릴 확률 +(기본 5%)
   medHeal: 0,      // H  내가 주운 구급 상자 회복량 +(기본 10)
-  ammoDrop: 0,     // H  내가 잡은 좀비가 탄창을 떨어뜨릴 확률 +(기본 5%)
+  ammoDrop: 0,     // H  내가 잡은 좀비가 탄창을 떨어뜨릴 확률 +(기본 10%)
   ammoMags: 0,     // C  주운 탄창 하나가 장전 몇 회분 더(기본 1회분)
   nadeFire: 0,     // H  화염 수류탄: 터진 자리에 불길(겹칠수록 세다)
   nadeFreeze: 0,   // H  빙결 수류탄: 맞은 좀비가 얼어붙는다(겹칠수록 오래)
@@ -80,19 +83,7 @@ export const PERK_BASE = Object.freeze({
   airDmg: 0        // H  점프로 떠 있는 동안 주는 피해 +배율(5 = +500%)
 });
 
-/** 능력치 상한(카드를 아무리 많이 골라도 이 이상은 오르지 않고, 다 찬 카드는 제안에서 빠진다) */
-export const PERK_CAPS = Object.freeze({
-  armor: 0.7, dodge: 0.4, crit: 0.6, slow: 0.5, lifesteal: 0.3, thrift: 0.45,
-  fireRate: 2.5, reload: 3, mag: 4, reserve: 12, draw: 3,
-  spread: 0.8, recoil: 0.8, move: 0.8, maxSpeed: 1.5, jump: 0.6,
-  nades: 14, pierce: 99, killAmmo: 8, ammoRegen: 0.25, frenzy: 0.2, reloadCut: 1, guard: 0.9, airDmg: 5,
-  regen: 30, rerolls: 3, offers: 1, maxHpPct: 3, secondChance: 1,
-  medDrop: 0.25, medHeal: 60, ammoDrop: 0.25, ammoMags: 5,
-  nadeFire: 3, nadeFreeze: 3, nadeDecoy: 3, nadeRadius: 1, nadeMulti: 4,
-  iframe: 0.4, noKnock: 1, stickyNade: 1, wave: 18
-});
-
-/* ------------------------------------------------------------------ 카드 표 */
+/* ------------------------------------------------------------------ 카드 표 (바꾸면 docs/AUGMENTS.md도 고친다) */
 
 /** 글자 도우미 */
 const pc = (v) => `${Math.round(v * 100)}%`;
@@ -100,7 +91,7 @@ const fx = (v) => (Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : 
 
 /**
  * 같은 능력치를 네 단계로 올리는 카드 묶음. vals[i] = I~IV의 값, text(v) = 설명, extra(v) = 고른 순간 한 번만 일어나는 일.
- * family 하나에 카드 네 장이 생긴다(I 일반 · II 희귀 · III 영웅 · IV 전설).
+ * also = 같은 값만큼 함께 올리는 능력치(없으면 stat 하나). family 하나에 카드 네 장이 생긴다(I 일반 · II 희귀 · III 영웅 · IV 전설).
  */
 const FAMILIES = [
   { key: 'hp', name: '튼튼한 몸', icon: '❤️', stat: 'maxHp', vals: [15, 25, 40, 60], text: (v) => `최대 체력 +${v} (그만큼 바로 회복)`, instant: (v) => ({ heal: v }) },
@@ -126,28 +117,30 @@ const FAMILIES = [
   { key: 'grip', name: '반동 제어', icon: '✊', stat: 'recoil', vals: [0.1, 0.16, 0.25, 0.36], text: (v) => `반동 −${pc(v)}` },
   { key: 'swap', name: '빠른 교체', icon: '🔀', stat: 'draw', vals: [0.15, 0.25, 0.4, 0.6], text: (v) => `무기 꺼내기 속도 +${pc(v)}` },
   { key: 'sprint', name: '질주', icon: '👟', stat: 'move', vals: [0.05, 0.08, 0.12, 0.18], text: (v) => `이동 속도 +${pc(v)}` },
-  { key: 'limit', name: '가속 한계', icon: '🚀', stat: 'maxSpeed', vals: [0.08, 0.14, 0.22, 0.35], text: (v) => `최대 속도 +${pc(v)} (버니합 상한)` },
-  { key: 'leap', name: '도약', icon: '🦘', stat: 'jump', vals: [0.08, 0.12, 0.18, 0.26], text: (v) => `점프 높이 +${pc(v)}` },
-  { key: 'pouch', name: '수류탄 주머니', icon: '💣', stat: 'nades', vals: [2, 2, 3, 4], text: (v) => `최대 수류탄 +${v} (가득 채움)`, instant: () => ({ nades: true }) },
-  { key: 'medic', name: '구급 보급', icon: '🩹', stat: 'medDrop', vals: [0.02, 0.03, 0.05, 0.08], text: (v) => `내가 잡은 좀비가 구급 상자를 떨어뜨릴 확률 +${pc(v)} (기본 5%)` },
+  // 걷는 속도(move)와 버니합 상한(maxSpeed)이 같은 비율로 함께 오른다
+  { key: 'limit', name: '가속 한계', icon: '🚀', stat: 'maxSpeed', also: 'move', vals: [0.08, 0.14, 0.22, 0.35], text: (v) => `걷는 속도 +${pc(v)} · 최대 속도(버니합 상한)도 +${pc(v)}` },
+  { key: 'leap', name: '도약', icon: '🦘', stat: 'jump', vals: [0.09, 0.14, 0.21, 0.3], text: (v) => `점프 높이 +${pc(v)}` },
+  { key: 'pouch', name: '수류탄 주머니', icon: '💣', stat: 'nades', vals: [5, 6, 8, 10], text: (v) => `최대 수류탄 +${v} (가득 채움)`, instant: () => ({ nades: true }) },
+  { key: 'medic', name: '구급 보급', icon: '🩹', stat: 'medDrop', vals: [0.04, 0.06, 0.09, 0.15], text: (v) => `내가 잡은 좀비가 구급 상자를 떨어뜨릴 확률 +${pc(v)} (기본 5%)` },
   { key: 'kit', name: '구급 키트', icon: '🧪', stat: 'medHeal', vals: [5, 8, 12, 18], text: (v) => `구급 상자 회복량 +${v} (기본 10)` },
-  { key: 'supply', name: '탄약 보급', icon: '🎒', stat: 'ammoDrop', vals: [0.02, 0.03, 0.05, 0.08], text: (v) => `내가 잡은 좀비가 탄창을 떨어뜨릴 확률 +${pc(v)} (기본 10%)` },
-  { key: 'belt', name: '탄띠', icon: '🎗️', stat: 'ammoMags', vals: [0.5, 0.75, 1, 1.5], text: (v) => `주운 탄창이 장전 ${fx(v)}회분 더 (기본 1회분)` },
-  { key: 'blast', name: '폭발 반경', icon: '🌋', stat: 'nadeRadius', vals: [0.12, 0.18, 0.25, 0.35], text: (v) => `수류탄 폭발 반경 +${pc(v)} · ${NADE_UP}`, nade: true },
+  { key: 'supply', name: '탄약 보급', icon: '🎒', stat: 'ammoDrop', vals: [0.04, 0.06, 0.09, 0.15], text: (v) => `내가 잡은 좀비가 탄창을 떨어뜨릴 확률 +${pc(v)} (기본 10%)` },
+  { key: 'belt', name: '탄띠', icon: '🎗️', stat: 'ammoMags', vals: [1, 1.5, 2, 3], text: (v) => `주운 탄창이 장전 ${fx(v)}회분 더 (기본 1회분)` },
+  { key: 'blast', name: '폭발 반경', icon: '🌋', stat: 'nadeRadius', vals: [0.3, 0.45, 0.63, 0.88], text: (v) => `수류탄 폭발 반경 +${pc(v)} · ${NADE_UP}`, nade: true },
   // 무제한 관통(한 장). 예전 I~IV 중 I 자리를 이 카드로 바꾸고 II~IV는 제안에서만 뺀다
   { key: 'pierce', name: '관통탄', icon: '🗡️', stat: 'pierce', vals: [99, 99, 99, 99], text: () => '탄이 좀비를 모두 뚫는다(뚫을 때마다 피해 70%, 최소 30%)', minTier: 2, only: 1, max: 1, retire: [1, 2, 3] },
   { key: 'scav', name: '탄약 회수', icon: '♻️', stat: 'killAmmo', vals: [1, 1, 2, 3], text: (v) => `처치할 때마다 탄창에 탄 ${v}발 돌려받기` },
   { key: 'weak', name: '약점 포착', icon: '🔍', stat: 'crit', vals: [0.04, 0.07, 0.11, 0.16], text: (v) => `${pc(v)} 확률로 치명타(피해 ×1.5)` },
   { key: 'wound', name: '치명상', icon: '🩹', stat: 'critDmg', vals: [0.2, 0.35, 0.55, 0.8], text: (v) => `치명타 피해 +${pc(v)}` },
-  { key: 'frost', name: '냉각탄', icon: '❄️', stat: 'slow', vals: [0.08, 0.12, 0.18, 0.25], text: (v) => `맞은 좀비가 1.2초 동안 ${pc(v)} 느려짐` },
-  { key: 'thorn', name: '가시 갑옷', icon: '🌵', stat: 'thorns', vals: [15, 25, 40, 60], text: (v) => `나를 때린 좀비에게 피해 ${v}` },
+  { key: 'frost', name: '냉각탄', icon: '❄️', stat: 'slow', vals: [0.08, 0.12, 0.18, 0.25], text: (v) => `맞은 좀비가 1초 동안 ${pc(v)} 느려짐 (냉각이 25%를 넘게 겹치면 시간도 그만큼 늘어남)` },
+  // 폭발 반응 장갑(예전 가시 갑옷 자리, id thorn1~4 그대로). 값 = 초당 터지는 횟수: 4 · 3 · 2 · 1초에 한 번, 겹치면 더해져 더 자주
+  { key: 'thorn', name: '폭발 반응 장갑', icon: '☄️', stat: 'reactive', vals: [0.25, 1 / 3, 0.5, 1], text: (v) => `좀비·보스에게 맞으면 내 자리에서 수류탄이 터진다(수류탄 피해·폭발 반경·수류탄 효과 적용, ${fx(1 / v)}초에 한 번, 겹치면 더 자주)` },
   { key: 'dodge', name: '회피', icon: '💨', stat: 'dodge', vals: [0.03, 0.05, 0.08, 0.12], text: (v) => `${pc(v)} 확률로 피해를 피함` },
-  { key: 'exec', name: '처형자', icon: '⚔️', stat: 'executioner', vals: [0.15, 0.25, 0.4, 0.6], text: (v) => `체력 25% 아래 좀비에게 피해 +${pc(v)}` },
-  { key: 'last', name: '배수의 진', icon: '🔥', stat: 'lastStand', vals: [0.12, 0.2, 0.32, 0.48], text: (v) => `내 체력이 35% 아래일 때 피해 +${pc(v)}` },
-  { key: 'rest', name: '휴식', icon: '🛌', stat: 'stageHeal', vals: [0.1, 0.15, 0.25, 0.4], text: (v) => `스테이지가 시작할 때 최대 체력의 ${pc(v)} 회복` },
-  { key: 'shield', name: '보호막', icon: '🛡️', stat: 'shield', vals: [15, 25, 40, 60], text: (v) => `스테이지가 시작할 때 보호막 ${v}` },
+  { key: 'exec', name: '처형자', icon: '⚔️', stat: 'executioner', vals: [0.38, 0.63, 1, 1.5], text: (v) => `체력 25% 이하 좀비에게 피해 +${pc(v)}` },
+  { key: 'last', name: '배수의 진', icon: '🔥', stat: 'lastStand', vals: [0.25, 0.42, 0.67, 1], text: (v) => `내 체력이 35% 이하일 때 피해 +${pc(v)}` },
+  { key: 'rest', name: '휴식', icon: '🛌', stat: 'stageHeal', vals: [0.25, 0.38, 0.63, 1], text: (v) => `스테이지가 시작할 때 최대 체력의 ${pc(v)} 회복` },
+  { key: 'shield', name: '보호막', icon: '🛡️', stat: 'shield', vals: [200, 333, 533, 800], text: (v) => `스테이지가 시작할 때 보호막 +${v} (남은 보호막에 더해진다)` },
   { key: 'forge', name: '탄약 제조', icon: '🏭', stat: 'ammoRegen', vals: [0.02, 0.04, 0.06, 0.09], text: (v) => `1초마다 탄창 크기의 ${pc(v)}만큼 재장전 탄창 회복` },
-  { key: 'frenzy', name: '광란', icon: '🌀', stat: 'frenzy', vals: [0.03, 0.04, 0.06, 0.08], text: (v) => `처치할 때마다 4초 동안 연사 +${pc(v)} (최대 5번 겹침)` }
+  { key: 'frenzy', name: '광란', icon: '🌀', stat: 'frenzy', vals: [0.004, 0.005, 0.0075, 0.01], text: (v) => `총으로 좀비를 맞힐 때마다 7초 동안 연사 +${+(v * 100).toFixed(2)}% (최대 300번 겹침)` }
 ];
 
 /** 수류탄을 키우는 증강에 붙는 말(최대 수류탄 +2, 가득 채움) */
@@ -161,34 +154,34 @@ const NADE_UP_N = 2;
  */
 const SPECIALS = [
   { key: 'second', name: '두 번째 기회', icon: '🪽', tier: 'legend', max: 1, fx: { secondChance: 1 }, desc: '스테이지마다 한 번, 쓰러질 피해를 받아도 체력 30%로 버틴다', minStage: 3 },
-  { key: 'glass', name: '유리 대포', icon: '🔮', tier: 'epic', max: 1, fx: { dmg: 0.35, maxHpPct: -0.25 }, desc: '모든 피해 +35% · 최대 체력 −25%' },
-  { key: 'wall', name: '철벽', icon: '🧱', tier: 'epic', max: 1, fx: { maxHpPct: 0.6, move: -0.08 }, desc: '최대 체력 +60% · 이동 속도 −8%' },
+  { key: 'glass', name: '유리 대포', icon: '🔮', tier: 'epic', max: 1, fx: { dmg: 0.5, maxHpPct: -0.2 }, desc: '모든 피해 +50% · 최대 체력 −20%' },
+  { key: 'wall', name: '철벽', icon: '🧱', tier: 'epic', max: 1, fx: { maxHpPct: 3, fireRate: -0.2 }, desc: '최대 체력 +300% · 연사 속도 −20%' },
   { key: 'chain', name: '연쇄 폭발', icon: '🎆', tier: 'legend', max: 2, fx: { explosive: 0.25 }, desc: '처치한 좀비가 터져 3 m 안의 좀비에게 그 좀비 최대 체력의 25% 피해', minStage: 4 },
   { key: 'luck', name: '행운', icon: '🍀', tier: 'rare', max: 3, fx: { rerolls: 1 }, desc: '카드 제안마다 다시 뽑기 +1' },
   { key: 'wide', name: '넓은 선택', icon: '🃏', tier: 'epic', max: 1, fx: { offers: 1 }, desc: '카드 제안이 4장으로 늘어난다' },
   { key: 'medkit', name: '응급 처치', icon: '🚑', tier: 'common', instant: { healPct: 1 }, desc: '체력을 가득 회복' },
-  { key: 'syringe', name: '회복 주사', icon: '💉', tier: 'common', instant: { healPct: 0.5 }, fx: { regen: 0.3 }, desc: '체력 50% 회복 · 초당 회복 +0.3' },
-  { key: 'drop', name: '보급 투하', icon: '🪂', tier: 'rare', instant: { refill: true, nades: true }, desc: '재장전 탄창과 수류탄을 가득 채움' },
-  { key: 'hunter', name: '사냥 본능', icon: '🐺', tier: 'rare', fx: { dmg: 0.08, move: 0.04 }, desc: '모든 피해 +8% · 이동 속도 +4%' },
-  { key: 'thrift', name: '탄약 절약', icon: '🪙', tier: 'epic', max: 3, fx: { thrift: 0.15 }, desc: '15% 확률로 쏴도 탄이 줄지 않는다' },
-  { key: 'perfect', name: '완벽주의자', icon: '💎', tier: 'epic', fx: { head: 0.6, spread: 0.15 }, desc: '머리 피해 +60% · 탄퍼짐 −15%' },
-  { key: 'giant', name: '거인 학살자', icon: '🗿', tier: 'epic', fx: { boss: 0.25, executioner: 0.1 }, desc: '보스 피해 +25% · 약해진 좀비 피해 +10%' },
+  { key: 'syringe', name: '회복 주사', icon: '💉', tier: 'common', instant: { healPct: 0.5 }, fx: { regenPct: 0.02 }, desc: '체력 50% 회복 · 초당 최대 체력의 2% 회복' },
+  { key: 'drop', name: '보급 투하', icon: '🪂', tier: 'rare', max: 1, desc: '스테이지마다 든 총들의 탄창·예비 탄과 수류탄을 모두 가득 채운다' },
+  { key: 'hunter', name: '사냥 본능', icon: '🐺', tier: 'rare', fx: { dmg: 0.24, move: 0.12 }, desc: '모든 피해 +24% · 이동 속도 +12%' },
+  { key: 'thrift', name: '탄약 절약', icon: '🪙', tier: 'epic', max: 2, fx: { thrift: 0.45 }, desc: '45% 확률로 쏴도 탄이 줄지 않는다 (두 번 고르면 90%)' },
+  { key: 'perfect', name: '완벽주의자', icon: '💎', tier: 'epic', max: 1, fx: { head: 3, bodyPenalty: 0.9 }, desc: '머리 피해 +300% · 몸·팔다리 총 피해 −90%' },
+  { key: 'giant', name: '거인 학살자', icon: '🗿', tier: 'epic', max: 1, fx: { boss: 3, normalPenalty: 0.5 }, desc: '보스 피해 +300% · 일반 좀비 피해 −50%' },
   { key: 'thirst', name: '피의 갈증', icon: '🧛', tier: 'epic', fx: { lifesteal: 0.04, killHeal: 2 }, desc: '흡혈 +4% · 처치마다 체력 +2' },
-  { key: 'runngun', name: '기동 사격', icon: '🏃', tier: 'rare', fx: { spread: 0.1, move: 0.06 }, desc: '탄퍼짐 −10% · 이동 속도 +6%' },
+  { key: 'runngun', name: '기동 사격', icon: '🏃', tier: 'rare', fx: { spread: 0.3, move: 0.18 }, desc: '탄퍼짐 −30% · 이동 속도 +18%' },
   { key: 'drum', name: '드럼 탄창', icon: '🥁', tier: 'epic', fx: { mag: 0.6, reload: -0.1 }, desc: '최대 탄창 +60% · 재장전 속도 −10%' },
   { key: 'samurai', name: '무사도', icon: '🏯', tier: 'epic', fx: { melee: 0.8, move: 0.05 }, desc: '칼 피해 +80% · 이동 속도 +5%' },
-  { key: 'iron', name: '불굴', icon: '⛓️', tier: 'epic', fx: { armor: 0.12, regen: 1 }, desc: '받는 피해 −12% · 초당 회복 +1' },
-  { key: 'tactical', name: '전술 재장전', icon: '🧷', tier: 'rare', fx: { reload: 0.25, mag: 0.1 }, desc: '재장전 속도 +25% · 최대 탄창 +10%' },
+  { key: 'iron', name: '불굴', icon: '⛓️', tier: 'epic', fx: { armor: 0.12, regenPct: 0.03 }, desc: '받는 피해 −12% · 초당 최대 체력의 3% 회복' },
+  { key: 'tactical', name: '전술 재장전', icon: '🧷', tier: 'rare', fx: { reload: 0.25, mag: 1 }, desc: '재장전 속도 +25% · 최대 탄창 +100%' },
   { key: 'react', name: '연쇄 반응', icon: '☢️', tier: 'epic', fx: { explosive: 0.12, nade: 0.25 }, desc: '처치 폭발 +12% · 수류탄 피해 +25%', minStage: 4, nade: true },
-  { key: 'dread', name: '공포 그 자체', icon: '👹', tier: 'rare', fx: { slow: 0.12, thorns: 20 }, desc: '냉각 +12% · 가시 20' },
+  { key: 'dread', name: '공포 그 자체', icon: '👹', tier: 'rare', fx: { slow: 0.12, reactive: 0.25 }, desc: '냉각 +12% · 좀비·보스에게 맞으면 4초에 한 번 내 자리에서 수류탄이 터진다' },
   { key: 'coin', name: '행운의 동전', icon: '🪙', tier: 'rare', fx: { crit: 0.08, dodge: 0.04 }, desc: '치명타 +8% · 회피 +4%' },
-  { key: 'adrenaline', name: '아드레날린', icon: '💓', tier: 'legend', fx: { fireRate: 0.15, move: 0.1, lastStand: 0.2 }, desc: '연사 +15% · 이동 +10% · 체력이 낮을 때 피해 +20%', minStage: 4 },
-  { key: 'bunker', name: '벙커', icon: '🏚️', tier: 'legend', fx: { armor: 0.15, shield: 50 }, desc: '받는 피해 −15% · 스테이지마다 보호막 50', minStage: 4 },
+  { key: 'adrenaline', name: '아드레날린', icon: '💓', tier: 'legend', fx: { fireRate: 0.5, move: 0.3, lastStand: 1 }, desc: '연사 +50% · 이동 +30% · 체력 35% 이하일 때 피해 +100%', minStage: 4 },
+  { key: 'bunker', name: '벙커', icon: '🏚️', tier: 'legend', fx: { armor: 0.45, shield: 100 }, desc: '받는 피해 −45% · 스테이지마다 보호막 +100', minStage: 4 },
   // 수류탄 증강: 효과는 내 수류탄 모두에 겹쳐 붙는다(화염 + 빙결 + 분신을 함께 가질 수 있다)
   { key: 'fireNade', name: '화염 수류탄', icon: '🔥', tier: 'epic', max: 3, fx: { nadeFire: 1 }, desc: '내 수류탄이 터진 자리에 5초 동안 불길이 남아 안의 좀비에게 계속 피해(겹칠수록 세다)', nade: true },
   { key: 'iceNade', name: '빙결 수류탄', icon: '🧊', tier: 'epic', max: 3, fx: { nadeFreeze: 1 }, desc: '내 수류탄에 맞은 좀비가 2.2초 동안 얼어붙는다(보스는 절반 · 겹칠수록 오래)', nade: true },
   { key: 'decoyNade', name: '어그로 수류탄', icon: '🎭', tier: 'epic', max: 3, fx: { nadeDecoy: 1 }, desc: '터진 자리에 내 최대 체력만큼 버티는 분신이 9초 동안 서서 30 m 안의 좀비를 끌어모은다', nade: true },
-  { key: 'multiNade', name: '다연발 투척', icon: '🎇', tier: 'epic', max: 4, fx: { nadeMulti: 1 }, desc: '한 번 던질 때 수류탄이 부채꼴로 1개 더 날아간다(여러 번 고르면 더 많이 · 하나만 줄어든다)', nade: true },
+  { key: 'multiNade', name: '다연발 투척', icon: '🎇', tier: 'rare', max: 4, fx: { nadeMulti: 1 }, desc: '한 번 던질 때 수류탄이 부채꼴로 1개 더 날아간다(여러 번 고르면 더 많이 · 하나만 줄어든다)', nade: true },
   // 무기는 1스테이지 전에만 고르므로, 판 중간에 총을 바꾸는 길은 이 증강뿐이다. 아주 가끔 나온다(w = 같은 등급 안에서 나올 비율)
   { key: 'rearm', name: '무기 교체권', icon: '🔁', tier: 'rare', w: 1.2, retired: true, instant: { swap: true }, desc: '무기 목록이 열려 아무 무기로 한 번 바꿀 수 있다(새로 든 총은 탄을 가득 받는다)' },
   // 보조무기를 폭발 무기로 바꾸는 증강(낮은 확률). 쓰러졌다 일어나도 그대로다. 나중에 고른 쪽으로 바뀐다
@@ -201,11 +194,11 @@ const SPECIALS = [
  * vals가 있으면 묶음(FAMILIES와 같은 모양), 없으면 특수 카드(SPECIALS와 같은 모양)다. 새 카드는 이 목록 끝에만 더한다.
  */
 const ADDED = [
-  { key: 'reflex', name: '반사 신경', icon: '✨', stat: 'iframe', vals: [0.1, 0.15, 0.2, 0.25], text: (v) => `맞은 뒤 무적 시간 +${fx(v)}초 (기본 0.1초)` },
+  { key: 'reflex', name: '반사 신경', icon: '✨', stat: 'iframe', vals: [0.2, 0.3, 0.4, 0.5], text: (v) => `맞은 뒤 무적 시간 +${fx(v)}초 (기본 0.1초)` },
   { key: 'wave', name: '검기', icon: '🌙', stat: 'wave', vals: [6, 8, 10, 13], minTier: 1, text: (v) => `칼을 휘두를 때마다 검기가 ${v} m 날아가 닿는 좀비에게 칼과 같은 피해 (겹치면 더 멀리)` },
   { key: 'anchor', name: '부동자세', icon: '⚓', tier: 'epic', max: 1, fx: { noKnock: 1 }, desc: '맞아도 밀려나지 않는다(보스의 밀치기·내려찍기도)' },
   { key: 'c4', name: 'C4 수류탄', icon: '🧲', tier: 'epic', max: 1, fx: { stickyNade: 1 }, nade: true, desc: '내 수류탄이 C4로 바뀐다. 좀비에 닿으면 그 몸에 붙어 따라가다 터진다' },
-  { key: 'shieldKnife', name: '방패 칼', icon: '🛡️', tier: 'epic', max: 1, fx: { guard: 0.9 }, desc: '칼을 들면 방패를 함께 든다. 앞에서 때리는 공격의 피해 −90% (총·수류탄을 들면 방패를 내린다)' },
+  { key: 'shieldKnife', name: '방패 칼', icon: '🛡️', tier: 'epic', max: 1, fx: { guard: 0.45 }, desc: '칼을 들면 방패를 함께 든다. 앞에서 때리는 공격의 피해 −45% (총·수류탄을 들면 방패를 내린다)' },
   { key: 'airStrike', name: '공중 강타', icon: '🦅', tier: 'epic', max: 1, fx: { airDmg: 5 }, desc: '점프로 공중에 떠 있는 동안 총·칼 피해 +500%' },
   // 보조무기를 중력건으로 바꾸는 증강(낮은 확률). 쏘면 앞쪽에서 중력이 생겨 좀비를 한 점으로 끌어 뭉친다
   { key: 'sideGravity', name: '중력건', icon: '🌀', tier: 'epic', w: 2, max: 1, minStage: 2, instant: { side: 'gv_gun' }, desc: '보조무기가 GV-1 중력건으로 바뀐다(쏘면 앞쪽에 중력이 생겨 좀비가 한곳으로 뭉친다 · 맞히지는 못한다)' }
@@ -219,7 +212,7 @@ function familyCards(f) {
     const tier = TIER_OF_LEVEL[Math.max(lv, f.minTier || 0)];
     const card = {
       id: `${f.key}${lv + 1}`, family: f.key, name: f.only ? f.name : `${f.name} ${ROMAN[lv]}`, icon: f.icon, tier,
-      fx: { [f.stat]: v }, desc: f.text(v), max: f.max || null, minStage: f.only ? 1 : lv === 3 ? 4 : lv === 2 ? 2 : 1
+      fx: f.also ? { [f.stat]: v, [f.also]: v } : { [f.stat]: v }, desc: f.text(v), max: f.max || null, minStage: f.only ? 1 : lv === 3 ? 4 : lv === 2 ? 2 : 1
     };
     // 더는 제안에 나오지 않는 자리(번호는 그대로라 예전 기록·전송은 읽힌다)
     if (Array.isArray(f.retire) && f.retire.includes(lv)) card.retired = true;
@@ -273,7 +266,7 @@ export const cardById = (id) => BY_ID.get(String(id)) || null;
 
 /* ------------------------------------------------------------------ 능력치 */
 
-/** 카드 id 목록 → 능력치(상한을 넘지 않는다). 모르는 id는 건너뛴다 */
+/** 카드 id 목록 → 능력치(상한 없이 더한다). 모르는 id는 건너뛴다 */
 export function computePerks(ids) {
   const s = { ...PERK_BASE };
   for (const id of Array.isArray(ids) ? ids : []) {
@@ -281,7 +274,6 @@ export function computePerks(ids) {
     if (!c) continue;
     for (const [k, v] of Object.entries(c.fx)) if (k in s) s[k] += v;
   }
-  for (const [k, cap] of Object.entries(PERK_CAPS)) if (s[k] > cap) s[k] = cap;
   // 음수가 될 수 있는 값의 하한
   s.maxHpPct = Math.max(-0.6, s.maxHpPct);
   s.move = Math.max(-0.3, s.move);
@@ -295,19 +287,13 @@ export function perkMaxHp(stats, base = 100) {
   return Math.max(20, Math.round((base + (s.maxHp || 0)) * (1 + (s.maxHpPct || 0))));
 }
 
-/** 이 카드를 더 고를 수 있는가: 고를 수 있는 횟수와 능력치 상한 */
-export function cardAvailable(card, taken = [], stats = null) {
+/** 이 카드를 더 고를 수 있는가: 고를 수 있는 횟수(max)만 본다. 능력치에는 상한이 없다 */
+export function cardAvailable(card, taken = []) {
   if (!card) return false;
-  if (card.max) {
-    let n = 0;
-    for (const id of taken) if (id === card.id) n++;
-    if (n >= card.max) return false;
-  }
-  const s = stats || computePerks(taken);
-  const keys = Object.keys(card.fx);
-  if (!keys.length) return true;                    // 회복·보급처럼 능력치가 없는 카드
-  // 모든 능력치가 이미 상한이면 빼고, 하나라도 오를 수 있으면 남긴다(음수 효과는 상한과 상관없다)
-  return keys.some((k) => card.fx[k] < 0 || !(k in PERK_CAPS) || s[k] < PERK_CAPS[k] - 1e-9);
+  if (!card.max) return true;
+  let n = 0;
+  for (const id of taken) if (id === card.id) n++;
+  return n < card.max;
 }
 
 /**
@@ -318,10 +304,9 @@ export function cardAvailable(card, taken = [], stats = null) {
  */
 export function makeOffer({ seed = 1, playerId = '', stage = 1, roll = 0, round = 0, taken = [], count = 3, exclude = [], high = false } = {}) {
   const rng = makeRng(hashSeed(seed, playerId, stage, roll, round));
-  const stats = computePerks(taken);
   const ex = new Set(exclude);
   const s = Math.max(1, stage | 0);
-  const pool = CARDS.filter((c) => !c.retired && s >= c.minStage && !ex.has(c.id) && cardAvailable(c, taken, stats));
+  const pool = CARDS.filter((c) => !c.retired && s >= c.minStage && !ex.has(c.id) && cardAvailable(c, taken));
   const chosen = [];
   const need = Math.max(1, Math.min(6, count | 0));
   const tierWeights = Object.values(TIERS).map((t) => ({ id: t.id, weight: t.weight * (t.id === 'legend' && s < 4 ? 0 : 1) }));
@@ -373,11 +358,11 @@ export function perkSummary(stats) {
   const add = (label, v, f) => { if (v) rows.push({ label, value: f(v) }); };
   const plus = (v) => `${v > 0 ? '+' : '−'}${Math.round(Math.abs(v) * 100)}%`;
   add('최대 체력', perkMaxHp(s) - 100, (v) => `${v > 0 ? '+' : '−'}${Math.abs(v)}`);
-  add('피해', s.dmg, plus); add('머리', s.head, plus); add('보스', s.boss, plus);
+  add('피해', s.dmg, plus); add('머리', s.head, plus); add('몸 총 피해', s.bodyPenalty, (v) => `−${Math.round(v * 100)}%`); add('보스', s.boss, plus); add('일반 좀비 피해', s.normalPenalty, (v) => `−${Math.round(v * 100)}%`);
   add('연사', s.fireRate, plus); add('재장전', s.reload, plus); add('탄창', s.mag, plus);
   add('재장전 탄창', s.reserve, (v) => `+${fx(v)}배`);
   add('이동', s.move, plus); add('최대 속도', s.maxSpeed, plus);
-  add('방어', s.armor, (v) => `−${Math.round(v * 100)}%`); add('회복', s.regen, (v) => `${fx(v)}/초`);
+  add('방어', s.armor, (v) => `−${Math.round(v * 100)}%`); add('회복', s.regen, (v) => `${fx(v)}/초`); add('최대 체력 회복', s.regenPct, (v) => `${pc(v)}/초`);
   add('흡혈', s.lifesteal, (v) => `${Math.round(v * 100)}%`); add('관통', s.pierce, (v) => `${v}`);
   add('수류탄', s.nades, (v) => `+${v}`); add('폭발 반경', s.nadeRadius, plus); add('한 번에 던지기', s.nadeMulti, (v) => `+${v}`);
   add('화염', s.nadeFire, (v) => `${v}단계`); add('빙결', s.nadeFreeze, (v) => `${v}단계`); add('분신', s.nadeDecoy, (v) => `${v}단계`);
@@ -387,5 +372,6 @@ export function perkSummary(stats) {
   add('C4', s.stickyNade, () => '붙음'); add('검기', s.wave, (v) => `${fx(v)} m`);
   add('재장전 시간', s.reloadCut, (v) => (v >= 1 ? '없음' : `−${Math.round(v * 100)}%`)); add('방패', s.guard, (v) => `−${Math.round(v * 100)}%`);
   add('공중 피해', s.airDmg, (v) => `+${Math.round(v * 100)}%`);
+  add('반응 장갑', s.reactive, (v) => `${fx(1 / v)}초에 한 번`);
   return rows;
 }
