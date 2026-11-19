@@ -21,7 +21,8 @@ import { qrDataUrl, renderChips, renderInfo, renderList, renderRow } from '../js
 import { FAKE_TOTP_CODE, FAKE_TOTP_SECRET, createFakeInbox, startFakeInbox } from '../tools/qa/fake-inbox.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const read = (path) => readFileSync(resolve(ROOT, path), 'utf8');
+// Windows에서 core.autocrlf=true로 체크아웃하면 파일이 CRLF라서 `\n`을 쓰는 정규식이 빗나간다. 읽을 때 LF로 맞춘다
+const read = (path) => readFileSync(resolve(ROOT, path), 'utf8').replace(/\r\n/g, '\n');
 const CONFIG = Object.freeze({ url: 'https://proj.supabase.co', anonKey: 'sb_publishable_test' });
 const EMAIL = 'owner@example.com';
 const PASSWORD = 'correct-horse-battery-1';
