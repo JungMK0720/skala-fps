@@ -132,15 +132,15 @@ export function createArsenal(opts = {}) {
    * 무기 배율(좀비 물량 막기의 카드·탄약 규칙, setMods). 기본값은 모두 '바꾸지 않음'이라 다른 모드는 표의 값 그대로다.
    * mag·magAdd: 탄창 크기, fire: 연사(사격 간격·볼트·점사 간격·칼 쿨다운을 나눈다), reload·draw: 재장전·꺼내기 속도,
    * spread·recoil: 탄퍼짐·반동 배율, reserve: 예비 탄 배율, finiteMags > 0이면 예비가 무제한인 총도 '탄창 × finiteMags × reserve'로 제한,
-   * nades: 최대 수류탄 +, thrift: 쏴도 탄이 줄지 않을 확률
+   * nades: 최대 수류탄 +, thrift: 쏴도 탄이 줄지 않을 확률, sideFire·sideMag: 보조무기(슬롯 2)에만 더 곱하는 연사·탄창 배율
    */
-  const MOD_BASE = Object.freeze({ mag: 1, magAdd: 0, fire: 1, reload: 1, draw: 1, spread: 1, recoil: 1, reserve: 1, finiteMags: 0, nades: 0, thrift: 0 });
+  const MOD_BASE = Object.freeze({ mag: 1, magAdd: 0, fire: 1, reload: 1, draw: 1, spread: 1, recoil: 1, reserve: 1, finiteMags: 0, nades: 0, thrift: 0, sideFire: 1, sideMag: 1 });
   const mods = { ...MOD_BASE };
   const pos = (v, d) => (Number.isFinite(v) && v > 0 ? v : d);
   /** 이 무기의 탄창 크기(배율 반영). 탄창이 없는 무기는 null */
   const magOf = (id) => {
     const d = WEAPONS[id];
-    return d.mag == null ? null : Math.max(1, Math.round(d.mag * mods.mag) + (mods.magAdd | 0));
+    return d.mag == null ? null : Math.max(1, Math.round(d.mag * mods.mag * (d.slot === 2 ? mods.sideMag : 1)) + (mods.magAdd | 0));
   };
   /** 이 무기의 최대 예비 탄(배율 반영). 무제한이면 Infinity */
   const reserveOf = (id) => {
@@ -150,7 +150,7 @@ export function createArsenal(opts = {}) {
     return Math.max(0, Math.round(d.reserve * mods.reserve));
   };
   const countOf = (id) => (WEAPONS[id].count == null ? null : WEAPONS[id].count + Math.max(0, mods.nades | 0));
-  const intervalOf = (d) => d.fireInterval / mods.fire;
+  const intervalOf = (d) => d.fireInterval / (mods.fire * (d.slot === 2 ? mods.sideFire : 1));
   const drawOf = (id) => WEAPONS[id].drawTime / mods.draw;
 
   const fresh = (id) => {

@@ -776,11 +776,15 @@ function buildWorld(ctx, opts) {
       hordePerk.sticky = false; hordePerk.waveRange = 0; hordePerk.waveRangeOf = null; hordePerk.autoAim = false;
       if (vm && vm.setShield) vm.setShield(false);
       arsenal.setMods(null);
+      arsenal.setAllowedSlots(rulesetOf(ruleset).slots);
       player.setMoveTuning(null);
       slowUntil = 0; grabbedNow = false;
       return;
     }
     if (o.mods) arsenal.setMods(o.mods);
+    // 보조무기 마스터: 주무기 슬롯을 잠근다(들고 있었다면 허용된 첫 슬롯으로 바꾼다)
+    const slots = rulesetOf(ruleset).slots;
+    arsenal.setAllowedSlots(o.sideOnly ? slots.filter((s) => s !== 1) : slots);
     hordePerk.speed = num(o.speed, 1) > 0 ? num(o.speed, 1) : 1;
     hordePerk.pierce = Math.max(0, Math.round(num(o.pierce, 0)));
     hordePerk.maxHp = Math.max(1, Math.round(num(o.maxHp, 100)));

@@ -904,6 +904,7 @@ export function createHorde(o = {}) {
     const def = getDef(c.weaponId);
     if (!def || def.explosion) return [{ type: 'reject', reason: 'bad_weapon' }];
     if (def.cardOnly && !((def.id === 'fl_horde' && P.cards.includes('flameGun')) || (def.id === 'rg_horde' && P.cards.includes('railGun')))) return [{ type: 'reject', reason: 'bad_weapon' }];
+    if (def.slot === 1 && P.perks.sideMaster > 0) return [{ type: 'reject', reason: 'bad_weapon' }];   // 보조무기 마스터: 주무기 봉인
     const dist = Math.max(0, num(c.dist));
     const melee = !!def.melee;
     const k = P.perks;
@@ -1929,7 +1930,8 @@ function targetDamageMul(k, boss) {
 export function nadeDamage(dmg, k, boss = false, kind = null) {
   const kk = k || {};
   const base = BLAST_MUL[kind] || BLAST_MUL.nade;
-  return clamp(num(dmg), 0, 100) * base * (1 + (kk.dmg || 0)) * (1 + (kk.nade || 0)) * targetDamageMul(kk, boss);
+  const side = (kind === 'gl' || kind === 'rocket') && (kk.sideMaster || 0) > 0 ? 6 : 1;   // 보조무기 마스터: 보조 발사기 피해 +500%
+  return clamp(num(dmg), 0, 100) * base * (1 + (kk.dmg || 0)) * (1 + (kk.nade || 0)) * targetDamageMul(kk, boss) * side;
 }
 
 /**
@@ -1962,6 +1964,7 @@ export function zombieHitDamage(c = {}, k = {}, z = {}, o = {}) {
   const nth = Math.max(0, num(o.nth, 0) | 0);
   if (nth > 0) mul *= Math.max(PIERCE_MIN, Math.pow(PIERCE_FALLOFF, nth));
   if ((k.airDmg || 0) > 0 && o.air) mul *= 1 + k.airDmg;
+  if ((k.sideMaster || 0) > 0 && def.slot === 2) mul *= 6;   // 보조무기 마스터: 보조무기 피해 +500%
   return { dmg: base * mul, head, melee, part };
 }
 
