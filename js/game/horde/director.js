@@ -777,7 +777,9 @@ export function createHorde(o = {}) {
     Z.hp -= dmg;
     if (P) {
       P.damage += real;
-      if (P.perks.lifesteal > 0) healPlayer(P, real * P.perks.lifesteal * (info && (info.kind === 'nade' || info.kind === 'fire' || info.kind === 'chain') ? 0.2 : 1));
+      const area = info && (info.kind === 'nade' || info.kind === 'fire' || info.kind === 'chain') ? 0.2 : 1;
+      if (P.perks.lifesteal > 0) healPlayer(P, real * P.perks.lifesteal * area);
+      if (P.perks.hitHeal > 0) healPlayer(P, P.perks.hitHeal * area);
       if (P.perks.slow > 0) { Z.slowUntil = S.clock + frostSlowMs(P.perks.slow, R); Z.slowMul = 1 - clamp(P.perks.slow, 0, 0.6); }
     }
     if (Z.hp <= 0) killZombie(Z, P, info, ev);

@@ -702,6 +702,20 @@ describe('보스 · 스테이지 규칙', () => {
     assert.ok(near(p.hp - 50, (p.damage - dealt) * 0.5 * 0.2), `폭발 흡혈 ${p.hp - 50}, 피해 ${p.damage - dealt}`);
   });
 
+  test('피의 갈증 타격 회복은 맞힐 때마다 0.3, 광역 공격은 20%다', () => {
+    const { d, P } = makeFlat({ startStage: 1 });
+    const p = P('p1'), Z = bossAt(d, 'butcher', [2, 0, 0], 'slam');
+    d.internals.S.queue.length = 0; d.internals.S.spawnAt = Infinity;
+    p.maxHp = 1000;
+    p.perks.hitHeal = 0.3;
+    p.hp = 50;
+    d.claimHit({ attackerId: 'p1', victimId: 'z' + Z.id, weaponId: 'ar_std', part: 'body', dist: 2, kind: 'shot', count: 1, shotId: 92 });
+    assert.ok(near(p.hp - 50, 0.3), `일반 타격 ${p.hp - 50}`);
+    p.hp = 50;
+    d.claimExplosion({ attackerId: 'p1', center: [0, 0, 0], victims: [{ id: 'z' + Z.id, dmg: 100 }] });
+    assert.ok(near(p.hp - 50, 0.06), `폭발 ${p.hp - 50}`);
+  });
+
   /** 보스를 세우고 skill을 쓰기 시작해 예고가 끝나 내놓을 때까지 돈다 → { Z, ev } */
   function castSkill(d, bossId, at, skill, onStep) {
     const Z = bossAt(d, bossId, at, skill);
