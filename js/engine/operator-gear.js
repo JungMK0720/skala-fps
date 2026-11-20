@@ -125,35 +125,52 @@ const atHead = (geos) => geos.map((g) => g.translate(HEAD_ORIGIN[0], HEAD_ORIGIN
 /** 색을 섞는다(k = 0이면 a, 1이면 b) */
 const mix = (a, b, k) => new THREE.Color(a).lerp(new THREE.Color(b), k).getHex();
 
-/* ---------------- 모든 대원 공통: 팀 강조(완장·어깨 패치·조끼 옆판·가슴·등 표식·무릎 보호대) ----------------
- * 강조색이 멀리서도 보이게(보이는 면적 15~25%, PRODUCT_PLAN.md 4.3) 위팔 완장을 넓게 두르고 어깨 위·조끼 옆·가슴·등·무릎에 판을 붙인다.
- * 전투복 자체는 어두운 팀 색 그대로다(GLB 'Swat' 재질 = uniform).
+/* ---------------- 모든 대원 공통: 팀 강조(완장·어깨 패치·소매 끝·허벅지·허리띠·가슴·등 표식·무릎 줄) ----------------
+ * 팀은 어두운 팀 색 전투복(GLB 'Swat' 재질 = uniform)과 밝은 표식으로 읽힌다(보이는 면적 10~18%, PRODUCT_PLAN.md 4.3. 잰 값 10.2~11.5%).
+ * 표식은 모두 몸에 붙는다: 띠는 그 자리 팔·다리·허리 단면(바인드 자세에서 잰 타원)보다 1.2 cm 큰 얇은 고리, 어깨 패치는 위팔 곡면을 따라 휜 판,
+ * 가슴·등 표식은 조끼 위의 얇은 판이다. 무릎 보호대는 GLB 몸에 있는 것(장비 색)을 쓰고 팀 색은 그 위의 작은 줄 하나뿐이다.
+ * 단면(T자, 모델 공간): 위팔 중심 y 1.387·z -0.05, 반지름 위아래 0.058·앞뒤 0.055 / 아래팔 y 1.374·z -0.069, 0.056·0.055 /
+ *                       허벅지(y 0.86) x ±0.105·z -0.048, 좌우 0.053·앞뒤 0.092 / 허리(y 0.96) z -0.0525, 좌우 0.14·앞뒤 0.11.
  */
-const ARM_Y = 1.388, ARM_Z = -0.05;
-function teamMarks(c, { chest = true, back = true, chestZ = -0.192, backZ = 0.062 } = {}) {
+const ARM_Y = 1.387, ARM_Z = -0.05, ARM_RY = 0.058, ARM_RZ = 0.055, PROUD = 0.012;
+/**
+ * X축(T자 팔)을 감싸는 얇은 띠. 단면은 타원(ry 위아래, rz 앞뒤). t0·tl로 일부만 두르면 휜 판이 된다(t0 = 3π/2 근처가 T자 위 = 팔을 내리면 바깥)
+ */
+function wrapX(cx, cy, cz, ry, rz, len, hex, t0 = 0, tl = TAU) {
+  const g = new THREE.CylinderGeometry(1, 1, len, 18, 1, true, t0, tl);
+  g.rotateZ(-Math.PI / 2);   // 높이 축 Y → X. 원래 x = sinθ → -y, z = cosθ
+  g.scale(1, ry, rz);
+  g.translate(cx, cy, cz);
+  return colored(g, hex);
+}
+/** Y축(머리)을 감싸는 얇은 띠. rx 좌우, rz 앞뒤. t0·tl로 일부만 두른다(0 = 뒤 +Z, π = 앞 -Z) */
+function wrapY(cx, cy, cz, rx, rz, h, hex, t0 = 0, tl = TAU) {
+  const g = new THREE.CylinderGeometry(1, 1, h, 24, 1, true, t0, tl);
+  g.scale(rx, 1, rz);
+  g.translate(cx, cy, cz);
+  return colored(g, hex);
+}
+function teamMarks(c, { chest = true, back = true, chestZ = -0.19, backZ = 0.06 } = {}) {
   const out = [];
+  const ry = ARM_RY + PROUD, rz = ARM_RZ + PROUD;
   for (const s of [1, -1]) {
-    const bone = s > 0 ? 'UpperArmR' : 'UpperArmL';
-    out.push([bone, merge([
-      box(0.09, 0.136, 0.128, s * 0.235, ARM_Y, ARM_Z, c.accent),              // 완장(위팔을 한 바퀴)
-      box(0.075, 0.012, 0.085, s * 0.19, ARM_Y + 0.07, ARM_Z, c.accent)         // 어깨 패치(T자에서 위 = 팔을 내리면 바깥)
+    out.push([s > 0 ? 'UpperArmR' : 'UpperArmL', merge([
+      wrapX(s * 0.25, ARM_Y, ARM_Z, ry, rz, 0.1, c.accent),                                           // 완장(위팔 가운데를 넓게)
+      wrapX(s * 0.172, ARM_Y, ARM_Z, ry + 0.002, rz + 0.002, 0.05, c.accent, Math.PI * 1.5 - 1.2, 2.4)  // 어깨 패치(바깥쪽 곡면)
     ])]);
-    // 무릎 보호대(팀 색): 앞에서도 옆에서도 보이게 무릎을 감싼다
-    out.push([s > 0 ? 'LowerLegR' : 'LowerLegL', merge([
-      box(0.13, 0.13, 0.045, s * 0.116, 0.5, -0.165, c.accent),
-      box(0.04, 0.11, 0.1, s * 0.178, 0.5, -0.11, c.accent)
-    ])]);
-    // 아래팔 소매 끝 띠(T자에서 팔 끝 쪽)·허벅지 띠
-    out.push([s > 0 ? 'LowerArmR' : 'LowerArmL', merge([box(0.06, 0.112, 0.112, s * 0.47, 1.376, -0.054, c.accent)])]);
-    out.push([s > 0 ? 'UpperLegR' : 'UpperLegL', merge([box(0.18, 0.07, 0.215, s * 0.116, 0.74, -0.065, c.accent)])]);
+    // 아래팔 소매 끝 얇은 띠(아래팔 단면: 중심 y 1.374, z -0.069, 반지름 0.056·0.055)
+    out.push([s > 0 ? 'LowerArmR' : 'LowerArmL', merge([wrapX(s * 0.5, 1.374, -0.069, 0.056 + PROUD, 0.055 + PROUD, 0.05, c.accent)])]);
+    // 허벅지 띠(단면: 중심 x ±0.105, z -0.048, 반지름 좌우 0.053·앞뒤 0.092, 주머니 위)
+    out.push([s > 0 ? 'UpperLegR' : 'UpperLegL', merge([wrapY(s * 0.105, 0.86, -0.048, 0.053 + PROUD, 0.092 + PROUD, 0.06, c.accent)])]);
+    // 무릎 보호대(GLB, 장비 색) 위의 작은 팀 색 줄
+    out.push([s > 0 ? 'LowerLegR' : 'LowerLegL', merge([box(0.08, 0.02, 0.006, s * 0.11, 0.515, -0.165, c.accent)])]);
   }
-  const torso = [
-    box(0.014, 0.17, 0.16, 0.142, 1.21, -0.07, c.accent),                       // 조끼 옆판(오른쪽)
-    box(0.014, 0.17, 0.16, -0.142, 1.21, -0.07, c.accent)                       // 조끼 옆판(왼쪽)
-  ];
-  if (chest) torso.push(box(0.2, 0.07, 0.014, 0, 1.275, chestZ, c.accent));    // 가슴 표식 띠(조끼판이 있으면 그 앞)
-  if (back) torso.push(box(0.22, 0.12, 0.014, 0, 1.27, backZ, c.accent));       // 등 표식 판(등판이 있으면 그 뒤)
-  out.push(['Chest', merge(torso)]);
+  const torso = [];
+  if (chest) torso.push(box(0.18, 0.07, 0.008, 0, 1.28, chestZ, c.accent));    // 가슴 표식(조끼판이 있으면 그 앞)
+  if (back) torso.push(box(0.2, 0.12, 0.008, 0, 1.27, backZ, c.accent));        // 등 표식(등판이 있으면 그 뒤)
+  // 허리띠(팀 색): 허리 단면(모델 y 0.96: 좌우 ±0.14, 앞뒤 z -0.163~0.058)을 1.2 cm 띄워 두른다
+  out.push(['Hips', merge([wrapY(0, 0.96, -0.0525, 0.14 + PROUD, 0.11 + PROUD, 0.04, c.accent)])]);
+  if (torso.length) out.push(['Chest', merge(torso)]);
   return out;
 }
 
@@ -184,12 +201,11 @@ function nvgParts() {
 const shinGuards = (hex) => [1, -1].map((s) => [s > 0 ? 'LowerLegR' : 'LowerLegL', merge([box(0.11, 0.14, 0.035, s * 0.116, 0.36, -0.15, hex)])]);
 
 const KITS = Object.freeze({
-  // 보병: SWAT 헬멧(GLB) 옆 팀 색 띠와 뒤쪽 적외선 표시등, 허리 뒤 주머니
+  // 보병: SWAT 헬멧(GLB) 둘레의 팀 색 띠(앞 바이저는 비움)와 뒤쪽 적외선 표시등, 허리 뒤 주머니
   trooper: (c) => [
     ['Head', merge([
-      box(0.014, 0.03, 0.15, 0.119, 1.69, -0.05, c.accent),
-      box(0.014, 0.03, 0.15, -0.119, 1.69, -0.05, c.accent),
-      box(0.034, 0.03, 0.034, 0, 1.775, 0.035, c.accent),                      // 적외선 표시등(팀 색)
+      wrapY(0, 1.695, -0.05, 0.112, 0.128, 0.02, c.accent, Math.PI + 0.85, TAU - 1.7),   // 헬멧 띠(헬멧 표면에서 약 1 cm)
+      box(0.026, 0.022, 0.026, 0, 1.762, 0.04, c.strobe),                                // 적외선 표시등(밝은 팀 색)
       box(0.05, 0.04, 0.03, 0, 1.73, -0.165, c.gearDark)                        // 앞쪽 장착대
     ])],
     ['Hips', merge([box(0.15, 0.13, 0.06, 0.07, 0.98, 0.08, c.gearDark)])],
@@ -297,7 +313,7 @@ const KITS = Object.freeze({
       box(0.022, 0.05, 0.17, -0.149, 0.15, 0.006, BUMP_DK),
       box(0.012, 0.024, 0.11, 0.161, 0.15, 0.006, c.accent),                  // 팀 색 줄
       box(0.012, 0.024, 0.11, -0.161, 0.15, 0.006, c.accent),
-      box(0.03, 0.026, 0.03, 0, 0.3, 0.06, c.accent),                         // 적외선 표시등
+      box(0.03, 0.026, 0.03, 0, 0.3, 0.06, c.strobe),                         // 적외선 표시등(밝은 팀 색)
       box(0.07, 0.045, 0.03, 0, 0.228, -0.158, BUMP_DK),                      // 투시경 장착대
       group(nvgParts(), 0, 0.29, -0.178, 1.15)                                // 이마 위로 올린 투시경
     ]))],
@@ -340,7 +356,7 @@ const KITS = Object.freeze({
 
 export const GEAR_KITS = Object.freeze(Object.keys(KITS));
 
-/** 장비 묶음 → [[뼈 이름, 지오메트리], ...]. colors = { uniform, accent, gear, gearDark } (hex 숫자) */
+/** 장비 묶음 → [[뼈 이름, 지오메트리], ...]. colors = { uniform, accent, strobe(적외선 표시등, 밝은 팀 색), gear } (hex 숫자) */
 export function gearOf(kit, colors) {
   const make = KITS[kit];
   if (!make) throw new Error('모르는 장비 묶음: ' + kit);

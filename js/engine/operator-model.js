@@ -245,8 +245,9 @@ function measureClips(tpl) {
 
 const ACCENT_KEY = 0xff00fe;   // 장비를 만들 때 쓰는 팀 강조색 자리표시(팀마다 바꿔 칠한다)
 const UNIFORM_KEY = 0xfe01ff;
+const STROBE_KEY = 0xfe00fd;   // 적외선 표시등: 팀 강조색을 흰색 쪽으로 밝힌 색(멀리서 반짝이는 점)
 
-/** 대원 모양(팀과 상관없는 부분): 위치·법선·뼈 + 정점마다 기본 색과 팀 색 칸(0 = 기본, 1 = 강조, 2 = 전투복) */
+/** 대원 모양(팀과 상관없는 부분): 위치·법선·뼈 + 정점마다 기본 색과 팀 색 칸(0 = 기본, 1 = 강조, 2 = 전투복, 3 = 표시등) */
 function shapeOf(tpl, id) {
   const look = lookOf(id);
   const key = OPERATOR_IDS.find((k) => lookOf(k) === look);
@@ -269,8 +270,8 @@ function shapeOf(tpl, id) {
     chunks.push({ pos: p.pos, nor: p.nor, si: p.si, sw: p.sw, index: p.index, count: p.count, color, team: new Uint8Array(p.count).fill(team) });
   }
   // 직접 만든 장비: 팀 색 자리표시로 만들고 정점색으로 칸을 찾는다
-  const accentC = solid(ACCENT_KEY), uniformC = solid(UNIFORM_KEY);
-  const gear = gearOf(look.kit, { accent: ACCENT_KEY, uniform: UNIFORM_KEY, gear: new THREE.Color(colorOf(look, 'owner', 'gear')).getHex() });
+  const accentC = solid(ACCENT_KEY), uniformC = solid(UNIFORM_KEY), strobeC = solid(STROBE_KEY);
+  const gear = gearOf(look.kit, { accent: ACCENT_KEY, uniform: UNIFORM_KEY, strobe: STROBE_KEY, gear: new THREE.Color(colorOf(look, 'owner', 'gear')).getHex() });
   for (const [bone, geo] of gear) {
     const bi = tpl.boneIndex.get(bone);
     if (bi === undefined) throw new Error('장비를 붙일 뼈가 없어요: ' + bone);
@@ -280,7 +281,7 @@ function shapeOf(tpl, id) {
     for (let i = 0; i < n; i++) {
       si[i * 4] = bi; sw[i * 4] = 1;
       const near = (c) => Math.abs(col[i * 3] - c.r) + Math.abs(col[i * 3 + 1] - c.g) + Math.abs(col[i * 3 + 2] - c.b) < 1e-3;
-      team[i] = near(accentC) ? 1 : near(uniformC) ? 2 : 0;
+      team[i] = near(accentC) ? 1 : near(uniformC) ? 2 : near(strobeC) ? 3 : 0;
     }
     chunks.push({ pos: geo.attributes.position.array, nor: geo.attributes.normal.array, si, sw, index: Array.from(geo.index.array), count: n, color: col, team });
   }
@@ -311,10 +312,10 @@ function geometryOf(tpl, id, team) {
   if (tpl.geos.has(k)) return tpl.geos.get(k);
   const shape = shapeOf(tpl, id);
   const T = teamLookOf(t);
-  const accent = new THREE.Color(T.accent), uniform = new THREE.Color(T.uniform);
+  const accent = new THREE.Color(T.accent), uniform = new THREE.Color(T.uniform), strobe = new THREE.Color(T.accent).lerp(new THREE.Color(0xffffff), 0.55);
   const color = new Float32Array(shape.color);
   for (let i = 0; i < shape.team.length; i++) {
-    const c = shape.team[i] === 1 ? accent : shape.team[i] === 2 ? uniform : null;
+    const c = shape.team[i] === 1 ? accent : shape.team[i] === 2 ? uniform : shape.team[i] === 3 ? strobe : null;
     if (c) { color[i * 3] = c.r; color[i * 3 + 1] = c.g; color[i * 3 + 2] = c.b; }
   }
   const g = new THREE.BufferGeometry();
