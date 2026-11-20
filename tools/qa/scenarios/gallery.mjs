@@ -84,8 +84,8 @@ function lineup({ ids, team, gap, back, yaw, emote }) {
 async function avatarSection(t) {
   t.setSection('캐릭터: 상점 초상');
   let page = await openGame(t, '', { profile: richProfile({ points: 12345 }), settings: LOW_QUALITY, screen: 'menu', width: 1280, height: 720 });
-  const styleIds = await page.eval(`import('./js/engine/avatars.js').then((m) => [...m.AVATAR_STYLE_IDS])`);
-  t.check(JSON.stringify(styleIds) === JSON.stringify(AVATAR_IDS), '모든 캐릭터에 모양이 있다(engine STYLES = core AVATARS)', { styleIds });
+  const styleIds = await page.eval(`import('./js/engine/operator-look.js').then((m) => [...m.OPERATOR_IDS])`);
+  t.check(JSON.stringify(styleIds) === JSON.stringify(AVATAR_IDS), '모든 캐릭터에 모양이 있다(engine OPERATOR_LOOK = core AVATARS)', { styleIds });
   await page.clickText('.sk-menu-btn--sub', '상점');
   await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '상점' });
   await page.clickText('.sk-shop .sk-tab', '캐릭터');
@@ -177,12 +177,12 @@ async function avatarSection(t) {
     await sleep(250);
     await t.shot(`avatars-lineup-${team}`);
   }
-  // 이모트 리그: 머리 장비·어깨 보호대가 리그에도 붙는다(손 흔들기 = 7)
+  // 이모트: 모든 대원이 이모트 포즈로 바뀌고 총을 등에 멘다(손 흔들기 = 7)
   const r2 = await page.fn(lineup, { ids: all, team: TEAM_IDS[0], gap: 1.05, back: 4.4, yaw: 0.35, emote: 7 });
   if (r2.ok) {
     await waitTicks(page, 30);
-    const rigs = await page.fn((ids) => ids.map((id) => { const a = window.__qa.ctx.avatars.get(id); return !!(a && a.rig && a.rig.root.visible); }), r2.ids);
-    t.check(rigs.every(Boolean), '이모트 중에는 모든 캐릭터가 관절 리그로 바뀐다', rigs);
+    const posed = await page.fn((ids) => ids.map((id) => { const a = window.__qa.ctx.avatars.get(id); return !!(a && a.body && a.body.emoteW >= 1 && a.body.backSocket.children.length > 0); }), r2.ids);
+    t.check(posed.every(Boolean), '이모트 중에는 모든 대원이 이모트 포즈로 바뀌고 총을 등에 멘다', posed);
     await page.eval(`__qa.world.internals.vm.setVisible(false)`);
     await sleep(200);
     await t.shot('avatars-lineup-emote');
