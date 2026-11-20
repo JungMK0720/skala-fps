@@ -50,7 +50,7 @@ const MELEE_TABLE = {
   ml_gurkha: { name: '구르카 나이프', slash: [55, 0.52, 2.1, 42], stab: [110, 1.05, 2.1, 16], move: 1.07, price: 800 },
   ml_katana: { name: '카게 카타나', slash: [65, 0.62, 2.7, 48], stab: [120, 1.25, 2.9, 14], move: 1.05, price: 1200 },
   ml_case: { name: '007 가방', slash: [35, 0.5, 2.0, 40], stab: [70, 1.0, 2.1, 22], move: 1.08, price: 700 },
-  ml_saw: { name: '전기톱', slash: [10, 0.04, 1.9, 30], stab: [90, 0.44, 2.4, 40], move: 0.98, price: 1300 },
+  ml_saw: { name: '전기톱', slash: [10, 0.04, 1.8, 30], stab: [90, 0.44, 1.8, 40], move: 0.98, price: 1300 },
 };
 const GUN_IDS = Object.keys(TABLE);
 const SNIPER_IDS = ['sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy'];

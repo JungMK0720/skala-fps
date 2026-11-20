@@ -899,10 +899,10 @@ const WEAPON_TABLE = {
     damage: null,
     falloff: null,
     melee: {
-      slash: { label: '갈기', damage: 10, cooldown: 0.04, windup: 0.008, range: 1.9, arc: 30 },
-      stab: { label: '휘두르기', damage: 90, cooldown: 0.44, windup: 0.104, range: 2.4, arc: 40 },
+      slash: { label: '갈기', damage: 10, cooldown: 0.04, windup: 0.008, range: 1.8, arc: 30 },
+      stab: { label: '휘두르기', damage: 90, cooldown: 0.44, windup: 0.104, range: 1.8, arc: 40 },
     },
-    maxRange: 2.4,
+    maxRange: 1.8,
     rpm: 1500, fireInterval: 0.04,
     mag: null, reserve: null, reload: null,
     drawTime: 0.6, moveMul: 0.98,
