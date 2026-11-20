@@ -1130,11 +1130,12 @@ describe('createAccount 상점과 장비', () => {
 
   test('equip 규칙', (t) => {
     const { account, bus } = makeAccount(t);
-    assert.deepEqual(account.equip('grenade', 'gr_frag'), { ok: false, reason: 'slot' }, '없는 칸');
+    assert.deepEqual(account.equip('grenade', 'gr_frag'), { ok: true }, '기본 투척 칸');
     assert.deepEqual(account.equip('toString', 'ar_std'), { ok: false, reason: 'slot' }, '프로토타입 키');
     assert.deepEqual(account.equip('primary', 'no_such'), { ok: false, reason: 'unknown' });
     assert.deepEqual(account.equip('primary', 'pt_std'), { ok: false, reason: 'slot' }, '칸이 다른 무기');
     assert.deepEqual(account.equip('melee', 'ar_std'), { ok: false, reason: 'slot' });
+    assert.deepEqual(account.equip('grenade', 'pt_std'), { ok: false, reason: 'slot' }, '투척 칸에는 투척 무기만');
     assert.deepEqual(account.equip('primary', 'sr_heavy'), { ok: false, reason: 'unowned' });
     assert.deepEqual({ ...account.loadout }, { ...DEFAULT_GEAR });
     assert.equal(bus.of('account:change').length, 0);
