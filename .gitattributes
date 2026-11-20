@@ -1,2 +1,5 @@
 # 음원 묶음은 줄바꿈 변환 없이 그대로 둔다
 *.bin binary
+# 서버에서 sh가 읽는 템플릿은 Windows에서 받아도 LF로 둔다(terraform templatefile은 작업 파일을 읽는다)
+*.tftpl text eol=lf
+*.sh text eol=lf
