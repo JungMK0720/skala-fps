@@ -196,6 +196,8 @@ export default {
 
     t.setSection('3인칭 칼 휘두르기');
     await page.waitFor('__qa.world.localAlive', 12000, { intervalMs: 50, label: '부활' });
+    // 앞 구간에서 쓰러진 봇이 되살아난 뒤에 옮긴다. 먼저 옮기면 부활 자리(멀리)로 돌아가서, 먼 대원의 애니메이션 LOD 때문에 휘두르기가 거의 안 보인다
+    await page.waitFor('__qa.run.bots[0].alive', 15000, { intervalMs: 50, label: '봇 부활' });
     await lockPointer(page);
     await page.fn((s) => {
       const qa = window.__qa;
@@ -206,6 +208,7 @@ export default {
       qa.world.setActorState(b.id, { pos: b.body.pos, yaw: b.yaw, pitch: 0, alive: true, slot: 3, weaponId: 'ml_gurkha' });
     }, spot);
     await waitTicks(page, 3);
+    await page.waitFor(`(() => { const b = __qa.run.bots[0], a = __qa.ctx.avatars.get(b.id); return !!a && Math.hypot(a.pos[0] - b.body.pos[0], a.pos[2] - b.body.pos[2]) < 0.3; })()`, 3000, { intervalMs: 30, label: '봇 모습이 가까이 옮겨짐' });
     const botId = await page.eval('__qa.run.bots[0].id');
     // 오른손 소켓(칼을 쥔 점)의 아바타 공간 위치와 휘두르기 진행도
     const handAt = () => page.eval(`(() => { const a = __qa.ctx.avatars.get(${JSON.stringify(botId)}), b = a.body; const p = b.socket.getWorldPosition(b.socket.position.clone()); a.root.worldToLocal(p); return { t: b.swingT, x: p.x, z: p.z }; })()`);
