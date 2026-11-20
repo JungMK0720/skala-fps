@@ -15,7 +15,7 @@ import { PREMIUM_PRICE } from '../weapons/defs.js';
 import { EMOTES, EMOTE_WHEEL, TEAMS, TEAM_IDS } from '../core/consts.js';
 import { AVATARS, DEFAULT_AVATAR } from '../core/avatar-defs.js';
 
-const TAB_LABELS = { rifle: '라이플', sniper: '저격', smg: 'SMG', shotgun: '샷건', lmg: '기관총', pistol: '권총', melee: '근접' };
+const TAB_LABELS = { rifle: '라이플', sniper: '저격', smg: 'SMG', shotgun: '샷건', lmg: '기관총', pistol: '권총', melee: '근접', launcher: '좀비 전용' };
 /** 이모트 탭 id. 무기 category와 겹치지 않는다 */
 export const EMOTE_TAB = 'emote';
 /** 캐릭터 탭 id */
@@ -480,8 +480,8 @@ export function createShop(ctx) {
   });
 
   function build() {
-    // 좀비 물량 막기 전용 무기(zombieOnly)는 파는 물건이 아니다
-    const defs = [...ctx.weapons.values()].filter((d) => SLOT_KEYS[d.slot] && !d.zombieOnly);
+    // 좀비 물량 막기 전용 무기(zombieOnly)는 파는 물건이 아니다. shop이 붙은 것(공기총·말뚝건)만 판다(좀비 모드에서만 든다)
+    const defs = [...ctx.weapons.values()].filter((d) => SLOT_KEYS[d.slot] && (!d.zombieOnly || d.shop));
     cards.clear();
     for (const d of defs) {
       const card = buildCard(d);

@@ -395,7 +395,7 @@ describe('좀비 물량 막기: C4 수류탄·검기 주장', () => {
   });
 
   test('종류 번호 표는 앞 순서를 유지하고 유탄·로켓·손 수류탄은 예전과 같은 모양이다', () => {
-    assert.deepEqual([...GRENADE_KIND_CODES], ['', 'gl', 'rocket', 'c4', 'gravity']);
+    assert.deepEqual([...GRENADE_KIND_CODES], ['', 'gl', 'rocket', 'c4', 'gravity', 'stake', 'axe', 'bolt']);
     assert.equal(decodeGrenade([3, 100, 0, 0, 0, 0, 0, 5, 4, 2000]).kind, 'gravity', '중력건 발사체');
     assert.ok(Object.isFrozen(GRENADE_KIND_CODES));
     const base = { pos: [1, 2, 3], vel: [4, 5, 6], t: 9 };
@@ -419,7 +419,7 @@ describe('좀비 물량 막기: C4 수류탄·검기 주장', () => {
 
   test('모르는 종류 번호·깨진 끝 칸은 손 수류탄으로 받는다', () => {
     const head = [1, 0, 0, 0, 0, 0, 0, 5];
-    for (const tail of [[9, 1000], [-1, 1000], [0, 1000], [5, 1000], ['c4', 1000], [3, 'x'], [3, null], [3], [NaN, 1000], [1e300, 1000]]) {
+    for (const tail of [[9, 1000], [-1, 1000], [0, 1000], [8, 1000], ['c4', 1000], [3, 'x'], [3, null], [3], [NaN, 1000], [1e300, 1000]]) {
       const d = decodeGrenade(head.concat(tail));
       assert.ok(d, JSON.stringify(tail));
       assert.equal(d.kind, undefined, JSON.stringify(tail));

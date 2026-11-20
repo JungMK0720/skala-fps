@@ -88,6 +88,13 @@ html.pc-touch .sk-hp-ico { width: 20px; height: 20px; font-size: 13px; border-ra
 html.pc-touch .sk-hp-num { font-size: 20px; }
 html.pc-touch .sk-hp-label { display: none; }
 html.pc-touch .sk-hp-bar { height: 3px; margin-top: 2px; width: 62px; }
+/* 버프·디버프 줄: 체력 칸이 맨 위라 위에 둘 자리가 없다 → 체력 칸 오른쪽에 한 줄로, 칩을 작게 */
+html.pc-touch .sk-hp .sk-status { left: calc(100% + 6px); top: 0; bottom: auto; flex-wrap: nowrap; gap: 4px; max-width: 34vw; overflow: hidden; padding: 6px 6px 0 0; }
+html.pc-touch .sk-hp .sk-st { width: 28px; height: 32px; border-radius: 6px; }
+html.pc-touch .sk-hp .sk-st-ico { font-size: 14px; }
+html.pc-touch .sk-hp .sk-st.is-timed .sk-st-ico { margin-top: -7px; }
+html.pc-touch .sk-hp .sk-st-t { bottom: 5px; font-size: 9px; }
+html.pc-touch .sk-hp .sk-st-n { top: -6px; right: -6px; min-width: 14px; height: 14px; font-size: 9px; line-height: 14px; }
 
 html.pc-touch .sk-br {
   left: 50%; right: auto; bottom: calc(4px + env(safe-area-inset-bottom)); transform: translateX(-50%); align-items: center; gap: 3px;

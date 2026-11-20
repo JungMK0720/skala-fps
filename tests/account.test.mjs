@@ -32,9 +32,9 @@ const FREE_EMOTES = EMOTES.filter((e) => e.price === 0).map((e) => e.id);
 const PAID_EMOTES = EMOTES.filter((e) => e.price > 0).map((e) => e.id);
 const FREE_AVATARS = AVATARS.filter((a) => a.price === 0).map((a) => a.id);
 const PAID_AVATARS = AVATARS.filter((a) => a.price > 0).map((a) => a.id);
-/** 좀비 물량 막기 전용 무기(zombieOnly, 증강으로만 얻는다)는 가격이 0이어도 상점 물건이 아니다. 상점 무기는 나머지다 */
-const ZOMBIE_ONLY = WEAPON_IDS.filter((id) => getDef(id).zombieOnly);
-const SHOP_WEAPONS = WEAPON_IDS.filter((id) => !getDef(id).zombieOnly);
+/** 좀비 물량 막기 전용 무기(zombieOnly, 증강으로만 얻는다)는 가격이 0이어도 상점 물건이 아니다. 단 shop이 붙은 것(공기총·말뚝건·투척 도끼)은 판다 */
+const ZOMBIE_ONLY = WEAPON_IDS.filter((id) => getDef(id).zombieOnly && !getDef(id).shop);
+const SHOP_WEAPONS = WEAPON_IDS.filter((id) => !getDef(id).zombieOnly || getDef(id).shop);
 
 const CONFIG = Object.freeze({ url: 'https://proj.supabase.co', anonKey: 'sb_publishable_test' });
 const VALID_TOKEN = 'a'.repeat(64);

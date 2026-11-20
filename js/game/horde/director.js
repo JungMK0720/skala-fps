@@ -58,6 +58,8 @@ const DODGE_CAP = 0.9;            // 회피 확률 상한
 const REDUCE_CAP = 0.9;           // 받는 피해 감소(방어·방패를 합친 값) 상한
 const GRAVITY_PULL_MS = 2600;     // 중력건에 끌려가는 시간
 const GRAVITY_PULL_SPEED = 13;    // 끌려가는 속도(m/s)
+const KNOCK_MAX_MS = 2500;       // 밀려 날아가는 최대 시간(땅에 닿으면 바로 끝난다)
+const KNOCK_BOSS = 0.3;          // 보스는 이만큼만 밀린다
 const MELEE_SLACK = 2.2;          // 칼 주장 거리 여유(m, 지연 보간 몫)
 const RANGE_SLACK = 1.15;
 const TARGET_MS = 500;
@@ -297,7 +299,7 @@ export function createHorde(o = {}) {
     for (const P of players.values()) {
       if (!P.connected) continue;
       if (!P.alive) {
-        if (!P.spawned || S.stage + 1 < 30) spawnPlayer(P, i, ev, R.reviveHpFrac);
+        if (!P.spawned || S.stage + 1 < R.noAutoReviveStage) spawnPlayer(P, i, ev, R.reviveHpFrac);
       } else if (P.perks.stageHeal > 0) healPlayer(P, P.maxHp * P.perks.stageHeal);
       if (P.alive) P.shield = Math.round(P.shield + (P.perks.shield || 0));
       i++;
@@ -942,6 +944,47 @@ export function createHorde(o = {}) {
     if (Z.state === 'wind') { Z.state = 'move'; Z.windRanged = false; }
     if (Z.skill && Z.skill.phase === 'wind') Z.skill = null;
   }
+  /**
+   * 밀어내기(공기총·007 가방, defs knock): from(때린 사람 발)에서 좀비 쪽으로 k.speed m/s, 위로 k.up°만큼 날린다.
+   * 큰 좀비는 덜(크기만큼 나눠), 보스는 KNOCK_BOSS만 밀린다. 날아가는 동안은 때리지 못하고 휘두르던 공격·끌려가기는 끊긴다
+   */
+  function knockZombie(Z, from, k) {
+    if (!Z || Z.state === 'dead' || !from || !k) return;
+    const p = Z.body.pos;
+    let dx = p[0] - from[0], dz = p[2] - from[2];
+    const l = hyp2(dx, dz);
+    if (l > 1e-3) { dx /= l; dz /= l; } else { dx = -Math.sin(Z.yaw || 0); dz = -Math.cos(Z.yaw || 0); }
+    const s = k.speed * (Z.boss ? KNOCK_BOSS : 1 / clamp(Z.scale || 1, 1, 2));
+    const a = (k.up || 0) * Math.PI / 180;
+    Z.body.vel[0] = dx * s * Math.cos(a);
+    Z.body.vel[2] = dz * s * Math.cos(a);
+    Z.body.vel[1] = Math.max(Z.body.vel[1] || 0, s * Math.sin(a));
+    Z.body.onGround = false;
+    Z.knockAt = S.clock;
+    Z.knockFloor = p[1];
+    Z.knockUntil = S.clock + KNOCK_MAX_MS;
+    Z.pullUntil = 0;
+    if (Z.state === 'wind') { Z.state = 'move'; Z.windRanged = false; Z.windGrab = false; Z.grabAim = null; }
+    if (Z.skill && Z.skill.phase === 'wind') Z.skill = null;
+  }
+  /** 밀려 날아가는 좀비 한 틱: 받은 속도 그대로 중력을 받아 날고, 땅에 닿으면 끝난다. 비행 좀비는 위아래 없이 옆으로만 밀리다 멈춘다 */
+  function stepKnock(Z, dt) {
+    const p = Z.body.pos, v = Z.body.vel;
+    const fly = Z.t && Z.t.flying;
+    if (world && !fly) {
+      moveCharacter(world, Z.body, null, dt, { rawVelocity: true, radius: Z.radius, height: Math.min(2.4, 1.8 * Math.min(1.3, Z.scale)) });
+      if (Z.body.onGround && S.clock - Z.knockAt > 120) Z.knockUntil = 0;
+    } else {
+      // 맵이 없을 때(시험)와 비행 좀비: 단순 탄도. 바닥은 처음 높이로 본다
+      if (!fly) v[1] += PLAYER_GRAVITY * dt; else v[1] = 0;
+      p[0] += v[0] * dt; p[1] += v[1] * dt; p[2] += v[2] * dt;
+      if (fly) { v[0] *= Math.max(0, 1 - 3 * dt); v[2] *= Math.max(0, 1 - 3 * dt); if (hyp2(v[0], v[2]) < 0.5) Z.knockUntil = 0; }
+      else if (v[1] < 0 && p[1] <= (Z.knockFloor ?? 0)) { p[1] = Z.knockFloor ?? 0; v[0] = v[1] = v[2] = 0; Z.knockUntil = 0; }
+    }
+    if (!Z.knockUntil || S.clock >= Z.knockUntil) { Z.knockUntil = 0; v[0] = v[2] = 0; }
+    Z.progressAt = S.clock; Z.bestDist = Infinity; Z.stuck = 0;
+    if (p[1] < -30) recycle(Z);
+  }
   /** 빙결: 얼어붙은 좀비는 움직이지도 때리지도 못한다(보스는 절반 시간) */
   function freezeZombie(Z, P) {
     if (!Z || Z.state === 'dead') return;
@@ -1017,6 +1060,9 @@ export function createHorde(o = {}) {
     const ev = [];
     if (crit) ev.push({ type: 'crit', by: P.id, z: Z.id, dmg: Math.max(1, Math.round(dmg)) });
     hurtZombie(Z, dmg, P, { head: hit.head, crit, kind: melee ? 'melee' : 'shot' }, ev);
+    // 밀어내기(공기총·007 가방): 총은 'shot', 칼은 휘두르기 'slash'·우클릭 'stab'. 검기('wave'·'waveStab')는 밀지 않는다
+    const knock = def.knock && def.knock[melee ? c.kind : 'shot'];
+    if (knock && P.pos) knockZombie(Z, P.pos, knock);
     maybeCards(ev);
     return ev;
   }
@@ -1058,7 +1104,11 @@ export function createHorde(o = {}) {
       }
       return ev;
     }
+    // 제우스의 번개는 카드를 고른 사람만, 처음 맞은 좀비 + 다섯 번 튄 좀비까지. 투척 도끼는 닿은 좀비 하나마다 따로 주장한다
+    if (c.kind === 'bolt' && !P.cards.includes('zeus')) return [];
+    const cap = c.kind === 'bolt' ? 6 : c.kind === 'axe' ? 1 : Infinity;
     for (const v of Array.isArray(c.victims) ? c.victims : []) {
+      if (hit.length >= cap) break;
       if (!v || !isZombieId(v.id)) continue;   // 이 모드에는 아군 피해가 없다(자기 수류탄도)
       const Z = zombies.get(zombieIdOf(v.id));
       if (!Z || Z.state === 'dead') continue;
@@ -1066,7 +1116,7 @@ export function createHorde(o = {}) {
       hit.push(Z);
     }
     const center = pos3(c.center);
-    const launcher = c.kind === 'gl' || c.kind === 'rocket';
+    const launcher = c.kind === 'gl' || c.kind === 'rocket' || c.kind === 'stake' || c.kind === 'axe' || c.kind === 'bolt';
     // 던진 사람 근처(80 m)에서 터진 것만 효과를 붙인다(엉뚱한 자리에 분신·불길이 생기지 않게)
     if (!launcher && center && (!P.pos || hyp2(center[0] - P.pos[0], center[2] - P.pos[2]) < 80)) {
       if (k.nadeFreeze > 0) for (const Z of hit) freezeZombie(Z, P);
@@ -1257,6 +1307,8 @@ export function createHorde(o = {}) {
     if (Z.armorUntil && now > Z.armorUntil) { Z.armorUntil = 0; Z.armorMul = 1; }
     if (Z.boss && !Z.enraged && Z.hp < Z.maxHp * Z.boss.enrage.at) { Z.enraged = true; ev.push({ type: 'enrage', z: Z.id, boss: Z.boss.id }); }
     if (Z.state === 'rise') { if (now >= Z.until) Z.state = 'move'; else return; }
+    // 밀려 날아가는 중(공기총·007 가방): 날아가다 땅에 닿을 때까지 아무것도 못 한다(얼어 있어도 날아간다)
+    if (Z.knockUntil > now) { stepKnock(Z, dt); return; }
     // 얼어붙음: 제자리에 서서 아무것도 못 한다
     if (Z.frozenUntil > now) { Z.body.vel[0] = Z.body.vel[2] = 0; if (world && !(Z.t && Z.t.flying)) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius }); return; }
     // 중력건에 끌려가는 중: 폭심으로 빨려 들어가고, 닿으면 그 자리에서 멈춘다(보스는 느리게). 그동안 때리지 못한다
@@ -1512,12 +1564,12 @@ export function createHorde(o = {}) {
           : s.kind === 'nova' ? d < s.radius * 0.95
             : s.kind === 'leap' ? d > 6 && d < 28
               : s.kind === 'blink' ? d > 6
-                : s.kind === 'chain' ? d < s.range
+                : s.kind === 'chain' || s.kind === 'barrage' ? d < s.range
                   : s.kind === 'volley' || s.kind === 'pool' ? d > 3 && d < 30
                     : s.kind === 'scream' ? d < s.radius
                       : true;
       if (!ok) continue;
-      if ((s.kind === 'volley' || s.kind === 'chain' || s.kind === 'pool') && world &&
+      if ((s.kind === 'volley' || s.kind === 'chain' || s.kind === 'pool' || s.kind === 'barrage') && world &&
         !lineOfSight(world, [p[0], p[1] + 2, p[2]], [T.pos[0], T.pos[1] + 1.2, T.pos[2]])) continue;
       Z.skillReady[i] = S.clock + s.cd * cdMul * (0.9 + rng() * 0.25);
       Z.skill = { i, s, phase: 'wind', until: S.clock + s.windup, tx: T.pos[0], ty: T.pos[1], tz: T.pos[2], target: T.id, t0: S.clock, hit: new Set(), r: 0 };
@@ -1551,7 +1603,7 @@ export function createHorde(o = {}) {
     const rage = Z.enraged ? Z.boss.enrage : null;
     const dmgK = dmgMul(S.stage) * (rage ? rage.dmg : 1);
     if (k.phase === 'wind') {
-      if (s.kind === 'charge' || s.kind === 'leap' || s.kind === 'volley' || s.kind === 'chain' || s.kind === 'pool') {
+      if (s.kind === 'charge' || s.kind === 'leap' || s.kind === 'volley' || s.kind === 'chain' || s.kind === 'pool' || s.kind === 'barrage') {
         // 예고 동안은 목표를 따라 돈다(마지막 0.3초는 고정 → 피할 틈). 도약은 처음 정한 예상 착지점을 바꾸지 않는다
         if (s.kind !== 'leap' && T && T.pos && k.until - S.clock > 300) { k.tx = T.pos[0]; k.ty = T.pos[1]; k.tz = T.pos[2]; }
         faceTo(Z, k.tx, k.tz, dt, 6);
@@ -1670,6 +1722,15 @@ export function createHorde(o = {}) {
           Z.skill = null;
           return;
         }
+        case 'barrage': {
+          // 포격: 제자리에서 예고한 좁은 자리에 포탄 하나를 포물선으로 떨어뜨린다. 떨어질 때까지 그 자리를 계속 보여 준다(act)
+          const from = [p[0], p[1] + 2.2 * Math.min(1.4, Z.scale), p[2]];
+          const to = [k.tx, k.ty + 0.2, k.tz];
+          addProjectile(PROJECTILE_KINDS.orb, from, aimVelocity(from, to, s.speed, true), { arc: true, blast: s.blast, boss: true, life: 4000 });
+          k.until = S.clock + clamp(hyp2(to[0] - from[0], to[2] - from[2]) / s.speed, 0.35, 2.2) * 1000;
+          k.shots = (k.shots || 0) + 1;
+          break;
+        }
         default: Z.skill = null; return;
       }
     }
@@ -1730,6 +1791,21 @@ export function createHorde(o = {}) {
           Z.skill = null;
           Z.attackReady = S.clock + 500;
         }
+        return;
+      }
+      case 'barrage': {
+        // 포탄이 떨어질 때까지 제자리. shots발을 다 떨어뜨리면 moveMs 동안 걸어 다니다 다시 포격한다
+        if (world) moveCharacter(world, Z.body, { x: 0, z: 0 }, dt, { radius: Z.radius });
+        if (S.clock < k.until) return;
+        if (k.shots < s.shots) {
+          k.phase = 'wind';
+          k.until = S.clock + s.windup;
+          if (T && T.pos) { k.tx = T.pos[0]; k.ty = T.pos[1]; k.tz = T.pos[2]; k.target = T.id; }
+          ev.push({ type: 'skill', z: Z.id, boss: Z.boss.id, kind: s.kind, x: Math.round(k.tx * 100) / 100, z2: Math.round(k.tz * 100) / 100, ms: s.windup });
+          return;
+        }
+        Z.skill = null;
+        Z.skillReady[k.i] = S.clock + s.moveMs * (rage ? rage.cd : 1);
         return;
       }
       default: Z.skill = null;
@@ -1893,7 +1969,7 @@ export function createHorde(o = {}) {
       if (Z.hasteUntil > now) f |= ZF.haste;
       if (Z.armorUntil > now) f |= ZF.armor;
       if (Z.enraged) f |= ZF.rage;
-      if (Z.skill && Z.skill.s.kind === 'leap' && Z.skill.phase === 'act') f |= ZF.air;
+      if ((Z.skill && Z.skill.s.kind === 'leap' && Z.skill.phase === 'act') || Z.knockUntil > now) f |= ZF.air;
       if (Z.frozenUntil > now) f |= ZF.frozen;
       if (Z.state === 'wind' && Z.windGrab) f |= ZF.hook;   // 그랩 예고: 화면이 겨눈 쪽으로 바닥 선을 그린다
       const row = [Z.id, Z.code, cm(Z.body.pos[0]), cm(Z.body.pos[1]), cm(Z.body.pos[2]), Math.round(Z.yaw * 100), Math.ceil((Z.hp / Z.maxHp) * 100), f];
@@ -2128,8 +2204,11 @@ export function hordeSummary(view, meId) {
   };
 }
 
-/** 폭발 종류별 배율: 손으로 던진 수류탄 10(폭심 기본 피해 1000), 유탄 발사기 1.2(여러 발), 바주카포 2.6(한 발씩) */
-export const BLAST_MUL = Object.freeze({ nade: 10, gl: 1.2, rocket: 2.6 });
+/**
+ * 폭발 종류별 배율: 손으로 던진 수류탄 10(폭심 기본 피해 1000), 유탄 발사기 1.2(여러 발), 바주카포 2.6(한 발씩), 말뚝건 4.5(반경 1.2 m 안 450),
+ * 투척 도끼 1.2(뚫고 지나가며 닿은 좀비마다 120), 제우스의 번개 1.5(맞은 좀비와 튄 다섯 마리 모두 150)
+ */
+export const BLAST_MUL = Object.freeze({ nade: 10, gl: 1.2, rocket: 2.6, stake: 4.5, axe: 1.2, bolt: 1.5 });
 
 /** 대상별 피해 배율: 보스 피해 증가와 일반 좀비 피해 감소를 같은 경로로 적용한다. */
 function targetDamageMul(k, boss) {
@@ -2140,7 +2219,7 @@ function targetDamageMul(k, boss) {
 export function nadeDamage(dmg, k, boss = false, kind = null) {
   const kk = k || {};
   const base = BLAST_MUL[kind] || BLAST_MUL.nade;
-  const side = (kind === 'gl' || kind === 'rocket') && (kk.sideMaster || 0) > 0 ? 6 : 1;   // 보조무기 마스터: 보조 발사기 피해 +500%
+  const side = (kind === 'gl' || kind === 'rocket' || kind === 'stake' || kind === 'axe') && (kk.sideMaster || 0) > 0 ? 6 : 1;   // 보조무기 마스터: 보조 발사기 피해 +500%
   return clamp(num(dmg), 0, 100) * base * (1 + (kk.dmg || 0)) * (1 + (kk.nade || 0)) * targetDamageMul(kk, boss) * side;
 }
 

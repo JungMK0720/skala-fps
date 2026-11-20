@@ -9,6 +9,7 @@
 | `menu.js` `nickname.js` `mypage.js` `shop.js` `lobby.js` `room.js` `loadout.js` `hud.js` `chat.js` `scope.js` `emotes.js` `scoreboard.js` `results.js` `pause.js` | 화면별 모듈 |
 | `settings.js` `controls.js` | 설정 저장과 설정 시트, 조작법 시트(메뉴와 일시정지가 같이 씀) |
 | `dom.js` `parts.js` `icons.js` | DOM 헬퍼, 공통 부품(무기 카드 조각, 포인트 표시, 선택 버튼 묶음 포함), 도형 아이콘(맵 평면도, 메뉴 아이콘, 헤드샷, 메뉴 배경) |
+| `status.js` | 버프·디버프 칩 줄(`createStatusRow`, `statusSpec`·`statusTotal`·`statusFrac`·`statusTimeText`). 좀비 모드 HUD 체력 칸 위 줄과 일시정지의 버프·디버프 목록이 같이 쓴다 |
 | `multikill.js` | 연속 킬 그림(SVG 도형). 더블~헥사 킬은 육각 방패 + 킬 수만큼 탄환 + 단계마다 색·빛살·날개, 전설은 월계관 메달·별·왕관 |
 | `online.js` | 로그인 연결·코인 화면 도우미(`account.online.state` 읽기, 결과 문구 색, 제공자 버튼 줄). 게이트의 "구글로 불러오기", 마이페이지 계정 연결 칸, 상점 코인 탭이 쓴다(server/api/README.md) |
 | `demo.js` + `dev/ui-demo.html` | QA용 데모(목 데이터). 게임 본편에서는 로드하지 않습니다 |
@@ -257,6 +258,14 @@ props에 `title`(레벨 업·보물 상자), `sub`(덧붙일 안내), `seconds`(
 | `crosshair: false` | 크로스헤어 숨김 |
 | `emote` | `{ name, icon } \| null` → 하단에 "💃 탱고 · 움직이면 취소"(아이콘이 없으면 🕺). 켜져 있는 동안(3인칭) 크로스헤어·히트마커를 숨김 |
 | `bomb` | 폭파 미션 표시(아래 표). `null`이면 모두 지움 |
+| `status` | 버프·디버프 칩 줄(좀비 모드). 체력 칸 바로 위(휴대폰은 체력 칸 오른쪽). 배열 `[{ id, kind: 'buff'\|'debuff', icon, name, desc?, stacks?, value?, leftMs?, totalMs? }]`, `null`·빈 배열이면 숨김. 아래 설명 |
+
+`status` (매 프레임 넣어도 됨. `ui/status.js` `createStatusRow`가 id마다 칩 하나를 만들어 두고 바뀐 값만 쓴다. `hud.reset()`도 지움. 정리 규칙은 `statusSpec()`)
+- **버프 = 빨간 테두리, 디버프 = 초록 테두리**(요청대로. 바꾸지 마세요). 목록 순서대로 그린다(좀비 모드는 버프 먼저).
+- 오른쪽 위 숫자: `value`가 있으면 그 값(보호막 양), 없으면 `stacks`가 2 이상일 때 겹 수.
+- `leftMs`가 있으면 아래에 남은 초(10초 밑은 0.1초 단위, `statusTimeText`)와, 지나간 만큼 시계 방향으로 어두워지는 부채꼴 + 아래쪽 막대가 줄어든다(css 변수 `--f` = 남은 비율, 1/200 눈금으로 바뀔 때만 씀). 전체 시간은 `totalMs`, 없으면 처음 본 남은 시간(다시 걸려 0.4초 넘게 늘면 그 값부터 다시, `statusTotal`).
+- 설명: HUD는 포인터가 잠겨 있어 `title`·`aria-label`("버프 · 이름 — desc")로만 둔다. 일시정지(`pause` `details.status`)는 같은 칩에 설명 상자를 띄운다.
+- 좀비 모드의 항목과 설명은 `game/horde/client.js` `hordeStatusList()` 한 곳에서 만든다(HUD와 일시정지가 같은 목록을 쓴다).
 
 `bomb` (매 프레임 넣어도 됨. 바뀐 값만 DOM에 쓰고 표식은 `transform`으로만 옮김. `hud.reset()`도 지움. 정리 규칙은 `bombSpec()`)
 
@@ -354,9 +363,11 @@ ui.chat.open() / close() / isOpen() / clear() / scope() / setScope('all' | 'team
 
 ### `pause`
 ```js
-{ leaveLabel = '방 나가기', leaveConfirm?, note?, info? }
+{ leaveLabel = '방 나가기', leaveConfirm?, note?, info?, details?, status? }
 ```
 버튼은 계속하기, 설정, 조작법, 건의하기, 나가기(한 번 더 확인)입니다. `info`(`{ mode, map }`)는 건의를 보낼 때 진단 정보로 함께 갑니다. 연습장에서는 `leaveLabel: '연습장 나가기'`를 쓰세요.
+- `details`(좀비 모드, World `setPauseDetails`): `{ cards, stats, status? }` → 획득한 증강 · 현재 능력치. `status`(배열)가 있으면 맨 위에 **버프·디버프** 묶음(HUD 체력 칸 위 줄과 같은 칩, 위 `hud`의 `status`)을 그린다. 칩에 마우스를 올리거나 Tab으로 초점을 주면 설명 상자(이름 · `desc` · 남은 시간/겹)가 뜬다. 빈 배열이면 "지금 걸린 버프·디버프가 없어요."
+- `update('pause', { status })`만 부르면 그 줄만 고친다(다른 값은 다시 그리지 않음). 멀티 좀비는 게임이 멈추지 않으므로 `game/horde/client.js`가 일시정지가 떠 있는 동안 매 프레임 넣는다.
 
 ## 이벤트(`ui.on`)
 

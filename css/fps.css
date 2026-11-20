@@ -592,6 +592,56 @@
 .sk-hp.is-crit .sk-hp-bar i { background: var(--sk-bad); }
 .sk-hp.is-dead { opacity: .55; }
 
+/* 버프·디버프 줄(좀비 모드, hud.set({ status })): 체력 칸 바로 위. 버프 = 빨간 테두리, 디버프 = 초록 테두리.
+   겹 수·값은 오른쪽 위 숫자, 남은 시간은 아래 글자 + 지나간 만큼 시계 방향으로 어두워지는 부채꼴 + 줄어드는 막대(--f = 남은 비율) */
+.sk-status {
+  position: absolute; left: 0; bottom: calc(100% + 8px); display: flex; flex-wrap: wrap-reverse; gap: 6px;
+  width: max-content; max-width: min(440px, 46vw); pointer-events: none;
+}
+.sk-hp.is-dead .sk-status { display: none; }
+.sk-st {
+  --st-c: #ff3b3b; position: relative; flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 38px; height: 44px; border: 2px solid var(--st-c); border-radius: 7px; background: rgba(9, 13, 24, .84);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--st-c) 45%, transparent); animation: sk-fade .15s ease-out;
+}
+.sk-st.is-buff { --st-c: #ff3b3b; }
+.sk-st.is-debuff { --st-c: #2fe06a; }
+.sk-st-ico { position: relative; z-index: 1; font-size: 20px; line-height: 1; }
+.sk-st.is-timed .sk-st-ico { margin-top: -9px; }
+.sk-st.is-timed::after {
+  content: ""; position: absolute; inset: 0; z-index: 2; border-radius: 5px; pointer-events: none;
+  background: conic-gradient(rgba(3, 6, 12, .62) calc((1 - var(--f, 1)) * 1turn), transparent 0);
+}
+.sk-st-bar { display: none; position: absolute; left: 3px; right: 3px; bottom: 3px; z-index: 3; height: 3px; border-radius: 2px; background: var(--st-c); transform: scaleX(var(--f, 1)); transform-origin: left; }
+.sk-st.is-timed .sk-st-bar { display: block; }
+.sk-st-t {
+  position: absolute; left: 0; right: 0; bottom: 7px; z-index: 3; text-align: center;
+  font: 800 10.5px/1 var(--sk-mono); font-variant-numeric: tabular-nums; color: #fff; text-shadow: 0 1px 2px #000, 0 0 3px #000;
+}
+.sk-st-n {
+  position: absolute; top: -8px; right: -8px; z-index: 4; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px;
+  font: 900 10.5px/17px var(--sk-mono); font-variant-numeric: tabular-nums; text-align: center; color: #fff;
+  background: #0d1424; box-shadow: 0 0 0 1.5px var(--st-c);
+}
+/* 설명 상자(일시정지: 마우스를 올리거나 Tab으로 초점을 주면). HUD 줄은 포인터가 잠겨 있어 title·aria-label만 쓴다 */
+.sk-st[tabindex] { cursor: help; outline: none; }
+.sk-st[tabindex]:focus-visible { box-shadow: 0 0 0 3px rgba(255, 255, 255, .85), 0 0 7px var(--st-c); }
+.sk-st-tip {
+  display: none; position: absolute; left: 0; top: calc(100% + 8px); z-index: 20; width: 250px; padding: 9px 11px;
+  border: 1px solid var(--st-c); border-radius: 8px; background: rgba(6, 10, 18, .97); box-shadow: 0 8px 24px rgba(0, 0, 0, .55);
+  text-align: left; white-space: normal; pointer-events: none;
+}
+.sk-st:hover .sk-st-tip, .sk-st:focus-visible .sk-st-tip { display: flex; flex-direction: column; gap: 4px; }
+.sk-st-tip-name { font-size: 13px; font-weight: 900; color: var(--st-c); }
+.sk-st-tip-desc { font-size: 12px; line-height: 1.45; color: #e8eef6; }
+.sk-st-tip-meta { font: 800 11.5px/1.3 var(--sk-mono); color: #fff; }
+/* 일시정지 안의 줄: 흐름 안에 두고 여러 줄로 감싼다 */
+.sk-status--pause { position: static; width: auto; max-width: none; flex-wrap: wrap; gap: 10px; padding: 8px 0 2px; pointer-events: auto; }
+.sk-pause-detail-group.sk-pause-status-group { grid-column: 1 / -1; max-height: none; overflow: visible; }
+.sk-pause-status-legend { margin: -4px 0 4px; font-size: 11px; color: var(--sk-muted); }
+/* 경기 채팅(왼쪽 아래)이 버프·디버프 줄과 겹치지 않게 올린다 */
+.sk-ui:has(.sk-hud .sk-status:not([hidden])) .sk-cb { bottom: 150px; }
+
 /* 무기 슬롯 + 탄약 */
 .sk-br { position: absolute; right: 18px; bottom: 18px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .sk-slots { display: flex; gap: 6px; }

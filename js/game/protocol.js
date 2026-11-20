@@ -62,7 +62,7 @@ export const PART_CODES = Object.freeze(['head', 'body', 'legs', 'hand', 'foot']
 /** 히트 주장 종류. wave·waveStab = 좀비 물량 막기 '검기'(베기·찌르기에서 나간 것). 앞 순서는 바꾸지 않고 뒤에만 더한다 */
 export const KIND_CODES = Object.freeze(['shot', 'slash', 'stab', 'grenade', 'other', 'wave', 'waveStab']);
 /** 수류탄 메시지의 종류 번호(g2x 9번째 칸). 0 = 손으로 던진 수류탄(칸 없음). 앞 순서는 바꾸지 않고 뒤에만 더한다 */
-export const GRENADE_KIND_CODES = Object.freeze(['', 'gl', 'rocket', 'c4', 'gravity']);
+export const GRENADE_KIND_CODES = Object.freeze(['', 'gl', 'rocket', 'c4', 'gravity', 'stake', 'axe', 'bolt']);
 export const PHASE_CODES = Object.freeze(['lobby', 'warmup', 'loadout', 'live', 'roundEnd', 'matchEnd']);
 export const TEAM_CODES = Object.freeze(['owner', 'charterer']);
 export const IMPACT_CODES = Object.freeze(['none', 'world', 'player']);
@@ -324,7 +324,7 @@ export function decodeHit(a) {
 
 /* ------------------------------------------------------------------ 수류탄 */
 
-/** @param {{pos, vel, t (방장 시계 ms), kind?: 'gl'|'rocket'|'c4'|'gravity', fuse?: 초}} g */
+/** @param {{pos, vel, t (방장 시계 ms), kind?: 'gl'|'rocket'|'c4'|'gravity'|'stake'|'axe'|'bolt', fuse?: 초}} g */
 /** 수류탄 [id, pos(cm)×3, vel(cm/s)×3, t] + (유탄·로켓·C4면) [종류 번호, 신관 ms]. 끝에 더한 칸이라 옛 형식과 호환된다 */
 export function encodeGrenade(id, g) {
   const p = vec3(g.pos), v = vec3(g.vel);

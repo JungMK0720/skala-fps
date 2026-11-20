@@ -9,6 +9,7 @@ import { h, setText, clamp, fmtTime, num, TEAMS, TEAM_KEYS, teamKey, FFA_TARGET,
 import { makeScreen } from './parts.js';
 import { headshotIcon, weaponInfo } from './icons.js';
 import { multiKillArt, multiKillPalette, MULTI_KILL_ART } from './multikill.js';
+import { createStatusRow } from './status.js';
 import { PLAYER, MOVE } from '../core/consts.js';
 
 const KILLFEED_MAX = 5;
@@ -272,10 +273,13 @@ export function createHud(ctx) {
     bombProgLabel, h('div', { class: 'sk-bomb-prog-bar' }, bombProgFill));
   const bombPrompt = h('div', { class: 'sk-bomb-prompt', hidden: true });
   const bombCarry = h('span', { class: 'sk-hp-bomb', hidden: true, text: '💣 폭탄 소지' });
+  // 버프·디버프 줄(좀비 모드, hud.set({ status })): 체력 칸 바로 위(ui/status.js). 포인터가 잠겨 있어 설명은 title·aria-label로
+  const statusRow = createStatusRow({ cls: 'sk-status' });
 
   const hpNum = h('b', { class: 'sk-hp-num', text: '100' });
   const hpFill = h('i');
   const hpEl = h('div', { class: 'sk-hp' },
+    statusRow.el,
     h('span', { class: 'sk-hp-ico', text: '✚', 'aria-hidden': 'true' }),
     h('div', { class: 'sk-hp-main' },
       h('div', { class: 'sk-hp-top' }, hpNum, h('span', { class: 'sk-hp-label', text: '체력' })),
@@ -834,6 +838,7 @@ export function createHud(ctx) {
     if ('crosshair' in p) xhair.hidden = p.crosshair === false;
     if ('respawn' in p) applyRespawn(p.respawn);
     if ('protect' in p) applyProtect(p.protect);
+    if ('status' in p) statusRow.apply(p.status);
     if ('emote' in p) {
       // emote: { name, icon } | null — 아이콘이 없으면 🕺
       const e = p.emote && typeof p.emote === 'object' ? p.emote : null;
@@ -1023,6 +1028,7 @@ export function createHud(ctx) {
     setLine(specEl, '');
     applyRespawn(null);
     applyProtect(false);
+    statusRow.apply(null);
     setLine(emoteEl, '');
     el.classList.remove('is-emote');
     applyBomb(null);

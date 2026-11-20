@@ -5,6 +5,7 @@
  *          건의하기는 메뉴와 같은 시트(ui/feedback.js)이고, 경기의 모드·맵(props.info)을 진단 정보로 함께 보낸다.
  */
 import { h, btn, setText } from './dom.js';
+import { createStatusRow } from './status.js';
 import { makeScreen, createModal } from './parts.js';
 import { createSettingsPanel, canLockKeys } from './settings.js';
 import { createControlsPanel } from './controls.js';
@@ -20,6 +21,18 @@ export function createPause(ctx) {
 
   const note = h('p', { class: 'sk-pause-note' });
   const details = h('div', { class: 'sk-pause-details', hidden: true });
+  // 좀비 모드: 지금 걸린 버프·디버프(HUD 체력 칸 위 줄과 같은 칩). 마우스를 올리거나 Tab으로 초점을 주면 설명이 뜬다.
+  // details를 다시 그려도 이 묶음은 그대로 쓰고, update('pause', { status })는 이 줄만 고친다(멀티는 게임이 멈추지 않는다)
+  const statusRow = createStatusRow({ cls: 'sk-status sk-status--pause', tips: true });
+  const statusEmpty = h('p', { class: 'sk-pause-empty', text: '지금 걸린 버프·디버프가 없어요.' });
+  const statusGroup = h('section', { class: 'sk-pause-detail-group sk-pause-status-group', 'aria-label': '버프와 디버프' },
+    h('h3', { text: '버프·디버프' }),
+    h('p', { class: 'sk-pause-status-legend', text: '빨간 테두리 = 버프 · 초록 테두리 = 디버프 · 마우스를 올리면 설명' }),
+    statusRow.el, statusEmpty);
+  function applyStatus(list) {
+    statusRow.apply(list);
+    statusEmpty.hidden = !statusRow.el.hidden;
+  }
   const resumeBtn = btn('계속하기', () => {
     ctx.emit('pause:resume', {}); // 이 핸들러 안에서 requestPointerLock()을 부르면 된다(사용자 클릭 중)
     ctx.hideSelf('pause');
@@ -63,7 +76,9 @@ export function createPause(ctx) {
 
   const el = h('section', { class: 'sk-screen sk-overlay sk-pause', hidden: true, 'aria-label': '일시정지 메뉴' }, panel, modal.el);
 
-  function render(p) {
+  function render(p, { patch } = {}) {
+    // 버프·디버프만 바뀐 갱신(매 프레임)은 그 줄만 고친다
+    if (patch && 'status' in patch && Object.keys(patch).length === 1) { applyStatus(patch.status); return; }
     const leaveLabel = p.leaveLabel || '방 나가기';
     setText(leaveBtn, leaveLabel);
     setText(leaveYes, leaveLabel);
@@ -75,7 +90,10 @@ export function createPause(ctx) {
     if (p.details) {
       const cards = Array.isArray(p.details.cards) ? p.details.cards : [];
       const stats = Array.isArray(p.details.stats) ? p.details.stats : [];
+      const status = 'status' in p ? p.status : p.details.status;
+      if (Array.isArray(status)) applyStatus(status);
       details.replaceChildren(
+        ...(Array.isArray(status) ? [statusGroup] : []),
         h('section', { class: 'sk-pause-detail-group', 'aria-label': '획득한 증강' },
           h('h3', { text: `획득한 증강 · ${cards.reduce((n, c) => n + (c.count || 1), 0)}장` }),
           cards.length ? h('div', { class: 'sk-pause-card-list' },
@@ -88,7 +106,7 @@ export function createPause(ctx) {
           h('dl', { class: 'sk-pause-stats' },
             ...stats.flatMap((s) => [h('dt', { text: s.label }), h('dd', { text: s.value })])))
       );
-    } else details.replaceChildren();
+    } else { details.replaceChildren(); applyStatus(null); }
     info = p.info && typeof p.info === 'object' ? p.info : null;
     feedbackBtn.hidden = !ctx.account || !ctx.account.remoteEnabled;
     paintFull();

@@ -223,7 +223,7 @@ describe('새 카드: 이미 있는 카드의 전송 번호는 그대로', () =>
   const OLD_SPECIALS = ('second glass wall chain luck wide medkit syringe drop hunter thrift perfect giant thirst runngun drum samurai iron ' +
     'tactical react dread coin adrenaline bunker fireNade iceNade decoyNade multiNade rearm sideGl sideRl').split(' ');
   const OLD = [...OLD_FAMILIES.flatMap((f) => [1, 2, 3, 4].map((n) => `${f}${n}`)), ...OLD_SPECIALS];
-  const ADDED = ['reflex1', 'reflex2', 'reflex3', 'reflex4', 'wave1', 'wave2', 'wave3', 'wave4', 'anchor', 'c4', 'shieldKnife', 'airStrike', 'sideGravity', 'flameGun', 'railGun', 'aiGlasses', 'sideMaster'];
+  const ADDED = ['reflex1', 'reflex2', 'reflex3', 'reflex4', 'wave1', 'wave2', 'wave3', 'wave4', 'anchor', 'c4', 'shieldKnife', 'airStrike', 'sideGravity', 'flameGun', 'railGun', 'aiGlasses', 'sideMaster', 'zeus'];
 
   test('기존 카드 번호는 유지하고 신규 전설 증강은 맨 뒤에 붙는다', () => {
     assert.equal(OLD.length, 187);
@@ -263,8 +263,8 @@ describe('새 카드: 이미 있는 카드의 전송 번호는 그대로', () =>
 
   test('새 카드도 제안에 나온다', () => {
     const seen = new Set();
-    for (let s = 0; s < 600; s++) for (const id of makeOffer({ seed: s, playerId: 'p', stage: 6, taken: [] })) seen.add(cardById(id).family);
-    for (const f of ['reflex', 'wave', 'anchor', 'c4']) assert.ok(seen.has(f), f);
+    for (let s = 0; s < 2000; s++) for (const id of makeOffer({ seed: s, playerId: 'p', stage: 6, taken: [] })) seen.add(cardById(id).family);
+    for (const f of ['reflex', 'wave', 'anchor', 'c4', 'zeus']) assert.ok(seen.has(f), f);
   });
 
   test('보조무기 마스터: 주무기 사격은 방장이 거절하고, 보조무기는 피해 6배 · 연사 2배 · 탄창 2배', () => {
@@ -342,13 +342,38 @@ describe('수류탄 증강: 최대 수류탄 +2 · C4', () => {
 });
 
 describe('보스 · 스테이지 규칙', () => {
-  test('보스 10종, 번호가 겹치지 않고 스킬이 2개 이상', () => {
-    assert.equal(BOSSES.length, 10);
-    assert.equal(new Set(BOSSES.map((b) => b.code)).size, 10);
+  test('보스 11종, 번호가 겹치지 않고 스킬이 있다(비전 포격수만 포격 하나, 나머지는 2개 이상)', () => {
+    assert.equal(BOSSES.length, 11);
+    assert.equal(new Set(BOSSES.map((b) => b.code)).size, 11);
     for (const b of BOSSES) {
-      assert.ok(b.skills.length >= 2, b.id);
+      assert.ok(b.skills.length >= (b.id === 'arcanist' ? 1 : 2), b.id);
       for (const s of b.skills) assert.ok(SKILL_KINDS[s.kind], `${b.id}:${s.kind}`);
     }
+  });
+
+  test('비전 포격수: 제자리에서 좁은 포탄 5발을 하나씩 떨어뜨리고, 5초 걸은 뒤 다시 포격한다', () => {
+    const { d, P } = makeFlat({ startStage: 1 });
+    P('p1').hp = P('p1').maxHp = 1e6;
+    const Z = bossAt(d, 'arcanist', [0, 0, 15], 'barrage');
+    d.internals.S.queue.length = 0; d.internals.S.spawnAt = Infinity;
+    const seen = new Set(), shotAt = [];
+    let still = null, moved = 0;
+    for (let i = 0; i < Math.ceil(16000 / STEP) && shotAt.length < 6; i++) {
+      step(d);
+      for (const q of d.internals.projectiles) {
+        if (q.kind !== PROJECTILE_KINDS.orb || seen.has(q.id)) continue;
+        seen.add(q.id);
+        shotAt.push(d.internals.S.clock);
+        assert.equal(q.blast.r, 2.2, '좁은 범위');
+        assert.ok(q.arc, '포물선');
+        if (shotAt.length === 1) still = Z.body.pos.slice();
+      }
+      if (shotAt.length >= 1 && shotAt.length < 5) moved = Math.max(moved, Math.hypot(Z.body.pos[0] - still[0], Z.body.pos[2] - still[2]));
+    }
+    assert.equal(shotAt.length, 6, '다섯 발 뒤 다시 포격');
+    assert.ok(moved < 0.01, `포격하는 동안 제자리 ${moved}`);
+    for (let i = 1; i < 5; i++) assert.ok(shotAt[i] - shotAt[i - 1] < 2500, `연달아 ${shotAt[i] - shotAt[i - 1]} ms`);
+    assert.ok(shotAt[5] - shotAt[4] >= 5000, `다섯 발 뒤 5초 넘게 걷는다 ${shotAt[5] - shotAt[4]} ms`);
   });
 
   test('3스테이지마다 보스, 50이 넘으면 2마리, 100이 넘으면 3마리', () => {

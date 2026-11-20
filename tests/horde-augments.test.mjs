@@ -7,7 +7,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CARDS, computePerks, perkMaxHp, makeOffer, cardById, cardAvailable } from '../js/game/horde/cards.js';
-import { HORDE, zombieMix, ZOMBIE_TYPES, frostSlowMs } from '../js/game/horde/rules.js';
+import { HORDE, zombieMix, ZOMBIE_TYPES, frostSlowMs, hordeAmmo } from '../js/game/horde/rules.js';
 import { createHorde, zombieHitDamage, nadeDamage } from '../js/game/horde/director.js';
 import { modsFromPerks } from '../js/game/horde/client.js';
 import { WEAPONS } from '../js/weapons/defs.js';
@@ -201,6 +201,66 @@ describe('QA 요청 증강 묶음', () => {
     assert.equal(WEAPONS.gv_gun.projectile.kind, 'gravity');
     assert.equal(WEAPONS.gv_gun.zombieOnly, true);
     assert.equal(cardById('sideGravity').instant.side, 'gv_gun');
+  });
+});
+
+describe('상점·증강 새 무기(2026-11-20)', () => {
+  /** p1(원점)에서 +x로 dist m 떨어진 곳에 살아 있는 좀비 하나를 세운다(체력 넉넉히) */
+  function zombieAt(d, dist) {
+    const Z = alive(d)[0];
+    Z.state = 'move'; Z.skill = null; Z.hp = Z.maxHp = 1e6;
+    Z.body.pos[0] = dist; Z.body.pos[1] = 0; Z.body.pos[2] = 0;
+    Z.body.vel[0] = Z.body.vel[1] = Z.body.vel[2] = 0;
+    return Z;
+  }
+
+  test('공기총: 맞은 좀비가 사수 반대쪽 위 45°로 날아갔다가 내려앉고, 피해는 약하다', () => {
+    const { d } = makeFlat();
+    const Z = zombieAt(d, 4);
+    d.claimHit({ attackerId: 'p1', victimId: 'z' + Z.id, weaponId: 'pn_air', part: 'body', dist: 4, kind: 'shot', count: 5, shotId: 1 });
+    assert.equal(Z.maxHp - Z.hp, 10, '펠릿 5발 × 몸 2');
+    const [vx, vy] = Z.body.vel;
+    assert.ok(vx > 4 && Math.abs(vx - vy) < 1e-6, `사수 반대쪽(+x)으로 위 45°: ${vx.toFixed(2)}, ${vy.toFixed(2)}`);
+    let top = 0;
+    for (let i = 0; i < 400 && Z.knockUntil; i++) { step(d); top = Math.max(top, Z.body.pos[1]); }
+    assert.ok(top > 1 && Z.body.pos[0] > 6, `높이 ${top.toFixed(2)} m · 거리 ${Z.body.pos[0].toFixed(2)} m`);
+    assert.equal(Z.knockUntil, 0, '내려앉으면 끝난다');
+    assert.ok(Math.abs(Z.body.pos[1]) < 1e-6, '처음 높이에 내려앉는다');
+  });
+
+  test('007 가방: 휘두르기는 약하게, 우클릭 내려치기는 더 세게 밀고, 다른 칼은 밀지 않는다', () => {
+    const push = (weaponId, kind) => {
+      const { d } = makeFlat();
+      const Z = zombieAt(d, 1.5);
+      d.claimHit({ attackerId: 'p1', victimId: 'z' + Z.id, weaponId, part: 'body', dist: 1.5, kind, count: 1 });
+      return Math.hypot(Z.body.vel[0], Z.body.vel[1]);
+    };
+    const slash = push('ml_case', 'slash'), stab = push('ml_case', 'stab');
+    assert.ok(slash > 0 && stab > slash * 1.5, `휘두르기 ${slash.toFixed(2)} · 내려치기 ${stab.toFixed(2)} m/s`);
+    assert.equal(push('ml_knife', 'slash'), 0);
+  });
+
+  test('말뚝건 450 · 투척 도끼는 주장 하나에 한 마리 120 · 제우스의 번개는 카드가 있어야 하고 여섯 마리까지 150씩', () => {
+    const dealt = (cards, kind, times) => {
+      const { d } = makeFlat({ p1: [0, 0, 0] }, cards);
+      const Z = zombieAt(d, 6);
+      d.claimExplosion({ attackerId: 'p1', center: { x: 6, y: 1, z: 0 }, kind, victims: Array.from({ length: times }, () => ({ id: 'z' + Z.id, dmg: 100 })) });
+      return Z.maxHp - Z.hp;
+    };
+    assert.equal(dealt([], 'stake', 1), 450);
+    assert.equal(dealt([], 'axe', 3), 120, '도끼는 닿은 좀비 하나마다 따로 주장한다');
+    assert.equal(dealt([], 'bolt', 1), 0, '카드 없이는 번개 주장을 받지 않는다');
+    assert.equal(dealt(['zeus'], 'bolt', 9), 6 * 150, '처음 하나 + 다섯 번 튄 것까지, 피해는 줄지 않는다');
+    assert.equal(cardById('zeus').instant.primary, 'zs_bolt');
+  });
+
+  test('제우스의 번개는 좀비 모드의 프리미엄 탄창 제한(finiteMags)을 받지 않고 예비가 무제한이다', () => {
+    assert.equal(hordeAmmo(WEAPONS.zs_bolt).reserve, Infinity);
+    const a = createArsenal({ primary: 'zs_bolt', secondary: 'pt_std', melee: 'ml_knife' });
+    a.setMods(modsFromPerks(computePerks([])));
+    a.resetRound({});
+    assert.equal(a.getAmmo('zs_bolt').reserve, Infinity);
+    assert.ok(Number.isFinite(a.getAmmo('dm_mark').reserve), '다른 프리미엄 총은 좀비 모드에서 정해진 탄창 수');
   });
 });
 

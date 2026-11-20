@@ -43,7 +43,10 @@ export const PROJECTILES = Object.freeze({
   gl: Object.freeze({ code: 1, gravity: -9, impact: true }),       // 유탄 발사기: 낮게 휘어 날아가 맞은 자리에서 터진다
   rocket: Object.freeze({ code: 2, gravity: 0, impact: true }),    // 바주카포: 곧게 날아가 닿는 곳에서 터진다
   c4: Object.freeze({ code: 3, impact: false, sticky: true }),     // C4 수류탄(증강): 손으로 던진 수류탄처럼 날고 튀며 신관이 다 되면 터진다
-  gravity: Object.freeze({ code: 4, gravity: -1.5, impact: true }) // 중력건: 거의 곧게 날아가 처음 닿는 곳에서 '터진다'(피해 대신 좀비를 끌어당긴다)
+  gravity: Object.freeze({ code: 4, gravity: -1.5, impact: true }), // 중력건: 거의 곧게 날아가 처음 닿는 곳에서 '터진다'(피해 대신 좀비를 끌어당긴다)
+  stake: Object.freeze({ code: 5, gravity: -9, impact: true }),    // 말뚝건: 포물선으로 날아가 처음 닿는 곳에 박힌다(반경 1.2 m 강한 피해)
+  axe: Object.freeze({ code: 6, gravity: -12, impact: true, pierce: true }),   // 투척 도끼: 좀비는 뚫고 지나가며(닿을 때마다 피해, World가 잰다) 벽·바닥에 박히면 멈춘다
+  bolt: Object.freeze({ code: 7, gravity: -4, impact: true })     // 제우스의 번개(증강 주무기): 조금 휘어 날아가 닿는 곳에서 좀비 사이로 다섯 번 튄다(World zeusChain)
 });
 const PROJ_BY_CODE = new Map(Object.entries(PROJECTILES).map(([k, v]) => [v.code, k]));
 /** 발사체 종류 번호 ↔ 이름(네트워크) */

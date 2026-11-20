@@ -213,7 +213,10 @@ const ADDED = [
   { key: 'aiGlasses', name: 'AI 안경', icon: '🥽', tier: 'legend', max: 1, minStage: 3,
     fx: { autoAim: 1 }, desc: '안경을 쓰고 총을 쏘면 앞쪽 조준 원뿔 안에 있는 좀비의 몸통을 자동 조준한다' },
   { key: 'sideMaster', name: '보조무기 마스터', icon: '🔫', tier: 'legend', max: 1, minStage: 3,
-    fx: { sideMaster: 1 }, desc: '주무기를 더 쓸 수 없다. 대신 보조무기 발사 속도 2배 · 피해 +500% · 최대 탄창 2배' }
+    fx: { sideMaster: 1 }, desc: '주무기를 더 쓸 수 없다. 대신 보조무기 발사 속도 2배 · 피해 +500% · 최대 탄창 2배' },
+  // 제우스의 번개(요청 2026-11-20): 주무기가 번개를 던지는 무기로 바뀐다. 맞으면 근처 좀비로 다섯 번 튀고 피해가 줄지 않는다
+  { key: 'zeus', name: '제우스의 번개', icon: '🌩️', tier: 'legend', max: 1, minStage: 3,
+    instant: { primary: 'zs_bolt' }, desc: '주무기가 제우스의 번개로 바뀐다(던진 번개가 맞으면 근처 좀비로 5번 튄다 · 튈 때마다 피해 그대로 150 · 탄약 무제한)' }
 ];
 
 /** 묶음 하나 → 카드 네 장(I 일반 · II 희귀 · III 영웅 · IV 전설, minTier가 있으면 그 등급부터) */

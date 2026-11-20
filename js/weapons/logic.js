@@ -142,11 +142,11 @@ export function createArsenal(opts = {}) {
     const d = WEAPONS[id];
     return d.mag == null ? null : Math.max(1, Math.round(d.mag * mods.mag * (d.slot === 2 ? mods.sideMag : 1)) + (mods.magAdd | 0));
   };
-  /** 이 무기의 최대 예비 탄(배율 반영). 무제한이면 Infinity */
+  /** 이 무기의 최대 예비 탄(배율 반영). 무제한이면 Infinity. 좀비 모드(finiteMags)는 프리미엄 총도 정해진 탄창 수만 주지만, infiniteAmmo 무기(제우스의 번개)는 그대로 무제한이다 */
   const reserveOf = (id) => {
     const d = WEAPONS[id];
     if (d.reserve == null) return null;
-    if (!Number.isFinite(d.reserve)) return mods.finiteMags > 0 ? Math.max(0, Math.round(d.mag * mods.finiteMags * mods.reserve)) : Infinity;
+    if (!Number.isFinite(d.reserve)) return mods.finiteMags > 0 && !d.infiniteAmmo ? Math.max(0, Math.round(d.mag * mods.finiteMags * mods.reserve)) : Infinity;
     return Math.max(0, Math.round(d.reserve * mods.reserve));
   };
   const countOf = (id) => (WEAPONS[id].count == null ? null : WEAPONS[id].count + Math.max(0, mods.nades | 0));

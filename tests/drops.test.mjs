@@ -12,8 +12,8 @@ import { EV, decodeDrop, decodeMessage, decodePick, encodeDrop, encodePick, isGa
 
 const DT = 1 / 60;
 const GUNS = [...PRIMARY_IDS, ...SECONDARY_IDS];
-/** 좀비 물량 막기 전용 발사기(zombieOnly). 증강으로만 얻고 탄약은 그 모드의 규칙을 따른다 */
-const ZOMBIE_ONLY = GUNS.filter((id) => WEAPONS[id].zombieOnly);
+/** 좀비 물량 막기 전용 발사기(zombieOnly). 증강이나 상점으로 얻고 탄약은 그 모드의 규칙을 따른다. 제우스의 번개(증강 주무기)만 예비가 무제한이다 */
+const ZOMBIE_ONLY = GUNS.filter((id) => WEAPONS[id].zombieOnly && id !== 'zs_bolt');
 const wire = (v) => JSON.parse(JSON.stringify(v));
 
 /** 탄창이 빌 때까지 쏘고 재장전한다. 예비가 없으면 멈춘다 */

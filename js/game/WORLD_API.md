@@ -194,6 +194,8 @@ await world.loadMap(mapId, { mode, ruleset });
 | `hordeEvent(ev)` | 연출이 필요한 방장 이벤트(skill·enrage·bossSpawn) |
 | `setHordePerks(o \| null)` | 카드 효과의 내 화면 몫 `{ mods, speed, maxSpeed, jump, pierce, maxHp }`. `mods`는 `arsenal.setMods`(탄창·연사·재장전·탄퍼짐·반동·예비 배율 등). null이면 기본값 |
 | `slowLocal(mul, ms)` | 비명·얼음 가시·붙잡힘: ms 동안 이동 속도 ×mul(0.2~1) |
+| `stunLocal(ms)` | 블리츠 평타·그랩: ms 동안 기절(움직이지도 쏘지도 못한다) |
+| `hordeLocalStatus()` → `{ slowMs, slowMul, stunMs, grabbed }` | 내 몸의 남은 느려짐 ms·배율, 남은 기절 ms, 좀비 몸에 붙잡혔는가(`HORDE.grabSlow`). 좀비 모드에서 살아 있을 때만 값이 있다. 같은 객체를 다시 쓰므로 붙잡아 두지 말 것. `horde/client.js`가 매 프레임 HUD 버프·디버프 줄(`hud.set({ status })`)에 쓴다 |
 | `pushLocal([vx, vy, vz])` | 보스 돌진·내려찍기에 밀려남, 좀비에게 맞아 밀려남(스냅샷 사람 행의 `knock`, 번호가 바뀔 때 한 번) |
 | `refillReserve()` · `refillGrenades()` · `addMagAmmo(n)` · `addReserve(n, id?)` · `addGrenades(n = 1)` | 카드·처치 보상과 바닥 보급품의 탄약. `addReserve`의 `id`를 주면 그 총에, 없으면 든 총에 넣는다 |
 | `setHordePerks({ …, nadeMulti, nadeRadiusOf(owner) })` | 다연발 투척(한 번에 더 던지는 수류탄 수, 부채꼴)과 수류탄 폭발 반경 배율(던진 사람마다. 방장 화면은 남의 수류탄도 이 배율로 잰다) |

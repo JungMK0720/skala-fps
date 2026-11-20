@@ -612,6 +612,34 @@ function gurkhaGeo() {
     box(0.03, 0.038, 0.016, 0, -0.008, 0.066, BRASS)
   ]);
 }
+/** 007 가방(손 소켓 기준): 손잡이(z축)를 쥐고 아래(-Y)로 늘어뜨린 서류 가방. 금속 모서리와 잠금쇠 두 개 */
+function caseGeo() {
+  const parts = [
+    box(0.024, 0.024, 0.12, 0, 0, 0, 0x1c1c20),            // 손잡이
+    box(0.02, 0.05, 0.02, 0, -0.035, 0.05, HELMET_DK),
+    box(0.02, 0.05, 0.02, 0, -0.035, -0.05, HELMET_DK),
+    box(0.1, 0.32, 0.46, 0, -0.22, 0, 0x3b3b44),           // 몸통
+    box(0.106, 0.03, 0.04, 0, -0.085, 0.13, BRASS),        // 잠금쇠
+    box(0.106, 0.03, 0.04, 0, -0.085, -0.13, BRASS)
+  ];
+  for (const sy of [1, -1]) for (const sz of [1, -1]) parts.push(box(0.106, 0.04, 0.04, 0, -0.22 + sy * 0.145, sz * 0.215, STEEL));   // 금속 모서리
+  return merge(parts);
+}
+/** 전기톱(손 소켓 = 뒤 손잡이). 노란 엔진 몸통, 위 손잡이, -Z로 뻗은 안내판과 체인 */
+function sawGeo() {
+  const DARK = 0x24272b, CHAIN = 0x2a2d31;
+  return merge([
+    box(0.03, 0.03, 0.14, 0, 0, 0.04, DARK),               // 뒤 손잡이
+    box(0.11, 0.16, 0.24, 0, -0.02, -0.15, 0xe8a317),      // 엔진 몸통
+    box(0.09, 0.03, 0.2, 0, 0.07, -0.15, DARK),            // 위 덮개
+    box(0.02, 0.05, 0.02, -0.05, 0.085, -0.2, DARK),       // 위 손잡이
+    box(0.12, 0.022, 0.022, 0, 0.11, -0.2, DARK),
+    box(0.012, 0.07, 0.4, 0, -0.06, -0.47, STEEL_DK),      // 안내판
+    box(0.016, 0.012, 0.4, 0, -0.022, -0.47, CHAIN),       // 체인
+    box(0.016, 0.012, 0.4, 0, -0.098, -0.47, CHAIN),
+    cylX(0.035, 0.012, 10, 0, -0.06, -0.67, STEEL_DK)      // 둥근 코
+  ]);
+}
 
 /**
  * 든 무기·등에 맨 총은 캐릭터·팀과 상관없다 → 한 번만 만들어 손 소켓 자리에 놓아 두고, 캐릭터마다 복사해 합친다
@@ -624,7 +652,9 @@ function heldWeapons() {
       armsGun: place(gunGeo(), HAND[0], HAND[1], HAND[2]),
       armsKatana: aimGeo(katanaGeo(), HAND_R, [-0.14, 0.56, -0.82], [0.0, -0.82, -0.56]),
       armsKnife: aimGeo(knifeGeo(), HAND_R, [-0.1, 0.24, -0.96], [0.0, -0.96, -0.24]),
-      armsGurkha: aimGeo(gurkhaGeo(), HAND_R, [-0.1, 0.34, -0.93], [0.0, -0.93, -0.34])
+      armsGurkha: aimGeo(gurkhaGeo(), HAND_R, [-0.1, 0.34, -0.93], [0.0, -0.93, -0.34]),
+      armsCase: aimGeo(caseGeo(), HAND_R, [-0.1, 0, -1], [0, -1, 0]),
+      armsSaw: aimGeo(sawGeo(), HAND_R, [-0.06, 0.08, -1], [0, -1, 0.08])
     };
   }
   return heldGeo;
@@ -645,7 +675,7 @@ const geoKey = (id, team) => avatarIdOf(id) + ':' + (TEAMS[team] ? team : 'owner
 const geoCache = new Map();
 /**
  * 캐릭터 × 팀 → 평소 몸 지오메트리 (팀 색이 정점색으로 들어감)
- * { upper(몸통+머리+어깨 보호대), legL, legR, legBentL, legBentR, armsGun·armsKatana·armsKnife·armsGurkha(두 팔+든 무기), armsOnly }
+ * { upper(몸통+머리+어깨 보호대), legL, legR, legBentL, legBentR, armsGun·armsKatana·armsKnife·armsGurkha·armsCase·armsSaw(두 팔+든 무기), armsOnly }
  */
 function bodyGeometry(id, team) {
   const key = geoKey(id, team);
@@ -664,7 +694,8 @@ function bodyGeometry(id, team) {
   const withHeld = (key) => merge([armsOnly.clone(), W[key].clone()]);
   const set = {
     upper, legL: straightLeg(st, c, -1), legR: straightLeg(st, c, 1), legBentL: bentLeg(st, c, -1), legBentR: bentLeg(st, c, 1),
-    armsGun: withHeld('armsGun'), armsKatana: withHeld('armsKatana'), armsKnife: withHeld('armsKnife'), armsGurkha: withHeld('armsGurkha'), armsOnly
+    armsGun: withHeld('armsGun'), armsKatana: withHeld('armsKatana'), armsKnife: withHeld('armsKnife'), armsGurkha: withHeld('armsGurkha'),
+    armsCase: withHeld('armsCase'), armsSaw: withHeld('armsSaw'), armsOnly
   };
   geoCache.set(key, set);
   return set;
@@ -750,12 +781,14 @@ function applyRigPose(r, p) {
   }
 }
 
+/** 칼 무기 id → 팔 지오메트리 이름(목록에 없는 칼은 armsKnife) */
+const MELEE_ARMS = { ml_katana: 'armsKatana', ml_gurkha: 'armsGurkha', ml_case: 'armsCase', ml_saw: 'armsSaw' };
 /** 슬롯·무기 id → 팔 지오메트리 이름. 칼만 바꾸고 나머지(수류탄 포함)는 기본 총 */
 function armsKeyOf(slot, weaponId) {
   const s = Number(slot);
   const melee = s === 3 || (!(s > 0) && typeof weaponId === 'string' && weaponId.startsWith('ml_'));
   if (!melee) return 'armsGun';
-  return weaponId === 'ml_katana' ? 'armsKatana' : weaponId === 'ml_gurkha' ? 'armsGurkha' : 'armsKnife';
+  return MELEE_ARMS[weaponId] || 'armsKnife';
 }
 
 let sharedMat = null;

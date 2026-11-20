@@ -125,6 +125,10 @@ const SR_SWIFT_PATTERN = [[-0.20, 2.20], [0.25, 2.00]];
 const SR_HEAVY_PATTERN = [[0.35, 5.50], [-0.35, 5.50]];
 const PT_STD_PATTERN = [[0.00, 1.30], [0.25, 1.15], [-0.25, 1.15], [0.15, 1.05]];
 const PT_MAGNUM_PATTERN = [[0.00, 3.00], [0.50, 2.70], [-0.50, 2.70]];
+/** SH-2 쇼티. 두 발을 빠르게 쏘므로 둘째 발이 조금 옆으로 튄다 */
+const SG_SHORTY_PATTERN = [[0.00, 3.80], [0.45, 3.40]];
+/** AG-8 공기총. 압축 공기가 터지며 위로 한 번 튄다 */
+const PN_AIR_PATTERN = [[0.00, 2.20]];
 
 /**
  * MG-100(100발, 좀비 전용). 처음 8발은 거의 수직으로 솟고(발당 0.5~0.8°), 9~16발은 왼쪽으로, 17~20발은 오른쪽으로 끌린다.
@@ -181,7 +185,7 @@ function gunStats(w) {
   rows.push({ label: '감쇠', value: f ? `${f.start}~${f.end} m → ${pct(f.min)}${w.headIgnoresFalloff ? ' · 머리 제외' : ''}` : '없음' });
   if (z) rows.push({ label: '줌', value: `${zoomText(z)} · 이동 ${pct(z.moveMul)}` });
   if (w.recoilNote) rows.push({ label: '반동', value: w.recoilNote });
-  rows.push({ label: '탄약', value: `${w.mag} / ${w.premium ? '무제한' : w.reserve}` });
+  rows.push({ label: '탄약', value: `${w.mag} / ${w.premium || !Number.isFinite(w.reserve) ? '무제한' : w.reserve}` });
   rows.push({ label: '이동', value: pct(w.moveMul) });
   return rows;
 }
@@ -191,13 +195,21 @@ function meleeStats(w) {
   return [row(w.melee.slash), row(w.melee.stab), { label: '이동', value: pct(w.moveMul) }];
 }
 
+/** 밀어내기(knock) 행: 좀비 물량 막기에서 맞은 좀비가 날아가는 속도와 각도. 사람은 밀지 않는다 */
+function knockRow(w) {
+  const parts = [['shot', '맞히면'], ['slash', w.melee && w.melee.slash.label], ['stab', w.melee && w.melee.stab.label]]
+    .filter(([k]) => w.knock[k]).map(([k, n]) => `${n} ${w.knock[k].speed} m/s · 위 ${w.knock[k].up}°`);
+  return { label: '밀어내기', value: `${parts.join(' / ')} (좀비 모드)` };
+}
+
 /** 표의 값에 프리미엄 여부와 카드 문구를 더한다. 프리미엄 총의 reserve는 Infinity라 재장전 계산이 그대로 돈다. premium: false를 적으면 비싸도 예비가 정해진 총이다 */
 function gun(o) {
   const premium = o.premium ?? o.price >= PREMIUM_PRICE;
   const w = { pellets: 1, headIgnoresFalloff: false, ...o, premium, reserve: premium ? Infinity : o.reserve };
-  return { ...w, stats: gunStats(w) };
+  const stats = gunStats(w);
+  return { ...w, stats: w.knock ? [...stats, knockRow(w)] : stats };
 }
-const blade = (o) => ({ ...o, stats: meleeStats(o) });
+const blade = (o) => ({ ...o, stats: o.knock ? [...meleeStats(o), knockRow(o)] : meleeStats(o) });
 
 /* ───────────────────────────── 무기 표 (DESIGN 3.2) ───────────────────────────── */
 
@@ -705,6 +717,33 @@ const WEAPON_TABLE = {
     zoom: null,
   }),
 
+  // 짧게 자른 두 발짜리 산탄 보조무기(요청 2026-11-20, 발로란트 쇼티 같은 무기). 두 발을 0.25초 간격으로 쏟아내고 바로 장전한다.
+  // 펠릿 12발 × 몸 7이라 코앞에서 84, 두 발이면 쓰러진다. 5 m부터 줄어 15 m에서는 30%라 멀면 쓸모가 없다.
+  sg_shorty: gun({
+    id: 'sg_shorty', slot: 2, kind: 'shotgun', category: 'shotgun', fire: 'semi', price: 400,
+    name: 'SH-2 쇼티', nameEn: 'SH-2 Shorty', short: 'SH-2', role: '근거리 보조',
+    icon: '✂️', color: '#a0522d', sound: 'shotgun', fxKind: 'rifle',
+    tagline: '두 발을 빠르게, 코앞에서.',
+    desc: '총열을 짧게 자른 두 발짜리 산탄 보조무기다. 두 발을 빠르게 연달아 쏘고 곧바로 장전한다. 5 m 안에서는 강하지만 15 m 밖에서는 힘이 거의 없다.',
+    recoilNote: '두 발 모두 크게 튄다',
+    bars: { power: 70, rate: 60, accuracy: 12, mobility: 92 },
+
+    damage: { head: 10, body: 7, legs: 5, hand: 3, foot: 3 },   // 펠릿 1발 기준
+    pellets: 12,
+    falloff: { start: 5, end: 15, min: 0.3 },
+    maxRange: 25,
+
+    rpm: 240, fireInterval: 0.25,
+
+    mag: 2, reserve: 4, reload: 1.75, reloadEmpty: 1.9,
+    drawTime: 0.4, moveMul: 1.0,
+
+    spread: { hip: 4.6, move: 0.8, air: 2.5, bloomPerShot: 0, bloomMax: 0, bloomDecay: 0, max: 8 },
+    recoil: { pattern: SG_SHORTY_PATTERN, loopFrom: 1, adsMul: 1, maxPitch: 9, maxYaw: 2.5,
+      recoverDelay: 0.1, recoverRate: 7, patternRecover: 6 },
+    zoom: null,
+  }),
+
   // ───────────────────────────── 슬롯 3 · 근접 ─────────────────────────────
   // 기본 지급. 갈고리 날에 밧줄을 감은 손잡이. 짧고 빠르게 베고, 찌르기는 한 번에 쓰러뜨린다.
   ml_knife: blade({
@@ -795,6 +834,55 @@ const WEAPON_TABLE = {
     rpm: 97, fireInterval: 0.62,
     mag: null, reserve: null, reload: null,
     drawTime: 0.55, moveMul: 1.05,
+    spread: null, recoil: null, zoom: null,
+  }),
+
+  // 007 가방(요청 2026-11-20): 금속 모서리를 댄 서류 가방으로 친다. 휘두르기는 약하게, 우클릭 내려치기는 중간 피해로 더 세게 밀어낸다.
+  // 밀어내기(knock)는 좀비 물량 막기 방장(director.js knockZombie)만 쓰고, 다른 모드에서는 피해만 준다.
+  ml_case: blade({
+    id: 'ml_case', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 700,
+    name: '007 가방', nameEn: '007 Briefcase', short: '007', role: '근접',
+    icon: '💼', color: '#3b3b44', sound: 'knife_slash', fxKind: null,
+    heavySound: 'katana_heavy', hitSound: 'knife_hit',
+    tagline: '서류 가방으로 후려쳐 밀어낸다.',
+    desc: '금속 모서리를 댄 서류 가방이다. 휘두르면 맞은 좀비가 약하게 밀려나고, 우클릭으로 크게 내려치면 중간 피해와 함께 더 멀리 밀려난다. 밀어내기는 좀비 물량 막기에서만 된다.',
+    bars: { power: 55, rate: 40, accuracy: 45, mobility: 96 },
+
+    damage: null,
+    falloff: null,
+    melee: {
+      slash: { label: '휘두르기', damage: 35, cooldown: 0.5, windup: 0.08, range: 2.0, arc: 40 },
+      stab: { label: '내려치기', damage: 70, cooldown: 1.0, windup: 0.24, range: 2.1, arc: 22 },
+    },
+    knock: { slash: { speed: 5, up: 20 }, stab: { speed: 10, up: 30 } },
+    maxRange: 2.1,
+    rpm: 120, fireInterval: 0.5,
+    mag: null, reserve: null, reload: null,
+    drawTime: 0.45, moveMul: 1.08,
+    spread: null, recoil: null, zoom: null,
+  }),
+
+  // 전기톱(요청 2026-11-20): 좌클릭을 누르고 있으면 0.1초마다 10씩 계속 갈아 낸다(초당 100). 우클릭은 크게 휘두르고,
+  // 좀비 물량 막기의 검기 증강은 우클릭 휘두르기(stab)에서만 나간다(world.js launchWave, director.js claimHit 'waveStab').
+  ml_saw: blade({
+    id: 'ml_saw', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 1300,
+    name: '전기톱', nameEn: 'Chainsaw', short: 'SAW', role: '근접',
+    icon: '🪚', color: '#e8a317', sound: 'flame', fxKind: null,
+    heavySound: 'katana_heavy', hitSound: 'knife_hit',
+    tagline: '누르고 있는 동안 계속 갈아 낸다.',
+    desc: '좌클릭을 누르고 있으면 톱날에 닿은 적을 0.1초마다 계속 벤다. 우클릭은 톱을 크게 휘둘러 한 번에 큰 피해를 준다. 무거워서 조금 느리게 걷는다.',
+    bars: { power: 85, rate: 100, accuracy: 40, mobility: 88 },
+
+    damage: null,
+    falloff: null,
+    melee: {
+      slash: { label: '갈기', damage: 10, cooldown: 0.1, windup: 0.02, range: 1.9, arc: 30 },
+      stab: { label: '휘두르기', damage: 90, cooldown: 1.1, windup: 0.26, range: 2.4, arc: 40 },
+    },
+    maxRange: 2.4,
+    rpm: 600, fireInterval: 0.1,
+    mag: null, reserve: null, reload: null,
+    drawTime: 0.6, moveMul: 0.98,
     spread: null, recoil: null, zoom: null,
   }),
 
@@ -895,6 +983,70 @@ const WEAPON_TABLE = {
     explosion: { radius: 7, inner: 7, max: 100 },
   }),
 
+  // 공기총(요청 2026-11-20): 좀비 물량 막기 전용(zombieOnly)이지만 상점에서 판다(shop). 8 m 안 앞쪽으로 압축 공기를 넓게 뿜어
+  // 맞은 좀비를 위로 45° 강하게 날린다(director.js knockZombie, 보스는 30%). 펠릿 5발 × 몸 2 = 10이라 피해는 약하다.
+  pn_air: gun({
+    id: 'pn_air', slot: 2, kind: 'shotgun', category: 'launcher', fire: 'semi', price: 900, zombieOnly: true, shop: true,
+    name: 'AG-8 공기총', nameEn: 'AG-8 Air Cannon', short: 'AG-8', role: '밀어내기',
+    icon: '💨', color: '#7fd3ff', sound: 'shotgun', fxKind: 'pistol',
+    tagline: '가까운 좀비를 하늘로 날려 보낸다.',
+    desc: '좀비 물량 막기에서만 쓰는 보조무기다. 8 m 안 앞쪽으로 압축 공기를 넓게 뿜어 맞은 좀비를 위로 45° 강하게 날려 보낸다. 피해는 약하고 보스는 조금만 밀린다.',
+    bars: { power: 15, rate: 35, accuracy: 30, mobility: 90 },
+    damage: { head: 3, body: 2, legs: 2, hand: 1, foot: 1 },   // 펠릿 1발 기준
+    pellets: 5,
+    falloff: null,
+    maxRange: 8,
+    rpm: 86, fireInterval: 0.7,
+    mag: 4, reserve: 8, reload: 2.2, reloadEmpty: 2.5,
+    drawTime: 0.5, moveMul: 0.98,
+    spread: { hip: 9, move: 0, air: 0, bloomPerShot: 0, bloomMax: 0, bloomDecay: 0, max: 9 },
+    recoil: { pattern: PN_AIR_PATTERN, loopFrom: 0, adsMul: 1, maxPitch: 5, maxYaw: 1.5, recoverDelay: 0.1, recoverRate: 8, patternRecover: 8 },
+    zoom: null,
+    knock: { shot: { speed: 14, up: 45 } },
+  }),
+  // 말뚝건(요청 2026-11-20): 좀비 물량 막기 전용이지만 상점에서 판다. 무거운 말뚝이 포물선을 그리며 날아가(grenade.js PROJECTILES.stake)
+  // 처음 닿는 곳에서 반경 1.2 m 안의 좀비에게 100 × BLAST_MUL.stake(4.5) = 450을 준다. 폭발이 아니라 박히는 것이라 불빛·소리가 작다.
+  sk_stake: gun({
+    id: 'sk_stake', slot: 2, kind: 'launcher', category: 'launcher', fire: 'semi', price: 1000, zombieOnly: true, shop: true,
+    name: 'ST-1 말뚝건', nameEn: 'ST-1 Stake Gun', short: 'ST-1', role: '강타',
+    icon: '📌', color: '#9b6b3d', sound: 'magnum', fxKind: 'pistol',
+    tagline: '포물선을 그리며 날아가 박힌다.',
+    desc: '좀비 물량 막기에서만 쓰는 보조무기다. 무거운 말뚝이 포물선을 그리며 날아가 처음 닿는 곳의 좀비에게 강력한 피해(최대 450)를 준다. 멀리 맞히려면 위를 겨눠야 한다.',
+    bars: { power: 95, rate: 20, accuracy: 55, mobility: 85 },
+    damage: { head: 0, body: 0, legs: 0, hand: 0, foot: 0 },
+    falloff: null,
+    maxRange: 80,
+    rpm: 67, fireInterval: 0.9,
+    mag: 3, reserve: 6, reload: 2.4, reloadEmpty: 2.8,
+    drawTime: 0.55, moveMul: 0.96,
+    spread: { hip: 0.3, move: 0.8, air: 1.5, bloomPerShot: 0, bloomMax: 0, bloomDecay: 6, max: 2 },
+    recoil: { pattern: PT_MAGNUM_PATTERN, loopFrom: 1, adsMul: 1, maxPitch: 8, maxYaw: 3, recoverDelay: 0.12, recoverRate: 6, patternRecover: 8 },
+    zoom: null,
+    projectile: { kind: 'stake', speed: 28, pitchUp: 0.04, fuse: 3.0 },
+    explosion: { radius: 1.2, inner: 1.2, max: 100 },
+  }),
+  // 투척 도끼(요청 2026-11-20): 좀비 물량 막기 전용이지만 상점에서 판다. 중력을 받아 휘어 날아가며(grenade.js PROJECTILES.axe, pierce)
+  // 닿는 좀비마다 100 × BLAST_MUL.axe(1.2) = 120을 주고 그대로 뚫고 지나간다(한 좀비는 한 번만). 벽·바닥에 박히면 멈추고 피해는 없다.
+  th_axe: gun({
+    id: 'th_axe', slot: 2, kind: 'launcher', category: 'launcher', fire: 'semi', price: 800, zombieOnly: true, shop: true,
+    name: 'TX-3 투척 도끼', nameEn: 'TX-3 Throwing Axe', short: 'TX-3', role: '관통 투척',
+    icon: '🪓', color: '#b0b8c0', sound: 'knife_slash', fxKind: 'pistol',
+    tagline: '휘어 날아가며 줄지어 선 좀비를 꿰뚫는다.',
+    desc: '좀비 물량 막기에서만 쓰는 보조무기다. 던진 도끼가 중력을 받아 휘어 날아가며 닿는 좀비마다 피해 120을 주고 그대로 뚫고 지나간다. 벽이나 바닥에 박히면 멈춘다.',
+    bars: { power: 70, rate: 40, accuracy: 50, mobility: 95 },
+    damage: { head: 0, body: 0, legs: 0, hand: 0, foot: 0 },
+    falloff: null,
+    maxRange: 60,
+    rpm: 100, fireInterval: 0.6,
+    mag: 5, reserve: 10, reload: 2.0, reloadEmpty: 2.3,
+    drawTime: 0.45, moveMul: 1.0,
+    spread: { hip: 0.4, move: 0.8, air: 1.5, bloomPerShot: 0, bloomMax: 0, bloomDecay: 6, max: 2 },
+    recoil: { pattern: PN_AIR_PATTERN, loopFrom: 0, adsMul: 1, maxPitch: 4, maxYaw: 1.5, recoverDelay: 0.1, recoverRate: 8, patternRecover: 8 },
+    zoom: null,
+    projectile: { kind: 'axe', speed: 24, pitchUp: 0.06, fuse: 3.0 },
+    explosion: { radius: 0.6, inner: 0.6, max: 100 },   // 닿은 좀비 한 마리의 기본 피해(폭발 반경은 쓰지 않는다)
+  }),
+
   // ───────────── 좀비 물량 막기 전용 주무기(상점·메뉴·봇·다른 모드에는 나오지 않는다. 좀비 모드의 무기 고르기 창과 무기 교체권으로만 든다) ─────────────
   // 100발 박스 탄창을 끊지 않고 쏟아붓는 기관총. 750rpm에 몸 22라 한 탄창의 피해가 2,200(RX-4의 720)이고 한 탄창 8초를 쉬지 않고 쏜다.
   // 그 대가가 크다: 들고 있으면 이동이 70%(좀비 러너 5 m/s보다 느리다), 조준하면 더 느리고, 꺼내기 1.15초·재장전 4.8초, 탄이 넓게 퍼지고 반동이 크다.
@@ -960,6 +1112,27 @@ const WEAPON_TABLE = {
       recoverDelay: 0.1, recoverRate: 7, patternRecover: 12 },
     zoom: { mag: 2, inTime: 0.2, outTime: 0.12, accurateAt: null, overlay: null,
       hideViewmodelAt: null, moveMul: 0.8, unzoomOnFire: false },
+  }),
+  // 제우스의 번개(증강 카드 'zeus' 전용 주무기, 요청 2026-11-20): 번개를 던지면 조금 휘어 날아가(grenade.js PROJECTILES.bolt) 닿은 자리 옆 좀비를 맞히고
+  // 8 m 안의 다른 좀비로 다섯 번 튄다(world.js zeusChain). 튈 때마다 피해가 줄지 않아 여섯 마리 모두 100 × BLAST_MUL.bolt(1.5) = 150.
+  // 예비 탄약은 무제한이다(infiniteAmmo: 좀비 모드의 프리미엄 탄창 제한 finiteMags도 받지 않는다, logic.js reserveOf).
+  zs_bolt: gun({
+    id: 'zs_bolt', slot: 1, kind: 'launcher', category: 'launcher', fire: 'semi', price: 0, zombieOnly: true, cardOnly: true, infiniteAmmo: true,
+    name: '제우스의 번개', nameEn: 'Bolt of Zeus', short: 'ZEUS', role: '연쇄 번개',
+    icon: '🌩️', color: '#fff27a', sound: 'rail', fxKind: 'rail',
+    tagline: '던진 번개가 좀비 사이를 다섯 번 튄다.',
+    desc: '번개를 던진다. 닿은 자리 옆 좀비를 맞히고 근처 좀비로 다섯 번 튀는데, 튈 때마다 피해가 줄지 않는다. 예비 탄약이 무제한이다.',
+    bars: { power: 80, rate: 35, accuracy: 70, mobility: 90 },
+    damage: { head: 0, body: 0, legs: 0, hand: 0, foot: 0 },
+    falloff: null, maxRange: 120,
+    rpm: 86, fireInterval: 0.7,
+    mag: 10, reserve: Infinity, reload: 1.2, reloadEmpty: 1.2,
+    drawTime: 0.5, moveMul: 1.0,
+    spread: { hip: 0.2, move: 0.6, air: 1.2, bloomPerShot: 0, bloomMax: 0, bloomDecay: 6, max: 2 },
+    recoil: { pattern: [[0, 1.2]], loopFrom: 0, adsMul: 1, maxPitch: 4, maxYaw: 1, recoverDelay: 0.08, recoverRate: 9, patternRecover: 10 },
+    zoom: null,
+    projectile: { kind: 'bolt', speed: 40, pitchUp: 0.03, fuse: 3.0 },
+    explosion: { radius: 8, inner: 8, max: 100 },   // radius는 튀는 거리 표기용. 피해는 맞은 좀비마다 max(폭발 반경 피해는 없다)
   }),
 };
 

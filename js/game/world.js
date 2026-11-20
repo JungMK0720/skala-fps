@@ -58,6 +58,8 @@ const PELLET_TRACERS = 3;
 const MAX_LIVE_GRENADES = 32;
 /** C4(좀비 물량 막기 증강)가 좀비에 닿았다고 보는 거리(유탄과 같다) */
 const C4_TOUCH_R = 0.45;
+const ZEUS_BOUNCES = 5;      // 제우스의 번개: 처음 맞은 좀비에서 다른 좀비로 튀는 횟수(피해는 줄지 않는다)
+const ZEUS_JUMP_M = 8;       // 한 번 튈 때 닿는 거리(m)
 /** 늦게 받은 남의 C4를 앞당길 때 한 번에 진행하는 시간(초). 이만큼마다 좀비에 닿았는지 본다 */
 const C4_CATCHUP_STEP = 1 / 60;
 /** 무기 슬롯 → arsenal 로드아웃 키 */
@@ -176,10 +178,76 @@ function buildWorld(ctx, opts) {
   // 수류탄 모형(풀)
   const nadeGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.13, 10);
   const nadeMat = new THREE.MeshLambertMaterial({ color: 0xe2b52a });
-  // 좀비 물량 막기 보조무기의 발사체: 유탄(어두운 초록)·로켓(주황, 날아가는 쪽으로 길게)
-  const projMats = { gl: new THREE.MeshLambertMaterial({ color: 0x4f6b2a }), rocket: new THREE.MeshLambertMaterial({ color: 0xff8a2a, emissive: 0x7a2a00 }), gravity: new THREE.MeshLambertMaterial({ color: 0x8a5cff, emissive: 0x4b2aa8 }) };
+  // 좀비 물량 막기 보조무기의 발사체: 유탄(어두운 초록)·로켓(주황, 날아가는 쪽으로 길게)·중력탄(보라)·말뚝(나무색, 길게)·투척 도끼(강철, 돌며 난다)
+  const projMats = {
+    gl: new THREE.MeshLambertMaterial({ color: 0x4f6b2a }), rocket: new THREE.MeshLambertMaterial({ color: 0xff8a2a, emissive: 0x7a2a00 }),
+    gravity: new THREE.MeshLambertMaterial({ color: 0x8a5cff, emissive: 0x4b2aa8 }), stake: new THREE.MeshLambertMaterial({ color: 0x9b6b3d }),
+    axe: new THREE.MeshLambertMaterial({ color: 0xb0b8c0, emissive: 0x202428 }),
+    bolt: new THREE.MeshBasicMaterial({ color: 0xfff27a, fog: false, toneMapped: false })
+  };
   // 발사체 종류 → 그 무기의 정의(폭발 반경·최대 피해). C4는 손으로 던진 수류탄과 같은 폭발이라 없다
-  const PROJ_DEF = { gl: WEAPONS.gl_m32, rocket: WEAPONS.rl_b9, gravity: WEAPONS.gv_gun };
+  const PROJ_DEF = { gl: WEAPONS.gl_m32, rocket: WEAPONS.rl_b9, gravity: WEAPONS.gv_gun, stake: WEAPONS.sk_stake, axe: WEAPONS.th_axe, bolt: WEAPONS.zs_bolt };
+  // 투척 도끼가 이미 뚫고 지나간 좀비(도끼 id → 좀비 id 묶음). 한 좀비는 한 도끼에 한 번만 맞는다
+  const axeHits = new Map();
+  // 중력건 블랙홀: 좀비가 끌려가는 동안(방장 director.js GRAVITY_PULL_MS와 같은 2.6초) 검은 핵으로 진한 보라 줄기가 소용돌이치며 빨려 든다.
+  // 줄기는 얇은 상자 InstancedMesh(블랙홀 하나에 그리기 호출 하나)라 선(1픽셀)보다 굵게 보인다
+  const WELL_MS = 2600, WELL_R = 7, WELL_LINES = 56, MAX_WELLS = 6;
+  const wellCoreGeo = new THREE.SphereGeometry(1, 16, 12);
+  const wellStreakGeo = new THREE.BoxGeometry(1, 1, 1);
+  const wellCoreMat = new THREE.MeshBasicMaterial({ color: 0x050008, fog: false });
+  const wellHaloMat = new THREE.MeshBasicMaterial({ color: 0x4a0a9e, transparent: true, opacity: 0.45, depthWrite: false, fog: false });
+  const wellStreakMat = new THREE.MeshBasicMaterial({ color: 0x6a12e6, transparent: true, opacity: 0.95, depthWrite: false, fog: false, toneMapped: false });
+  const wellDummy = new THREE.Object3D();
+  const wellAxis = new THREE.Vector3(0, 0, 1), wellDir = new THREE.Vector3();
+  const wells = [];
+  function addWell(c) {
+    while (wells.length >= MAX_WELLS) removeWell(wells[0]);
+    const group = new THREE.Group();
+    group.position.set(c[0], c[1] + 0.6, c[2]);
+    const core = new THREE.Mesh(wellCoreGeo, wellCoreMat);
+    const halo = new THREE.Mesh(wellCoreGeo, wellHaloMat);
+    const streaks = new THREE.InstancedMesh(wellStreakGeo, wellStreakMat, WELL_LINES);
+    streaks.frustumCulled = false;
+    group.add(core, halo, streaks);
+    R.scene.add(group);
+    // 줄기마다 들어오는 방향(위아래로는 좁게)과 시작 위상
+    const dirs = new Float32Array(WELL_LINES * 4);
+    for (let i = 0; i < WELL_LINES; i++) {
+      const a = Math.random() * Math.PI * 2, y = (Math.random() * 2 - 1) * 0.45, h = Math.sqrt(1 - y * y);
+      dirs[i * 4] = Math.cos(a) * h; dirs[i * 4 + 1] = y; dirs[i * 4 + 2] = Math.sin(a) * h; dirs[i * 4 + 3] = Math.random();
+    }
+    wells.push({ group, core, halo, streaks, dirs, t0: performance.now() });
+  }
+  function removeWell(w) {
+    R.scene.remove(w.group);
+    w.streaks.dispose();
+    wells.splice(wells.indexOf(w), 1);
+  }
+  function clearWells() { while (wells.length) removeWell(wells[0]); }
+  function drawWells(now) {
+    for (let j = wells.length - 1; j >= 0; j--) {
+      const w = wells[j];
+      const u = (now - w.t0) / WELL_MS;
+      if (u >= 1) { removeWell(w); continue; }
+      const fade = Math.min(1, u * 6, (1 - u) * 5);   // 빨리 열리고 끝에서 닫힌다
+      w.core.scale.setScalar(0.5 * fade + 0.01);
+      w.halo.scale.setScalar((1.1 + 0.15 * Math.sin(now / 90)) * fade + 0.01);
+      const t = (now - w.t0) / 1000;
+      for (let i = 0; i < WELL_LINES; i++) {
+        const k = i * 4, f = (t * 1.6 + w.dirs[k + 3]) % 1;   // 0 = 바깥 → 1 = 핵
+        const r = WELL_R * (1 - f) * fade + 0.35, len = Math.min(r - 0.3, 0.5 + 1.8 * (1 - f));
+        const sw = f * 1.4, cs = Math.cos(sw), sn = Math.sin(sw);   // 안으로 들어갈수록 돈다(소용돌이)
+        wellDir.set(w.dirs[k] * cs - w.dirs[k + 2] * sn, w.dirs[k + 1], w.dirs[k] * sn + w.dirs[k + 2] * cs);
+        const mid = r - len / 2, thick = 0.035 + 0.05 * f;           // 핵에 가까울수록 굵다
+        wellDummy.position.set(wellDir.x * mid, wellDir.y * mid, wellDir.z * mid);
+        wellDummy.quaternion.setFromUnitVectors(wellAxis, wellDir);
+        wellDummy.scale.set(thick, thick, Math.max(0.01, len));
+        wellDummy.updateMatrix();
+        w.streaks.setMatrixAt(i, wellDummy.matrix);
+      }
+      w.streaks.instanceMatrix.needsUpdate = true;
+    }
+  }
   // C4 수류탄(좀비 물량 막기 증강): 어두운 국방색 작은 상자 + 위의 빨간 불(신관이 다 되어 갈수록 빨리 깜박인다)
   const c4Geo = new THREE.BoxGeometry(0.16, 0.08, 0.11);
   const c4Mat = new THREE.MeshLambertMaterial({ color: 0x4b5530 });
@@ -272,6 +340,7 @@ function buildWorld(ctx, opts) {
   const hordePerk = { speed: 1, pierce: 0, maxHp: 100, nadeMulti: 0, nadeRadiusOf: null, sticky: false, waveRange: 0, waveRangeOf: null, autoAim: false };
   const hordeGlasses = new Set();  // 마지막 좀비 스냅샷에서 AI 안경을 쓴 사람
   let slowUntil = 0, slowMul = 1, grabbedNow = false, stunUntil = 0;
+  const hordeLocal = { slowMs: 0, slowMul: 1, stunMs: 0, grabbed: false };  // hordeLocalStatus()가 매 프레임 다시 쓰는 값(새 객체를 만들지 않는다)
   // 좀비에 붙은 C4: 수류탄 id → { zid(좀비 번호), x, y, z(좀비 발 기준 로컬 오프셋) }. 터지거나 판이 바뀌면 지운다
   const c4Stuck = new Map();
   const c4At = [0, 0, 0];
@@ -583,7 +652,7 @@ function buildWorld(ctx, opts) {
     props.load(built.data, built.colliders);     // 기다리지 않는다: 표시 전용이고 cannon-es는 CDN에서 온다
     if (nades) nades.dispose();
     nades = createGrenadeSystem({ world: built.world });
-    c4Stuck.clear();
+    c4Stuck.clear(); axeHits.clear(); clearWells();
     active = true;
     simPaused = false; uiPaused = false; scoreboardOpen = false;
     controls = true; customHint = '';            // 이전 모드(멀티 teardown 등)가 남긴 설정을 지운다
@@ -625,7 +694,7 @@ function buildWorld(ctx, opts) {
     horde.setActive(false);
     setHordePerks(null);
     if (nades) { nades.dispose(); nades = null; }
-    c4Stuck.clear();
+    c4Stuck.clear(); axeHits.clear(); clearWells();
     for (const m of nadeMeshes) m.visible = false;
     fx.clear(false);
     fx.setSpeedAmount(0);
@@ -662,7 +731,7 @@ function buildWorld(ctx, opts) {
   function reset() {
     closeSwap();
     if (nades) nades.clear();
-    c4Stuck.clear();
+    c4Stuck.clear(); axeHits.clear(); clearWells();
     for (const m of nadeMeshes) m.visible = false;
     clearDrops();
     bombView.reset();
@@ -731,12 +800,15 @@ function buildWorld(ctx, opts) {
   /**
    * 규칙에 맞는 3슬롯 장비. pick = 규칙의 pickSlot 무기. 없거나 이 규칙에서 못 고르는 무기면 직전 선택 → 계정 장비 → 규칙 기본값 순서로 찾는다.
    * 스나전은 pickSlot이 1이라 주무기가 항상 저격총이 되고, 칼전은 슬롯 1·2·4가 잠겨 있어 칼 슬롯만 의미가 있다.
+   * 나머지 칸의 계정 장비가 이 모드에서 못 쓰는 무기면(상점에서 산 좀비 전용 공기총·말뚝건을 팀전에서) 기본 장비로 바꾼다.
    */
   function resolveLoadout(pick) {
     const rs = rulesetOf(ruleset);
+    const zombie = mode === 'zombie';
     const acc = accountLoadout();
+    for (const k of ['primary', 'secondary', 'melee']) { const d = getDef(acc[k]); if (d && d.zombieOnly && !zombie) acc[k] = DEFAULT_LOADOUT[k]; }
     const key = SLOT_KEYS[rs.pickSlot];
-    const allowed = pickableWeapons(ruleset, null, mode === 'zombie');
+    const allowed = pickableWeapons(ruleset, null, zombie);
     const chosen = [pick, local.loadout, acc[key]].find((id) => allowed.includes(id)) || rs.defaultPick;
     return { ...acc, [key]: chosen };
   }
@@ -1423,11 +1495,24 @@ function buildWorld(ctx, opts) {
     const ex = pdef ? pdef.explosion : WEAPONS.gr_frag.explosion;
     let rk = 1;
     if (!pdef && mode === 'zombie' && hordePerk.nadeRadiusOf) { try { rk = clamp(num(hordePerk.nadeRadiusOf(e.owner), 1), 1, 3); } catch (err) { rk = 1; } }
-    // 중력건은 터지지 않는다: 작은 불빛만 남기고(피해 없이 끌어당기는 구멍), 소리도 작게
-    const pull = e.kind === 'gravity';
-    fx.explosion(c, { radius: pull ? 1.4 : ex.radius * rk });
-    if (!pull) props.explode(c, ex.radius * rk);
-    play('explosion', pull ? { pos: c, gain: 0.35 } : { pos: c });
+    // 투척 도끼는 날아가며 닿은 좀비마다 이미 피해를 냈다(pierceZombies): 벽·바닥에 박히면 작은 불빛과 소리만
+    if (e.kind === 'axe') { axeHits.delete(e.id); fx.explosion(c, { radius: 0.35 }); play('knife_hit', { pos: c }); return; }
+    // 제우스의 번개: 떨어진 자리 옆 좀비를 맞히고 다른 좀비로 다섯 번 튄다(zeusChain). 폭발 반경 피해는 없다
+    if (e.kind === 'bolt') {
+      const victims = mode === 'zombie' ? zeusChain(c) : [];
+      fx.explosion(c, { radius: 0.8 });
+      play('zap', { pos: c });
+      if (e.owner === local.id) protectUntil = 0;
+      emit('explosion', { ownerId: e.owner, local: e.owner === local.id, grenadeId: e.id, center: { x: c[0], y: c[1], z: c[2] }, pos: r3(c), victims, kind: 'bolt' });
+      return;
+    }
+    // 중력건은 터지지 않는다: 작은 불빛만 남기고(피해 없이 끌어당기는 구멍), 소리도 작게. 말뚝은 박히므로 작은 불빛과 박히는 소리
+    const pull = e.kind === 'gravity', stake = e.kind === 'stake';
+    fx.explosion(c, { radius: pull ? 1.4 : stake ? 0.6 : ex.radius * rk });
+    if (!pull && !stake) props.explode(c, ex.radius * rk);
+    if (stake) play('katana_hit', { pos: c });
+    else play('explosion', pull ? { pos: c, gain: 0.35 } : { pos: c });
+    if (pull) addWell(c);
     const targets = [];
     // 앉은 사람은 판정점(다리·몸·머리)도 낮다 → height = 앉은 키 1.25 m
     if (local.spawned && local.alive) targets.push({ id: local.id, pos: player.state.pos, height: player.state.crouch ? CROUCH_H : PLAYER.HEIGHT });
@@ -1446,7 +1531,7 @@ function buildWorld(ctx, opts) {
     const live = nades.list();
     if (live.length >= MAX_LIVE_GRENADES || live.some((g) => g.id === gid)) return null;   // 한도(프레임 하나에 수천 개를 보내도 끄떡없게) · 중복 수신
     const fuse = num(o.fuse, WEAPONS.gr_frag.fuse);
-    const kind = o.kind === 'gl' || o.kind === 'rocket' || o.kind === 'c4' || o.kind === 'gravity' ? o.kind : null;
+    const kind = PROJECTILES[o.kind] ? o.kind : null;
     const g = nades.spawn(arr3(o.pos), arr3(o.vel), { owner: o.id != null ? String(o.id) : null, fuse, id: gid, kind });
     // 늦게 받은 만큼 앞당기기(폭발 직전까지만). C4는 잘게 나눠 가며 좀비에 닿았는지 본다(던진 사람 화면에서 붙은 C4가 지나쳐 날아가지 않게)
     const lag = Number.isFinite(o.t) ? (performance.now() - o.t) / 1000 : 0;
@@ -1486,6 +1571,49 @@ function buildWorld(ctx, opts) {
     nades.place(g.id, c4WorldPos(z, s, c4At));
   }
 
+  /** 투척 도끼 한 개: 이번 프레임에 닿은 좀비 중 아직 안 맞은 좀비마다 피해 주장(폭발 이벤트 kind 'axe', 좀비 하나)을 낸다. 도끼는 멈추지 않는다 */
+  function pierceZombies(g) {
+    const ids = horde.touchingIds(g.pos, 0.35);
+    if (!ids.length) return;
+    let hit = axeHits.get(g.id);
+    if (!hit) { hit = new Set(); axeHits.set(g.id, hit); }
+    const c = g.pos;
+    for (const id of ids) {
+      if (hit.has(id)) continue;
+      hit.add(id);
+      play('knife_hit', { pos: c });
+      if (g.owner === local.id) protectUntil = 0;
+      emit('explosion', { ownerId: g.owner, local: g.owner === local.id, grenadeId: g.id, center: { x: c[0], y: c[1], z: c[2] }, pos: r3(c),
+        victims: [{ id, dmg: WEAPONS.th_axe.explosion.max, dist: 0 }], kind: 'axe' });
+    }
+  }
+
+  /**
+   * 제우스의 번개(증강 주무기)가 c에 떨어졌다: c에서 가장 가까운 좀비(1.5 m 안)를 맞히고, 거기서 ZEUS_JUMP_M 안의 아직 안 맞은
+   * 가장 가까운 좀비로 ZEUS_BOUNCES번 튄다. 튈 때마다 피해가 줄지 않는다(모두 같은 피해). → 맞은 좀비 [{ id, dmg, dist }]
+   */
+  function zeusChain(c) {
+    const zs = horde.blastTargets().map((z) => ({ id: z.id, p: [z.pos[0], z.pos[1] + z.height * 0.55, z.pos[2]] }));
+    const out = [];
+    const used = new Set();
+    let from = c, reach = 1.5;
+    for (let i = 0; i <= ZEUS_BOUNCES; i++) {
+      let best = null, bestD = Infinity;
+      for (const z of zs) {
+        if (used.has(z.id)) continue;
+        const d = Math.hypot(z.p[0] - from[0], z.p[1] - from[1], z.p[2] - from[2]);
+        if (d < reach && d < bestD) { bestD = d; best = z; }
+      }
+      if (!best) break;
+      used.add(best.id);
+      fx.tracer(from, best.p, 'rail');
+      out.push({ id: best.id, dmg: WEAPONS.zs_bolt.explosion.max, dist: 0 });
+      from = best.p;
+      reach = ZEUS_JUMP_M;
+    }
+    return out;
+  }
+
   function drawGrenades() {
     const list = nades ? nades.list() : [];
     for (let i = 0; i < list.length; i++) {
@@ -1496,18 +1624,23 @@ function buildWorld(ctx, opts) {
       if (g.kind === 'c4') { drawC4(g, m, led); continue; }
       m.geometry = nadeGeo;
       if (led) led.visible = false;
-      if (g.kind === 'rocket') {
-        // 로켓: 날아가는 쪽으로 길게(원기둥의 y축을 속도 방향으로)
-        m.material = projMats.rocket;
-        m.scale.set(1.3, 3.2, 1.3);
+      if (g.kind === 'rocket' || g.kind === 'stake' || g.kind === 'bolt') {
+        // 로켓·말뚝: 날아가는 쪽으로 길게(원기둥의 y축을 속도 방향으로)
+        m.material = projMats[g.kind];
+        if (g.kind === 'rocket') m.scale.set(1.3, 3.2, 1.3); else if (g.kind === 'bolt') m.scale.set(0.6, 4.5, 0.6); else m.scale.set(0.45, 5, 0.45);
         const sp = Math.hypot(g.vel[0], g.vel[1], g.vel[2]) || 1;
         tmpV.set(g.vel[0] / sp, g.vel[1] / sp, g.vel[2] / sp);
         m.quaternion.setFromUnitVectors(UP_V, tmpV);
+      } else if (g.kind === 'axe') {
+        // 투척 도끼: 납작한 날을 날아가는 쪽 세로면에 세우고 앞으로 굴러 돈다
+        m.material = projMats.axe;
+        m.scale.set(0.35, 1.6, 3.2);
+        if (!g.sleeping) m.rotation.set(-g.age * 18, Math.atan2(g.vel[0], g.vel[2]), 0, 'YXZ');
       } else {
-        m.material = g.kind === 'gl' ? projMats.gl : g.kind === 'gravity' ? projMats.gravity : nadeMat;
+        m.material = projMats[g.kind] || nadeMat;
         m.scale.set(g.kind === 'gl' ? 1.1 : 1, g.kind === 'gl' ? 0.8 : 1, g.kind === 'gl' ? 1.1 : 1);
         if (g.kind === 'gravity') m.scale.setScalar(1.5);
-        if (!g.sleeping) m.rotation.set(g.age * 9, 0, g.age * 5.5);
+        if (!g.sleeping) m.rotation.set(g.age * 9, 0, g.age * 5.5, 'XYZ');
       }
     }
     for (let i = list.length; i < nadeMeshes.length; i++) nadeMeshes[i].visible = false;
@@ -1856,7 +1989,8 @@ function buildWorld(ctx, opts) {
         const pj = g.kind ? PROJECTILES[g.kind] : null;
         if (!pj) continue;
         // 유탄·로켓은 좀비에 닿으면 바로 터지고, C4는 닿은 좀비에 붙어 따라간다(내 것·남의 것 모두)
-        if (pj.impact) { if (horde.touching(g.pos, g.kind === 'rocket' ? 0.55 : 0.45)) nades.detonate(g.id); }
+        if (pj.pierce) pierceZombies(g);
+        else if (pj.impact) { if (horde.touching(g.pos, g.kind === 'rocket' ? 0.55 : 0.45)) nades.detonate(g.id); }
         else if (pj.sticky) stickC4(g);
       }
     }
@@ -1930,6 +2064,7 @@ function buildWorld(ctx, opts) {
     // 좀비를 먼저 그린다: 좀비에 붙은 C4를 이번 프레임 좀비 자리에 그린다. 일시정지 중에는 검기가 멈춰 있는다
     if (mode === 'zombie') horde.frame(dt, performance.now(), simPaused);
     drawGrenades();
+    drawWells(performance.now());
     if (mode === 'bomb') bombView.frame(dt);
     for (const v of dropViews.values()) v.spin.rotation.y += dt * 1.4;
     // 속도 줄기: 걷기 속도부터 나타나 수평 속도 상한에서 가장 세다
@@ -2038,6 +2173,7 @@ function buildWorld(ctx, opts) {
     if (nades) nades.dispose();
     for (const m of nadeMeshes) R.scene.remove(m);
     nadeGeo.dispose(); nadeMat.dispose();
+    clearWells(); wellCoreGeo.dispose(); wellStreakGeo.dispose(); wellCoreMat.dispose(); wellHaloMat.dispose(); wellStreakMat.dispose();
     c4Geo.dispose(); c4Mat.dispose(); ledGeo.dispose(); ledOn.dispose(); ledOff.dispose();
     clearDrops();
     dropRingGeo.dispose(); dropRingMat.dispose(); dropRingPremium.dispose();
@@ -2109,7 +2245,7 @@ function buildWorld(ctx, opts) {
     hordeDamageNumber: (pos, amount, kind) => horde.damageNumber(pos, amount, kind),
     /** 카드 전용 주무기는 좀비 모드에서만 즉시 장비한다. */
     equipHordePrimary(id) {
-      if (mode !== 'zombie' || (id !== 'fl_horde' && id !== 'rg_horde') || !local.spawned || !local.alive) return false;
+      if (mode !== 'zombie' || !(getDef(id) && getDef(id).cardOnly && getDef(id).slot === 1) || !local.spawned || !local.alive) return false;
       if (arsenal.getLoadout().primary === id) return false;
       const ok = arsenal.equipWith(id);
       if (ok) { settleArsenal(); play('switch', { gain: 0.8 }); }
@@ -2134,6 +2270,16 @@ function buildWorld(ctx, opts) {
     stunLocal(ms) {
       stunUntil = Math.max(stunUntil, performance.now() + clamp(num(ms, 0), 0, 5000));
       syncFrozen();
+    },
+    /** 좀비 모드 내 몸 상태(HUD 버프·디버프 줄): 남은 느려짐 ms와 배율, 남은 기절 ms, 좀비 몸에 붙잡혔는가. 같은 객체를 다시 쓴다 */
+    hordeLocalStatus() {
+      const now = performance.now();
+      const on = mode === 'zombie' && local.spawned && local.alive;
+      hordeLocal.slowMs = on ? Math.max(0, slowUntil - now) : 0;
+      hordeLocal.slowMul = hordeLocal.slowMs > 0 ? slowMul : 1;
+      hordeLocal.stunMs = on ? Math.max(0, stunUntil - now) : 0;
+      hordeLocal.grabbed = on && grabbedNow;
+      return hordeLocal;
     },
     /** 보스 돌진·내려찍기에 밀려남: [vx, vy, vz] */
     pushLocal(v) { if (local.spawned && local.alive) player.push(v); },
