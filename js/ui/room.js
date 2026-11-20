@@ -214,8 +214,8 @@ export function createRoom(ctx) {
   let gearOpen = null;   // 창이 열린 칸(GEAR_SLOTS 항목)
   let gearRows = [];
 
-  /** 상점에서 파는 그 칸의 무기(좀비 전용·카드 전용은 빠진다). 무기 정의 순서 그대로 */
-  const slotWeapons = (slot) => [...ctx.weapons.values()].filter((w) => w.slot === slot && !w.zombieOnly && !w.cardOnly);
+  /** 상점에서 파는 그 칸의 무기(좀비 전용·카드 전용은 빠지고, 상점에서 파는 좀비 전용 무기 shop은 남는다). 무기 정의 순서 그대로 */
+  const slotWeapons = (slot) => [...ctx.weapons.values()].filter((w) => w.slot === slot && (!w.zombieOnly || w.shop) && !w.cardOnly);
   function equippedId(g) {
     if (g.key !== 'grenade') return ctx.account.loadout[g.key];
     const first = slotWeapons(g.slot)[0];

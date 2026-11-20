@@ -132,8 +132,8 @@ describe('상점 화면', () => {
     assert.equal(s.onTab(), '캐릭터', '새로 열 때 tab을 주면 그 탭');
   });
 
-  test('좀비 전용 무기는 일반 상점의 어느 탭에도 구매 카드로 나오지 않는다', (t) => {
-    const zombieOnly = Object.keys(WEAPONS).filter((id) => WEAPONS[id].zombieOnly);
+  test('좀비 전용 무기는 일반 상점의 어느 탭에도 구매 카드로 나오지 않는다(상점에서 파는 shop 무기만 좀비 전용 탭에 나온다)', (t) => {
+    const zombieOnly = Object.keys(WEAPONS).filter((id) => WEAPONS[id].zombieOnly && !WEAPONS[id].shop);
     const s = makeShop(t, offlineAccount(t));
     s.shop.show({ tab: null });
     const tabs = s.shop.el.all((k) => k.classList.contains('sk-tab')).map((k) => k.textContent);
@@ -143,6 +143,8 @@ describe('상점 화면', () => {
       for (const id of zombieOnly) assert.equal(s.card(WEAPONS[id].name), undefined, `${label} 탭에 ${id} 카드가 없다`);
     }
     assert.ok(tabs.includes('권총'), '다른 분류 탭은 그대로 있다');
+    s.tab('좀비 전용').fire('click');
+    for (const id of ['pn_air', 'sk_stake', 'th_axe']) assert.ok(s.card(WEAPONS[id].name), `${id}는 좀비 전용 탭에서 판다`);
   });
 
   test('캐릭터 탭에서 사고 입어도 누른 버튼이 그대로 붙어 있다(포커스 유지)', (t) => {

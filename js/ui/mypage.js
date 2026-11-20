@@ -82,7 +82,7 @@ export function createMyPage(ctx) {
   function ownedInSlot(slot) {
     const a = account();
     const list = [];
-    for (const w of ctx.weapons.values()) if (w.slot === slot && !w.zombieOnly && a.isOwned(w.id)) list.push(w);
+    for (const w of ctx.weapons.values()) if (w.slot === slot && (!w.zombieOnly || w.shop) && a.isOwned(w.id)) list.push(w);
     return list;
   }
 

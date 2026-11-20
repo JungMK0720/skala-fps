@@ -2,7 +2,8 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 좀비 물량 막기의 화면 쪽. 방장 스냅샷의 좀비·보스를 시간축으로 보간해 그리고(부위별 InstancedMesh라 수십 마리도 그리기 호출이 몇 개),
- *          투사체·장판·스킬 예고·폭발·바닥 보급품(탄창·구급 상자·보물 상자)·화염 수류탄 불길·어그로 분신을 보여 주며, 다친 좀비 머리 위 체력바와
+ *          기본 좀비(워커) 말고는 종류·보스마다 능력에 맞는 소품·의상(러너 머리띠·운동화, 폭발 좀비 다이너마이트 조끼, 마녀 모자·물약, 보스 갈고리·지팡이 등)을
+ *          같은 부위 풀(+원통 풀 하나)에 얹고, 투사체·장판·스킬 예고·폭발·바닥 보급품(탄창·구급 상자·보물 상자)·화염 수류탄 불길·어그로 분신을 보여 주며, 다친 좀비 머리 위 체력바와
  *          내가 준 피해 숫자(머리는 크고 노랗게, 몸은 작게)를 띄운다. 내 사격·칼·수류탄이 맞힌 좀비를 찾는다(World가 부른다). 모형은 상자 몇 개로 직접 만들었다.
  *          칼의 검기(빛나는 초승달)를 날려 내 검기가 지나간 좀비를 알리고, 쓰러진 동료 자리에 고리와 벽 너머로 보이는 이름표를 띄운다.
  */
@@ -52,8 +53,8 @@ const HIT_FLASH_MS = 90;
 const GROAN_MIN = 3500, GROAN_SPREAD = 6000;
 const SKILL_CODE = Object.freeze(Object.fromEntries(Object.entries(SKILL_KINDS).map(([k, v]) => [v, k])));
 const HAZ_COLOR = Object.freeze({ [HAZARD_KINDS.acid]: 0x7dff3a, [HAZARD_KINDS.fire]: 0xff7a1a, [HAZARD_KINDS.web]: 0xe8e2d0, [HAZARD_KINDS.frost]: 0x8fdcff, [HAZARD_KINDS.shock]: 0x6ff0ff });
-const PROJ_COLOR = Object.freeze({ [PROJECTILE_KINDS.spit]: 0x9dff4a, [PROJECTILE_KINDS.acid]: 0x6dff2a, [PROJECTILE_KINDS.barrel]: 0x8a4b1c, [PROJECTILE_KINDS.web]: 0xf2ecdc, [PROJECTILE_KINDS.shard]: 0xbfeaff, [PROJECTILE_KINDS.hook]: 0xffd34a, [PROJECTILE_KINDS.curse]: 0xb04cff, [PROJECTILE_KINDS.ice]: 0x8fdcff, [PROJECTILE_KINDS.bolt]: 0x9ff8ff });
-const PROJ_SIZE = Object.freeze({ [PROJECTILE_KINDS.barrel]: 0.34, [PROJECTILE_KINDS.shard]: 0.14, [PROJECTILE_KINDS.hook]: 0.3, [PROJECTILE_KINDS.curse]: 0.24, [PROJECTILE_KINDS.ice]: 0.36, [PROJECTILE_KINDS.bolt]: 0.3 });
+const PROJ_COLOR = Object.freeze({ [PROJECTILE_KINDS.spit]: 0x9dff4a, [PROJECTILE_KINDS.acid]: 0x6dff2a, [PROJECTILE_KINDS.barrel]: 0x8a4b1c, [PROJECTILE_KINDS.web]: 0xf2ecdc, [PROJECTILE_KINDS.shard]: 0xbfeaff, [PROJECTILE_KINDS.hook]: 0xffd34a, [PROJECTILE_KINDS.curse]: 0xb04cff, [PROJECTILE_KINDS.ice]: 0x8fdcff, [PROJECTILE_KINDS.bolt]: 0x9ff8ff, [PROJECTILE_KINDS.orb]: 0x8fa8ff });
+const PROJ_SIZE = Object.freeze({ [PROJECTILE_KINDS.barrel]: 0.34, [PROJECTILE_KINDS.shard]: 0.14, [PROJECTILE_KINDS.hook]: 0.3, [PROJECTILE_KINDS.curse]: 0.24, [PROJECTILE_KINDS.ice]: 0.36, [PROJECTILE_KINDS.bolt]: 0.3, [PROJECTILE_KINDS.orb]: 0.4 });
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -137,13 +138,15 @@ export function createHordeView(o) {
   /* ---------- 모형(부위별 InstancedMesh) ---------- */
   const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
   const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  // 소품·의상(drawGear)도 같은 풀에 크기만 바꿔 채운다: 상자 = arm, 뿔 = pad, 빛나는 조각 = eye, 원통 = rod. 용량은 한 마리가 쓰는 최대 개수 × MAX_Z
   const parts = {
     leg: new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 0.86, 0.22), mat, MAX_Z * 2),
     torso: new THREE.InstancedMesh(new THREE.BoxGeometry(0.54, 0.64, 0.32), mat, MAX_Z),
     head: new THREE.InstancedMesh(new THREE.BoxGeometry(0.32, 0.34, 0.32), mat, MAX_Z),
-    arm: new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.14, 0.62), mat, MAX_Z * 4),   // 팔 둘 + 블리츠 주먹 둘
-    eye: new THREE.InstancedMesh(new THREE.BoxGeometry(0.07, 0.045, 0.03), eyeMat, MAX_Z * 2),
-    pad: new THREE.InstancedMesh(new THREE.ConeGeometry(0.12, 0.34, 5), mat, MAX_Z * 2)
+    arm: new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.14, 0.62), mat, MAX_Z * 10),  // 팔 둘 + 블리츠 주먹 둘 + 상자 소품(거미 어미 다리 8개가 가장 많다)
+    eye: new THREE.InstancedMesh(new THREE.BoxGeometry(0.07, 0.045, 0.03), eyeMat, MAX_Z * 5), // 눈 둘 + 빛나는 소품(역병 여왕 산성 주머니 3개가 가장 많다)
+    pad: new THREE.InstancedMesh(new THREE.ConeGeometry(0.12, 0.34, 5), mat, MAX_Z * 7),        // 보스 어깨 뿔 둘 + 뿔 소품(크롤러 발톱·등뼈, 서리 망령 왕관)
+    rod: new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 8), mat, MAX_Z * 4)   // 원통 소품(지름 1·높이 1, 폭발 군주 화약통·테·안전모가 가장 많다)
   };
   for (const [name, m] of Object.entries(parts)) {
     m.name = 'horde:' + name;
@@ -436,7 +439,7 @@ export function createHordeView(o) {
   }
 
   /* ---------- 그리기 ---------- */
-  let ni = { leg: 0, torso: 0, head: 0, arm: 0, eye: 0, pad: 0 };
+  let ni = { leg: 0, torso: 0, head: 0, arm: 0, eye: 0, pad: 0, rod: 0 };
   function put(part, m, color) {
     const mesh = parts[part];
     const i = ni[part]++;
@@ -452,6 +455,198 @@ export function createHordeView(o) {
     return P;
   }
   const tmpE = new THREE.Euler();
+
+  /* ---------- 소품·의상: 워커 말고 종류·보스마다 능력에 맞게. 부위 풀(arm 상자·pad 뿔·eye 빛·rod 원통)에 크기만 바꿔 얹는다 ---------- */
+  const GEAR_UNIT = Object.freeze({ arm: [0.14, 0.14, 0.62], pad: [0.24, 0.34, 0.24], eye: [0.07, 0.045, 0.03], rod: [1, 1, 1] });
+  // 이번 좀비의 부위 기준 행렬(부위 가운데). 소품은 이 기준을 따라 걷기·넘어짐·솟아오름·크기를 그대로 받는다
+  const HM = new THREE.Matrix4(), TM = new THREE.Matrix4(), LA = new THREE.Matrix4(), RA = new THREE.Matrix4(), LL = new THREE.Matrix4(), RL = new THREE.Matrix4();
+  const GM = new THREE.Matrix4(), GM2 = new THREE.Matrix4();
+  const HALF_PI = Math.PI / 2;
+  let gFrozen = false, gFlash = false;
+  /** frame 기준 (x, y, z)에 회전(rx, ry, rz)·크기(w, h, d m)로 소품 하나. 빛나는 조각(eye 풀)은 얼음·번쩍임 색을 받지 않는다 */
+  function gear(part, frame, x, y, z, rx, ry, rz, w, h, d, hex) {
+    const u = GEAR_UNIT[part];
+    C.setHex(hex);
+    if (part !== 'eye') {
+      if (gFrozen) C.lerp(C2.setHex(0xa8e6ff), 0.5);
+      if (gFlash) C.lerp(C2.setHex(0xffffff), 0.6);
+    }
+    put(part, partM(frame, x, y, z, rx, ry, rz).multiply(S.makeScale(w / u[0], h / u[1], d / u[2])), C);
+  }
+  /** 기준 행렬(HM 머리·TM 몸통·LA/RA 팔·LL/RL 다리, 크롤러·비행 좀비는 그 자세의 부위)을 채운 뒤 부른다. 쓰러지면 빛나는 조각은 꺼진다 */
+  function drawGear(e, now, dead, wind) {
+    const id = e.boss ? e.boss.id : e.type ? e.type.id : null;
+    const lit = !dead;
+    switch (id) {
+      case 'runner': {   // 빨간 땀띠(뒤로 날리는 끈)·트랙 재킷 옆줄·흰 운동화
+        gear('arm', HM, 0, 0.09, 0, 0, 0, 0, 0.35, 0.06, 0.35, 0xd8342c);
+        gear('arm', HM, 0.05, 0.07, 0.26, 0.45 + Math.sin(now * 0.025 + e.walk) * 0.25, 0, 0, 0.07, 0.03, 0.2, 0xd8342c);
+        gear('arm', TM, -0.275, 0, 0, 0, 0, 0, 0.03, 0.62, 0.08, 0xf2f2f2);
+        gear('arm', TM, 0.275, 0, 0, 0, 0, 0, 0.03, 0.62, 0.08, 0xf2f2f2);
+        gear('arm', LL, 0, -0.38, -0.04, 0, 0, 0, 0.23, 0.11, 0.32, 0xeeeeee);
+        gear('arm', RL, 0, -0.38, -0.04, 0, 0, 0, 0.23, 0.11, 0.32, 0xeeeeee);
+        break;
+      }
+      case 'brute': {    // 노란 안전모·쇠 어깨판
+        gear('rod', HM, 0, 0.185, -0.02, 0, 0, 0, 0.5, 0.035, 0.5, 0xf2c12e);
+        gear('rod', HM, 0, 0.25, 0, 0, 0, 0, 0.36, 0.13, 0.36, 0xf2c12e);
+        gear('arm', TM, -0.3, 0.33, 0, 0, 0, 0.35, 0.3, 0.07, 0.4, 0x5d6168);
+        gear('arm', TM, 0.3, 0.33, 0, 0, 0, -0.35, 0.3, 0.07, 0.4, 0x5d6168);
+        break;
+      }
+      case 'spitter': {  // 부푼 목 주머니(침 뱉기 예고면 크게 부푼다)·등에 빛나는 고름 혹
+        const k = wind ? 1.3 + Math.sin(now * 0.03) * 0.1 : 1 + Math.sin(now * 0.006) * 0.06;
+        gear('rod', HM, 0, -0.19, -0.08, 0, 0, 0, 0.26 * k, 0.16 * k, 0.24 * k, 0xb6f04a);
+        if (lit) {
+          gear('eye', TM, -0.12, 0.1, 0.17, 0.3, 0.4, 0, 0.11 * k, 0.11 * k, 0.06, 0x9dff4a);
+          gear('eye', TM, 0.11, -0.1, 0.17, -0.2, -0.3, 0, 0.09 * k, 0.09 * k, 0.06, 0x9dff4a);
+        }
+        break;
+      }
+      case 'bomber': {   // 다이너마이트 셋을 묶은 조끼, 가운데 도화선 불꽃이 깜박인다(예고면 빨리)
+        gear('rod', TM, -0.15, 0, -0.2, 0, 0, 0, 0.09, 0.38, 0.09, 0xc8281e);
+        gear('rod', TM, 0, 0, -0.2, 0, 0, 0, 0.09, 0.38, 0.09, 0xc8281e);
+        gear('rod', TM, 0.15, 0, -0.2, 0, 0, 0, 0.09, 0.38, 0.09, 0xc8281e);
+        gear('arm', TM, 0, 0.02, -0.03, 0, 0, 0, 0.58, 0.08, 0.46, 0x3a2a1a);
+        if (lit) gear('eye', TM, 0, 0.23, -0.2, 0, 0, 0, 0.06, 0.06, 0.06, Math.sin(now * (wind ? 0.045 : 0.012)) > 0 ? 0xff3a1a : 0x5a1a0a);
+        break;
+      }
+      case 'crawler': {  // 손끝 뼈 발톱 둘씩, 위를 보는 등에 뼈 가시 셋
+        gear('pad', LA, -0.04, 0, -0.37, -HALF_PI, 0, 0, 0.05, 0.14, 0.05, 0xe8e0c8);
+        gear('pad', LA, 0.04, 0, -0.37, -HALF_PI, 0, 0, 0.05, 0.14, 0.05, 0xe8e0c8);
+        gear('pad', RA, -0.04, 0, -0.37, -HALF_PI, 0, 0, 0.05, 0.14, 0.05, 0xe8e0c8);
+        gear('pad', RA, 0.04, 0, -0.37, -HALF_PI, 0, 0, 0.05, 0.14, 0.05, 0xe8e0c8);
+        gear('pad', TM, 0, -0.18, 0.24, HALF_PI, 0, 0, 0.08, 0.16, 0.08, 0xd8ccb0);
+        gear('pad', TM, 0, 0, 0.24, HALF_PI, 0, 0, 0.09, 0.19, 0.09, 0xd8ccb0);
+        gear('pad', TM, 0, 0.18, 0.24, HALF_PI, 0, 0, 0.08, 0.16, 0.08, 0xd8ccb0);
+        break;
+      }
+      case 'flyer': {    // 이마에 올린 비행 고글, 날개(팔) 뒤로 늘어진 찢어진 막
+        gear('arm', HM, 0, 0.13, 0, 0, 0, 0, 0.34, 0.05, 0.34, 0x5a3a22);
+        gear('rod', HM, -0.075, 0.13, -0.17, HALF_PI, 0, 0, 0.1, 0.05, 0.1, 0x9fd8ff);
+        gear('rod', HM, 0.075, 0.13, -0.17, HALF_PI, 0, 0, 0.1, 0.05, 0.1, 0x9fd8ff);
+        gear('arm', LA, -0.2, -0.04, 0.08, 0, 0, 0, 0.3, 0.025, 1.2, 0x2c3050);
+        gear('arm', RA, 0.2, -0.04, 0.08, 0, 0, 0, 0.3, 0.025, 1.2, 0x2c3050);
+        break;
+      }
+      case 'grabber': {  // 가슴에 엇갈린 가죽 멜빵, 등에 사슬 감는 윈치 드럼
+        gear('arm', TM, 0, 0.02, -0.175, 0, 0, 0.62, 0.08, 0.8, 0.03, 0x2e2620);
+        gear('arm', TM, 0, 0.02, -0.182, 0, 0, -0.62, 0.08, 0.8, 0.03, 0x2e2620);
+        gear('rod', TM, 0, 0.12, 0.3, 0, 0, HALF_PI, 0.3, 0.46, 0.3, 0x7a6a50);
+        break;
+      }
+      case 'witch': {    // 뾰족 모자, 왼손에 저주 물약 병(던지기 예고면 밝게)
+        gear('rod', HM, 0, 0.185, 0, 0, 0, 0, 0.58, 0.03, 0.58, 0x1d1226);
+        gear('pad', HM, 0, 0.43, 0.03, 0.25, 0, 0, 0.34, 0.48, 0.34, 0x241730);
+        if (lit) {
+          gear('eye', LA, 0, -0.12, -0.33, 0, 0, 0, 0.12, 0.13, 0.12, wind ? 0xe080ff : 0xb04cff);
+          gear('rod', LA, 0, -0.03, -0.33, 0, 0, 0, 0.05, 0.06, 0.05, 0x8a6a4a);
+        }
+        break;
+      }
+      case 'butcher': {  // 피 묻은 앞치마, 오른손에 쇠갈고리
+        gear('arm', TM, 0, -0.22, -0.175, 0, 0, 0, 0.46, 0.82, 0.025, 0xc9b9a6);
+        gear('arm', TM, 0.08, -0.3, -0.19, 0, 0, 0.3, 0.16, 0.12, 0.01, 0x7a1a14);
+        gear('rod', RA, 0, -0.2, -0.31, 0, 0, 0, 0.05, 0.42, 0.05, 0x8a8f96);
+        gear('pad', RA, 0, -0.37, -0.38, -0.9, 0, 0, 0.06, 0.18, 0.06, 0x8a8f96);
+        break;
+      }
+      case 'plague': {   // 등에 빛나는 산성 주머니 셋(쓰러지면 어두워진다)
+        const k = 1 + Math.sin(now * 0.005) * 0.08, sac = lit ? e.boss.accent : 0x2f4a12;
+        gear('eye', TM, -0.14, 0.12, 0.22, 0, 0.3, 0.2, 0.2 * k, 0.2 * k, 0.14 * k, sac);
+        gear('eye', TM, 0.15, 0.04, 0.21, 0, -0.3, -0.2, 0.17 * k, 0.17 * k, 0.12 * k, sac);
+        gear('eye', TM, 0, -0.16, 0.2, 0, 0, 0, 0.15 * k, 0.15 * k, 0.1 * k, sac);
+        break;
+      }
+      case 'titan': {    // 가슴·등 철판, 투구와 코 가리개
+        gear('arm', TM, 0, 0.04, -0.185, 0, 0, 0, 0.6, 0.52, 0.05, 0x8a949e);
+        gear('arm', TM, 0, 0.04, 0.185, 0, 0, 0, 0.6, 0.52, 0.05, 0x7a848e);
+        gear('arm', HM, 0, 0.15, 0, 0, 0, 0, 0.38, 0.14, 0.38, 0x8a949e);
+        gear('arm', HM, 0, -0.01, -0.175, 0, 0, 0, 0.05, 0.14, 0.03, 0x8a949e);
+        break;
+      }
+      case 'stalker': {  // 뾰족한 두건과 뒤로 날리는 망토
+        gear('arm', HM, 0, 0.2, 0.02, 0, 0, 0, 0.4, 0.07, 0.4, 0x17121f);
+        gear('arm', HM, 0, 0, 0.19, 0, 0, 0, 0.4, 0.44, 0.05, 0x17121f);
+        gear('arm', HM, -0.185, 0, 0, 0, 0, 0, 0.04, 0.44, 0.38, 0x17121f);
+        gear('arm', HM, 0.185, 0, 0, 0, 0, 0, 0.04, 0.44, 0.38, 0x17121f);
+        gear('pad', HM, 0, 0.17, 0.27, 1.2, 0, 0, 0.14, 0.24, 0.14, 0x17121f);
+        gear('arm', TM, 0, -0.32, 0.2, -0.12 - Math.abs(Math.sin(e.walk)) * 0.12, 0, 0, 0.58, 1.0, 0.04, 0x1e1728);
+        break;
+      }
+      case 'bombard': {  // 등에 테 두른 화약통(도화선 불꽃), 광부 안전모와 머리등
+        gear('rod', TM, 0, 0.06, 0.36, 0, 0, 0, 0.42, 0.52, 0.42, 0x7a4a22);
+        gear('rod', TM, 0, -0.13, 0.36, 0, 0, 0, 0.44, 0.04, 0.44, 0x3a3a3a);
+        gear('rod', TM, 0, 0.25, 0.36, 0, 0, 0, 0.44, 0.04, 0.44, 0x3a3a3a);
+        gear('rod', HM, 0, 0.21, 0, 0, 0, 0, 0.38, 0.1, 0.38, 0xd9a520);
+        if (lit) {
+          gear('eye', HM, 0, 0.21, -0.19, 0, 0, 0, 0.1, 0.07, 0.03, 0xfff2b0);
+          if (Math.sin(now * 0.02) > -0.3) gear('eye', TM, 0, 0.36, 0.36, 0, now * 0.01, 0, 0.06, 0.06, 0.06, e.boss.accent);
+        }
+        break;
+      }
+      case 'necro': {    // 오른손에 해골 지팡이(눈구멍이 빛난다)
+        gear('rod', RA, 0, 0.1, -0.31, 0, 0, 0, 0.05, 1.7, 0.05, 0x3a2a1e);
+        gear('arm', RA, 0, 0.98, -0.31, 0, 0, 0, 0.16, 0.16, 0.18, 0xe8e2d0);
+        if (lit) {
+          gear('eye', RA, -0.04, 1.0, -0.405, 0, 0, 0, 0.04, 0.03, 0.02, e.boss.accent);
+          gear('eye', RA, 0.04, 1.0, -0.405, 0, 0, 0, 0.04, 0.03, 0.02, e.boss.accent);
+        }
+        break;
+      }
+      case 'banshee': {  // 머리를 덮고 뒤로 흩날리는 면사포, 끝이 찢어진 두 갈래
+        const sway = Math.sin(now * 0.004 + e.walk) * 0.12;
+        gear('arm', HM, 0, 0.2, 0.02, 0, 0, 0, 0.38, 0.06, 0.38, 0xe8f2ff);
+        gear('arm', HM, 0, -0.18, 0.21, -0.25 - sway, 0, 0, 0.36, 0.72, 0.03, 0xe8f2ff);
+        gear('pad', HM, -0.1, -0.62, 0.3, Math.PI - sway, 0, 0, 0.1, 0.2, 0.04, 0xdff4ff);
+        gear('pad', HM, 0.1, -0.6, 0.3, Math.PI - sway, 0, 0, 0.1, 0.24, 0.04, 0xdff4ff);
+        break;
+      }
+      case 'brood': {    // 등에서 솟은 거미 다리 넷(두 마디, 걸음에 맞춰 꿈틀), 이마의 작은 눈 둘
+        for (let side = -1; side <= 1; side += 2) {
+          for (let k = 0; k < 2; k++) {
+            GM.copy(partM(TM, -side * 0.2, 0.18 - k * 0.2, 0.12, (k ? 0.55 : -0.55) + Math.sin(e.walk * 1.3 + k * 2 + side) * 0.15, 0, side * 0.8));
+            gear('arm', GM, 0, 0.28, 0, 0, 0, 0, 0.07, 0.56, 0.07, 0x2e241a);
+            GM2.copy(partM(GM, 0, 0.56, 0, 0, 0, side * 1.7));
+            gear('arm', GM2, 0, 0.4, 0, 0, 0, 0, 0.06, 0.8, 0.06, 0x3a2c1e);
+          }
+        }
+        if (lit) {
+          gear('eye', HM, -0.05, 0.12, -0.165, 0, 0, 0, 0.045, 0.035, 0.03, e.boss.accent);
+          gear('eye', HM, 0.05, 0.12, -0.165, 0, 0, 0, 0.045, 0.035, 0.03, e.boss.accent);
+        }
+        break;
+      }
+      case 'volt': {     // 머리에 V자 안테나 둘(끝에서 불꽃이 튄다), 등에 축전지
+        for (let side = -1; side <= 1; side += 2) {
+          GM.copy(partM(HM, -side * 0.08, 0.17, 0, 0, 0, side * 0.3));
+          gear('rod', GM, 0, 0.2, 0, 0, 0, 0, 0.03, 0.4, 0.03, 0x9aa4b0);
+          if (lit && Math.sin(now * 0.04 + side * 1.7) > -0.5) gear('eye', GM, 0, 0.42, 0, 0, now * 0.01, 0, 0.07, 0.07, 0.07, Math.sin(now * 0.09 + side) > 0 ? 0xffffff : e.boss.accent);
+        }
+        gear('rod', TM, 0, 0.05, 0.27, 0, 0, 0, 0.24, 0.44, 0.24, 0x2a3040);
+        break;
+      }
+      case 'frost': {    // 얼음 가시 다섯 개를 세운 왕관(앞이 가장 길다)
+        gear('rod', HM, 0, 0.19, 0, 0, 0, 0, 0.36, 0.05, 0.36, 0xdff4ff);
+        for (let k = 0; k < 5; k++) {
+          const a = (k / 5) * Math.PI * 2, sx = Math.sin(a), cz = -Math.cos(a);
+          const h = k === 0 ? 0.26 : k % 2 ? 0.16 : 0.2;
+          gear('pad', HM, sx * 0.14, 0.21 + h / 2, cz * 0.14, cz * 0.3, 0, -sx * 0.3, 0.07, h, 0.07, 0xbfe8ff);
+        }
+        break;
+      }
+      case 'arcanist': { // 오른손에 빛나는 수정 지팡이, 머리 둘레를 도는 비전 구슬
+        gear('rod', RA, 0, 0.15, -0.31, 0, 0, 0, 0.05, 1.6, 0.05, 0x2a2440);
+        if (lit) {
+          gear('eye', RA, 0, 1.03, -0.31, 0, now * 0.003, 0, 0.1, 0.2, 0.1, wind ? 0xdfe8ff : e.boss.accent);
+          const a = now * 0.0021;
+          gear('eye', M, Math.cos(a) * 0.6, 1.95 + Math.sin(now * 0.004) * 0.06, Math.sin(a) * 0.6, now * 0.002, now * 0.003, 0, 0.13, 0.13, 0.13, 0xc8d4ff);
+        }
+        break;
+      }
+      default: break;   // 워커(기본 좀비)는 소품이 없다
+    }
+  }
 
   function drawZombie(e, smp, now, dt) {
     const f = smp.f;
@@ -497,46 +692,52 @@ export function createHordeView(o) {
     if (frozen) C.lerp(C2.setHex(0xa8e6ff), 0.6);
     if (flash) C.lerp(C2.setHex(0xffffff), 0.6);
     const clothC = CLC.copy(C);
+    gFrozen = frozen; gFlash = flash;
     if (e.low) {
       // 크롤러: 몸을 눕혀 앞으로 기어간다
-      put('torso', partM(M, 0, 0.42, -0.1, -1.35, 0, 0), clothC);
-      put('head', partM(M, 0, 0.5, -0.62, -0.2, 0, 0), skinC);
-      put('leg', partM(M, -0.14, 0.25, 0.35, -1.45 + swing * 0.5, 0, 0, -0.35), clothC);
-      put('leg', partM(M, 0.14, 0.25, 0.35, -1.45 - swing * 0.5, 0, 0, -0.35), clothC);
-      put('arm', partM(M, -0.3, 0.32, -0.45, -0.25 - swing * 0.6 + (wind ? 0.9 : 0), 0, 0, 0, -0.25), skinC);
-      put('arm', partM(M, 0.3, 0.32, -0.45, -0.25 + swing * 0.6 + (wind ? 0.9 : 0), 0, 0, 0, -0.25), skinC);
+      put('torso', TM.copy(partM(M, 0, 0.42, -0.1, -1.35, 0, 0)), clothC);
+      put('head', HM.copy(partM(M, 0, 0.5, -0.62, -0.2, 0, 0)), skinC);
+      put('leg', LL.copy(partM(M, -0.14, 0.25, 0.35, -1.45 + swing * 0.5, 0, 0, -0.35)), clothC);
+      put('leg', RL.copy(partM(M, 0.14, 0.25, 0.35, -1.45 - swing * 0.5, 0, 0, -0.35)), clothC);
+      put('arm', LA.copy(partM(M, -0.3, 0.32, -0.45, -0.25 - swing * 0.6 + (wind ? 0.9 : 0), 0, 0, 0, -0.25)), skinC);
+      put('arm', RA.copy(partM(M, 0.3, 0.32, -0.45, -0.25 + swing * 0.6 + (wind ? 0.9 : 0), 0, 0, 0, -0.25)), skinC);
       C.setHex(wind ? 0xff2a2a : 0xfff27a);
       put('eye', partM(M, -0.07, 0.53, -0.79, 0, 0, 0), C);
       put('eye', partM(M, 0.07, 0.53, -0.79, 0, 0, 0), C);
+      drawGear(e, now, dead, wind);
       return;
     }
     if (type && type.flying) {
       // Airborne feet are already in the snapshot position. Keep the torso and head
       // on the standing hitboxes, while the legs fold back and the arms form wings.
-      put('torso', partM(M, 0, 1.2, 0, -0.12, 0, 0), clothC);
-      put('head', partM(M, 0, 1.67, -0.08, -0.05, 0, 0), skinC);
-      put('leg', partM(M, -0.13, 0.88, 0.12, -1.15, 0, 0, -0.43), clothC);
-      put('leg', partM(M, 0.13, 0.88, 0.12, -1.15, 0, 0, -0.43), clothC);
+      put('torso', TM.copy(partM(M, 0, 1.2, 0, -0.12, 0, 0)), clothC);
+      put('head', HM.copy(partM(M, 0, 1.67, -0.08, -0.05, 0, 0)), skinC);
+      put('leg', LL.copy(partM(M, -0.13, 0.88, 0.12, -1.15, 0, 0, -0.43)), clothC);
+      put('leg', RL.copy(partM(M, 0.13, 0.88, 0.12, -1.15, 0, 0, -0.43)), clothC);
       const flap = Math.sin(now * 0.009 + e.walk) * 0.18;
-      put('arm', partM(M, -0.35, 1.43, -0.04, wind ? 0.4 : 0, 1.35, -0.18 - flap, 0, -0.65).multiply(S.makeScale(1.4, 1.5, 2.2)), clothC);
-      put('arm', partM(M, 0.35, 1.43, -0.04, wind ? 0.4 : 0, -1.35, 0.18 + flap, 0, -0.65).multiply(S.makeScale(1.4, 1.5, 2.2)), clothC);
+      // 날개 기준(LA/RA)은 늘이기 전 팔 가운데
+      LA.copy(partM(M, -0.35, 1.43, -0.04, wind ? 0.4 : 0, 1.35, -0.18 - flap, 0, -0.65));
+      put('arm', P.multiply(S.makeScale(1.4, 1.5, 2.2)), clothC);
+      RA.copy(partM(M, 0.35, 1.43, -0.04, wind ? 0.4 : 0, -1.35, 0.18 + flap, 0, -0.65));
+      put('arm', P.multiply(S.makeScale(1.4, 1.5, 2.2)), clothC);
       C.setHex(wind ? 0xff2a2a : 0xfff27a);
       put('eye', partM(M, -0.075, 1.71, -0.25, 0, 0, 0), C);
       put('eye', partM(M, 0.075, 1.71, -0.25, 0, 0, 0), C);
+      drawGear(e, now, dead, wind);
       return;
     }
     const lean = boss ? 0.12 : 0.22;
-    put('leg', partM(M, -0.13, 0.88, 0, swing, 0, 0, -0.43), clothC);
-    put('leg', partM(M, 0.13, 0.88, 0, -swing, 0, 0, -0.43), clothC);
-    put('torso', partM(M, 0, 1.2, 0, -lean, 0, Math.sin(e.walk * 0.5) * 0.05), clothC);
-    put('head', partM(M, 0, 1.67, -0.08, -lean * 0.4 + Math.sin(e.walk * 0.7 + 1) * 0.08, Math.sin(e.walk * 0.33) * 0.2, 0.12 * Math.sin(e.walk * 0.21)), skinC);
+    put('leg', LL.copy(partM(M, -0.13, 0.88, 0, swing, 0, 0, -0.43)), clothC);
+    put('leg', RL.copy(partM(M, 0.13, 0.88, 0, -swing, 0, 0, -0.43)), clothC);
+    put('torso', TM.copy(partM(M, 0, 1.2, 0, -lean, 0, Math.sin(e.walk * 0.5) * 0.05)), clothC);
+    put('head', HM.copy(partM(M, 0, 1.67, -0.08, -lean * 0.4 + Math.sin(e.walk * 0.7 + 1) * 0.08, Math.sin(e.walk * 0.33) * 0.2, 0.12 * Math.sin(e.walk * 0.21))), skinC);
     // 팔: 앞으로 뻗고(0 = 수평) 걸을 때 흔들, 공격 예고면 위로 들었다가 내리친다
     const armUp = wind ? 1.15 : -0.08 + Math.sin(e.walk + 0.5) * 0.12;
     // 블리츠: 큰 쇠주먹 둘. 그랩 예고면 오른팔을 앞으로 뻗어 당기고 주먹이 노랗게 빛난다(바닥에 겨눈 선). 갈고리가 날아가는 동안 오른 주먹은 없다
     const hook = !!(type && type.grab) && !!(f & ZF.hook) && !dead;
     const rArm = hook ? 0.05 : armUp - swing * 0.2, rOff = hook ? -0.12 : -0.29;
-    put('arm', partM(M, -0.34, 1.43, -0.05, armUp + swing * 0.2, 0.08, 0, 0, -0.29), skinC);
-    put('arm', partM(M, 0.34, 1.43, -0.05, rArm, -0.08, 0, 0, rOff), skinC);
+    put('arm', LA.copy(partM(M, -0.34, 1.43, -0.05, armUp + swing * 0.2, 0.08, 0, 0, -0.29)), skinC);
+    put('arm', RA.copy(partM(M, 0.34, 1.43, -0.05, rArm, -0.08, 0, 0, rOff)), skinC);
     if (type && type.grab && !dead) {
       C.setHex(0x6a6a72);
       put('arm', partM(M, -0.34, 1.43, -0.05, armUp + swing * 0.2, 0.08, 0, 0, -0.66).multiply(S.makeScale(2.6, 2.6, 0.5)), C);
@@ -556,6 +757,7 @@ export function createHordeView(o) {
       put('pad', partM(M, -0.3, 1.58, 0.02, 0, 0, 0.5), C);
       put('pad', partM(M, 0.3, 1.58, 0.02, 0, 0, -0.5), C);
     }
+    drawGear(e, now, dead, wind);
   }
 
   /** 한 프레임 그리기. frozen이면 검기를 멈춰 둔다(시뮬레이션 일시정지: 멈춘 좀비를 맞히지 않게) */
@@ -843,7 +1045,7 @@ export function createHordeView(o) {
       const tx = b.target[0], tz = b.target[1];
       const blink = 0.55 + 0.35 * Math.sin(now / 70);
       if (b.skillPhase === 1) {
-        if (kind === 'leap' || kind === 'pool' || kind === 'volley') {
+        if (kind === 'leap' || kind === 'pool' || kind === 'volley' || kind === 'barrage') {
           const d = teleDiscs.take();
           if (d) {
             const r = kind === 'leap' ? sk.radius || 4 : kind === 'pool' ? (sk.hazard && sk.hazard.r) || 3 : (sk.pool && sk.pool.r) || (sk.blast && sk.blast.r) || 1.8;
@@ -878,9 +1080,10 @@ export function createHordeView(o) {
           r.material.color.setHex(sk.shock ? 0x6ff0ff : 0xffb27a);
           r.material.opacity = 0.9;
         }
-      } else if (b.skillPhase === 2 && kind === 'leap') {
+      } else if (b.skillPhase === 2 && (kind === 'leap' || kind === 'barrage')) {
+        // 도약 착지점 · 포격 포탄이 떨어질 자리: 떨어질 때까지 진하게
         const d = teleDiscs.take();
-        if (d) { d.position.set(tx, groundNear(bp[1]) + 0.05, tz); d.scale.setScalar(sk.radius || 4); d.material.opacity = 0.42; }
+        if (d) { d.position.set(tx, groundNear(bp[1]) + 0.05, tz); d.scale.setScalar(kind === 'leap' ? sk.radius || 4 : (sk.blast && sk.blast.r) || 2); d.material.opacity = 0.42; }
       }
     }
     teleDiscs.end(); teleRings.end(); teleRects.end();
@@ -1301,6 +1504,19 @@ export function createHordeView(o) {
     return best ? { id: best.id, x: best.x, y: best.y, z: best.z, yaw: best.yaw, s: best.s, low: best.low, boss: best.boss } : null;
   }
 
+  /** touching과 같은 판정으로 닿은 좀비 전부의 id('z12' 꼴). 투척 도끼가 뚫고 지나가며 맞힌 좀비를 고른다(솟아오르는 좀비는 뺀다) */
+  function touchingIds(p, r = 0.5) {
+    const out = [];
+    if (!active || !p) return out;
+    for (const z of rendered) {
+      if (z.rising) continue;
+      const top = z.y + (z.low ? 0.8 : 1.85) * z.s;
+      if (p[1] < z.y - 0.1 || p[1] > top + 0.15) continue;
+      if (Math.hypot(p[0] - z.x, p[2] - z.z) < (z.low ? 0.5 : 0.32) * z.s + r) out.push('z' + z.id);
+    }
+    return out;
+  }
+
   /**
    * 이번 프레임에 그린(살아 있는) 좀비 하나 — id는 번호나 'z12'. 쓰러졌거나 사라졌으면 null.
    * 돌려주는 객체는 이번 프레임 목록 그대로라 읽기만 한다 → { id, x, y, z, yaw, s, low, boss } | null
@@ -1374,7 +1590,7 @@ export function createHordeView(o) {
   }
 
   return {
-    setActive, push, event, frame, ray, autoAim, melee, blastTargets, grabbed, touching, touchingZombie, zombieAt, wave, nearest, noteHit, damageNumber, forEachVisible, clear, dispose,
+    setActive, push, event, frame, ray, autoAim, melee, blastTargets, grabbed, touching, touchingZombie, touchingIds, zombieAt, wave, nearest, noteHit, damageNumber, forEachVisible, clear, dispose,
     get active() { return active; },
     get count() { return rendered.length; },
     get delay() { return delay; },

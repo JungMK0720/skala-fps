@@ -33,7 +33,8 @@ export const VIEWMODEL_LAYER = 30;
 /** 모형을 가진 무기 id(DESIGN 3.2 표 순서) */
 export const VIEWMODEL_IDS = Object.freeze([
   'ar_std', 'ar_rapid', 'ar_line', 'ar_burst', 'dm_mark', 'sm_vx3', 'sg_bx12', 'sg_pump', 'sg_double', 'sg_auto', 'sm_uzi_dual', 'mg_minigun',
-  'sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy', 'mg_m249', 'fl_horde', 'rg_horde', 'pt_std', 'pt_magnum', 'ml_knife', 'ml_tanto', 'ml_gurkha', 'ml_katana', 'gr_frag',
+  'sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy', 'mg_m249', 'fl_horde', 'rg_horde', 'zs_bolt', 'pt_std', 'pt_magnum', 'sg_shorty', 'pn_air', 'sk_stake', 'th_axe',
+  'ml_knife', 'ml_tanto', 'ml_gurkha', 'ml_katana', 'ml_case', 'ml_saw', 'gr_frag',
 ]);
 
 const RO = 10000;                 // renderOrder 기준(월드의 투명 물체보다 뒤에 그려지도록 크게)
@@ -147,11 +148,12 @@ const between = (a, b, w, p) => ({ p: new THREE.Vector3(p[0], p[1], p[2]), q: a.
  * 짧은 칼(호크빌·탄토·구르카)의 동작. 카타나처럼 카메라 좌표 키프레임으로 적는다.
  * 지킬 것: 손은 화면 오른쪽 아래에 머물러 소매가 화면을 가로막지 않는다. 뒤로 빼는 동작은 작게 해서 칼이 화면 밖으로 나가지 않는다.
  * 맞는 순간(windup)에 칼끝이 조준점 가까이를 지나간다. 베는 동안 날(e)은 움직이는 쪽을 향한다.
- * @param {{ heavy?: 'stab'|'chop', push?: number }} [o] heavy = 우클릭 동작(찌르기·내려찍기), push = 칼이 길어 앞으로 더 내미는 거리
+ * @param {{ heavy?: 'stab'|'chop', push?: number, idle?: object }} [o] heavy = 우클릭 동작(찌르기·내려찍기), push = 칼이 길어 앞으로 더 내미는 거리,
+ *   idle = 평소 자세 K(...)를 바꿀 때(가방처럼 칼날이 아닌 물건을 아래로 늘어뜨려 든다). 점검·꺼내기도 이 자세에서 시작하고 끝난다
  */
-function shortBladeClips({ heavy = 'stab', push = 0 } = {}) {
+function shortBladeClips({ heavy = 'stab', push = 0, idle: idleK = null } = {}) {
   const at = (x, y, z) => [x, y, z - push];
-  const idle = K(at(0.13, -0.128, -0.29), [-0.435, 0.223, -0.872], [-0.781, -0.575, 0.243]);
+  const idle = idleK || K(at(0.13, -0.128, -0.29), [-0.435, 0.223, -0.872], [-0.781, -0.575, 0.243]);
   // 베기 A: 오른쪽 위 → 조준점 → 왼쪽 아래
   const aW = K(at(0.178, -0.096, -0.285), [-0.08, 0.5, -0.86], [-0.95, -0.2, 0.2]);
   const aM = K(at(0.075, -0.098, -0.36), [-0.56, 0.3, -0.77], [-0.68, -0.62, 0.38]);
@@ -1141,6 +1143,161 @@ export function createViewmodel(camera, opts = {}) {
     };
   }
 
+  // ── 007 가방 ────────────────────────────────────────────────
+  /** 손잡이(원점, z축)를 쥐고 아래로 늘어뜨린 단단한 서류 가방. 금속 모서리·잠금쇠 두 개. 베기는 가방 모서리로 후려치고 우클릭은 머리 위에서 내려찍는다 */
+  function buildMlCase() {
+    const g = new THREE.Group();
+    const parts = {};
+    const id = 'ml_case';
+    const leather = paint(accentOf(id, 0x3b3b44), { rough: 0.5, metal: 0.25, glow: 0.12 });
+    const grip = paint(0x1c1c20, { rough: 0.8, metal: 0.05, glow: 0.1 });
+    const W = 0.23, H = 0.15, T = 0.052, top = -0.028, cy = top - H / 2;   // 가방 폭(z)·높이(y)·두께(x), 윗면 높이
+    // 손잡이와 받침 기둥
+    cyl(0.0105, 0.0105, 0.07, grip, g, 'z', 0, 0, 0, 12);
+    for (const s of [1, -1]) {
+      box(0.012, 0.03, 0.012, M.gunmetal, g, 0, -0.014, s * 0.042);
+      box(0.02, 0.006, 0.026, M.gunmetal, g, 0, top + 0.002, s * 0.042);
+    }
+    // 몸통과 여닫는 이음매(두께 가운데를 한 바퀴 두른 띠)
+    box(T, H, W, leather, g, 0, cy, 0);
+    box(0.008, H + 0.004, W + 0.004, M.gunmetal, g, 0, cy, 0);
+    // 금속 모서리
+    for (const sy of [1, -1]) {
+      for (const sz of [1, -1]) box(T + 0.004, 0.018, 0.018, M.steel, g, 0, cy + sy * (H / 2 - 0.007), sz * (W / 2 - 0.007));
+    }
+    // 잠금쇠 두 개(양쪽 면 위쪽)
+    for (const sx of [1, -1]) {
+      for (const sz of [1, -1]) {
+        box(0.004, 0.02, 0.026, M.brass, g, sx * (T / 2 + 0.0015), top - 0.018, sz * 0.072);
+        box(0.003, 0.006, 0.01, M.black, g, sx * (T / 2 + 0.0035), top - 0.015, sz * 0.072);
+      }
+    }
+    const mark = textDraw([{ text: '007', size: 0.78, y: 0.54, color: '#d8dde4', stroke: 'rgba(0,0,0,0.55)' }]);
+    decal(g, 0.07, 0.03, -(T / 2 + 0.0008), cy - 0.012, 0, -Math.PI / 2, mark);
+    decal(g, 0.07, 0.03, T / 2 + 0.0008, cy - 0.012, 0, Math.PI / 2, mark);
+    // 평소에는 화면 오른쪽 아래에 손잡이를 쥐고 가방을 아래로 늘어뜨린다(d = 앞쪽, e = 가방 몸통 = 아래)
+    const melee = shortBladeClips({ heavy: 'chop', push: 0.03, idle: K([0.15, -0.085, -0.36], [-0.3, 0.06, -0.95], [-0.12, -0.99, 0]) });
+    return {
+      g, parts, muzzle: null,
+      arms: { R: makeArm('R', [0, 0, 0], [0, 0, 1], [1, 0, 0], 0.0125), L: null },
+      hip: [melee.idle.p.x, melee.idle.p.y, melee.idle.p.z], hipRot: [0, 0, 0],
+      ads: null,
+      kick: { z: 0, pitch: 0, roll: 0 }, flash: 0,
+      melee, tipP: new THREE.Vector3(0, top - H, -W / 2), midP: new THREE.Vector3(0, cy, -W / 4), trailColor: 0xd5dbe3, trailGain: 0.35,
+    };
+  }
+
+  // ── 전기톱 ──────────────────────────────────────────────────
+  /**
+   * 뒤 손잡이(원점, z축)를 오른손이, 위 손잡이를 왼손이 잡는다. 안내판이 -z로 뻗고 톱날 줄(parts.chainTop·chainBot)은 켜면 돈다(update).
+   * 좌클릭을 누르고 있으면 0.1초마다 '베기'가 다시 시작되므로 베기는 제자리에서 앞으로 살짝 밀며 떠는 정도로 작게 두고 궤적도 그리지 않는다(slashTrail: false).
+   * 우클릭은 톱을 들어 올렸다가 조준점을 지나 내려 긋는 큰 휘두르기. 두 손으로 늘 잡고 있다(twoHand: 강타 때 왼손을 떼지 않는다).
+   */
+  function buildMlSaw() {
+    const g = new THREE.Group();
+    const parts = {};
+    const id = 'ml_saw';
+    const accent = paint(accentOf(id, 0xe8a317), { rough: 0.45, metal: 0.15, glow: 0.22 });
+    const dark = paint(0x24272b, { rough: 0.6, metal: 0.3 });
+    const barMat = paint(0x9aa1a9, { rough: 0.32, metal: 0.8, glow: 0.04 });
+    // 뒤 손잡이(오른손)·방아쇠·안전 레버
+    cyl(0.0145, 0.0145, 0.13, dark, g, 'z', 0, 0, 0.035, 12);
+    box(0.024, 0.016, 0.13, dark, g, 0, -0.062, 0.035);
+    box(0.024, 0.076, 0.018, dark, g, 0, -0.03, 0.104);
+    box(0.007, 0.016, 0.012, M.black, g, 0, -0.018, -0.012);
+    box(0.008, 0.008, 0.024, accent, g, 0, 0.016, 0.0);
+    // 엔진 몸통·위 덮개
+    prof([[-0.03, 0.045], [-0.17, 0.05], [-0.215, 0.025], [-0.225, -0.035], [-0.205, -0.085], [-0.03, -0.085], [-0.02, -0.02]], 0.092, accent, g, 0, 0, 0, 0.004);
+    prof([[-0.035, 0.052], [-0.16, 0.056], [-0.19, 0.042], [-0.035, 0.036]], 0.07, dark, g, 0, 0, 0, 0.002);
+    for (let i = 0; i < 5; i++) box(0.004, 0.05, 0.006, M.black, g, 0.047, -0.022, -0.06 - i * 0.022);   // 냉각 핀(오른쪽 면)
+    box(0.01, 0.014, 0.05, M.black, g, 0.052, 0.02, -0.1);                                               // 시동 손잡이
+    cyl(0.012, 0.012, 0.01, M.black, g, 'x', -0.049, -0.05, -0.06);                                      // 연료 마개(왼쪽 면)
+    box(0.07, 0.03, 0.02, M.gunmetal, g, 0.01, -0.03, -0.228);                                           // 머플러
+    // 위 손잡이(왼손): 왼쪽 면을 타고 올라와 몸통 위를 가로지르는 고리. 그 앞에 손 보호대
+    box(0.016, 0.13, 0.016, dark, g, -0.056, 0.0, -0.15);
+    cyl(0.0125, 0.0125, 0.075, dark, g, 'x', -0.019, 0.072, -0.15, 12);
+    box(0.016, 0.03, 0.016, dark, g, 0.012, 0.058, -0.15);
+    box(0.1, 0.075, 0.006, M.black, g, -0.005, 0.07, -0.2);
+    // 안내판(둥근 코)과 체인 띠
+    const barY = -0.05, barZ0 = -0.2, barLen = 0.38, barH = 0.052, nose = barZ0 - barLen;
+    box(0.006, barH, barLen, barMat, g, 0, barY, barZ0 - barLen / 2);
+    cyl(barH / 2, barH / 2, 0.006, barMat, g, 'x', 0, barY, nose, 18);
+    box(0.0068, 0.006, barLen - 0.06, M.black, g, 0, barY, barZ0 - barLen / 2 + 0.02);
+    for (const s of [1, -1]) box(0.0085, 0.006, barLen, M.iron, g, 0, barY + s * barH / 2, barZ0 - barLen / 2);
+    const noseBand = new THREE.TorusGeometry(barH / 2, 0.003, 6, 12, Math.PI);
+    noseBand.rotateZ(-Math.PI / 2);                                                                       // 아래 → 앞 → 위 반원
+    add(noseBand, M.iron, g, 0, barY, nose).rotation.y = Math.PI / 2;
+    // 톱날: 윗줄은 앞으로, 아랫줄은 뒤로 돈다. 한 칸(gap)만큼 밀었다가 되돌리므로 코 앞으로 튀어나가지 않게 한 칸 비워 둔다
+    const gap = 0.024;
+    const chainTop = new THREE.Group(), chainBot = new THREE.Group();
+    chainTop.position.set(0, barY + barH / 2 + 0.004, 0);
+    chainBot.position.set(0, barY - barH / 2 - 0.004, 0);
+    g.add(chainTop, chainBot);
+    for (let z = barZ0 - 0.02; z > nose + gap + 0.005; z -= gap) {
+      box(0.0095, 0.007, 0.011, M.steel, chainTop, 0, 0, z);
+      box(0.0035, 0.004, 0.004, M.black, chainTop, 0.003, 0.004, z - 0.004);
+      box(0.0095, 0.007, 0.011, M.steel, chainBot, 0, 0, z);
+      box(0.0035, 0.004, 0.004, M.black, chainBot, -0.003, -0.004, z + 0.004);
+    }
+    parts.chainTop = chainTop;
+    parts.chainBot = chainBot;
+    label(g, shortOf(id), 0.09, 0.022, -0.0472, 0.0, -0.09, '#1d1f22', 'rgba(255,255,255,0.2)');
+
+    // 키프레임(카메라 좌표). 오른손은 화면 오른쪽 아래, 안내판은 거기서 조준점 쪽으로 비스듬히 뻗는다(왼팔이 안내판을 가리지 않게 몸통을 옆으로 보인다)
+    const IP = [0.24, -0.215, -0.43], ID = [-0.42, 0.27, -0.866], IE = [-0.04, -0.98, 0.2];
+    /** 평소 자세에서 손 위치 dp, 안내판 방향 dd, 아래 방향 de만큼 비튼 자세 */
+    const near = (dp, dd = [0, 0, 0], de = [0, 0, 0]) => K(IP.map((v, i) => v + dp[i]), ID.map((v, i) => v + dd[i]), IE.map((v, i) => v + de[i]));
+    const idle = near([0, 0, 0]);
+    // 갈기 A·B: 0.1초 안에 뒤로 살짝 → 앞으로 2~3 cm 밀기 → 제자리. 번갈아 좌우로 조금 떨린다
+    const aW = near([0.002, 0.003, 0.006], [-0.005, 0.002, 0], [-0.01, 0, 0]);
+    const aM = near([-0.006, -0.003, -0.028], [-0.015, -0.008, 0], [-0.03, 0, 0]);
+    const aE = near([0.003, 0.002, -0.024], [-0.008, -0.003, 0], [-0.02, 0, 0]);
+    const aA = near([0, 0, -0.016], [-0.002, -0.001, 0], [-0.005, 0, 0]);
+    const bW = near([-0.002, -0.003, 0.006], [0.005, -0.002, 0], [0.01, 0, 0]);
+    const bM = near([0.004, 0.003, -0.026], [0.015, 0.007, 0], [0.03, 0, 0.005]);
+    const bE = near([-0.003, -0.002, -0.023], [0.008, 0.002, 0], [0.02, 0, 0]);
+    const bA = near([0, 0, -0.015], [0.002, 0, 0], [0.005, 0, 0]);
+    // 강타: 톱을 오른쪽 위로 들어 올렸다가(날 아래쪽이 앞을 본다) 조준점을 지나 왼쪽 아래로 내려 긋는다
+    const hW = K([0.26, -0.11, -0.44], [-0.2, 0.72, -0.66], [0.0, -0.68, -0.73]);
+    const hM = K([0.22, -0.17, -0.48], [-0.38, 0.22, -0.9], [-0.05, -0.975, -0.2]);
+    const hE = K([0.19, -0.24, -0.46], [-0.52, -0.16, -0.84], [-0.05, -0.97, 0.22]);
+    const melee = {
+      idle,
+      span: 0.025, heavySpan: 0.09, heavyAfter: 0.14,
+      slashTrail: false, twoHand: true,
+      slashA: { wind: aW, mid: aM, end: aE, after: aA },
+      slashB: { wind: bW, mid: bM, end: bE, after: bA },
+      heavy: { wind: hW, hold: between(hW, hW, 0, [0.265, -0.1, -0.435]), mid: hM, end: hE, after: between(hM, hE, 1.06, [0.186, -0.248, -0.455]) },
+      // 점검: 안내판을 왼쪽으로 돌려 오른쪽 면(냉각 핀·시동 손잡이)을 보이고, 비틀어 날을 본 뒤, 들어 올렸다가 돌아온다
+      inspect: [
+        { t: 0, ...idle },
+        { t: 0.5, ...near([-0.04, 0.03, 0.01], [-0.25, -0.05, 0.12], [-0.06, 0.01, 0]), e: 'io' },
+        { t: 1.3, ...near([-0.035, 0.035, 0.01], [-0.23, 0, 0.12], [0.36, 0.08, 0.1]), e: 'io' },
+        { t: 1.8, ...near([-0.02, 0.05, 0.02], [0.2, 0.2, -0.05], [-0.1, 0.06, 0.1]), e: 'io' },
+        { t: 2.6, ...idle, e: 'io' },
+      ],
+      inspectDur: 2.6,
+      draw: [
+        { t: 0, ...K([0.25, -0.45, -0.32], [-0.3, -0.35, -0.89], [-0.06, -0.93, 0.35]) },
+        { t: 0.6, ...near([-0.01, 0.025, 0.02], [0, 0.1, 0.05], [0, 0.01, 0.1]), e: 'out' },
+        { t: 1, ...idle, e: 'io' },
+      ],
+    };
+    return {
+      g, parts, muzzle: null,
+      arms: {
+        R: makeArm('R', [0, 0, 0.035], [0, 0, 1], [0.5, 0.85, 0], 0.0165),
+        L: makeArm('L', [-0.02, 0.072, -0.15], [-1, 0, 0], [0, 1, 0.3], 0.0145),
+      },
+      hip: [idle.p.x, idle.p.y, idle.p.z], hipRot: [0, 0, 0],
+      ads: null,
+      kick: { z: 0, pitch: 0, roll: 0 }, flash: 0,
+      elbowL: new THREE.Vector3(0.02, -0.85, 0.1),
+      melee, tipP: new THREE.Vector3(0, barY, nose - barH / 2), midP: new THREE.Vector3(0, barY, -0.36), trailColor: 0xffd27a, trailGain: 0.5,
+      chainGap: gap,
+    };
+  }
+
   // ── 수류탄 ──────────────────────────────────────────────────
   function buildGrFrag() {
     const g = new THREE.Group();
@@ -1721,14 +1878,19 @@ export function createViewmodel(camera, opts = {}) {
     };
   }
 
-  // ── 쌍발 산탄총 DB-2 ────────────────────────────────────────
-  /** 꺾어 여는 쌍발. 총열 묶음(parts.barrels)이 경첩(총신 밑동)을 따라 아래로 꺾이고 왼손이 탄을 두 발 넣는다(breakReload) */
-  function buildSgDouble() {
+  // ── 쌍발 산탄총 DB-2 / SH-2 ─────────────────────────────────
+  /**
+   * 꺾어 여는 쌍발. 총열 묶음(parts.barrels)이 경첩(총신 밑동)을 따라 아래로 꺾이고 왼손이 탄을 두 발 넣는다(breakReload).
+   * DB-2가 기본이고 P로 총열을 자르고 개머리를 떼어 SH-2(쇼티)도 만든다.
+   * P = { id, len(총열 길이), fore(앞 손잡이 앞끝, 총열 묶음 기준 z), leftZ(왼손 z), stock(개머리 여부), wood(나무 색), hip, hipRot, kick, flash }
+   */
+  function buildSgDouble(P = {}) {
     const g = new THREE.Group();
     const parts = {};
-    const id = 'sg_double';
+    const id = P.id || 'sg_double';
+    const len = P.len ?? 0.5;
     const body = paint(0x30343a, { rough: 0.4, metal: 0.7 });
-    const wood = paint(0x4a2f1a, { rough: 0.62, metal: 0.05, glow: 0.14 });
+    const wood = paint(P.wood ?? 0x4a2f1a, { rough: 0.62, metal: 0.05, glow: 0.14 });
     const accent = paint(accentOf(id, 0x8a5a2b), { rough: 0.45, metal: 0.3, glow: 0.24 });
     const shellMat = paint(0x2f6fb5, { rough: 0.55, metal: 0.05, glow: 0.2 });
     // 리시버(경첩이 있는 짧은 덩어리)
@@ -1739,25 +1901,32 @@ export function createViewmodel(camera, opts = {}) {
     barrels.position.set(0, 0, -0.05);
     g.add(barrels);
     for (const s of [1, -1]) {
-      cyl(0.0128, 0.0124, 0.5, M.gunmetal, barrels, 'z', s * 0.0128, 0.018, -0.25);
-      cyl(0.0148, 0.0148, 0.02, M.black, barrels, 'z', s * 0.0128, 0.018, -0.5);     // 총구 테
+      cyl(0.0128, 0.0124, len, M.gunmetal, barrels, 'z', s * 0.0128, 0.018, -len / 2);
+      cyl(0.0148, 0.0148, 0.02, M.black, barrels, 'z', s * 0.0128, 0.018, -len);       // 총구 테
     }
-    box(0.008, 0.005, 0.48, M.black, barrels, 0, 0.034, -0.25);                       // 윗 리브
+    box(0.008, 0.005, len - 0.02, M.black, barrels, 0, 0.034, -len / 2);               // 윗 리브
     box(0.026, 0.01, 0.07, M.gray, barrels, 0, 0.0, -0.025);                           // 총열 밑동
-    box(0.004, 0.016, 0.01, accent, barrels, 0, 0.044, -0.47);                         // 가늠쇠
-    box(0.003, 0.004, 0.003, M.tritium, barrels, 0, 0.0535, -0.47);
+    box(0.004, 0.016, 0.01, accent, barrels, 0, 0.044, 0.03 - len);                    // 가늠쇠
+    box(0.003, 0.004, 0.003, M.tritium, barrels, 0, 0.0535, 0.03 - len);
     // 앞 손잡이(나무). 총열과 함께 꺾인다
-    prof([[-0.2, -0.004], [-0.04, -0.004], [-0.04, -0.034], [-0.2, -0.03]], 0.04, wood, barrels, 0, 0, 0, 0.004);
+    const fore = P.fore ?? -0.2;
+    prof([[fore, -0.004], [-0.04, -0.004], [-0.04, -0.034], [fore, -0.03]], 0.04, wood, barrels, 0, 0, 0, 0.004);
     parts.barrels = barrels;
     // 개머리·손잡이
     pistolGrip(g, -0.028, 0.034, wood, 0.03);
     triggerGroup(g, -0.036, 0.008);
     box(0.004, 0.012, 0.014, M.black, g, 0, -0.056, 0.004);                            // 두 번째 방아쇠
-    prof([[0.056, 0.022], [0.1, 0.022], [0.222, 0.006], [0.228, -0.066], [0.198, -0.072], [0.098, -0.03], [0.056, -0.026]], 0.038, wood, g, 0, 0, 0, 0.003);
-    box(0.042, 0.082, 0.02, M.black, g, 0, -0.03, 0.236);
+    if (P.stock !== false) {
+      prof([[0.056, 0.022], [0.1, 0.022], [0.222, 0.006], [0.228, -0.066], [0.198, -0.072], [0.098, -0.03], [0.056, -0.026]], 0.038, wood, g, 0, 0, 0, 0.003);
+      box(0.042, 0.082, 0.02, M.black, g, 0, -0.03, 0.236);
+    } else {
+      // 개머리 없이 잘라 낸 뒤끝 덮개와 손잡이 밑 마개
+      prof([[0.056, 0.022], [0.078, 0.016], [0.08, -0.012], [0.056, -0.026]], 0.04, body, g, 0, 0, 0, 0.002);
+      prof([[0.04, -0.118], [0.084, -0.11], [0.088, -0.12], [0.044, -0.131]], 0.032, M.black, g, 0, 0, 0, 0.001);
+    }
     label(g, shortOf(id), 0.09, 0.022, -0.0236, 0.01, 0.0, '#f2e2bc');
     const muzzle = new THREE.Object3D();
-    muzzle.position.set(0, 0.018, -0.57);
+    muzzle.position.set(0, 0.018, -0.07 - len);
     g.add(muzzle);
     // 재장전 때 왼손이 넣는 탄
     const shell = new THREE.Group();
@@ -1770,11 +1939,11 @@ export function createViewmodel(camera, opts = {}) {
       g, parts, muzzle,
       arms: {
         R: makeArm('R', [0, -0.076, 0.046], [0, -0.09, 0.0275], [0.78, 0, 0.62], 0.0172),
-        L: makeArm('L', [0, -0.016, -0.25], [0, 0, 1], [-0.3, -0.95, 0], 0.027),
+        L: makeArm('L', [0, -0.016, P.leftZ ?? -0.25], [0, 0, 1], [-0.3, -0.95, 0], 0.027),
       },
-      hip: [0.145, -0.16, -0.31], hipRot: [0, 0.03, 0],
+      hip: P.hip || [0.145, -0.16, -0.31], hipRot: P.hipRot || [0, 0.03, 0],
       ads: null,
-      kick: { z: 0.085, pitch: 0.2, roll: 0.04 }, flash: 1.8,
+      kick: P.kick || { z: 0.085, pitch: 0.2, roll: 0.04 }, flash: P.flash ?? 1.8,
       reloadFn: breakReload,
     };
   }
@@ -2063,6 +2232,201 @@ export function createViewmodel(camera, opts = {}) {
     };
   }
 
+  // ── 공기포 AG-8 (좀비 전용) ──────────────────────────────────
+  /** 압축 공기로 좀비를 날려 보내는 권총형 송풍포. 위에는 압력실과 압력계, 앞에는 넓게 벌어진 분사구. 총열 밑 공기통(parts.mag)이 앞 손잡이이자 탄창이다 */
+  function buildPnAir() {
+    const g = new THREE.Group();
+    const parts = {};
+    const id = 'pn_air';
+    const body = paint(0x2a3038, { rough: 0.45, metal: 0.55 });
+    const shellC = paint(0xd9dee4, { rough: 0.35, metal: 0.3, glow: 0.08 });
+    const accent = paint(accentOf(id, 0x7fd3ff), { rough: 0.3, metal: 0.25, glow: 0.35 });
+    prof([[-0.11, 0.032], [0.05, 0.032], [0.062, 0.012], [0.054, -0.022], [-0.11, -0.022]], 0.042, body, g, 0, 0, 0, 0.0025);
+    box(0.0012, 0.006, 0.08, accent, g, -0.0216, 0.0, -0.04);
+    // 압력실: 흰 통에 하늘색 띠, 앞뒤 마개
+    cyl(0.024, 0.024, 0.15, shellC, g, 'z', 0, 0.042, -0.035, 18);
+    cyl(0.018, 0.024, 0.014, shellC, g, 'z', 0, 0.042, -0.117, 18);
+    cyl(0.024, 0.016, 0.012, M.gray, g, 'z', 0, 0.042, 0.046, 18);
+    for (let i = 0; i < 3; i++) torus(0.0245, 0.0022, accent, g, 0, 0.042, -0.08 + i * 0.04);
+    // 압력계(왼쪽 면)
+    cyl(0.011, 0.011, 0.008, M.gunmetal, g, 'x', -0.027, 0.044, 0.01);
+    cyl(0.0092, 0.0092, 0.0015, paint(0xf2f4f6, { rough: 0.4, metal: 0, glow: 0.3 }), g, 'x', -0.0315, 0.044, 0.01);
+    box(0.001, 0.007, 0.0014, paint(0xd23a2a, { rough: 0.5, metal: 0, glow: 0.3 }), g, -0.0325, 0.046, 0.012).rotation.x = 0.6;
+    // 총열과 넓게 벌어진 분사구(속이 빈 나팔)
+    cyl(0.0125, 0.0125, 0.1, M.gunmetal, g, 'z', 0, 0.01, -0.15);
+    lathe([[0.046, -0.29], [0.04, -0.268], [0.026, -0.238], [0.017, -0.212], [0.015, -0.198],
+      [0.011, -0.198], [0.013, -0.212], [0.022, -0.238], [0.036, -0.268], [0.042, -0.29], [0.046, -0.29]], shellC, g, 0, 0.01, 0, 22);
+    cyl(0.027, 0.027, 0.002, M.black, g, 'z', 0, 0.01, -0.25, 18);
+    torus(0.044, 0.003, accent, g, 0, 0.01, -0.29);
+    // 손잡이·방아쇠
+    const gripTop = -0.022, gripZ = 0.03;
+    pistolGrip(g, gripTop, gripZ, body, 0.03, 0.09);
+    triggerGroup(g, gripTop - 0.002, gripZ - 0.024);
+    // 공기통(탄창): 재장전 때 아래로 빠졌다 새것이 들어온다
+    const mag = new THREE.Group();
+    mag.position.set(0, -0.045, -0.12);
+    g.add(mag);
+    cyl(0.021, 0.021, 0.12, accent, mag, 'z', 0, 0, 0, 16);
+    for (const s of [1, -1]) cyl(0.0215, 0.0215, 0.012, M.gray, mag, 'z', 0, 0, s * 0.058, 16);
+    cyl(0.009, 0.009, 0.02, M.gunmetal, mag, 'y', 0, 0.022, 0.03);
+    parts.mag = mag;
+    label(g, shortOf(id), 0.08, 0.02, -0.0218, 0.008, -0.02, '#dff4ff');
+    const muzzle = new THREE.Object3D();
+    muzzle.position.set(0, 0.01, -0.292);
+    g.add(muzzle);
+    return {
+      g, parts, muzzle,
+      arms: {
+        R: makeArm('R', [0, gripTop - 0.05, gripZ + 0.012], [0, -0.09, 0.0275], [0.78, 0, 0.62], 0.0172),
+        L: makeArm('L', [0, -0.045, -0.12], [0, 0, 1], [-0.3, -0.95, 0], 0.023),
+      },
+      hip: [0.14, -0.14, -0.33], hipRot: [0.01, 0.06, 0],
+      ads: null,
+      kick: { z: 0.05, pitch: 0.15, roll: 0.03 }, flash: 0.55,
+    };
+  }
+
+  // ── 말뚝총 ST-1 (좀비 전용) ──────────────────────────────────
+  /**
+   * 짧은 활 날개가 달린 석궁형 발사기. 위쪽 홈에 나무 말뚝(parts.stake)이 놓여 있고 끝이 총구 밖으로 나온다.
+   * 쏘면 말뚝이 사라졌다가 다음 말뚝이 홈으로 내려앉고(feed), 탄이 비면 숨는다. 재장전은 왼손이 말뚝을 홈에 눕혀 밀어 넣는다(stakeReload)
+   */
+  function buildSkStake() {
+    const g = new THREE.Group();
+    const parts = {};
+    const id = 'sk_stake';
+    const body = paint(0x2b2a28, { rough: 0.5, metal: 0.5 });
+    const accent = paint(accentOf(id, 0x9b6b3d), { rough: 0.5, metal: 0.2, glow: 0.2 });
+    const stakeWood = paint(0xa77b4c, { rough: 0.75, metal: 0, glow: 0.12 });
+    prof([[-0.1, 0.03], [0.08, 0.03], [0.095, 0.008], [0.085, -0.03], [-0.1, -0.03]], 0.048, body, g, 0, 0, 0, 0.0025);
+    // 말뚝이 놓이는 홈(바닥 + 양쪽 벽)과 앞 고리
+    box(0.036, 0.008, 0.28, M.gunmetal, g, 0, 0.026, -0.24);
+    for (const s of [1, -1]) box(0.006, 0.024, 0.28, body, g, s * 0.0155, 0.04, -0.24);
+    torus(0.017, 0.004, M.gunmetal, g, 0, 0.04, -0.378);
+    // 활 날개(끝이 뒤로 젖혀진다)와 줄
+    for (const s of [1, -1]) {
+      box(0.085, 0.012, 0.02, accent, g, s * 0.055, 0.036, -0.3).rotation.y = -s * 0.28;
+      box(0.008, 0.016, 0.012, M.black, g, s * 0.097, 0.036, -0.287);
+      box(0.0016, 0.0016, 0.3026, M.black, g, s * 0.048, 0.04, -0.1435).rotation.y = -s * 0.3226;
+    }
+    // 줄걸이(뒤 피스톤)
+    cyl(0.01, 0.012, 0.05, M.steel, g, 'z', 0, 0.04, -0.02);
+    box(0.03, 0.014, 0.03, M.black, g, 0, 0.04, 0.02);
+    // 말뚝: 뾰족한 끝, 쇠 띠, 뒤쪽 황동 마개
+    const stake = new THREE.Group();
+    stake.position.set(0, 0.04, -0.19);
+    g.add(stake);
+    cyl(0.0085, 0.0085, 0.27, stakeWood, stake, 'z', 0, 0, 0, 10);
+    cyl(0.0085, 0.0006, 0.07, stakeWood, stake, 'z', 0, 0, -0.17, 10);
+    cyl(0.0095, 0.0095, 0.012, M.iron, stake, 'z', 0, 0, -0.12, 10);
+    cyl(0.0095, 0.0095, 0.01, M.brass, stake, 'z', 0, 0, 0.13, 10);
+    parts.stake = stake;
+    // 손잡이·방아쇠·세운 앞 손잡이·뒤 마개
+    const gripTop = -0.03, gripZ = 0.05;
+    pistolGrip(g, gripTop, gripZ, body, 0.03);
+    triggerGroup(g, gripTop - 0.004, gripZ - 0.026);
+    cyl(0.014, 0.0145, 0.075, M.black, g, 'y', 0, -0.016, -0.2);
+    box(0.04, 0.05, 0.016, M.black, g, 0, 0.0, 0.1);
+    label(g, shortOf(id), 0.08, 0.02, -0.0246, 0.0, -0.03, '#f0d9b5');
+    const muzzle = new THREE.Object3D();
+    muzzle.position.set(0, 0.04, -0.4);
+    g.add(muzzle);
+    return {
+      g, parts, muzzle,
+      arms: {
+        R: makeArm('R', [0, gripTop - 0.05, gripZ + 0.012], [0, -0.09, 0.0275], [0.78, 0, 0.62], 0.0172),
+        L: makeArm('L', [0, -0.03, -0.2], [0, -0.089, 0.0275], [0.78, 0, 0.62], 0.0165),
+      },
+      hip: [0.15, -0.15, -0.34], hipRot: [0.01, 0.05, 0],
+      ads: null,
+      kick: { z: 0.06, pitch: 0.13, roll: 0.03 }, flash: 0,
+      reloadFn: stakeReload,
+      feed: { part: stake, dur: 0.45, hide: 0.25, off: [0, 0.035, 0.03] },
+    };
+  }
+
+  // ── 투척 도끼 TX-3 (좀비 전용) ──────────────────────────────
+  /**
+   * 권총처럼 손잡이를 쥔 손도끼. 날이 앞(-z)을 향하고 총구 자리(muzzle)는 도끼머리 앞이다.
+   * 던지면(쏘면) 손목을 앞으로 꺾고 도끼(parts.axe)가 사라졌다가 아래에서 새것이 올라온다(feed). 재장전은 손을 내려 새 도끼를 꺼내 온다(drawReload)
+   */
+  function buildThAxe() {
+    const g = new THREE.Group();
+    const parts = {};
+    const id = 'th_axe';
+    const steel = paint(accentOf(id, 0xb0b8c0), { rough: 0.3, metal: 0.8, glow: 0.05 });
+    const handleMat = paint(0x6b4426, { rough: 0.7, metal: 0.05, glow: 0.12 });
+    const wrapMat = paint(0x1f2226, { rough: 0.9, metal: 0, glow: 0.1 });
+    const axe = new THREE.Group();
+    g.add(axe);
+    // 손잡이: 아래 끝 B에서 위로(권총 손잡이처럼 뒤로 젖혀진 축) 뻗는다. at(s, w) = 축 거리 s, 폭 방향 w 지점 [z, y]
+    const B = [0.048, -0.135], ax = [-0.32, 0.947], nx = [0.947, 0.32];
+    const at = (s, w) => [B[0] + ax[0] * s + nx[0] * w, B[1] + ax[1] * s + nx[1] * w];
+    prof([at(0, 0.019), at(0.03, 0.015), at(0.16, 0.0135), at(0.26, 0.012), at(0.26, -0.012), at(0.16, -0.0135), at(0.03, -0.016), at(0, -0.02)], 0.022, handleMat, axe, 0, 0, 0, 0.003);
+    prof([at(0.02, 0.0165), at(0.14, 0.0145), at(0.14, -0.0145), at(0.02, -0.0175)], 0.024, wrapMat, axe, 0, 0, 0, 0.002);
+    // 도끼머리: 손잡이 끝을 감싼 눈·뒷머리(두꺼운 쇠) + 얇은 날 + 밝게 간 날끝
+    prof([[0.004, 0.13], [-0.06, 0.13], [-0.06, 0.094], [0.004, 0.098]], 0.028, M.iron, axe, 0, 0, 0, 0.002);
+    prof([[-0.055, 0.126], [-0.105, 0.152], [-0.118, 0.14], [-0.122, 0.105], [-0.116, 0.07], [-0.1, 0.06], [-0.075, 0.088], [-0.055, 0.096]], 0.009, steel, axe, 0, 0, 0, 0.001);
+    prof([[-0.105, 0.152], [-0.118, 0.14], [-0.122, 0.105], [-0.116, 0.07], [-0.1, 0.06], [-0.097, 0.066], [-0.11, 0.074], [-0.114, 0.105], [-0.111, 0.138], [-0.1, 0.147]], 0.011, M.steel, axe, 0, 0, 0, 0.0008);
+    parts.axe = axe;
+    const muzzle = new THREE.Object3D();
+    muzzle.position.set(0, 0.11, -0.13);
+    g.add(muzzle);
+    return {
+      g, parts, muzzle,
+      arms: { R: makeArm('R', [0, -0.056, 0.02], [0, -0.088, 0.03], [0.78, 0, 0.62], 0.0172), L: null },
+      hip: [0.13, -0.12, -0.33], hipRot: [0, 0.15, -0.08],
+      ads: null,
+      kick: { z: -0.05, pitch: -0.3, roll: 0.04 }, flash: 0,
+      reloadFn: drawReload,
+      feed: { part: axe, dur: 0.5, hide: 0.3, off: [0, -0.16, 0.04] },
+    };
+  }
+
+  // ── 제우스의 번개 (좀비 카드 전용) ──────────────────────────
+  /**
+   * 오른손에 쥔 빛나는 번개(지그재그 판). 흰 심 위에 노란 빛 껍질을 덧씌운다. 총구 자리(muzzle)는 번개 끝.
+   * 던지면(쏘면) 번개(parts.bolt)가 사라졌다가 새로 손에 생긴다(feed). 재장전은 손을 내렸다 올린다(drawReload)
+   */
+  function buildZsBolt() {
+    const g = new THREE.Group();
+    const parts = {};
+    const id = 'zs_bolt';
+    const core = new THREE.MeshBasicMaterial({ color: 0xfffbe0, transparent: true, fog: false, toneMapped: false });
+    const glow = new THREE.MeshBasicMaterial({ color: accentOf(id, 0xfff27a), transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false, toneMapped: false });
+    owned.mats.add(core); owned.mats.add(glow);
+    const bolt = new THREE.Group();
+    g.add(bolt);
+    // 꺾인 중심선 [z, y]과 반폭(뒤끝 → 손잡이 → 끝으로 가늘어진다). 손이 쥐는 원점 둘레는 곧다
+    const C = [[0.14, 0.012], [0.08, -0.012], [0.03, 0.006], [-0.03, -0.006], [-0.09, 0.02], [-0.15, -0.012], [-0.21, 0.018], [-0.27, -0.008], [-0.33, 0.004]];
+    const HW = [0.004, 0.008, 0.011, 0.011, 0.009, 0.0075, 0.0055, 0.0035, 0];
+    const outline = (k, add0) => {
+      const up = C.map(([z, y], i) => [z, y + HW[i] * k + (i < C.length - 1 ? add0 : 0)]);
+      const dn = C.slice(0, -1).map(([z, y], i) => [z, y - HW[i] * k - add0]).reverse();
+      return [...up, ...dn];
+    };
+    prof(outline(1, 0), 0.008, core, bolt, 0, 0, 0, 0.001);
+    prof(outline(1.9, 0.003), 0.02, glow, bolt, 0, 0, 0, 0.002).userData.vmOrder = 2;
+    // 꺾인 자리마다 작은 불꽃
+    for (let i = 1; i < C.length - 1; i += 2) {
+      const spark = add(new THREE.OctahedronGeometry(0.007, 0), glow, bolt, 0, C[i][1], C[i][0], 2);
+      spark.scale.set(1, 1.6, 0.7);
+    }
+    parts.bolt = bolt;
+    const muzzle = new THREE.Object3D();
+    muzzle.position.set(0, 0.004, -0.34);
+    g.add(muzzle);
+    return {
+      g, parts, muzzle,
+      arms: { R: makeArm('R', [0, 0, 0], [0, 0, 1], [1, 0, 0], 0.012), L: null },
+      hip: [0.15, -0.13, -0.33], hipRot: [0.08, 0.1, -0.15],
+      ads: null,
+      kick: { z: -0.06, pitch: -0.3, roll: 0.04 }, flash: 0.6,
+      reloadFn: drawReload,
+      feed: { part: bolt, dur: 0.35, hide: 0.2, off: [0, -0.08, 0.03] },
+    };
+  }
+
   // ── 기관총 MG-100 (좀비 물량 막기 전용) ────────────────────────
   /**
    * 박스 탄창 기관총. 배 밑의 탄약 상자(parts.mag)가 재장전에 빠졌다 들어가고, 급탄 덮개(parts.cover)가 뒤쪽 경첩을 따라 열렸다 닫힌다(lmgReload).
@@ -2281,12 +2645,22 @@ export function createViewmodel(camera, opts = {}) {
     mg_m249: buildMgM249,
     fl_horde: buildFlHorde,
     rg_horde: buildRgHorde,
+    zs_bolt: buildZsBolt,
     pt_std: buildPtStd,
     pt_magnum: buildPtMagnum,
+    sg_shorty: () => buildSgDouble({
+      id: 'sg_shorty', len: 0.2, fore: -0.15, leftZ: -0.15, stock: false, wood: 0x6b3a1f,
+      hip: [0.13, -0.13, -0.3], hipRot: [0.02, 0.1, -0.03], kick: { z: 0.075, pitch: 0.28, roll: 0.05 }, flash: 1.6,
+    }),
+    pn_air: buildPnAir,
+    sk_stake: buildSkStake,
+    th_axe: buildThAxe,
     ml_knife: buildMlKnife,
     ml_tanto: buildMlTanto,
     ml_gurkha: buildMlGurkha,
     ml_katana: buildMlKatana,
+    ml_case: buildMlCase,
+    ml_saw: buildMlSaw,
     gr_frag: buildGrFrag,
   };
   /** 알 수 없는 id도 던지지 않고 비슷한 모형으로 그린다 */
@@ -2517,6 +2891,8 @@ export function createViewmodel(camera, opts = {}) {
   let slideT = 1, hammerT = 1, cylTurn = 0, cylAngle = 0, stageA = 0;
   // 미니건 총열 회전(rad/s·누적 각)과 듀얼 우지의 번갈아 쏘기(어느 쪽이 쐈나, 쪽마다 남은 반동 0..1)
   let spinV = 0, spinA = 0, altSide = false;
+  // 눈에 보이는 탄(말뚝·도끼·번개)이 다시 들어오는 진행도 0..1, 전기톱 체인 속도(m/s)·밀린 거리
+  let feedT = 1, chainV = 0, chainA = 0;
   const gunK = [0, 0];
   let adsBlend = 0, bobPhase = 0, bobAmt = 0, airTime = 0, wasOnGround = true;
   let refFov = camera.fov || 60;
@@ -2580,6 +2956,8 @@ export function createViewmodel(camera, opts = {}) {
     slideT = 1;
     hammerT = 1;
     spinV = 0;
+    feedT = 1;
+    chainV = 0;
     altSide = false;
     gunK[0] = gunK[1] = 0;
     adsBlend = 0;
@@ -2607,6 +2985,7 @@ export function createViewmodel(camera, opts = {}) {
     if (cur.parts.cylinder) { cylTurn += Math.PI / 3; hammerT = 0; }
     if (cur.parts.pump) act = { type: 'pump', t: -0.14, dur: cur.pumpTime ?? 0.6 };
     if (cur.parts.spin) spinV = 44;
+    if (cur.feed) feedT = 0;
     if (cur.muzzle2) {
       // 듀얼: 왼쪽·오른쪽 총이 번갈아 쏜다. 쏜 쪽 총이 반동하고 섬광도 그쪽에서 난다
       altSide = !altSide;
@@ -2639,7 +3018,7 @@ export function createViewmodel(camera, opts = {}) {
     const C = index % 2 ? M_.slashB : M_.slashA;
     const t1 = wu * 0.62, t2 = wu, t3 = wu + M_.span, t4 = t3 + M_.span * 0.6, t5 = dur * 0.92;
     return {
-      type: 'clip', kind: 'slash', t: 0, dur, trail: [t1 * 0.9, t3 + 0.02],
+      type: 'clip', kind: 'slash', t: 0, dur, trail: M_.slashTrail === false ? null : [t1 * 0.9, t3 + 0.02],
       keys: [{ t: 0, ...I }, { t: t1, ...C.wind, e: 'out' }, { t: t2, ...C.mid, e: 'in' }, { t: t3, ...C.end, e: 'out' }, { t: t4, ...C.after, e: 'lin' }, { t: t5, ...I, e: 'io' }],
     };
   }
@@ -2850,6 +3229,40 @@ export function createViewmodel(camera, opts = {}) {
     }
   }
 
+  /** 말뚝 재장전: 총을 눕히고 왼손이 새 말뚝을 집어 와 홈 위에 눕힌 뒤 뒤에서 앞으로 밀어 넣는다. 말뚝이 남아 있으면 그대로 둔다 */
+  function stakeReload(m, u, o) {
+    const down = smooth(0, 0.14, u) * (1 - smooth(0.86, 1, u));
+    o.py -= 0.02 * down; o.pz += 0.03 * down; o.rx += 0.16 * down; o.ry += 0.22 * down; o.rz -= 0.5 * down;
+    const st = m.parts.stake, L = m.arms.L;
+    if (!st) return;
+    const b = st.userData.base.pos;
+    if (reloadEmpty) {
+      const lay = smooth(0.4, 0.52, u), push = smooth(0.54, 0.78, u);
+      st.visible = u > 0.3;
+      st.position.set(b.x, b.y + 0.06 * (1 - lay), b.z + 0.08 * (1 - push));
+    } else {
+      st.visible = true;
+      st.position.copy(b);
+    }
+    if (L) {
+      const lb = L.userData.base;
+      const reach = smooth(0.08, 0.22, u) * (1 - smooth(0.8, 0.94, u));
+      const dip = 1 - smooth(0.22, 0.34, u);                      // 처음에는 새 말뚝을 꺼내러 아래로
+      L.position.set(lerp(lb.x, b.x - 0.004, reach), lerp(lb.y, st.position.y - 0.02 - 0.14 * dip, reach), lerp(lb.z, st.position.z + 0.1, reach));
+    }
+  }
+
+  /** 꺼내 오는 재장전(투척 도끼·번개): 손을 화면 아래로 내렸다가 새 것을 들고 올라온다 */
+  function drawReload(m, u, o) {
+    const down = smooth(0.02, 0.3, u) * (1 - smooth(0.58, 0.92, u));
+    o.py -= 0.24 * down; o.pz += 0.05 * down; o.rx -= 0.8 * down; o.rz += 0.25 * down;
+    const p = m.feed && m.feed.part;
+    if (p) {
+      p.position.copy(p.userData.base.pos);
+      p.visible = !reloadEmpty || u > 0.45;
+    }
+  }
+
   function primeAnim(m, u, kind, o) {
     const k = smooth(0, 1, u);
     if (kind === 'underhand') { o.py -= 0.04 * k; o.pz += 0.05 * k; o.rx -= 0.3 * k; }
@@ -3040,7 +3453,7 @@ export function createViewmodel(camera, opts = {}) {
         sampleKeys(act.keys, act.t);
         useClip = true;
         if (act.inspect && ((tPrev < 0.62 && act.t >= 0.62) || (tPrev < 1.85 && act.t >= 1.85))) triggerGleam(m);
-        if (act.kind === 'heavy' && m.arms.L) {
+        if (act.kind === 'heavy' && m.arms.L && !m.melee.twoHand) {
           const lk = smooth(0, act.grab[0], act.t) * (1 - smooth(act.grab[1], act.grab[1] + 0.2, act.t));
           m.arms.L.visible = lk > 0.01;
           if (lk > 0.01) leftHandAway(m, 1 - lk, clipQ);
@@ -3081,6 +3494,24 @@ export function createViewmodel(camera, opts = {}) {
           if (ab) arm[i].position.z = ab.z + 0.03 * gunK[i];
         }
       }
+    }
+    // 눈에 보이는 탄(말뚝·도끼·번개): 쏘면 잠깐 사라졌다가 다음 것이 제자리로 들어온다. 탄창이 비면 숨긴다(재장전 중에는 재장전 동작이 맡는다)
+    if (m.feed && rT < 0) {
+      const F = m.feed, p = F.part, b = p.userData.base.pos;
+      feedT = Math.min(1, feedT + dt / F.dur);
+      const k = 1 - smooth(F.hide, 1, feedT);
+      p.visible = s.mag !== 0 && feedT > F.hide;
+      p.position.set(b.x + F.off[0] * k, b.y + F.off[1] * k, b.z + F.off[2] * k);
+    }
+    // 전기톱: 베기·강타 중에는 체인이 돌고(윗줄은 앞으로, 아랫줄은 뒤로) 몸체가 떤다. 쉴 때도 엔진이 조금 떤다
+    if (m.parts.chainTop) {
+      const cutting = !!act && (act.kind === 'slash' || act.kind === 'heavy');
+      chainV = approach(chainV, cutting ? 0.5 : 0, cutting ? 30 : 6, dt);
+      chainA = (chainA + chainV * dt) % m.chainGap;
+      m.parts.chainTop.position.z = m.parts.chainTop.userData.base.pos.z - chainA;
+      m.parts.chainBot.position.z = m.parts.chainBot.userData.base.pos.z + chainA;
+      const vib = 0.0005 + 0.0035 * chainV;
+      o.px += Math.sin(time * 93) * vib; o.py += Math.cos(time * 71) * vib; o.rz += Math.sin(time * 57) * vib * 2;
     }
     // 2단 조준경: 단계에 따라 옆 드럼이 돈다
     if (m.parts.stage) {

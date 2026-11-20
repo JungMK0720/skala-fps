@@ -42,12 +42,15 @@ const TABLE = {
   sr_heavy: { name: 'H-50 타이탄', kind: 'sniper', fire: 'bolt', interval: 1.9, head: 300, body: 200, legs: 150, limb: 70, falloff: null, mag: 4, reserve: 20, move: 0.75, price: 2500 },
   pt_std: { name: 'P-9 권총', kind: 'pistol', fire: 'semi', interval: 0.16, head: 70, body: 28, legs: 20, limb: 14, falloff: [15, 45, 0.6], mag: 12, reserve: 24, move: 1.0, price: 0 },
   pt_magnum: { name: 'M-44 매그넘', kind: 'pistol', fire: 'semi', interval: 0.55, head: 110, body: 55, legs: 38, limb: 25, falloff: [25, 60, 0.7], mag: 6, reserve: 12, move: 0.97, price: 500 },
+  sg_shorty: { name: 'SH-2 쇼티', kind: 'shotgun', fire: 'semi', interval: 0.25, head: 10, body: 7, legs: 5, limb: 3, falloff: [5, 15, 0.3], mag: 2, reserve: 4, move: 1.0, price: 400 },
 };
 const MELEE_TABLE = {
   ml_knife: { name: '호크빌 나이프', slash: [50, 0.45, 1.8, 35], stab: [100, 1.0, 1.8, 12], move: 1.1, price: 0 },
   ml_tanto: { name: '탄토', slash: [40, 0.42, 1.8, 30], stab: [100, 0.85, 2.1, 12], move: 1.12, price: 500 },
   ml_gurkha: { name: '구르카 나이프', slash: [55, 0.52, 2.1, 42], stab: [110, 1.05, 2.1, 16], move: 1.07, price: 800 },
   ml_katana: { name: '카게 카타나', slash: [65, 0.62, 2.7, 48], stab: [120, 1.25, 2.9, 14], move: 1.05, price: 1200 },
+  ml_case: { name: '007 가방', slash: [35, 0.5, 2.0, 40], stab: [70, 1.0, 2.1, 22], move: 1.08, price: 700 },
+  ml_saw: { name: '전기톱', slash: [10, 0.1, 1.9, 30], stab: [90, 1.1, 2.4, 40], move: 0.98, price: 1300 },
 };
 const GUN_IDS = Object.keys(TABLE);
 const SNIPER_IDS = ['sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy'];
@@ -234,7 +237,8 @@ describe('무기 표(DESIGN 3.2)', () => {
       ar_std: 'rifle', ar_rapid: 'rifle', ar_line: 'rifle', ar_burst: 'rifle', dm_mark: 'rifle',
       sm_vx3: 'smg', sm_uzi_dual: 'smg', sg_bx12: 'shotgun', sg_pump: 'shotgun', sg_double: 'shotgun', sg_auto: 'shotgun', mg_minigun: 'lmg',
       sr_bolt: 'sniper', sr_twin: 'sniper', sr_swift: 'sniper', sr_heavy: 'sniper',
-      pt_std: 'pistol', pt_magnum: 'pistol', ml_knife: 'melee', ml_tanto: 'melee', ml_gurkha: 'melee', ml_katana: 'melee', gr_frag: 'grenade',
+      pt_std: 'pistol', pt_magnum: 'pistol', sg_shorty: 'shotgun', ml_knife: 'melee', ml_tanto: 'melee', ml_gurkha: 'melee', ml_katana: 'melee',
+      ml_case: 'melee', ml_saw: 'melee', gr_frag: 'grenade',
     };
     for (const id of ALL_IDS) assert.equal(WEAPONS[id].category, expected[id], id);
   });
@@ -243,7 +247,7 @@ describe('무기 표(DESIGN 3.2)', () => {
     const sound = {
       ar_std: 'rifle', ar_rapid: 'rifle', ar_line: 'rifle', ar_burst: 'rifle', dm_mark: 'dmr', sm_vx3: 'smg', sg_bx12: 'shotgun',
       sg_pump: 'shotgun', sg_double: 'shotgun', sg_auto: 'shotgun', sm_uzi_dual: 'smg', mg_minigun: 'lmg',
-      sr_bolt: 'sniper', sr_twin: 'sniper', sr_swift: 'sniper', sr_heavy: 'sniper', pt_std: 'pistol', pt_magnum: 'magnum',
+      sr_bolt: 'sniper', sr_twin: 'sniper', sr_swift: 'sniper', sr_heavy: 'sniper', pt_std: 'pistol', pt_magnum: 'magnum', sg_shorty: 'shotgun',
     };
     for (const id of GUN_IDS) {
       assert.equal(WEAPONS[id].sound, sound[id], id);

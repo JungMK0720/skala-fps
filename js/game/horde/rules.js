@@ -25,6 +25,7 @@ export const HORDE = Object.freeze({
   pickInvulnMs: 2000,     // 멀티에서 증강을 고른 직후 무적 시간(혼자는 별도 규칙)
   clearHealFrac: 0.25,    // 시간 안에 스테이지를 깨면 최대 체력의 25%를 회복한다
   reviveHpFrac: 0.5,      // 쓰러진 사람은 다음 스테이지에 최대 체력의 50%로 일어난다
+  noAutoReviveStage: 30,  // 이 스테이지부터는 쓰러진 사람이 스테이지가 넘어가도 자동 부활하지 않는다(동료가 살려야 한다)
   maxAlive: 34,           // 한 번에 맵에 있는 일반 좀비 상한(보스·소환 제외). 넘으면 죽는 만큼 이어서 나온다
   maxAliveBoss: 18,       // 보스 스테이지의 일반 좀비 상한
   bossEvery: 3,           // 3스테이지마다 보스(3, 6, 9, …)
@@ -280,11 +281,12 @@ export function pickWeighted(items, rng) {
 }
 
 /**
- * 이 모드의 무기 탄약. 일반 총은 예비 × 3, 예비가 무제한인 프리미엄 총은 탄창 2개 × 3.
+ * 이 모드의 무기 탄약. 일반 총은 예비 × 3, 예비가 무제한인 프리미엄 총은 탄창 2개 × 3, infiniteAmmo 무기(제우스의 번개)는 무제한.
  * → { mag, reserve } (칼·수류탄은 null)
  */
 export function hordeAmmo(def, rules = HORDE) {
   if (!def || def.mag == null) return null;
+  if (def.infiniteAmmo) return { mag: def.mag, reserve: Infinity };
   const base = Number.isFinite(def.reserve) ? def.reserve : def.mag * rules.premiumReserveMags;
   return { mag: def.mag, reserve: Math.round(base * rules.reserveMul) };
 }

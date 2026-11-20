@@ -120,8 +120,10 @@ language sql immutable set search_path = public, extensions as $$
     when 'sg_pump' then 900 when 'sg_double' then 1000 when 'sg_auto' then 1500
     when 'sm_uzi_dual' then 1100 when 'mg_minigun' then 2800
     when 'sr_bolt' then 0 when 'sr_twin' then 1500 when 'sr_swift' then 1000 when 'sr_heavy' then 2500
-    when 'pt_std' then 0 when 'pt_magnum' then 500
+    when 'pt_std' then 0 when 'pt_magnum' then 500 when 'sg_shorty' then 400
+    when 'pn_air' then 900 when 'sk_stake' then 1000 when 'th_axe' then 800
     when 'ml_knife' then 0 when 'ml_tanto' then 500 when 'ml_gurkha' then 800 when 'ml_katana' then 1200
+    when 'ml_case' then 700 when 'ml_saw' then 1300
     when 'gr_frag' then 0
     when 'takeL' then 0 when 'veggie' then 0 when 'sideToSide' then 0 when 'crissCross' then 0 when 'tango' then 0
     when 'salute' then 0 when 'wave' then 0 when 'cheer' then 0 when 'creamCheese' then 0

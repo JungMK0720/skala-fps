@@ -38,6 +38,90 @@ export function modsFromPerks(k, frenzyStacks = 0) {
   };
 }
 
+/** 발밑 장판 → [아이콘, 이름, 피해가 있는가]. 장판 안에서는 회복이 절반이 되고, 피해가 있는 장판은 0.5초마다 피해를 준다(director healPlayer·stepHazards, bosses.js의 dps) */
+const FIELD_STATUS = Object.freeze({
+  acid: ['☣️', '산성 장판', true], fire: ['🌋', '화염 장판', true], web: ['🕸️', '거미줄 장판', false], frost: ['🧊', '빙결 장판', true], shock: ['⚡', '감전 장판', true]
+});
+
+/** 이 스테이지에 쓰러지면 다음 스테이지에 자동 부활하지 않는가(director nextStage: 다음 스테이지가 HORDE.noAutoReviveStage 이상) */
+export const noAutoRevive = (stage) => (Number(stage) || 0) + 1 >= HORDE.noAutoReviveStage;
+
+/**
+ * 내 버프·디버프 목록. HUD 체력 칸 위 줄(ui.hud.set({ status }))과 ESC 일시정지의 '버프·디버프'(details.status)가 같이 쓴다.
+ * 모두 실제 값에서 읽고, 없는 타이머는 만들지 않는다. name은 짧은 이름, desc는 마우스를 올리면 보이는 자세한 설명(수치 포함).
+ * @param {object} o
+ * @param {object} o.me        스냅샷의 내 행(applyHordeSnapshot): alive·invuln·invulnMs·offer·shield·hp·maxHp·burnMs·noHealMs
+ * @param {number} [o.stage]   지금 스테이지(자동 부활 없음)
+ * @param {boolean} [o.solo]   혼자 하기(쓰러지면 바로 끝이라 '자동 부활 없음'을 보이지 않는다)
+ * @param {number} [o.since]   그 스냅샷 뒤 흐른 ms(남은 시간을 줄인다)
+ * @param {object} [o.perks]   내 능력치(computePerks): frenzy·lastStand·secondChance
+ * @param {number[]} [o.frenzy] 광란 겹마다 끝나는 시각(o.now와 같은 시계)
+ * @param {number} [o.now]
+ * @param {{ slowMs, slowMul, stunMs, grabbed }} [o.local]  World.hordeLocalStatus(): 내 화면의 느려짐·기절·좀비 몸에 붙잡힘
+ * @param {boolean} [o.grabStun]    지금 기절이 블리츠 그랩에 끌려온 것인가('grabbed' 이벤트와 같이 온 기절)
+ * @param {boolean} [o.secondReady] 두 번째 기회를 이번 스테이지에 아직 쓰지 않았는가
+ * @param {{ kind, leftMs }} [o.field] 발밑 장판(그 장판의 남은 시간)
+ * @returns {{ id, kind: 'buff'|'debuff', icon, name, desc, stacks?, value?, leftMs?, totalMs? }[]} 버프 먼저, 그다음 디버프.
+ *          쓰러져 있으면 '자동 부활 없음'만(일시정지 목록용. HUD는 쓰러지면 줄을 숨긴다)
+ */
+export function hordeStatusList(o) {
+  const me = o && o.me;
+  if (!me) return [];
+  const out = [];
+  const noRevive = !o.solo && noAutoRevive(o.stage) ? {
+    id: 'noRevive', kind: 'debuff', icon: '⚰️', name: '자동 부활 없음',
+    desc: `${HORDE.noAutoReviveStage}스테이지부터는 쓰러지면 스테이지가 넘어가도 저절로 일어나지 않아요. 동료가 쓰러진 자리에서 F를 ${Math.round(HORDE.reviveHoldMs / 1000)}초 눌러 살려야 해요.`
+  } : null;
+  if (!me.alive) return noRevive ? [noRevive] : out;
+  const since = Math.max(0, Number(o.since) || 0);
+  const k = o.perks || {};
+  const now = Number(o.now) || 0;
+  const left = (ms) => Math.max(0, (Number(ms) || 0) - since);
+  // 버프
+  if (me.invuln) {
+    const picking = Array.isArray(me.offer) && me.offer.length > 0;
+    const ms = picking ? 0 : left(me.invulnMs);
+    if (picking) out.push({ id: 'invuln', kind: 'buff', icon: '🛡', name: '무적', desc: '증강을 고르는 동안 어떤 피해도 받지 않아요. 고른 뒤에도 잠시 이어져요.' });
+    else if (ms > 0) out.push({ id: 'invuln', kind: 'buff', icon: '🛡', name: '무적', desc: '어떤 피해도 받지 않아요. 증강을 고른 직후나 동료가 살려 준 직후에 걸려요.', leftMs: ms });
+  }
+  if (me.shield > 0) {
+    const n = Math.round(me.shield);
+    out.push({ id: 'shield', kind: 'buff', icon: '💠', name: '보호막', desc: `받는 피해를 체력보다 먼저 막아요. 남은 보호막 ${n}. 스테이지가 시작할 때 보호막 증강만큼 더해져요.`, value: n });
+  }
+  const fz = Array.isArray(o.frenzy) ? o.frenzy : [];
+  const fzLast = fz.length ? fz[fz.length - 1] - now : 0;
+  if (fzLast > 0) {
+    const n = Math.min(FRENZY_MAX, fz.filter((t) => t > now).length);
+    const per = (k.frenzy || 0) * 100;
+    out.push({
+      id: 'frenzy', kind: 'buff', icon: '🌀', name: '광란', stacks: n, leftMs: fzLast, totalMs: FRENZY_MS,
+      desc: `총으로 좀비를 맞힐 때마다 한 겹(겹마다 ${FRENZY_MS / 1000}초, 최대 ${FRENZY_MAX}겹). 겹마다 연사 +${+per.toFixed(2)}% · 지금 ${n}겹 연사 +${+(per * n).toFixed(1)}%`
+    });
+  }
+  if (o.secondReady && (k.secondChance || 0) > 0) out.push({ id: 'second', kind: 'buff', icon: '🪽', name: '두 번째 기회', desc: '이번 스테이지에 한 번, 쓰러질 피해를 받아도 체력 30%로 버텨요. 다음 스테이지가 시작되면 다시 준비돼요.' });
+  if ((k.lastStand || 0) > 0 && me.hp / Math.max(1, me.maxHp) <= 0.35) out.push({ id: 'lastStand', kind: 'buff', icon: '💢', name: '배수의 진', desc: `체력이 35% 이하인 동안 주는 피해 +${Math.round(k.lastStand * 100)}%` });
+  // 디버프
+  const burn = left(me.burnMs);
+  if (burn > 0) out.push({ id: 'burn', kind: 'debuff', icon: '🔥', name: '화상', desc: '보스에게 맞아 불이 붙었어요. 끝날 때까지 1초마다 피해를 받아요(보호막이 먼저 막아요).', leftMs: burn });
+  const curse = left(me.noHealMs);
+  if (curse > 0) out.push({ id: 'noHeal', kind: 'debuff', icon: '🧪', name: '마녀 저주', desc: '끝날 때까지 구급 상자·재생·흡혈·스테이지 회복 등 어떤 회복도 받지 않아요.', leftMs: curse });
+  const L = o.local;
+  if (L && L.stunMs > 0) {
+    out.push(o.grabStun
+      ? { id: 'stun', kind: 'debuff', icon: '🪝', name: '그랩 기절', desc: '블리츠 갈고리에 끌려와 기절했어요. 움직이지도 쏘지도 못해요.', leftMs: L.stunMs }
+      : { id: 'stun', kind: 'debuff', icon: '💫', name: '기절', desc: '움직이지도 쏘지도 못해요.', leftMs: L.stunMs });
+  }
+  if (L && L.slowMs > 0) out.push({ id: 'slow', kind: 'debuff', icon: '❄️', name: '느려짐', desc: `비명·얼음 공격에 맞아 이동 속도 −${Math.round((1 - (Number(L.slowMul) || 1)) * 100)}%`, leftMs: L.slowMs });
+  if (L && L.grabbed) out.push({ id: 'grab', kind: 'debuff', icon: '✋', name: '붙잡힘', desc: `좀비 몸에 붙잡혀 이동 속도 −${Math.round((1 - HORDE.grabSlow) * 100)}%. 좀비에게서 떨어지면 풀려요.` });
+  const f = o.field && FIELD_STATUS[o.field.kind];
+  if (f) {
+    const ms = Math.max(0, Number(o.field.leftMs) || 0);
+    out.push({ id: 'field', kind: 'debuff', icon: f[0], name: f[1], desc: `${f[1]} 위에 서 있어요. ${f[2] ? '0.5초마다 피해를 받고, ' : ''}받는 회복이 절반이 돼요. 남은 시간은 장판이 사라질 때까지예요.`, ...(ms > 0 ? { leftMs: ms } : {}) });
+  }
+  if (noRevive) out.push(noRevive);
+  return out;
+}
+
 /**
  * @param {object} o
  * @param {object} o.world, o.ui
@@ -78,6 +162,8 @@ export function createHordeClient(o) {
   // 살리기(멀티만): 방장에게 'on'을 보내고 있는 동료 id와 보낸 시각, World 안내 줄에 마지막으로 넘긴 값
   const canRevive = !o.solo && !!(o.actions && typeof o.actions.revive === 'function');
   let reviveId = null, reviveSentAt = 0, interactSig = '';
+  // 버프·디버프 줄: 두 번째 기회를 쓴 스테이지, 마지막 기절·그랩 시각(그랩과 같이 온 기절은 그랩으로 보인다), 발밑 장판 행(hud()가 잰다)
+  let secondUsedStage = -1, stunAt = -Infinity, grabbedAt = -Infinity, fieldHaz = null;
 
   /** 좀비 물량 막기의 무기 고르기 창(World openSwap free): 모든 무기. 1스테이지가 시작되기 전 준비 시간에만 연다 */
   function swapProps() {
@@ -188,7 +274,7 @@ export function createHordeClient(o) {
           if (myAlive) { myAlive = false; W('killLocal', {}); }
           // 30스테이지에 도달한 뒤에는 라운드가 넘어가도 자동 부활하지 않는다.
           const mine = last && last.players.find((p) => p.id === meId);
-          const mustRevive = (ev.stage | 0) >= 29;
+          const mustRevive = noAutoRevive(ev.stage | 0);
           const sub = canRevive && mine && mine.down
             ? mustRevive ? `동료가 F를 ${Math.round(HORDE.reviveHoldMs / 1000)}초 눌러 살려야 해요 · 라운드 자동 부활 없음`
               : `동료가 F를 ${Math.round(HORDE.reviveHoldMs / 1000)}초 누르면 일어나요 · 아니면 다음 스테이지에`
@@ -208,11 +294,16 @@ export function createHordeClient(o) {
       }
       case 'knock': if (String(ev.id) === meId) W('pushLocal', ev.v); break;
       case 'slow': if (String(ev.id) === meId) { W('slowLocal', 1 - (Number(ev.mul) || 0), ev.ms); if (H) H.callout('❄️ 느려졌어요'); } break;
-      case 'stun': if (String(ev.id) === meId) { W('stunLocal', ev.ms); if (H) H.callout('💫 기절!'); } break;
-      case 'grabbed': if (String(ev.id) === meId && H) H.callout('🪝 그랩에 끌려가요!'); break;
+      case 'stun': if (String(ev.id) === meId) { stunAt = performance.now(); W('stunLocal', ev.ms); if (H) H.callout('💫 기절!'); } break;
+      case 'grabbed': if (String(ev.id) === meId) { grabbedAt = performance.now(); if (H) H.callout('🪝 그랩에 끌려가요!'); } break;
       case 'noHeal': if (String(ev.id) === meId && H) H.callout(`🧪 저주! ${Math.round((Number(ev.ms) || 0) / 1000)}초 동안 회복 불가`); break;
       case 'burn': if (String(ev.id) === meId && H) H.callout(`🔥 화상! ${Math.round((Number(ev.ms) || 0) / 1000)}초 동안 지속 피해`); break;
-      case 'second': if (String(ev.id) === meId && H) H.banner({ icon: '🪽', title: '두 번째 기회!', sub: '쓰러질 피해를 버텼어요' }); break;
+      case 'second':
+        if (String(ev.id) !== meId) break;
+        // 방장은 스테이지가 시작될 때 다시 쓸 수 있게 한다(director beginStage)
+        secondUsedStage = last ? last.stage : stage;
+        if (H) H.banner({ icon: '🪽', title: '두 번째 기회!', sub: '쓰러질 피해를 버텼어요' });
+        break;
       case 'boss':
         if (H) H.banner({ icon: '👑', title: '보스 등장', sub: (ev.bosses || []).map((b) => `${b.icon || ''} ${b.name}`).join(' · ') });
         break;
@@ -409,7 +500,7 @@ export function createHordeClient(o) {
     ];
     if (perks.guard > 0) stats.push({ label: '방패', value: `정면·칼을 든 동안 피해 −${Math.round(perks.guard * 100)}%` });
     if (perks.lifesteal > 0) stats.push({ label: '광역 공격 흡혈', value: `${+(perks.lifesteal * 20).toFixed(2)}%` });
-    return { cards, stats };
+    return { cards, stats, status: statusNow(performance.now()) || [] };
   }
 
   function cardProps(me) {
@@ -437,7 +528,7 @@ export function createHordeClient(o) {
       // 쓰러진 사람: 누가 살리는 중인지와 진행(0..1). 멀티에서 방장이 쓰러진 자리를 알려 준 사람만 동료가 살릴 수 있다
       // 처음 합류해 아직 나오지 않은 사람만 다음 스테이지에 스폰된다. 30스테이지부터는 쓰러진 사람이 자동 부활하지 않는다.
       down: !p.alive && p.down ? { by: p.down.by || null, progress: p.down.progress || 0 } : null, canRevive: canRevive && !p.alive && !!p.down,
-      noAutoRevive: v.stage >= 29 && !!p.spawned
+      noAutoRevive: noAutoRevive(v.stage) && !!p.spawned
     }));
   }
   /** 가운데 살리기 막대: 내가 동료를 살리는 중이거나, 쓰러진 나를 동료가 살리는 중이면 { text, frac } */
@@ -448,20 +539,53 @@ export function createHordeClient(o) {
     const t = v.players.find((p) => p.id !== meId && !p.alive && p.down && p.down.by === meId);
     return t ? { text: `🩹 ${t.name || '동료'} 살리는 중`, frac: t.down.progress || 0, down: false } : null;
   }
-  /** 방장 장판의 유효 시간·반경·바닥 높이와 같은 조건으로 내 발이 닿은 종류를 찾는다. */
+  /** 방장 장판의 유효 시간·반경·바닥 높이와 같은 조건으로 내 발이 닿은 종류를 찾는다. 그 장판 행은 fieldHaz에 둔다(버프·디버프 줄의 남은 시간) */
   function fieldUnderfoot(v, now) {
+    fieldHaz = null;
     if (!myAlive || !world.localAlive || v.phase !== 'wave' || !v.hazards || !v.hazards.length) return null;
     const st = W('getLocalState');
     const pos = st && st.pos;
     if (!pos) return null;
-    let kind = null, nearest = Infinity;
+    let nearest = Infinity;
     const elapsed = Math.max(0, now - timeAt);
     for (const h of v.hazards) {
       if (h.leftMs <= elapsed || !HAZARD_LABEL[h.kind] || Math.abs(pos[1] - h.pos[1]) >= 1.2) continue;
       const d = Math.hypot(pos[0] - h.pos[0], pos[2] - h.pos[2]);
-      if (d <= h.r && d < nearest) { kind = HAZARD_LABEL[h.kind]; nearest = d; }
+      if (d <= h.r && d < nearest) { fieldHaz = h; nearest = d; }
     }
-    return kind;
+    return fieldHaz ? HAZARD_LABEL[fieldHaz.kind] : null;
+  }
+
+  /**
+   * 지금 내 버프·디버프(hordeStatusList). 스냅샷 값(무적·보호막·화상·저주)은 받은 뒤 흐른 시간만큼 줄이고,
+   * 느려짐·기절·붙잡힘은 World 내 몸 타이머, 광란·두 번째 기회·배수의 진은 이 화면이 아는 값에서 읽는다. 판이 끝났으면 null
+   */
+  function statusNow(now) {
+    const v = last;
+    const me = v && v.phase !== 'over' ? v.players.find((p) => p.id === meId) : null;
+    if (!me) return null;
+    const alive = me.alive && myAlive && !!world.localAlive;
+    const L = alive ? W('hordeLocalStatus') : null;
+    // 혼자 하기의 증강 고르기(phase 'cards')는 방장 시계가 멈춰 있다
+    const since = v.phase !== 'cards' ? Math.max(0, now - timeAt) : 0;
+    return hordeStatusList({
+      me: alive ? me : { ...me, alive: false }, stage: v.stage, solo: !!o.solo, since, perks, frenzy, now, local: L,
+      grabStun: !!(L && L.stunMs > 0 && Math.abs(stunAt - grabbedAt) < 100),
+      secondReady: secondUsedStage !== v.stage,
+      field: alive && fieldHaz ? { kind: HAZARD_LABEL[fieldHaz.kind], leftMs: fieldHaz.leftMs - since } : null
+    });
+  }
+
+  /**
+   * 매 프레임: 체력 칸 위 버프·디버프 줄(쓰러졌거나 판이 끝나면 숨긴다). ESC 일시정지가 떠 있으면(멀티는 게임이 멈추지 않는다)
+   * 그 화면의 버프·디버프 목록도 같은 값으로 갱신한다
+   */
+  function statusFrame(now) {
+    const H = ui && ui.hud;
+    if (!H || typeof H.set !== 'function') return;
+    const list = statusNow(now);
+    H.set({ status: list && myAlive && world.localAlive ? list : null });
+    if (typeof ui.isVisible === 'function' && ui.isVisible('pause')) ui.update('pause', { status: list || [] });
   }
 
   function hud(now) {
@@ -595,6 +719,7 @@ export function createHordeClient(o) {
     tryPickLoot(now);
     tryRevive(now);
     if (now - hudAt > 200) { hudAt = now; hud(now); }
+    statusFrame(now);
     if (overAt && !overShown && now - overAt > 3200) {
       overShown = true;
       if (o.onOver) o.onOver(last);
@@ -676,7 +801,7 @@ export function createHordeClient(o) {
     if (canRevive) stopRevive();
     interactSig = '';
     W('setHordeInteract', null);
-    if (ui) { ui.hide('cards'); ui.hide('horde'); }
+    if (ui) { ui.hide('cards'); ui.hide('horde'); if (ui.hud && typeof ui.hud.set === 'function') ui.hud.set({ status: null }); }
     W('closeSwap');
     W('setHordePerks', null);
     W('setPauseDetails', null);

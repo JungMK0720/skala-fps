@@ -1,8 +1,8 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 좀비 물량 막기의 보스 10종. 3스테이지마다 무작위로 나오고(50스테이지가 넘으면 2마리, 100스테이지가 넘으면 3마리) 저마다 스킬 2~3개를 쓴다.
- *          스킬은 몇 가지 기본 동작(돌진·내려찍기·충격파·도약·순간이동·소환·투사체·장판·비명·방어·치유·연쇄 번개)을 값으로 조합한다.
+ * Purpose: 좀비 물량 막기의 보스 11종. 3스테이지마다 무작위로 나오고(50스테이지가 넘으면 2마리, 100스테이지가 넘으면 3마리) 저마다 스킬 1~3개를 쓴다.
+ *          스킬은 몇 가지 기본 동작(돌진·내려찍기·충격파·도약·순간이동·소환·투사체·장판·비명·방어·치유·연쇄 번개·포격)을 값으로 조합한다.
  *          동작 구현은 director.js, 그림은 view.js. 이름·생김새는 이 게임에서 직접 지었다.
  */
 
@@ -21,11 +21,12 @@ export const SKILL_KINDS = Object.freeze({
   scream: 9,   // 비명: 사람은 느려지고 좀비는 빨라진다
   armor: 10,   // 잠시 받는 피해를 줄인다
   heal: 11,    // 둘레 좀비와 자신을 치유
-  chain: 12    // 곧게 날아가는 번개 구체. 맞은 사람에게서 가까운 다른 사람에게 튄다
+  chain: 12,   // 곧게 날아가는 번개 구체. 맞은 사람에게서 가까운 다른 사람에게 튄다
+  barrage: 13  // 포격: 제자리에 서서 좁은 자리를 예고하고 포탄을 포물선으로 떨어뜨리기를 shots번, 그 뒤 moveMs 동안 걷는다
 });
 export const SKILL_NAMES = Object.freeze({
   charge: '돌진', slam: '내려찍기', nova: '충격파', leap: '도약', blink: '순간이동', summon: '소환',
-  volley: '투척', pool: '장판', scream: '비명', armor: '강철 피부', heal: '치유', chain: '연쇄 번개'
+  volley: '투척', pool: '장판', scream: '비명', armor: '강철 피부', heal: '치유', chain: '연쇄 번개', barrage: '포격'
 });
 const KIND_BY_CODE = new Map(Object.entries(SKILL_KINDS).map(([k, v]) => [v, k]));
 export const skillKindOf = (code) => KIND_BY_CODE.get(code | 0) || null;
@@ -33,7 +34,7 @@ export const skillKindOf = (code) => KIND_BY_CODE.get(code | 0) || null;
 /** 장판 종류(스냅샷 번호) */
 export const HAZARD_KINDS = Object.freeze({ acid: 1, fire: 2, web: 3, frost: 4, shock: 5 });
 /** 투사체 종류(스냅샷 번호) */
-export const PROJECTILE_KINDS = Object.freeze({ spit: 1, acid: 2, barrel: 3, web: 4, shard: 5, hook: 6, curse: 7, ice: 8, bolt: 9 });
+export const PROJECTILE_KINDS = Object.freeze({ spit: 1, acid: 2, barrel: 3, web: 4, shard: 5, hook: 6, curse: 7, ice: 8, bolt: 9, orb: 10 });
 
 /**
  * hp = 5스테이지 기준 체력(bossHpMul을 곱한다. 첫 보스인 3스테이지는 약 0.85배), damage = 근접 피해(dmgMul을 곱한다), scale = 화면·히트박스 배율, radius = 충돌 반지름.
@@ -131,6 +132,15 @@ const BOSS_TABLE = [
       { kind: 'pool', cd: 10000, windup: 900, speed: 13, proj: 'ice', hazard: { kind: 'frost', r: 4, ms: 5500, dps: 6, slow: 0.4 } }
     ],
     enrage: { at: 0.4, speed: 1.2, dmg: 1.2, cd: 0.7 }
+  },
+  {
+    // 요청(2026-11-20): 멀리서 좁은 자리를 계속 포격하는 보스. 제자리에서 5번 포격(예고 0.7초 → 포탄이 포물선으로 떨어짐) → 5초 걷기 → 반복
+    id: 'arcanist', code: 11, name: '비전 포격수', title: '하늘에서 포탄을 떨어뜨리는 마도 시체', icon: '🔮',
+    color: 0x34306a, accent: 0x8fa8ff, hp: 2400, speed: 2.6, scale: 1.9, radius: 0.5, damage: 22, attackMs: 1200, windupMs: 420, range: 2.1,
+    skills: [
+      { kind: 'barrage', cd: 5000, moveMs: 5000, shots: 5, windup: 700, speed: 24, range: 45, blast: { r: 2.2, dmg: 30 } }
+    ],
+    enrage: { at: 0.4, speed: 1.2, dmg: 1.2, cd: 0.7 }
   }
 ];
 
@@ -150,8 +160,8 @@ export const bossByCode = (code) => BY_CODE.get(code | 0) || null;
 export const bossById = (id) => BY_ID.get(String(id)) || null;
 
 /**
- * 이번 보스 스테이지의 보스 n마리. 같은 판에서 바로 앞 보스 스테이지와 겹치지 않게 고르고(10종을 고루 돌게),
- * 한 스테이지 안에서도 서로 다른 보스로 고른다(10종보다 많이 필요하면 겹친다).
+ * 이번 보스 스테이지의 보스 n마리. 같은 판에서 바로 앞 보스 스테이지와 겹치지 않게 고르고(11종을 고루 돌게),
+ * 한 스테이지 안에서도 서로 다른 보스로 고른다(11종보다 많이 필요하면 겹친다).
  * rng = 0..1 난수, recent = 최근에 나온 보스 id들(앞쪽이 최근)
  */
 export function pickBosses(n, rng, recent = []) {
