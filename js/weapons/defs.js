@@ -862,7 +862,7 @@ const WEAPON_TABLE = {
     spread: null, recoil: null, zoom: null,
   }),
 
-  // 전기톱(요청 2026-11-20): 좌클릭을 누르고 있으면 0.1초마다 10씩 계속 갈아 낸다(초당 100). 우클릭은 크게 휘두르고,
+  // 전기톱: 좌클릭을 누르고 있으면 0.04초마다 10씩 계속 갈아 낸다(초당 250). 우클릭은 크게 휘두르고,
   // 좀비 물량 막기의 검기 증강은 우클릭 휘두르기(stab)에서만 나간다(world.js launchWave, director.js claimHit 'waveStab').
   ml_saw: blade({
     id: 'ml_saw', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 1300,
@@ -870,17 +870,17 @@ const WEAPON_TABLE = {
     icon: '🪚', color: '#e8a317', sound: 'flame', fxKind: null,
     heavySound: 'katana_heavy', hitSound: 'knife_hit',
     tagline: '누르고 있는 동안 계속 갈아 낸다.',
-    desc: '좌클릭을 누르고 있으면 톱날에 닿은 적을 0.1초마다 계속 벤다. 우클릭은 톱을 크게 휘둘러 한 번에 큰 피해를 준다. 무거워서 조금 느리게 걷는다.',
+    desc: '좌클릭을 누르고 있으면 톱날에 닿은 적을 0.04초마다 계속 벤다. 우클릭은 톱을 크게 휘둘러 한 번에 큰 피해를 준다. 무거워서 조금 느리게 걷는다.',
     bars: { power: 85, rate: 100, accuracy: 40, mobility: 88 },
 
     damage: null,
     falloff: null,
     melee: {
-      slash: { label: '갈기', damage: 10, cooldown: 0.1, windup: 0.02, range: 1.9, arc: 30 },
-      stab: { label: '휘두르기', damage: 90, cooldown: 1.1, windup: 0.26, range: 2.4, arc: 40 },
+      slash: { label: '갈기', damage: 10, cooldown: 0.04, windup: 0.008, range: 1.9, arc: 30 },
+      stab: { label: '휘두르기', damage: 90, cooldown: 0.44, windup: 0.104, range: 2.4, arc: 40 },
     },
     maxRange: 2.4,
-    rpm: 600, fireInterval: 0.1,
+    rpm: 1500, fireInterval: 0.04,
     mag: null, reserve: null, reload: null,
     drawTime: 0.6, moveMul: 0.98,
     spread: null, recoil: null, zoom: null,

@@ -50,7 +50,7 @@ const MELEE_TABLE = {
   ml_gurkha: { name: '구르카 나이프', slash: [55, 0.52, 2.1, 42], stab: [110, 1.05, 2.1, 16], move: 1.07, price: 800 },
   ml_katana: { name: '카게 카타나', slash: [65, 0.62, 2.7, 48], stab: [120, 1.25, 2.9, 14], move: 1.05, price: 1200 },
   ml_case: { name: '007 가방', slash: [35, 0.5, 2.0, 40], stab: [70, 1.0, 2.1, 22], move: 1.08, price: 700 },
-  ml_saw: { name: '전기톱', slash: [10, 0.1, 1.9, 30], stab: [90, 1.1, 2.4, 40], move: 0.98, price: 1300 },
+  ml_saw: { name: '전기톱', slash: [10, 0.04, 1.9, 30], stab: [90, 0.44, 2.4, 40], move: 0.98, price: 1300 },
 };
 const GUN_IDS = Object.keys(TABLE);
 const SNIPER_IDS = ['sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy'];
@@ -1439,6 +1439,16 @@ describe('로드아웃', () => {
     assert.deepEqual([s.weaponId, s.kind, s.damage, s.range, s.duration], ['ml_katana', 'slash', 65, 2.7, 0.62]);
     assert.deepEqual([m.weaponId, m.kind, m.damage, m.range], ['ml_katana', 'slash', 65, 2.7]);
     near(m.arc, 48 * DEG);
+  });
+
+  test('전기톱을 누르고 있으면 60Hz에서도 3초에 75번 베고, 놓으면 멈춘다', () => {
+    const a = createArsenal({ melee: 'ml_saw', allowedSlots: [3] });
+    a.update(0.6, {});
+    let hits = 0;
+    for (let i = 0; i < 180; i++) hits += only(a.update(DT, { fireDown: true }), 'melee').length;
+    assert.equal(hits, 75);
+    for (let i = 0; i < 60; i++) hits += only(a.update(DT, {}), 'melee').length;
+    assert.equal(hits, 75);
   });
 
   test('칼 판정이 이미 나온 뒤에 바꾸면 취소 이벤트가 없다', () => {

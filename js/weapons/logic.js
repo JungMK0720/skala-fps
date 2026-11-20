@@ -615,7 +615,7 @@ export function createArsenal(opts = {}) {
     }
   }
 
-  function tryMelee(inp) {
+  function tryMelee(inp, dt) {
     const d = def(), w = wst();
     if (state !== 'idle' || time + EPS < w.nextFireAt) return;
     let kind = null;
@@ -624,11 +624,15 @@ export function createArsenal(opts = {}) {
     if (!kind) return;
     const m = d.melee[kind];
     const cooldown = m.cooldown / mods.fire;
-    swing = { kind, windup: Math.min(m.windup, cooldown * 0.8), hit: false, index: w.swingIndex++ };
-    w.nextFireAt = time + cooldown;
+    // 전기톱은 한 프레임(60Hz)보다 짧은 0.04초 박자를 프레임 경계에서 잃지 않는다.
+    const continuous = d.id === 'ml_saw' && kind === 'slash' && prevFire && w.nextFireAt >= time - dt - EPS;
+    const nextAt = (continuous ? w.nextFireAt : time) + cooldown;
+    const duration = continuous ? Math.max(0, nextAt - time) : cooldown;
+    swing = { kind, windup: Math.min(m.windup, duration * 0.8), hit: false, index: w.swingIndex++ };
+    w.nextFireAt = nextAt;
     w.lastShotAt = time;
-    setState('swing', cooldown);
-    emit('swing', { kind, duration: cooldown, windup: swing.windup, index: swing.index, damage: m.damage, range: m.range });
+    setState('swing', duration);
+    emit('swing', { kind, duration, windup: swing.windup, index: swing.index, damage: m.damage, range: m.range });
   }
 
   function tryPrime(inp) {
@@ -690,7 +694,7 @@ export function createArsenal(opts = {}) {
         if (inp.firePressed) tryShoot(inp);
         break;
       case 'melee':
-        tryMelee(inp);
+        tryMelee(inp, dt);
         break;
       case 'throw':
         tryPrime(inp);
