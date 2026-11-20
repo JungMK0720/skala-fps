@@ -856,6 +856,8 @@ export class OperatorBody {
   dispose() {
     this.mixer.stopAllAction();
     this.mixer.uncacheRoot(this.model);
+    // 복제한 뼈대는 몸마다 따로라 뼈 텍스처(boneTexture)를 여기서 지운다. 지오메트리·재질은 템플릿과 함께 쓰므로 두고 간다
+    this.mesh.skeleton.dispose();
     this.root.removeFromParent();
   }
 }
