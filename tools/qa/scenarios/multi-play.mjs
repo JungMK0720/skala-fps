@@ -464,7 +464,8 @@ export default {
       await host.clickText('.sk-create-sheet .sk-form-actions .sk-btn', '방 만들기');
       await host.waitFor('__qa.ctx.screen === "room" && __qa.ui.isVisible("room")', 10000, { label: '둘째 방 대기실' });
       await guest.waitFor(`document.querySelectorAll('.sk-room-row').length === 1 && /둘째 방/.test(document.querySelector('.sk-room-row').textContent)`, 10000, { label: '목록에 둘째 방만 있다' });
-      t.check(/🔒/.test(await guest.eval(`document.querySelector('.sk-room-row').textContent`)), '비밀번호 방은 목록에 자물쇠가 보인다');
+      // 자물쇠는 글자가 아니라 선 아이콘(.sk-room-lock)이다. 크기가 있는지까지 본다
+      t.check(await guest.eval(`(() => { const i = document.querySelector('.sk-room-row .sk-room-lock'); return !!i && i.getBoundingClientRect().width > 0; })()`), '비밀번호 방은 목록에 자물쇠가 보인다');
       const enter = async (pw) => {
         await guest.click('.sk-room-join');
         await guest.waitFor(`!!document.querySelector('.sk-pw-sheet')`, 3000, { label: '비밀번호를 묻는다' });
@@ -506,7 +507,7 @@ export default {
       await host.clickText('.sk-create-sheet .sk-form-actions .sk-btn', '방 만들기');
       await host.waitFor('__qa.ctx.screen === "room" && __qa.ui.isVisible("room")', 10000, { label: '폭파 방 대기실' });
       await guest.waitFor(`document.querySelectorAll('.sk-room-row').length === 1 && /폭파 방/.test(document.querySelector('.sk-room-row').textContent)`, 10000, { label: '목록에 폭파 방' });
-      t.check(!/🔒/.test(await guest.eval(`document.querySelector('.sk-room-row').textContent`)), '폭파 방은 자물쇠 없이 보인다');
+      t.check(!(await guest.eval(`!!document.querySelector('.sk-room-row .sk-room-lock')`)), '폭파 방은 자물쇠 없이 보인다');
       await guest.click('.sk-room-join');
       await guest.waitFor('__qa.ctx.screen === "room" && __qa.ui.isVisible("room")', 15000, { label: '손님이 폭파 방에' });
       // 방을 막 연 방장의 팀이 presence로 퍼지기 전에 들어와도, 손님은 방장의 팀이 보이면 다른 팀(레드)으로 옮긴다(팀 자동 배정)
