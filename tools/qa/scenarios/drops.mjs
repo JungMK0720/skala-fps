@@ -61,9 +61,11 @@ export default {
     await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '상점' });
     t.check(new RegExp(`${PREMIUM_PRICE.toLocaleString('en-US')}`).test(await page.eval(`__qa.text('.sk-shop .sk-bar-sub')`)), '상점이 프리미엄 기준을 알려 준다', await page.eval(`__qa.text('.sk-shop .sk-bar-sub')`));
     const badges = {};
-    for (const tab of ['라이플', '저격', 'SMG·샷건', '권총', '근접']) {
+    // 큰 탭(주무기·보조무기·근접무기) → 작은 탭(종류). 종류가 하나뿐인 근접은 작은 탭이 없다
+    for (const [tab, sub] of [['주무기', '라이플'], ['주무기', '저격'], ['주무기', 'SMG'], ['주무기', '샷건'], ['주무기', '기관총'], ['보조무기', '권총'], ['보조무기', '샷건'], ['근접무기', null]]) {
       await page.clickText('.sk-shop .sk-tab', tab);
-      badges[tab] = await page.eval(`[...document.querySelectorAll('.sk-shop-grid .sk-shop-card')].filter((c) => c.querySelector('.sk-premium')).map((c) => c.getAttribute('aria-label'))`);
+      if (sub) await page.clickText('.sk-shop .sk-subtab', sub);
+      badges[`${tab}/${sub || ''}`] = await page.eval(`[...document.querySelectorAll('.sk-shop-grid .sk-shop-card')].filter((c) => c.querySelector('.sk-premium')).map((c) => c.getAttribute('aria-label'))`);
     }
     const premiumNames = Object.values(badges).flat().sort();
     const want = Object.values(WEAPONS).filter((d) => d.premium).map((d) => d.name).sort();

@@ -98,7 +98,10 @@ describe('상점 화면', () => {
       shop,
       grid,
       onTab: () => find((k) => k.classList.contains('sk-tab') && k.classList.contains('is-on')).map((k) => k.textContent)[0],
+      onSub: () => find((k) => k.classList.contains('sk-subtab') && k.classList.contains('is-on')).map((k) => k.textContent)[0],
       tab: (label) => find((k) => k.classList.contains('sk-tab') && k.textContent === label)[0],
+      sub: (label) => find((k) => k.classList.contains('sk-subtab') && k.textContent === label)[0],
+      subs: () => find((k) => k.classList.contains('sk-subtab')).map((k) => k.textContent),
       card: (name) => find((k) => k.attrs['aria-label'] === name && k.classList.contains('sk-shop-card'))[0],
       action: (card) => card.all((k) => k.classList.contains('sk-shop-action'))[0],
       note: () => find((k) => k.classList.contains('sk-av-closed'))[0]
@@ -117,34 +120,63 @@ describe('상점 화면', () => {
     const s = makeShop(t, account);
     s.shop.show({ tab: 'avatar' });               // 마이페이지 → 캐릭터 상점
     assert.equal(s.onTab(), '캐릭터');
-    s.tab('권총').fire('click');
-    assert.equal(s.onTab(), '권총');
+    s.tab('보조무기').fire('click');
+    s.sub('권총').fire('click');
+    assert.deepEqual([s.onTab(), s.onSub()], ['보조무기', '권총']);
     s.grid.scrollTop = 500;
     const rebuilt = s.grid.replaced;
     assert.ok(account.buy('pt_magnum').ok);
     s.shop.update();                              // ui.refreshAccount()가 하는 일
-    assert.equal(s.onTab(), '권총', '캐릭터 탭으로 되돌아가지 않는다');
+    assert.deepEqual([s.onTab(), s.onSub()], ['보조무기', '권총'], '캐릭터 탭으로 되돌아가지 않는다');
     assert.equal(s.grid.scrollTop, 500, '스크롤도 그대로');
     assert.equal(s.grid.replaced, rebuilt, '카드를 다시 붙이지 않는다');
     s.shop.show({ tab: null });                   // 메뉴에서 다시 열기
-    assert.equal(s.onTab(), '권총', 'tab이 없으면 보던 탭');
+    assert.deepEqual([s.onTab(), s.onSub()], ['보조무기', '권총'], 'tab이 없으면 보던 탭');
     s.shop.show({ tab: 'avatar' });
     assert.equal(s.onTab(), '캐릭터', '새로 열 때 tab을 주면 그 탭');
   });
 
-  test('좀비 전용 무기는 일반 상점의 어느 탭에도 구매 카드로 나오지 않는다(상점에서 파는 shop 무기만 좀비 전용 탭에 나온다)', (t) => {
+  test('무기는 큰 탭(주무기·보조무기·근접무기·투척무기) 아래 종류별 작은 탭으로 나뉜다', (t) => {
+    const s = makeShop(t, offlineAccount(t));
+    s.shop.show({ tab: null });
+    const tabs = s.shop.el.all((k) => k.classList.contains('sk-tab')).map((k) => k.textContent);
+    assert.deepEqual(tabs, ['주무기', '보조무기', '근접무기', '투척무기', '이모트', '캐릭터', '코인']);
+    assert.deepEqual([s.onTab(), s.onSub()], ['주무기', '라이플'], '처음에는 주무기 · 라이플');
+    assert.deepEqual(s.subs(), ['라이플', '저격', 'SMG', '샷건', '기관총']);
+    s.tab('보조무기').fire('click');
+    assert.deepEqual(s.subs(), ['권총', '샷건', '좀비 전용']);
+    s.sub('샷건').fire('click');
+    assert.ok(s.card(WEAPONS.sg_shorty.name), '쇼티는 보조무기 · 샷건');
+    assert.equal(s.card(WEAPONS.sg_pump.name), undefined, '주무기 샷건은 보조무기 탭에 없다');
+    s.tab('투척무기').fire('click');
+    assert.deepEqual(s.subs(), ['수류탄', '좀비 전용']);
+    const nade = s.card(WEAPONS.gr_frag.name);
+    assert.ok(nade, '수류탄 카드');
+    assert.ok(s.action(nade).hidden, '수류탄은 기본 지급이라 사거나 장착하지 않는다');
+    s.sub('좀비 전용').fire('click');
+    assert.ok(s.card(WEAPONS.th_axe.name), '투척 도끼는 투척무기 · 좀비 전용');
+    s.tab('근접무기').fire('click');
+    assert.ok(s.card(WEAPONS.ml_saw.name) && s.card(WEAPONS.ml_case.name), '근접무기에 전기톱·007 가방');
+    s.shop.show({ tab: 'pistol' });
+    assert.deepEqual([s.onTab(), s.onSub()], ['보조무기', '권총'], '예전 종류 이름으로 열어도 그 큰 탭·작은 탭');
+  });
+
+  test('좀비 전용 무기는 어느 탭에도 구매 카드로 나오지 않는다(상점에서 파는 shop 무기만 좀비 전용 작은 탭에 나온다)', (t) => {
     const zombieOnly = Object.keys(WEAPONS).filter((id) => WEAPONS[id].zombieOnly && !WEAPONS[id].shop);
     const s = makeShop(t, offlineAccount(t));
     s.shop.show({ tab: null });
     const tabs = s.shop.el.all((k) => k.classList.contains('sk-tab')).map((k) => k.textContent);
-    // 어느 탭을 열어도 그 무기의 카드는 없다
+    // 어느 큰 탭·작은 탭을 열어도 그 무기의 카드는 없다
     for (const label of tabs) {
       s.tab(label).fire('click');
-      for (const id of zombieOnly) assert.equal(s.card(WEAPONS[id].name), undefined, `${label} 탭에 ${id} 카드가 없다`);
+      for (const sub of s.subs().length ? s.subs() : [null]) {
+        if (sub) s.sub(sub).fire('click');
+        for (const id of zombieOnly) assert.equal(s.card(WEAPONS[id].name), undefined, `${label} ${sub || ''} 탭에 ${id} 카드가 없다`);
+      }
     }
-    assert.ok(tabs.includes('권총'), '다른 분류 탭은 그대로 있다');
-    s.tab('좀비 전용').fire('click');
-    for (const id of ['pn_air', 'sk_stake', 'th_axe']) assert.ok(s.card(WEAPONS[id].name), `${id}는 좀비 전용 탭에서 판다`);
+    s.tab('보조무기').fire('click');
+    s.sub('좀비 전용').fire('click');
+    for (const id of ['pn_air', 'sk_stake']) assert.ok(s.card(WEAPONS[id].name), `${id}는 보조무기 · 좀비 전용에서 판다`);
   });
 
   test('캐릭터 탭에서 사고 입어도 누른 버튼이 그대로 붙어 있다(포커스 유지)', (t) => {

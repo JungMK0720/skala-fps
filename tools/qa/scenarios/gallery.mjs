@@ -251,9 +251,10 @@ export default {
     await page.click('.sk-mypage .sk-my-panelhead .sk-btn--sm');
     await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '상점' });
     await see('shop-rifle', '.sk-shop');
-    for (const tab of ['저격', 'SMG·샷건', '권총', '근접']) {
+    for (const [tab, sub] of [['주무기', '저격'], ['주무기', 'SMG'], ['주무기', '샷건'], ['보조무기', '권총'], ['근접무기', null], ['투척무기', '수류탄']]) {
       await page.clickText('.sk-shop .sk-tab', tab);
-      await see(`shop-${tab.replace(/\W/g, '')}`, '.sk-shop');
+      if (sub) await page.clickText('.sk-shop .sk-subtab', sub);
+      await see(`shop-${`${tab}${sub || ''}`.replace(/\W/g, '')}`, '.sk-shop');
     }
     await page.click('.sk-shop .sk-btn--ghost');
     await page.waitFor('__qa.ui.isVisible("mypage")', 3000, { label: '마이페이지로' });

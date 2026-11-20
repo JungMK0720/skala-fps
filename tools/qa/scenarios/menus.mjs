@@ -74,9 +74,11 @@ export default {
     await page.click('.sk-mypage .sk-my-panelhead .sk-btn--sm');
     await page.waitFor('__qa.ui.isVisible("shop") && !__qa.ui.isVisible("mypage")', 3000, { label: '상점' });
     t.check((await textOf(page, '.sk-shop .sk-points-val')) === '500 P', '상점 포인트');
-    // 코인 탭은 로그인·결제 API(SKALA_CONFIG.api.url)가 있을 때만 보인다. 이 시험은 API가 없으므로 보이는 탭은 일곱이다
+    // 코인 탭은 로그인·결제 API(SKALA_CONFIG.api.url)가 있을 때만 보인다. 이 시험은 API가 없으므로 보이는 큰 탭은 여섯이다
     const tabs = await page.eval(`[...document.querySelectorAll('.sk-shop .sk-tab')].filter((b) => !b.hidden).map((b) => b.textContent)`);
-    t.check(tabs.join() === '라이플,저격,SMG·샷건,권총,근접,이모트,캐릭터', '탭 7개(무기 5 + 이모트 + 캐릭터)', tabs);
+    t.check(tabs.join() === '주무기,보조무기,근접무기,투척무기,이모트,캐릭터', '큰 탭 6개(무기 4묶음 + 이모트 + 캐릭터)', tabs);
+    const subs = await page.eval(`[...document.querySelectorAll('.sk-shop .sk-subtab')].map((b) => b.textContent)`);
+    t.check(subs.join() === '라이플,저격,SMG,샷건,기관총', '주무기의 작은 탭', subs);
     const rapid = `.sk-shop-card[aria-label="RX-9 스톰"]`;
     t.check(await page.eval(`document.querySelector('${rapid} .sk-shop-action').disabled`), '비싼 무기는 살 수 없다');
     t.check((await textOf(page, `${rapid} .sk-shop-need`)) === '300 P 더 필요해요', '모자란 포인트 표시', await textOf(page, `${rapid} .sk-shop-need`));
@@ -86,7 +88,8 @@ export default {
     await t.shot('shop-rifle');
 
     t.setSection('상점: 구매와 장착');
-    await page.clickText('.sk-shop .sk-tab', '권총');
+    await page.clickText('.sk-shop .sk-tab', '보조무기');
+    await page.clickText('.sk-shop .sk-subtab', '권총');
     const magnum = `.sk-shop-card[aria-label="M-44 매그넘"]`;
     t.check((await textOf(page, `${magnum} .sk-shop-action`)) === '구매 500 P', '살 수 있는 무기 버튼', await textOf(page, `${magnum} .sk-shop-action`));
     await page.click(`${magnum} .sk-shop-action`);
@@ -97,7 +100,8 @@ export default {
     t.check((await textOf(page, `${magnum} .sk-shop-action`)) === '장착 중', '장착 표시');
     t.check(await page.eval(`document.querySelector('${magnum} .sk-shop-action').disabled`), '장착한 무기 버튼은 꺼진다');
     t.check((await page.eval('__qa.ctx.account.loadout.secondary')) === 'pt_magnum', '보조 장비가 바뀐다');
-    await page.clickText('.sk-shop .sk-tab', '저격');
+    await page.clickText('.sk-shop .sk-tab', '주무기');
+    await page.clickText('.sk-shop .sk-subtab', '저격');
     t.check((await textOf(page, `.sk-shop-card[aria-label="S-3 스위프트"] .sk-shop-need`)) === '1,000 P 더 필요해요', '포인트 0에서는 다른 무기도 부족 표시', await textOf(page, `.sk-shop-card[aria-label="S-3 스위프트"] .sk-shop-need`));
     await t.shot('shop-after-buy');
     await page.click('.sk-shop .sk-btn--ghost');

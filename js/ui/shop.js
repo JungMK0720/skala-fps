@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 상점. def.category로 나눈 무기 탭과 무기 카드(이름·가격·막대·스탯·구매/장착), 이모트 탭(휠 8칸 장착·구매·미리 듣기)을 보여 준다.
+ * Purpose: 상점. 무기는 큰 탭(주무기·보조무기·근접무기·투척무기) 아래 def.category로 나눈 작은 탭으로 보여 주고, 무기 카드(이름·가격·막대·스탯·구매/장착), 이모트 탭(휠 8칸 장착·구매·미리 듣기)을 보여 준다.
  *          포인트는 계정이 바뀔 때마다 바로 갱신한다. 이벤트: shop:back, shop:preview { id }, ui:sound { name:'purchase' }.
  *          카드는 다시 만들지 않고 고쳐서 키보드 포커스를 잃지 않는다.
  *          캐릭터 탭: 초상(ui.setAvatarArt로 받은 그림, 없으면 아이콘)·구매·장착. 초상은 탭을 처음 열 때 그린다.
@@ -15,7 +15,10 @@ import { PREMIUM_PRICE } from '../weapons/defs.js';
 import { EMOTES, EMOTE_WHEEL, TEAMS, TEAM_IDS } from '../core/consts.js';
 import { AVATARS, DEFAULT_AVATAR } from '../core/avatar-defs.js';
 
-const TAB_LABELS = { rifle: '라이플', sniper: '저격', smg: 'SMG', shotgun: '샷건', lmg: '기관총', pistol: '권총', melee: '근접', launcher: '좀비 전용' };
+/** 무기 큰 탭. 무기는 슬롯으로 나누고, 투척 무기(수류탄·def.throwing인 투척 도끼)는 따로 모은다 */
+const GROUPS = Object.freeze([['primary', '주무기'], ['secondary', '보조무기'], ['melee', '근접무기'], ['throw', '투척무기']]);
+/** 큰 탭 안의 작은 탭(def.category) 이름과 순서 */
+const SUB_LABELS = { rifle: '라이플', sniper: '저격', smg: 'SMG', pistol: '권총', shotgun: '샷건', lmg: '기관총', melee: '근접', grenade: '수류탄', launcher: '좀비 전용' };
 /** 이모트 탭 id. 무기 category와 겹치지 않는다 */
 export const EMOTE_TAB = 'emote';
 /** 캐릭터 탭 id */
@@ -27,21 +30,26 @@ const count = (n) => Number(n || 0).toLocaleString('ko-KR');
 /** 캐릭터 구매가 닫혀 있을 때 안내(account.avatarShop) */
 const CLOSED_NOTE = '캐릭터 구매는 서버 업데이트 뒤에 열려요. 기본 캐릭터와 이미 가진 캐릭터는 지금도 입을 수 있어요.';
 const CHECKING_NOTE = '캐릭터 구매를 열 수 있는지 서버에 확인하고 있어요.';
-/** 상점에서 다루는 슬롯과 계정 장비 칸. 슬롯 4(수류탄)는 팔지 않는다. */
+/** 상점에서 다루는 슬롯과 계정 장비 칸. 슬롯 4(수류탄)는 모두에게 기본으로 주므로 카드만 보이고 사거나 장착하지 않는다. */
 const SLOT_KEYS = { 1: 'primary', 2: 'secondary', 3: 'melee' };
+const groupOf = (d) => (d.slot === 4 || d.throwing ? 'throw' : SLOT_KEYS[d.slot]);
 
 export function createShop(ctx) {
   const cards = new Map();    // 무기 id → 카드
   const emoCards = new Map(); // 이모트 id → 카드
   const avCards = new Map();  // 캐릭터 id → 카드
   let artTeam = TEAM_IDS[0];  // 캐릭터 초상의 팀 색
-  let tabs = [];              // [{ id, label, el }]
+  let tabs = [];              // 큰 탭 [{ id, el }]
   let tabId = null;
+  let subTabs = [];           // 지금 큰 탭의 작은 탭 [{ id, el }]
+  const subOf = new Map();    // 큰 탭 → 마지막으로 본 작은 탭(category)
   let builtFor = 0;           // 카드를 만들 때 본 무기 수. setWeapons로 바뀌면 다시 만든다
   let slot = 0;               // 이모트 탭에서 고른 휠 칸(0 = 12시)
 
   const points = pointsBadge('sk-points--big');
   const tabsEl = h('div', { class: 'sk-tabs', role: 'tablist', 'aria-label': '상점 종류' });
+  const subTabsEl = h('div', { class: 'sk-tabs sk-subtabs', role: 'tablist', 'aria-label': '무기 종류', hidden: true });
+  const subBreak = h('span', { class: 'sk-shop-break', 'aria-hidden': 'true', hidden: true });
   const grid = h('div', { class: 'sk-shop-grid', role: 'tabpanel', 'aria-label': '상품 목록' });
   const note = h('p', { class: 'sk-shop-note', role: 'status' });
   const backBtn = btn('← 메뉴', () => ctx.emit('shop:back', {}), 'sk-btn--ghost');
@@ -55,7 +63,8 @@ export function createShop(ctx) {
           h('p', { class: 'sk-bar-sub', text: `경기와 비밀 스팟으로 모은 포인트로 무기·이모트·캐릭터를 사서 장착해요. ${fmtPoints(PREMIUM_PRICE)} 이상인 프리미엄 총은 예비 탄약이 무제한이에요.` })),
         points.el),
       h('div', { class: 'sk-hazard sk-hazard--thin', 'aria-hidden': 'true' }),
-      h('div', { class: 'sk-shop-bar' }, tabsEl, note),
+      // 작은 탭 줄은 큰 탭 아래 새 줄(sk-shop-break)에 둔다. 같은 sk-shop-bar 안이라 휴대폰에서도 함께 위에 붙어 있다
+      h('div', { class: 'sk-shop-bar' }, tabsEl, note, subBreak, subTabsEl),
       grid));
 
   ctx.listen(window, 'keydown', (e) => {
@@ -199,12 +208,15 @@ export function createShop(ctx) {
       w.stats.length ? h('dl', { class: 'sk-shop-stats' },
         w.stats.map((s) => h('div', { class: 'sk-shop-stat' }, h('dt', { text: s.label }), h('dd', { text: s.value })))) : null,
       h('footer', { class: 'sk-shop-foot' }, need, action));
-    const card = { id: def.id, w, slotKey: SLOT_KEYS[def.slot], el: articleEl, state, need, action };
+    const card = { id: def.id, w, slotKey: SLOT_KEYS[def.slot] || null, el: articleEl, state, need, action };
     return card;
   }
 
   function paintCard(card) {
     const a = ctx.account;
+    // 수류탄은 모두에게 기본으로 주는 무기라 사거나 장착하지 않는다
+    card.action.hidden = !card.slotKey;
+    if (!card.slotKey) { setText(card.state, '기본 지급'); setText(card.need, ''); card.el.classList.add('is-owned'); return; }
     const owned = a.isOwned(card.id);
     const equipped = owned && a.loadout[card.slotKey] === card.id;
     const short = owned ? 0 : Math.max(0, card.w.price - a.profile.points);
@@ -446,7 +458,8 @@ export function createShop(ctx) {
   }
 
   // ---------- 탭 ----------
-  function showTab(id) {
+  /** 큰 탭: 무기 묶음 · 이모트 · 캐릭터 · 코인. 무기 묶음은 작은 탭(종류)을 그리고 마지막으로 본 종류를 연다 */
+  function showTab(id, sub) {
     tabId = id;
     for (const t of tabs) {
       const on = t.id === id;
@@ -454,21 +467,53 @@ export function createShop(ctx) {
       t.el.setAttribute('aria-selected', on ? 'true' : 'false');
       t.el.tabIndex = on ? 0 : -1;
     }
+    const weapons = GROUPS.some(([g]) => g === id);
+    grid.classList.toggle('sk-shop-grid--av', id === AVATAR_TAB);
+    grid.scrollTop = 0;
+    if (weapons) {
+      const cats = categoriesOf(id);
+      subTabs = cats.map((c) => ({ id: c, el: h('button', { type: 'button', class: 'sk-subtab', role: 'tab', 'data-sub': c, onclick: () => showSub(c), text: SUB_LABELS[c] || c }) }));
+      subTabsEl.replaceChildren(...subTabs.map((t) => t.el));
+      subTabsEl.hidden = subBreak.hidden = subTabs.length < 2;   // 종류가 하나뿐이면(근접) 작은 탭 줄을 숨긴다
+      const want = [sub, subOf.get(id)].find((c) => c && cats.includes(c)) || cats[0];
+      showSub(want);
+      return;
+    }
+    subTabs = [];
+    subTabsEl.hidden = subBreak.hidden = true;
+    subTabsEl.replaceChildren();
     if (id === EMOTE_TAB) grid.replaceChildren(wheelBox, ...[...emoCards.values()].map((c) => c.el));
     else if (id === AVATAR_TAB) grid.replaceChildren(avBox, ...[...avCards.values()].map((c) => c.el));
     else if (id === COIN_TAB) grid.replaceChildren(coinBox, ...[...productCards.values()].map((c) => c.el), ordersBox);
-    else grid.replaceChildren(...[...cards.values()].filter((c) => c.category === id).map((c) => c.el));
-    grid.classList.toggle('sk-shop-grid--av', id === AVATAR_TAB);
-    grid.scrollTop = 0;
     if (id === AVATAR_TAB && ctx.account) paintAvatars();
   }
 
-  function moveTab(step) {
-    const shown = tabs.filter((t) => !t.el.hidden);
-    const i = shown.findIndex((t) => t.id === tabId);
+  /** 작은 탭(무기 종류): 지금 큰 탭 안에서 그 종류의 카드만 */
+  function showSub(cat) {
+    subOf.set(tabId, cat);
+    for (const t of subTabs) {
+      const on = t.id === cat;
+      t.el.classList.toggle('is-on', on);
+      t.el.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.el.tabIndex = on ? 0 : -1;
+    }
+    grid.replaceChildren(...[...cards.values()].filter((c) => c.group === tabId && c.category === cat).map((c) => c.el));
+    grid.scrollTop = 0;
+  }
+
+  /** 이 큰 탭에 있는 무기 종류(SUB_LABELS 순서, 모르는 종류는 뒤에) */
+  function categoriesOf(group) {
+    const cats = [...new Set([...cards.values()].filter((c) => c.group === group).map((c) => c.category))];
+    const known = Object.keys(SUB_LABELS).filter((c) => cats.includes(c));
+    return [...known, ...cats.filter((c) => !known.includes(c))];
+  }
+
+  function moveIn(list, current, step, open) {
+    const shown = list.filter((t) => !t.el.hidden);
+    const i = shown.findIndex((t) => t.id === current);
     const next = shown[(i + step + shown.length) % shown.length];
     if (!next) return;
-    showTab(next.id);
+    open(next.id);
     next.el.focus();
   }
 
@@ -476,31 +521,37 @@ export function createShop(ctx) {
     const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
     if (!step) return;
     e.preventDefault();
-    moveTab(step);
+    moveIn(tabs, tabId, step, (id) => showTab(id));
+  });
+  subTabsEl.addEventListener('keydown', (e) => {
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    moveIn(subTabs, subOf.get(tabId), step, showSub);
   });
 
   function build() {
-    // 좀비 물량 막기 전용 무기(zombieOnly)는 파는 물건이 아니다. shop이 붙은 것(공기총·말뚝건)만 판다(좀비 모드에서만 든다)
-    const defs = [...ctx.weapons.values()].filter((d) => SLOT_KEYS[d.slot] && (!d.zombieOnly || d.shop));
+    // 좀비 물량 막기 전용 무기(zombieOnly)는 파는 물건이 아니다. shop이 붙은 것(공기총·말뚝건·투척 도끼)만 판다(좀비 모드에서만 든다)
+    const defs = [...ctx.weapons.values()].filter((d) => groupOf(d) && (!d.zombieOnly || d.shop));
     cards.clear();
     for (const d of defs) {
       const card = buildCard(d);
+      card.group = groupOf(d);
       card.category = d.category || 'etc';
       cards.set(d.id, card);
     }
     if (!emoCards.size) for (const e of EMOTES) emoCards.set(e.id, buildEmoteCard(e));
     if (!avCards.size) for (const a of AVATARS) avCards.set(a.id, buildAvatarCard(a));
-    const cats = [...new Set(defs.map((d) => d.category || 'etc'))];
-    const known = Object.keys(TAB_LABELS).filter((c) => cats.includes(c));
-    const rest = cats.filter((c) => !known.includes(c));
-    const label = (id) => (id === EMOTE_TAB ? '이모트' : id === AVATAR_TAB ? '캐릭터' : id === COIN_TAB ? '코인' : TAB_LABELS[id] || id);
-    tabs = [...known, ...rest, EMOTE_TAB, AVATAR_TAB, COIN_TAB].map((id) => {
-      const tabEl = h('button', { type: 'button', class: 'sk-tab', role: 'tab', 'data-tab': id, onclick: () => showTab(id), text: label(id) });
+    const groups = GROUPS.filter(([g]) => defs.some((d) => groupOf(d) === g));
+    const label = Object.fromEntries([...groups, [EMOTE_TAB, '이모트'], [AVATAR_TAB, '캐릭터'], [COIN_TAB, '코인']]);
+    tabs = [...groups.map(([g]) => g), EMOTE_TAB, AVATAR_TAB, COIN_TAB].map((id) => {
+      const tabEl = h('button', { type: 'button', class: 'sk-tab', role: 'tab', 'data-tab': id, onclick: () => showTab(id), text: label[id] });
       return { id, el: tabEl };
     });
     tabsEl.replaceChildren(...tabs.map((t) => t.el));
     builtFor = ctx.weapons.size;
     tabId = null;
+    subOf.clear();
   }
 
   function render(p, { first, fresh }) {
@@ -511,7 +562,10 @@ export function createShop(ctx) {
     // 카드를 다시 붙이느라 누른 버튼의 포커스와 스크롤을 잃는다
     const want = fresh && p && p.tab;
     const coinsOn = coinAvailable(onlineState(ctx));
-    if (want && tabs.some((t) => t.id === want) && (want !== COIN_TAB || coinsOn)) showTab(want);
+    // 예전 탭 이름(무기 종류 'rifle' 등)으로 열어도 그 종류가 든 큰 탭과 작은 탭을 연다
+    const legacy = want && !tabs.some((t) => t.id === want) ? [...cards.values()].find((c) => c.category === want) : null;
+    if (legacy) showTab(legacy.group, want);
+    else if (want && tabs.some((t) => t.id === want) && (want !== COIN_TAB || coinsOn)) showTab(want);
     else if (tabs.length && (!tabs.some((t) => t.id === tabId) || (tabId === COIN_TAB && !coinsOn))) showTab(tabs[0].id);
     paintAll();
   }

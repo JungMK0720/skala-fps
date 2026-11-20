@@ -1303,6 +1303,13 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
 .sk-tab:hover { color: var(--sk-text); background: rgba(255, 255, 255, .06); }
 .sk-tab.is-on { color: var(--sk-on-accent); background: var(--sk-cyan); box-shadow: 0 0 14px rgba(53, 224, 255, .3); }
 .sk-shop-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+/* 상점 작은 탭(무기 종류): 큰 탭 아래 새 줄. 큰 탭보다 작고 고른 칸은 테두리로만 표시한다 */
+.sk-shop-break { flex-basis: 100%; height: 0; }
+.sk-subtabs { padding: 2px; gap: 2px; }
+.sk-subtab { min-height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--sk-muted); font: 700 13px/1 var(--sk-font); white-space: nowrap; cursor: pointer; transition: color .12s, background .12s; }
+.sk-subtab:hover { color: var(--sk-text); background: rgba(255, 255, 255, .06); }
+.sk-subtab.is-on { color: var(--sk-cyan); background: rgba(53, 224, 255, .12); box-shadow: inset 0 0 0 1px rgba(53, 224, 255, .55); }
+.sk-ui .sk-subtab.is-on:focus-visible { outline-color: #fff; }
 .sk-shop-note { flex: 1 1 240px; font-size: 13px; font-weight: 700; color: var(--sk-cyan-hi); }
 .sk-shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; align-items: stretch; outline: none; }
 .sk-shop-card { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 14px; transition: border-color .12s, box-shadow .12s; }
@@ -1550,6 +1557,7 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
   .sk-res-gain, .sk-res-lines { justify-content: center; }
   .sk-tabs { align-self: stretch; }
   .sk-tab { flex: 1 1 auto; padding: 0 10px; font-size: 13px; }
+  .sk-subtab { flex: 1 1 auto; padding: 0 8px; font-size: 12px; }
   .sk-lc.is-many .sk-lc-cards { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
 }
 /* 큰 창: 1080p 이상에서는 메뉴·페이지·로드아웃을 키워 글자가 작아 보이지 않게 한다(시트와 HUD는 그대로) */
