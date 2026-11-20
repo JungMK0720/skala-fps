@@ -25,7 +25,6 @@ export const PERK_BASE = Object.freeze({
   maxHp: 0,        // H  최대 체력 +
   maxHpPct: 0,     // H  최대 체력 +%(음수 가능)
   regen: 0,        // H  초당 회복
-  regenPct: 0,     // H  초당 최대 체력의 비율만큼 회복(불굴)
   lifesteal: 0,    // H  준 피해의 비율만큼 회복
   armor: 0,        // H  받는 피해 감소
   killHeal: 0,     // H  처치마다 회복
@@ -98,7 +97,7 @@ const fx = (v) => (Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : 
 const FAMILIES = [
   { key: 'hp', name: '튼튼한 몸', icon: '❤️', stat: 'maxHp', vals: [15, 25, 40, 60], text: (v) => `최대 체력 +${v} (그만큼 바로 회복)`, instant: (v) => ({ heal: v }) },
   { key: 'regen', name: '재생', icon: '💚', stat: 'regen', vals: [0.8, 1.5, 2.5, 4], text: (v) => `초당 체력 ${fx(v)} 회복` },
-  { key: 'leech', name: '흡혈', icon: '🩸', stat: 'lifesteal', vals: [0.015, 0.03, 0.05, 0.08], text: (v) => `준 피해의 ${pc(v)}만큼 체력 회복` },
+  { key: 'leech', name: '흡혈', icon: '🩸', stat: 'lifesteal', vals: [0.0075, 0.015, 0.025, 0.04], text: (v) => `준 피해의 ${fx(v * 100)}%만큼 체력 회복` },
   { key: 'armor', name: '방탄복', icon: '🦺', stat: 'armor', vals: [0.05, 0.1, 0.15, 0.2], text: (v) => `받는 피해 −${pc(v)}` },
   { key: 'ration', name: '전투 식량', icon: '🍖', stat: 'killHeal', vals: [3, 6, 9, 12], text: (v) => `좀비를 처치할 때마다 체력 +${v}` },
   { key: 'power', name: '화력', icon: '💥', stat: 'dmg', vals: [0.1, 0.2, 0.3, 0.4], text: (v) => `모든 피해 +${pc(v)}` },
@@ -163,17 +162,17 @@ const SPECIALS = [
   { key: 'luck', name: '행운', icon: '🍀', tier: 'rare', max: 3, fx: { rerolls: 1 }, desc: '카드 제안마다 다시 뽑기 +1' },
   { key: 'wide', name: '넓은 선택', icon: '🃏', tier: 'epic', max: 1, fx: { offers: 1 }, desc: '카드 제안이 4장으로 늘어난다' },
   { key: 'medkit', name: '응급 처치', icon: '🚑', tier: 'common', instant: { healPct: 1 }, desc: '체력을 가득 회복' },
-  { key: 'syringe', name: '회복 주사', icon: '💉', tier: 'common', instant: { healPct: 0.5 }, fx: { regenPct: 0.02 }, desc: '체력 50% 회복 · 초당 최대 체력의 2% 회복' },
+  { key: 'syringe', name: '회복 주사', icon: '💉', tier: 'common', instant: { healPct: 0.5 }, fx: { regen: 0.5 }, desc: '체력 50% 회복 · 초당 체력 0.5 회복' },
   { key: 'drop', name: '보급 투하', icon: '🪂', tier: 'rare', max: 1, desc: '스테이지마다 든 총들의 탄창·예비 탄과 수류탄을 모두 가득 채운다' },
   { key: 'hunter', name: '사냥 본능', icon: '🐺', tier: 'rare', fx: { dmg: 0.24, move: 0.12 }, desc: '모든 피해 +24% · 이동 속도 +12%' },
   { key: 'thrift', name: '탄약 절약', icon: '🪙', tier: 'epic', max: 2, fx: { thrift: 0.45 }, desc: '45% 확률로 쏴도 탄이 줄지 않는다 (두 번 고르면 90%)' },
   { key: 'perfect', name: '완벽주의자', icon: '💎', tier: 'epic', max: 1, fx: { head: 3, bodyPenalty: 0.9 }, desc: '머리 피해 +300% · 몸·팔다리 총 피해 −90%' },
   { key: 'giant', name: '거인 학살자', icon: '🗿', tier: 'epic', max: 1, fx: { boss: 3, normalPenalty: 0.5 }, desc: '보스 피해 +300% · 일반 좀비 피해 −50%' },
-  { key: 'thirst', name: '피의 갈증', icon: '🧛', tier: 'epic', fx: { lifesteal: 0.04, killHeal: 2 }, desc: '흡혈 +4% · 처치마다 체력 +2' },
+  { key: 'thirst', name: '피의 갈증', icon: '🧛', tier: 'epic', fx: { lifesteal: 0.02, killHeal: 2 }, desc: '흡혈 +2% · 처치마다 체력 +2' },
   { key: 'runngun', name: '기동 사격', icon: '🏃', tier: 'rare', fx: { spread: 0.3, move: 0.18 }, desc: '탄퍼짐 −30% · 이동 속도 +18%' },
   { key: 'drum', name: '드럼 탄창', icon: '🥁', tier: 'epic', fx: { mag: 0.6, reload: -0.1 }, desc: '최대 탄창 +60% · 재장전 속도 −10%' },
   { key: 'samurai', name: '무사도', icon: '🏯', tier: 'epic', fx: { melee: 0.8, move: 0.05 }, desc: '칼 피해 +80% · 이동 속도 +5%' },
-  { key: 'iron', name: '불굴', icon: '⛓️', tier: 'epic', fx: { armor: 0.12, regenPct: 0.03 }, desc: '받는 피해 −12% · 초당 최대 체력의 3% 회복' },
+  { key: 'iron', name: '불굴', icon: '⛓️', tier: 'epic', fx: { armor: 0.12, regen: 0.5 }, desc: '받는 피해 −12% · 초당 체력 0.5 회복' },
   { key: 'tactical', name: '전술 재장전', icon: '🧷', tier: 'rare', fx: { reload: 0.25, mag: 1 }, desc: '재장전 속도 +25% · 최대 탄창 +100%' },
   { key: 'react', name: '연쇄 반응', icon: '☢️', tier: 'epic', fx: { explosive: 0.12, nade: 0.25 }, desc: '처치 폭발 +12% · 수류탄 피해 +25%', minStage: 4, nade: true },
   { key: 'dread', name: '공포 그 자체', icon: '👹', tier: 'rare', fx: { slow: 0.12, reactive: 0.25 }, desc: '냉각 +12% · 좀비·보스에게 맞으면 4초에 한 번 내 자리에서 수류탄이 터진다' },
@@ -374,8 +373,8 @@ export function perkSummary(stats) {
   add('연사', s.fireRate, plus); add('재장전', s.reload, plus); add('탄창', s.mag, plus);
   add('재장전 탄창', s.reserve, (v) => `+${fx(v)}배`);
   add('이동', s.move, plus); add('최대 속도', s.maxSpeed, plus);
-  add('방어', s.armor, (v) => `−${Math.round(v * 100)}%`); add('회복', s.regen, (v) => `${fx(v)}/초`); add('최대 체력 회복', s.regenPct, (v) => `${pc(v)}/초`);
-  add('흡혈', s.lifesteal, (v) => `${Math.round(v * 100)}%`); add('관통', s.pierce, (v) => `${v}`);
+  add('방어', s.armor, (v) => `−${Math.round(v * 100)}%`); add('회복', s.regen, (v) => `${fx(v)}/초`);
+  add('흡혈', s.lifesteal, (v) => `${fx(v * 100)}%`); add('관통', s.pierce, (v) => `${v}`);
   add('수류탄', s.nades, (v) => `+${v}`); add('폭발 반경', s.nadeRadius, plus); add('한 번에 던지기', s.nadeMulti, (v) => `+${v}`);
   add('화염', s.nadeFire, (v) => `${v}단계`); add('빙결', s.nadeFreeze, (v) => `${v}단계`); add('분신', s.nadeDecoy, (v) => `${v}단계`);
   add('구급 상자 확률', s.medDrop, plus); add('구급 상자 회복', s.medHeal, (v) => `+${v}`);

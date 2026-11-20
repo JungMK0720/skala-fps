@@ -254,21 +254,22 @@ describe('거인 학살자', () => {
   });
 });
 
-describe('최대 체력 비례 회복', () => {
-  test('불굴 3%와 회복 주사 2%가 최대 체력에 비례해 매초 회복한다', () => {
+describe('고정 회복', () => {
+  test('불굴과 회복 주사는 최대 체력과 상관없이 초당 체력 0.5씩 회복한다', () => {
     const healed = (cards, maxHp) => {
       const { d, p } = makeFlat({ p1: [0, 0, 0] }, cards);
       p.maxHp = maxHp;
       p.hp = 20;
       p.regenAcc = 0;
       d.tick(1000);
+      d.tick(1000);
       return p.hp - 20;
     };
     assert.equal(healed([], 100), 0);
-    assert.equal(healed(['iron'], 100), 3);
-    assert.equal(healed(['iron'], 200), 6);
-    assert.equal(healed(['syringe'], 100), 2);
-    assert.equal(healed(['iron', 'syringe'], 100), 5);
+    assert.equal(healed(['iron'], 100), 1);
+    assert.equal(healed(['iron'], 200), 1);
+    assert.equal(healed(['syringe'], 100), 1);
+    assert.equal(healed(['iron', 'syringe'], 100), 2);
   });
 });
 
