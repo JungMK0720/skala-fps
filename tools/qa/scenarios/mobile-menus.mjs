@@ -397,8 +397,9 @@ export default {
       t.setSection(`${phone.id}: 상점`);
       await tap(page, '.sk-mypage .sk-my-panelhead .sk-btn--sm');
       await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '터치로 상점' });
-      for (const [tab, id] of [['라이플', 'rifle'], ['저격', 'sniper'], ['SMG·샷건', 'smg'], ['권총', 'pistol'], ['근접', 'melee'], ['캐릭터', 'avatar']]) {
+      for (const [tab, sub, id] of [['주무기', '라이플', 'rifle'], ['주무기', '저격', 'sniper'], ['주무기', 'SMG', 'smg'], ['보조무기', '권총', 'pistol'], ['근접무기', null, 'melee'], ['캐릭터', null, 'avatar']]) {
         await tap(page, '.sk-shop .sk-tab', tab);
+        if (sub) await tap(page, '.sk-shop .sk-subtab', sub);
         await rewind(page, '.sk-shop');
         await see(`shop-${id}`, '.sk-shop');
       }
@@ -406,7 +407,7 @@ export default {
       t.check((await scrollOf(page, '.sk-shop'))[1] > 0, `${phone.id}: 상점을 손으로 밀 수 있다`);
       if (touch) t.check(await page.eval(`document.querySelector('.sk-shop .sk-tabs').getBoundingClientRect().top >= 0`), `${phone.id}: 내려도 탭이 위에 남는다`);
       await see('shop-scrolled');
-      await tap(page, '.sk-shop .sk-tab', '라이플');
+      await tap(page, '.sk-shop .sk-tab', '주무기');
       await rewind(page, '.sk-shop');
       t.errorsOk(`${phone.id} 메뉴·상점`);
 
@@ -554,7 +555,8 @@ export default {
       await tap(page, '.sk-menu-btn--sub', '상점');
       await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '터치로 상점' });
       await see('shop-new-rifle', '.sk-shop');
-      await tap(page, '.sk-shop .sk-tab', '권총');
+      await tap(page, '.sk-shop .sk-tab', '보조무기');
+      await tap(page, '.sk-shop .sk-subtab', '권총');
       await tap(page, '.sk-shop-card[aria-label="M-44 매그넘"] .sk-shop-action');
       await page.waitFor(`/샀어요/.test(document.querySelector('.sk-shop-note').textContent)`, 3000, { label: '터치로 구매' });
       await see('shop-new-bought', '.sk-shop');

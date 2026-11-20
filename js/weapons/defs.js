@@ -1028,7 +1028,7 @@ const WEAPON_TABLE = {
   // 투척 도끼(요청 2026-11-20): 좀비 물량 막기 전용이지만 상점에서 판다. 중력을 받아 휘어 날아가며(grenade.js PROJECTILES.axe, pierce)
   // 닿는 좀비마다 100 × BLAST_MUL.axe(1.2) = 120을 주고 그대로 뚫고 지나간다(한 좀비는 한 번만). 벽·바닥에 박히면 멈추고 피해는 없다.
   th_axe: gun({
-    id: 'th_axe', slot: 2, kind: 'launcher', category: 'launcher', fire: 'semi', price: 800, zombieOnly: true, shop: true,
+    id: 'th_axe', slot: 2, kind: 'launcher', category: 'launcher', fire: 'semi', price: 800, zombieOnly: true, shop: true, throwing: true,
     name: 'TX-3 투척 도끼', nameEn: 'TX-3 Throwing Axe', short: 'TX-3', role: '관통 투척',
     icon: '🪓', color: '#b0b8c0', sound: 'knife_slash', fxKind: 'pistol',
     tagline: '휘어 날아가며 줄지어 선 좀비를 꿰뚫는다.',
