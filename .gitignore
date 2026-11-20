@@ -18,3 +18,5 @@ supabase/.env
 supabase/functions/.env
 # 운영자 열쇠(전체 공지 서명용, tools/make-notice-key.mjs) 보관 폴더. 비밀 열쇠는 저장소에 올리지 않는다
 .secrets/
+# 대원 모델 빌드 도구(tools/models)의 설치 폴더. 게임 실행에는 필요 없다
+tools/models/node_modules/
