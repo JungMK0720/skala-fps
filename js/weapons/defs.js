@@ -107,7 +107,7 @@ const SG_DOUBLE_PATTERN = [[0.00, 5.00], [0.55, 4.60]];
 /** AS-12 오토. 연사하는 산탄총이라 한 발은 작게, 쏟아부을수록 좌우로 흔들린다. */
 const SG_AUTO_PATTERN = [[0.00, 1.90], [0.25, 1.70], [-0.25, 1.70], [0.15, 1.50], [-0.15, 1.50], [0.30, 1.40], [-0.30, 1.40], [0.00, 1.40]];
 /**
- * UZ-2 듀얼 우지. 왼손·오른손 총이 번갈아 나가서 한 발마다 좌우가 번갈아 튄다(처음 8발은 점점 벌어지고 그 뒤로는 작게 흔들린다).
+ * TW-2 쌍발 기관단총. 왼손·오른손 총이 번갈아 나가서 한 발마다 좌우가 번갈아 튄다(처음 8발은 점점 벌어지고 그 뒤로는 작게 흔들린다).
  * 위로는 발당 0.2~0.3°라 VX-3와 비슷하지만 좌우가 두 배 넓다.
  */
 const SM_UZI_DUAL_PATTERN = [
@@ -125,7 +125,7 @@ const SR_SWIFT_PATTERN = [[-0.20, 2.20], [0.25, 2.00]];
 const SR_HEAVY_PATTERN = [[0.35, 5.50], [-0.35, 5.50]];
 const PT_STD_PATTERN = [[0.00, 1.30], [0.25, 1.15], [-0.25, 1.15], [0.15, 1.05]];
 const PT_MAGNUM_PATTERN = [[0.00, 3.00], [0.50, 2.70], [-0.50, 2.70]];
-/** SH-2 쇼티. 두 발을 빠르게 쏘므로 둘째 발이 조금 옆으로 튄다 */
+/** SH-2 단축 산탄총. 두 발을 빠르게 쏘므로 둘째 발이 조금 옆으로 튄다 */
 const SG_SHORTY_PATTERN = [[0.00, 3.80], [0.45, 3.40]];
 /** AG-8 공기총. 압축 공기가 터지며 위로 한 번 튄다 */
 const PN_AIR_PATTERN = [[0.00, 2.20]];
@@ -475,7 +475,7 @@ const WEAPON_TABLE = {
   // 근거리 TTK는 비슷하고 연속 교전에 강하다. 이동이 느리고 탄이 넓게 퍼지며 20 m 밖에서는 35%뿐이다.
   sg_auto: gun({
     id: 'sg_auto', slot: 1, kind: 'shotgun', category: 'shotgun', fire: 'auto', price: 1500, premium: false,
-    name: 'AS-12 스톰브레이커', nameEn: 'AS-12 Stormbreaker', short: 'AS-12', role: '자동',
+    name: 'AS-12 템페스트', nameEn: 'AS-12 Tempest', short: 'AS-12', role: '자동',
     icon: '🌩️', color: '#e0572b', sound: 'shotgun', fxKind: 'rifle',
     tagline: '방아쇠를 당기고 있는 한 계속 터진다.',
     desc: '방아쇠를 누르고 있으면 계속 나가는 자동 산탄총이다. 한 발은 약하지만 연사가 빨라 가까운 적을 몰아붙이기 좋고, 예비 탄약이 60발로 넉넉하다.',
@@ -498,14 +498,14 @@ const WEAPON_TABLE = {
     zoom: null,
   }),
 
-  // 양손에 우지를 하나씩 든다. 두 총이 번갈아 쏘아 초당 17발(1000rpm)이고 몸 15라 7발(0.36초)에 쓰러진다. 조준경이 없어 우클릭 조준이 없고
+  // 양손에 기관단총을 하나씩 든다. 두 총이 번갈아 쏘아 초당 17발(1000rpm)이고 몸 15라 7발(0.36초)에 쓰러진다. 조준경이 없어 우클릭 조준이 없고
   // 탄퍼짐이 VX-3의 두 배쯤이며 10 m 밖부터 피해가 빨리 줄어(32 m에서 45%) 근접전 전용이다. 이동은 가장 빠르다.
   sm_uzi_dual: gun({
     id: 'sm_uzi_dual', slot: 1, kind: 'smg', category: 'smg', fire: 'auto', price: 1100,
-    name: 'UZ-2 듀얼 우지', nameEn: 'UZ-2 Dual Uzi', short: 'UZ-2', role: '쌍권총',
+    name: 'TW-2 쌍발 기관단총', nameEn: 'TW-2 Twin SMG', short: 'TW-2', role: '쌍권총',
     icon: '🎰', color: '#f0c419', sound: 'smg', fxKind: 'pistol',
     tagline: '양손에 하나씩, 양쪽으로 쏟아붓는다.',
-    desc: '양손에 우지를 하나씩 들고 번갈아 쏜다. 연사가 아주 빠르지만 조준경이 없고 탄이 많이 퍼져서, 코앞에서 움직이며 쏘는 무기다.',
+    desc: '양손에 기관단총을 하나씩 들고 번갈아 쏜다. 연사가 아주 빠르지만 조준경이 없고 탄이 많이 퍼져서, 코앞에서 움직이며 쏘는 무기다.',
     recoilNote: '좌우로 번갈아 튄다',
     bars: { power: 38, rate: 96, accuracy: 28, mobility: 98 },
 
@@ -557,7 +557,7 @@ const WEAPON_TABLE = {
   // 밸런스 패치(2026-11-12): 기본 지급 저격총이 다리까지 1발이라 아무 데나 맞혀도 끝났다. 다리는 85로 한 발이 더 필요하다.
   sr_bolt: gun({
     id: 'sr_bolt', slot: 1, kind: 'sniper', category: 'sniper', fire: 'bolt', price: 0,
-    name: 'SK-7 볼트', nameEn: 'SK-7 Bolt', short: 'SK-7', role: '저격',
+    name: 'SR-7 볼트', nameEn: 'SR-7 Bolt', short: 'SR-7', role: '저격',
     icon: '🎯', color: '#f2c230', sound: 'sniper', fxKind: 'sniper',
     tagline: '숨을 고르고, 한 방.',
     desc: '기본 저격총이다. 머리·몸은 1발 킬이고 다리는 85, 손끝이나 발에 맞으면 반샷이 된다.',
@@ -582,7 +582,7 @@ const WEAPON_TABLE = {
       hideViewmodelAt: 0.9, moveMul: 0.8, unzoomOnFire: true },
   }),
 
-  // SK-7과 위력이 같다. 9배를 얻는 대신 볼트·줌·이동이 조금씩 느려서 장거리가 아니면 손해다. 탄약은 요청(2026-11-20)으로 5/20(premium: false).
+  // SR-7과 위력이 같다. 9배를 얻는 대신 볼트·줌·이동이 조금씩 느려서 장거리가 아니면 손해다. 탄약은 요청(2026-11-20)으로 5/20(premium: false).
   sr_twin: gun({
     id: 'sr_twin', slot: 1, kind: 'sniper', category: 'sniper', fire: 'bolt', price: 1500, premium: false,
     name: 'T-2 트윈옵틱', nameEn: 'T-2 Twin Optic', short: 'T-2', role: '2단 저격',
@@ -717,11 +717,11 @@ const WEAPON_TABLE = {
     zoom: null,
   }),
 
-  // 짧게 자른 두 발짜리 산탄 보조무기(요청 2026-11-20, 발로란트 쇼티 같은 무기). 두 발을 0.25초 간격으로 쏟아내고 바로 장전한다.
+  // 짧게 자른 두 발짜리 산탄 보조무기(요청 2026-11-20). 두 발을 0.25초 간격으로 쏟아내고 바로 장전한다.
   // 펠릿 12발 × 몸 7이라 코앞에서 84, 두 발이면 쓰러진다. 5 m부터 줄어 15 m에서는 30%라 멀면 쓸모가 없다.
   sg_shorty: gun({
     id: 'sg_shorty', slot: 2, kind: 'shotgun', category: 'shotgun', fire: 'semi', price: 400,
-    name: 'SH-2 쇼티', nameEn: 'SH-2 Shorty', short: 'SH-2', role: '근거리 보조',
+    name: 'SH-2 단축 산탄총', nameEn: 'SH-2 Sawed-Off', short: 'SH-2', role: '근거리 보조',
     icon: '✂️', color: '#a0522d', sound: 'shotgun', fxKind: 'rifle',
     tagline: '두 발을 빠르게, 코앞에서.',
     desc: '총열을 짧게 자른 두 발짜리 산탄 보조무기다. 두 발을 빠르게 연달아 쏘고 곧바로 장전한다. 5 m 안에서는 강하지만 15 m 밖에서는 힘이 거의 없다.',
@@ -837,14 +837,14 @@ const WEAPON_TABLE = {
     spread: null, recoil: null, zoom: null,
   }),
 
-  // 야스오의 검: 좀비 증강 카드 전용. 좌우 클릭 모두 같은 칼 판정 찌르기이고, 두 번 맞힌 뒤 다음 공격으로 회오리를 날린다.
+  // GL-1 질풍검: 좀비 증강 카드 전용. 좌우 클릭 모두 같은 칼 판정 찌르기이고, 두 번 맞힌 뒤 다음 공격으로 바닥을 타고 가는 충격파를 낸다.
   ml_yasuo: blade({
     id: 'ml_yasuo', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 0, zombieOnly: true, cardOnly: true,
-    name: '야스오의 검', nameEn: 'Yasuo Sword', short: 'YASUO', role: '바람 검술',
+    name: 'GL-1 질풍검', nameEn: 'GL-1 Gale Blade', short: 'GALE', role: '질풍 검술',
     icon: '🗡️', color: '#70e8e3', sound: 'katana_swing', fxKind: null,
     heavySound: 'katana_swing', hitSound: 'katana_hit',
-    tagline: '두 번 맞히면 다음 찌르기가 회오리가 된다.',
-    desc: '좌우 클릭 모두 0.7초마다 같은 칼 판정으로 찌른다. 10초 안에 두 번 맞히면 다음 공격은 빗나가도 전방에 회오리를 날려 좀비를 띄우고 기절시킨다. 회오리가 보스를 맞히면 보스 뒤로 순간이동해 2초 동안 무적으로 공중 연타(총 10배 피해)를 하고 떨어진다.',
+    tagline: '두 번 맞히면 다음 찌르기가 바닥을 가르는 충격파가 된다.',
+    desc: '좌우 클릭 모두 0.7초마다 같은 칼 판정으로 찌른다. 10초 안에 두 번 맞히면 다음 공격은 빗나가도 바라보는 쪽 바닥을 따라 14 m 충격파를 보낸다. 갈수록 넓어지는 충격파에 맞은 좀비는 칼 피해를 받고 0.6초 비틀거린 뒤 2초 동안 느려진다. 처음 맞은 보스 하나는 칼 피해 10배를 받는다.',
     bars: { power: 82, rate: 58, accuracy: 70, mobility: 94 },
 
     damage: null,
@@ -860,11 +860,11 @@ const WEAPON_TABLE = {
     spread: null, recoil: null, zoom: null,
   }),
 
-  // 007 가방(요청 2026-11-20): 금속 모서리를 댄 서류 가방으로 친다. 휘두르기는 약하게, 우클릭 내려치기는 중간 피해로 더 세게 밀어낸다.
+  // BC-7 서류 가방(요청 2026-11-20): 금속 모서리를 댄 서류 가방으로 친다. 휘두르기는 약하게, 우클릭 내려치기는 중간 피해로 더 세게 밀어낸다.
   // 밀어내기(knock)는 좀비 물량 막기 방장(director.js knockZombie)만 쓰고, 다른 모드에서는 피해만 준다.
   ml_case: blade({
     id: 'ml_case', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 700,
-    name: '007 가방', nameEn: '007 Briefcase', short: '007', role: '근접',
+    name: 'BC-7 서류 가방', nameEn: 'BC-7 Briefcase', short: 'BC-7', role: '근접',
     icon: '💼', color: '#3b3b44', sound: 'knife_slash', fxKind: null,
     heavySound: 'katana_heavy', hitSound: 'knife_hit',
     tagline: '서류 가방으로 후려쳐 밀어낸다.',
@@ -985,10 +985,10 @@ const WEAPON_TABLE = {
     projectile: { kind: 'rocket', speed: 36, pitchUp: 0, fuse: 3.0 },
     explosion: { radius: 5.2, inner: 1.0, max: 100 },
   }),
-  // 중력건: 피해는 없다. 발사체가 곧게 날아가 처음 닿는 곳에서 중력 구멍이 생겨, 반경 안의 좀비를 그 한 점으로 끌어 뭉친다(explosion은 '끌어당길 범위'다)
+  // GV-1 특이점포: 피해는 없다. 발사체가 곧게 날아가 처음 닿는 곳에서 중력 구멍이 생겨, 반경 안의 좀비를 그 한 점으로 끌어 뭉친다(explosion은 '끌어당길 범위'다)
   gv_gun: gun({
     id: 'gv_gun', slot: 2, kind: 'launcher', category: 'launcher', fire: 'semi', price: 0, zombieOnly: true,
-    name: 'GV-1 중력건', nameEn: 'GV-1 Gravity Gun', short: 'GV-1', role: '군중 제어',
+    name: 'GV-1 특이점포', nameEn: 'GV-1 Singularity Cannon', short: 'GV-1', role: '군중 제어',
     icon: '🌀', color: '#8a5cff', sound: 'magnum', fxKind: 'pistol',
     tagline: '쏜 자리로 좀비를 끌어모은다.',
     desc: '좀비 물량 막기의 드문 증강으로만 얻는 보조무기다. 중력 탄이 처음 닿는 곳에서 반경 7 m의 좀비를 한 점으로 끌어당겨 뭉친다. 피해는 주지 않으니 뭉친 곳에 수류탄을 던져라.',

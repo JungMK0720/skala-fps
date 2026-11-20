@@ -257,7 +257,7 @@ export default {
     await page.waitFor('__qa.world.localEmote > 0', 2000, { intervalMs: 30, label: '12시 칸을 누르면 그 이모트' });
     t.check(!(await page.eval('__qa.ui.isVisible("emotes")')), '고르면 휠이 닫힌다');
     t.check((await page.eval('__qa.ctx.input.emoteWheel.open')) === false, '입력의 휠도 닫힌다');
-    t.check(firstEmote === 'takeL', '기본 휠 12시는 L을 가져가', firstEmote);
+    t.check(firstEmote === 'takeL', '기본 휠 12시는 작전 성공', firstEmote);
     await sleep(300);
     await tapButton(page, 'fire');
     await page.waitFor('__qa.world.localEmote === 0', 2000, { intervalMs: 30, label: '발사 버튼으로 취소' });

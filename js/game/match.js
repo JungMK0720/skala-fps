@@ -196,7 +196,7 @@ export function rulesFromDefs(defs = WEAPONS) {
 /** 무기별 판정 표(동결). 처음 불러올 때 defs에서 만든다 */
 export const WEAPON_RULES = rulesFromDefs(WEAPONS);
 
-/** 대소문자·기호를 뺀 이름 → 정식 id. 정식 id와 표시 이름(short: 'SK-7', 'KATANA')을 defs에서 만든다 */
+/** 대소문자·기호를 뺀 이름 → 정식 id. 정식 id와 표시 이름(short: 'SR-7', 'KATANA')을 defs에서 만든다 */
 const squashName = (v) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
 const WEAPON_NAMES = new Map();
 for (const id of WEAPON_IDS) {

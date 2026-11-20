@@ -507,7 +507,7 @@ export function restoreMatch({ snapshot: source, players = [], spawns, seed, rng
  * ==================================================================== */
 const FFA_REASON_TEXT = Object.freeze({ kills: '목표 킬 달성', time: '시간 종료', forfeit: '상대가 모두 나감', draw: '무승부' });
 
-/** 무기 id → 화면 이름(SK-7 저격소총). 모르면 '' */
+/** 무기 id → 화면 이름(SR-7 저격소총). 모르면 '' */
 function weaponLabel(id) {
   const d = id ? getDef(normalizeWeaponId(id) || String(id)) : null;
   return d ? String(d.name || d.short || '') : '';
@@ -3049,7 +3049,7 @@ export function createSession(options = {}) {
   });
   wOn('grenade', (g) => {
     if (!inRound() || current.phase !== 'live') return;
-    // 종류: 손 수류탄(없음) · 유탄 발사기 'gl' · 바주카포 'rocket' · C4 수류탄 'c4'(좀비 모드 증강, 좀비에 붙는다) · 중력건 · 말뚝건 · 투척 도끼 · 제우스의 번개
+    // 종류: 손 수류탄(없음) · 유탄 발사기 'gl' · 바주카포 'rocket' · C4 수류탄 'c4'(좀비 모드 증강, 좀비에 붙는다) · 특이점포 · 말뚝건 · 투척 도끼 · 제우스의 번개
     const kind = ['gl', 'rocket', 'c4', 'gravity', 'stake', 'axe', 'bolt'].includes(g.kind) ? g.kind : undefined;
     sync.sendGrenade({ pos: g.pos, vel: g.vel, t: localT(g.t), kind, fuse: g.fuse });
   });

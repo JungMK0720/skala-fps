@@ -296,33 +296,29 @@ export default {
     t.setSection('상점: 이모트 휠');
     page = await openGame(t, '', { profile: { nickname: NICK, points: 1000, createdAt: 1 }, settings: LOW_QUALITY, screen: 'menu' });
     await page.waitFor('__qa.ui.isVisible("menu")', 5000, { label: '메뉴' });
-    // 페이지를 열면 클릭(오디오 켜기) 전에도 음원 묶음을 미리 받아 둔다 → 상점 미리 듣기·첫 이모트가 처음부터 파일로 나온다
-    await page.waitFor('__qa.world.internals.audio.getStats().emoteFetched.length === 6', 10000, { label: '클릭 전 미리 받기' }).catch(() => {});
-    const pre = await page.eval('(() => { const s = __qa.world.internals.audio.getStats(); return { state: s.state, fetched: s.emoteFetched.slice().sort() }; })()');
-    t.check(pre.state === 'locked' && pre.fetched.length === 6, '오디오를 켜기 전에 음원 묶음 6개를 받아 둔다', pre);
     await page.clickText('.sk-menu-btn--sub', '상점');
     await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '상점' });
     await page.clickText('.sk-shop .sk-tab', '이모트');
     const emo = (id) => `.sk-emo-card[aria-label="${id}"]`;
     const chipNames = () => page.eval(`[...document.querySelectorAll('.sk-emo-slot .sk-emo-slot-name')].map((n) => n.textContent)`);
     const first = await chipNames();
-    t.check(first.join() === 'L을 가져가,야채,크림치즈 허니,크리스 크로스,탱고,경례,손 흔들기,환호 박수', '처음 휠 8칸', first);
+    t.check(first.join() === '작전 성공,무전 확인,수신호,몸풀기,제자리 행진,경례,손 흔들기,환호 박수', '처음 휠 8칸', first);
     t.check((await page.eval(`document.querySelectorAll('.sk-emo-card').length`)) === 11, '이모트 카드 11장');
-    for (const name of ['L을 가져가', '야채', '크림치즈 허니']) {
+    for (const name of ['작전 성공', '무전 확인', '수신호']) {
       t.check(await page.eval(`!!document.querySelector('${emo(name)} .sk-emo-free')`), `${name}: 기본 지급 표시`);
     }
-    t.check((await textOf(page, `${emo('당신에게서')} .sk-shop-action`)) === '구매 600 P', '당신에게서 600 P', await textOf(page, `${emo('당신에게서')} .sk-shop-action`));
-    t.check((await textOf(page, `${emo('셀카')} .sk-shop-action`)) === '구매 400 P', '셀카 400 P');
-    await page.click(`${emo('셀카')} .sk-shop-action`);
-    await page.waitFor(`document.querySelector('.sk-shop .sk-points-val').textContent === '600 P'`, 2000, { label: '셀카 구매' });
-    t.check((await textOf(page, `${emo('셀카')} .sk-shop-action`)) === '1번 칸에 넣기', '산 이모트는 고른 칸에 넣는 버튼', await textOf(page, `${emo('셀카')} .sk-shop-action`));
-    t.check((await textOf(page, `${emo('당신에게서')} .sk-shop-need`)) === '', '600 P 남으면 당신에게서도 살 수 있다');
+    t.check((await textOf(page, `${emo('쌍안경 정찰')} .sk-shop-action`)) === '구매 600 P', '쌍안경 정찰 600 P', await textOf(page, `${emo('쌍안경 정찰')} .sk-shop-action`));
+    t.check((await textOf(page, `${emo('깃발 흔들기')} .sk-shop-action`)) === '구매 400 P', '깃발 흔들기 400 P');
+    await page.click(`${emo('깃발 흔들기')} .sk-shop-action`);
+    await page.waitFor(`document.querySelector('.sk-shop .sk-points-val').textContent === '600 P'`, 2000, { label: '깃발 흔들기 구매' });
+    t.check((await textOf(page, `${emo('깃발 흔들기')} .sk-shop-action`)) === '1번 칸에 넣기', '산 이모트는 고른 칸에 넣는 버튼', await textOf(page, `${emo('깃발 흔들기')} .sk-shop-action`));
+    t.check((await textOf(page, `${emo('쌍안경 정찰')} .sk-shop-need`)) === '', '600 P 남으면 쌍안경 정찰도 살 수 있다');
     await page.clickText('.sk-emo-slot', '경례');
     t.check(await page.eval(`document.querySelectorAll('.sk-emo-slot')[5].classList.contains('is-on')`), '6번 칸을 고른다');
-    t.check((await textOf(page, `${emo('셀카')} .sk-shop-action`)) === '6번 칸에 넣기', '버튼이 고른 칸을 따른다');
-    await page.click(`${emo('셀카')} .sk-shop-action`);
-    t.check((await chipNames())[5] === '셀카', '6번 칸이 셀카로 바뀐다', await chipNames());
-    t.check((await textOf(page, `${emo('셀카')} .sk-shop-state`)) === '휠 6번', '카드에 휠 칸 표시');
+    t.check((await textOf(page, `${emo('깃발 흔들기')} .sk-shop-action`)) === '6번 칸에 넣기', '버튼이 고른 칸을 따른다');
+    await page.click(`${emo('깃발 흔들기')} .sk-shop-action`);
+    t.check((await chipNames())[5] === '깃발 흔들기', '6번 칸이 깃발 흔들기로 바뀐다', await chipNames());
+    t.check((await textOf(page, `${emo('깃발 흔들기')} .sk-shop-state`)) === '휠 6번', '카드에 휠 칸 표시');
     t.check((await textOf(page, `${emo('경례')} .sk-shop-state`)) === '보유', '빠진 이모트는 보유로 남는다');
     await page.click('.sk-emo-slot');
     await page.click(`${emo('환호 박수')} .sk-shop-action`);
@@ -331,33 +327,14 @@ export default {
     t.check(/바꿨어요/.test(await textOf(page, '.sk-shop-note')), '맞바꿈 안내', await textOf(page, '.sk-shop-note'));
     await t.shot('shop-emotes');
 
-    // 미리 듣기: 상점 맨 앞 L을 가져가도 음원 파일로 나온다(오디오는 상점에 오면서 누른 클릭으로 켜졌다)
+    // 미리 듣기: 합성음 루프가 2D로 나온다(오디오는 상점에 오면서 누른 클릭으로 켜졌다)
     const playingNow = () => page.eval('__qa.world.internals.audio.getStats().emotePlaying');
-    await page.click(`${emo('L을 가져가')} .sk-emo-preview`);
-    await page.waitFor(`__qa.world.internals.audio.getStats().emotePlaying.includes('takeL:file') && __qa.world.internals.audio.getStats().emoteVoices2d >= 1`, 5000, { label: 'L을 가져가 미리 듣기' }).catch(() => {});
-    t.check((await playingNow()).includes('takeL:file'), '상점에서 L을 가져가 듣기는 음원 파일로 나온다', await playingNow());
-    await page.click(`${emo('셀카')} .sk-emo-preview`);
-    await page.waitFor(`__qa.world.internals.audio.getStats().emotePlaying.join() === 'selfie:file'`, 5000, { label: '셀카 미리 듣기' }).catch(() => {});
-    t.check((await playingNow()).join() === 'selfie:file', '다른 이모트를 누르면 앞의 미리 듣기는 멈추고 새 것이 파일로 나온다', await playingNow());
-    const files = await page.eval('__qa.world.internals.audio.getStats().emoteFiles.slice().sort()');
-    t.check(files.join() === 'creamCheese,crissCross,fromYou,selfie,takeL,veggie', '묶음 6개를 읽는다', files);
-    const src = await page.eval(`(() => { const a = __qa.world.internals.audio; const h = a.emote('takeL'), s = a.emote('sideToSide'); const r = [h.source, s.source]; h.stop(10); s.stop(10); return r; })()`);
-    t.check(src[0] === 'file' && src[1] === 'synth', '묶음이 있는 이모트는 파일, 나머지는 합성음', src);
-    // 파일보다 먼저 시작해도 준비되는 즉시 파일로 바뀐다: 미리 받지 않는 새 오디오를 켜자마자 L을 가져가를 튼다
-    const swap = await page.eval(`(async () => {
-      const { createAudio } = await import('./js/fx/audio.js');
-      const a = createAudio({ volume: 0, emotePrefetch: false });
-      a.unlock();
-      const h = a.emote('takeL');
-      const first = h.source;
-      await a.emoteFilesReady();
-      await new Promise((r) => setTimeout(r, 300));
-      const later = h.source, voices = a.getStats().emoteVoices2d;
-      h.stop(10);
-      a.dispose();
-      return { first, later, voices };
-    })()`);
-    t.check(swap.first === 'synth' && swap.later === 'file' && swap.voices >= 1, '파일보다 먼저 시작한 이모트는 준비되는 즉시 파일로 바뀐다', swap);
+    await page.click(`${emo('작전 성공')} .sk-emo-preview`);
+    await page.waitFor(`__qa.world.internals.audio.getStats().emotePlaying.includes('takeL') && __qa.world.internals.audio.getStats().emoteVoices2d >= 1`, 5000, { label: '작전 성공 미리 듣기' }).catch(() => {});
+    t.check((await playingNow()).includes('takeL'), '상점에서 작전 성공을 들을 수 있다', await playingNow());
+    await page.click(`${emo('깃발 흔들기')} .sk-emo-preview`);
+    await page.waitFor(`__qa.world.internals.audio.getStats().emotePlaying.join() === 'selfie'`, 5000, { label: '깃발 흔들기 미리 듣기' }).catch(() => {});
+    t.check((await playingNow()).join() === 'selfie', '다른 이모트를 누르면 앞의 미리 듣기는 멈추고 새 것이 나온다', await playingNow());
     await page.click('.sk-shop .sk-btn--ghost');
     await page.waitFor('__qa.ui.isVisible("menu")', 3000, { label: '메뉴로 돌아옴' });
     await page.waitFor('__qa.world.internals.audio.getStats().emoteVoices2d === 0', 3000, { label: '상점을 나가면 미리 듣기가 멈춘다' });

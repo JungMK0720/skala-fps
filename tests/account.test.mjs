@@ -1109,13 +1109,13 @@ describe('createAccount 상점과 장비', () => {
     assert.deepEqual(account.equipEmote(0, 1), { ok: false, reason: 'unknown' });
     assert.equal(bus.of('account:change').length, 0);
 
-    assert.deepEqual(account.buy('selfie'), { ok: true, points: START_POINTS - 400 }, '셀카 400');
-    assert.deepEqual(account.buy('fromYou'), { ok: false, reason: 'points', points: START_POINTS - 400 }, '당신에게서 600');
+    assert.deepEqual(account.buy('selfie'), { ok: true, points: START_POINTS - 400 }, '깃발 흔들기 400');
+    assert.deepEqual(account.buy('fromYou'), { ok: false, reason: 'points', points: START_POINTS - 400 }, '쌍안경 정찰 600');
     assert.deepEqual(account.buy('takeL'), { ok: false, reason: 'owned', points: START_POINTS - 400 }, '기본 지급 이모트');
     assert.ok(account.profile.owned.includes('selfie'));
 
     assert.deepEqual(account.equipEmote(2, 'selfie'), { ok: true });
-    assert.equal(account.emoteWheel[2], 'selfie', '3번 칸(크림치즈 허니 자리)에 넣는다');
+    assert.equal(account.emoteWheel[2], 'selfie', '3번 칸(수신호 자리)에 넣는다');
     assert.ok(!account.emoteWheel.includes('creamCheese'), '빠진 이모트는 휠에 없다');
     assert.deepEqual(account.equipEmote(0, 'selfie'), { ok: true }, '이미 휠에 있으면 맞바꾼다');
     assert.equal(account.emoteWheel[0], 'selfie');

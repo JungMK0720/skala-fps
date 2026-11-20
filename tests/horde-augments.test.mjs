@@ -2,7 +2,7 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: QA 요청 증강 묶음 시험. 수류탄 폭심 1000, 무제한 관통, 머리 피해 2배, 재장전 시간 −50%(두 번이면 재장전 없음), 방패 칼,
- *          공중 강타(+500%), 중력건(좀비를 한 점으로 끌어당김), 기본 무기 변경 증강 삭제, 원거리 좀비 20스테이지부터를 three.js 없이 확인한다.
+ *          공중 강타(+500%), 특이점포(좀비를 한 점으로 끌어당김), 기본 무기 변경 증강 삭제, 원거리 좀비 20스테이지부터를 three.js 없이 확인한다.
  */
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -135,7 +135,7 @@ describe('QA 요청 증강 묶음', () => {
     assert.ok(reloads > 0 || b.getAmmo('ar_std').mag < mag0, '증강이 없으면 탄이 줄고 재장전이 필요하다');
   });
 
-  test('원거리 좀비(스피터)는 11스테이지부터 나온다', () => {
+  test('원거리 좀비(산성 좀비)는 11스테이지부터 나온다', () => {
     assert.equal(ZOMBIE_TYPES.spitter.from, 11);
     for (let s = 1; s < 11; s++) assert.ok(!zombieMix(s).some((m) => m.type.id === 'spitter'), `${s}`);
     assert.ok(zombieMix(11).some((m) => m.type.id === 'spitter'));
@@ -205,7 +205,7 @@ describe('QA 요청 증강 묶음', () => {
     assert.equal(dmgOf(true), dmgOf(false) * 6);
   });
 
-  test('중력건: 터진 자리로 반경 안의 좀비가 끌려와 뭉치고(피해 없음), 증강이 없으면 아무 일도 없다', () => {
+  test('특이점포: 터진 자리로 반경 안의 좀비가 끌려와 뭉치고(피해 없음), 증강이 없으면 아무 일도 없다', () => {
     const run = (cards) => {
       const { d } = makeFlat({ p1: [0, 0, 0] }, cards);
       const zs = alive(d).slice(0, 3);
@@ -250,7 +250,7 @@ describe('상점·증강 새 무기(2026-11-20)', () => {
     assert.ok(Math.abs(Z.body.pos[1]) < 1e-6, '처음 높이에 내려앉는다');
   });
 
-  test('007 가방: 휘두르기는 약하게, 우클릭 내려치기는 더 세게 밀고, 다른 칼은 밀지 않는다', () => {
+  test('BC-7 서류 가방: 휘두르기는 약하게, 우클릭 내려치기는 더 세게 밀고, 다른 칼은 밀지 않는다', () => {
     const push = (weaponId, kind) => {
       const { d } = makeFlat();
       const Z = zombieAt(d, 1.5);
@@ -277,7 +277,7 @@ describe('상점·증강 새 무기(2026-11-20)', () => {
     assert.equal(cardById('zeus').instant.primary, 'zs_bolt');
   });
 
-  test('야스오의 검: 두 번 맞힌 뒤 세 번째 공격은 빗나가도 회오리, 회오리가 보스를 맞히면 2초 무적 공중 연타로 칼 피해 10배', () => {
+  test('질풍검: 두 번 맞힌 뒤 세 번째 공격은 빗나가도 바닥 충격파, 맞은 좀비는 비틀거리고 느려지며 처음 맞은 보스만 칼 피해 10배(순간이동·무적·띄우기 없음)', () => {
     const { d, p } = makeFlat({ p1: { x: 0, y: 0, z: 0, yaw: -Math.PI / 2, slot: 3 } }, ['yasuoSword']);
     const Z = zombieAt(d, 1.5);
     const swing = (id) => d.claimSwordSwing({ attackerId: 'p1', weaponId: 'ml_yasuo', kind: 'yasuoSwing', shotId: id });
@@ -290,23 +290,38 @@ describe('상점·증강 새 무기(2026-11-20)', () => {
     assert.equal(hit(2, 'stab').some((e) => e.type === 'reject'), false, '우클릭도 같은 칼 판정');
     assert.equal(p.yasuoHits, 2);
     step(d, Math.ceil(700 / STEP));
-    Z.body.pos[0] = 50;   // 빗나가도 나간다
-    const t = swing(3);
-    assert.equal(t[0].type, 'yasuo');
-    assert.equal(t[0].kind, 'tornado');
-    assert.equal(p.yasuoHits, 0);
+    Z.body.pos[0] = 50;   // 빗나가도 나간다(충격파는 14 m까지라 50 m의 좀비는 맞지 않는다)
 
-    const boss = alive(d).find((z) => z !== Z);
+    const [boss, mob] = alive(d).filter((z) => z !== Z);
     boss.boss = { id: 'test', skills: [], enrage: { at: 0 } };
     boss.skillReady = []; boss.attackReady = Infinity;
     boss.state = 'move'; boss.hp = boss.maxHp = 1e6;
     boss.body.pos[0] = 3; boss.body.pos[1] = 0; boss.body.pos[2] = 0;
+    mob.state = 'move'; mob.hp = mob.maxHp = 1e6;
+    mob.body.pos[0] = 9; mob.body.pos[1] = 0; mob.body.pos[2] = 1.6;   // 9 m 앞의 반폭은 약 1.77 m: 옆으로 비켜 서도 넓어진 충격파에 맞는다
+    const farHp = Z.hp;
+    const before = p.pos.slice();
+    const t = swing(3);
+    assert.equal(t[0].type, 'yasuo');
+    assert.equal(t[0].kind, 'shockwave');
+    assert.ok(Math.abs(t[0].dir[0] - 1) < 1e-9 && Math.abs(t[0].dir[2]) < 1e-9, '바라보는 쪽(+x)으로 나간다');
+    assert.equal(p.yasuoHits, 0);
+
     const evs = [];
-    for (let i = 0; i < Math.ceil(2600 / STEP); i++) evs.push(...d.tick(STEP));
+    for (let i = 0; i < Math.ceil(700 / STEP); i++) evs.push(...d.tick(STEP));
+    const S = d.internals.S;
     const base = zombieHitDamage({ weaponId: 'ml_yasuo', part: 'body', dist: 1, kind: 'stab' }, p.perks, { boss: true }).dmg;
-    assert.ok(evs.some((e) => e.type === 'yasuo' && e.kind === 'ult'), '보스에게 맞으면 뒤로 이동');
-    assert.ok(evs.some((e) => e.type === 'yasuo' && e.kind === 'land'), '2초 뒤 착지');
+    const mobBase = zombieHitDamage({ weaponId: 'ml_yasuo', part: 'body', dist: 1, kind: 'stab' }, p.perks, { boss: false }).dmg;
     assert.ok(Math.abs(boss.maxHp - boss.hp - base * 10) < 1e-6, `보스 피해 ${boss.maxHp - boss.hp}`);
+    assert.ok(Math.abs(mob.maxHp - mob.hp - mobBase) < 1e-6, `일반 좀비 피해 ${mob.maxHp - mob.hp}`);
+    assert.equal(Z.hp, farHp, '사거리(14 m) 밖 좀비는 충격파에 맞지 않는다');
+    for (const z of [boss, mob]) {
+      assert.ok(z.slowUntil > S.clock && z.slowMul === 0.5, '맞은 좀비는 느려진다');
+      assert.ok(!(z.knockUntil > S.clock), '띄우거나 밀지 않는다');
+    }
+    assert.ok(!evs.some((e) => e.type === 'yasuo'), '순간이동·착지 같은 후속 이벤트가 없다');
+    assert.deepEqual(p.pos, before, '사람은 제자리에 있다');
+    assert.ok(!(p.invulnUntil > S.clock), '무적이 되지 않는다');
   });
 
   test('제우스의 번개는 좀비 모드의 프리미엄 탄창 제한(finiteMags)을 받지 않고 예비가 무제한이다', () => {

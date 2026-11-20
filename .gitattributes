@@ -1,4 +1,2 @@
-# 음원 묶음은 줄바꿈 변환 없이 그대로 둔다
-*.bin binary
 # git 훅은 sh가 읽으므로 어느 OS에서 받아도 LF로 둔다
 tools/hooks/* text eol=lf

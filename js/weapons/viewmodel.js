@@ -1047,7 +1047,7 @@ export function createViewmodel(camera, opts = {}) {
     };
   }
 
-  function buildMlYasuo() { return buildMlKatana(true); }
+  function buildMlGale() { return buildMlKatana(true); }
 
   // ── 호크빌 나이프 ───────────────────────────────────────────
   /** 기본 칼: 안으로 굽은 갈고리 날과 톱니, 밧줄을 감은 손잡이 */
@@ -1184,7 +1184,7 @@ export function createViewmodel(camera, opts = {}) {
     };
   }
 
-  // ── 007 가방 ────────────────────────────────────────────────
+  // ── BC-7 서류 가방 ────────────────────────────────────────────────
   /** 손잡이(원점, z축)를 쥐고 아래로 늘어뜨린 단단한 서류 가방. 금속 모서리·잠금쇠 두 개. 베기는 가방 모서리로 후려치고 우클릭은 머리 위에서 내려찍는다 */
   function buildMlCase() {
     const g = new THREE.Group();
@@ -1213,7 +1213,7 @@ export function createViewmodel(camera, opts = {}) {
         box(0.003, 0.006, 0.01, M.black, g, sx * (T / 2 + 0.0035), top - 0.015, sz * 0.072);
       }
     }
-    const mark = textDraw([{ text: '007', size: 0.78, y: 0.54, color: '#d8dde4', stroke: 'rgba(0,0,0,0.55)' }]);
+    const mark = textDraw([{ text: 'BC-7', size: 0.78, y: 0.54, color: '#d8dde4', stroke: 'rgba(0,0,0,0.55)' }]);
     decal(g, 0.07, 0.03, -(T / 2 + 0.0008), cy - 0.012, 0, -Math.PI / 2, mark);
     decal(g, 0.07, 0.03, T / 2 + 0.0008, cy - 0.012, 0, Math.PI / 2, mark);
     // 평소에는 화면 오른쪽 아래에 손잡이를 쥐고 가방을 아래로 늘어뜨린다(d = 앞쪽, e = 가방 몸통 = 아래)
@@ -1922,7 +1922,7 @@ export function createViewmodel(camera, opts = {}) {
   // ── 쌍발 산탄총 DB-2 / SH-2 ─────────────────────────────────
   /**
    * 꺾어 여는 쌍발. 총열 묶음(parts.barrels)이 경첩(총신 밑동)을 따라 아래로 꺾이고 왼손이 탄을 두 발 넣는다(breakReload).
-   * DB-2가 기본이고 P로 총열을 자르고 개머리를 떼어 SH-2(쇼티)도 만든다.
+   * DB-2가 기본이고 P로 총열을 자르고 개머리를 떼어 SH-2(단축 산탄총)도 만든다.
    * P = { id, len(총열 길이), fore(앞 손잡이 앞끝, 총열 묶음 기준 z), leftZ(왼손 z), stock(개머리 여부), wood(나무 색), hip, hipRot, kick, flash }
    */
   function buildSgDouble(P = {}) {
@@ -2046,9 +2046,9 @@ export function createViewmodel(camera, opts = {}) {
     };
   }
 
-  // ── 듀얼 우지 UZ-2 ──────────────────────────────────────────
+  // ── TW-2 쌍발 기관단총 ──────────────────────────────────────────
   /**
-   * 양손에 우지를 한 자루씩. 모형 원점이 오른손 우지의 손잡이이고 왼손 우지는 같은 모양이 x로 UZI_DX만큼 왼쪽에 있다.
+   * 양손에 기관단총을 한 자루씩. 모형 원점이 오른손 총의 손잡이이고 왼손 총은 같은 모양이 x로 UZI_DX만큼 왼쪽에 있다.
    * 총마다 따로 움직이는 묶음(parts.right·parts.left)이라 쏠 때마다 번갈아 반동하고 총구 섬광도 번갈아 난다(kick).
    * 탄창은 손잡이 자체(parts.mag·parts.magL)라 재장전 때 두 자루가 함께 빠졌다 들어온다(dualReload). 조준은 없다.
    */
@@ -2081,7 +2081,7 @@ export function createViewmodel(camera, opts = {}) {
     gun.add(muzzle);
     return { gun, mag, muzzle };
   }
-  function buildSmUziDual() {
+  function buildSmTwin() {
     const g = new THREE.Group();
     const parts = {};
     const id = 'sm_uzi_dual';
@@ -2666,7 +2666,7 @@ export function createViewmodel(camera, opts = {}) {
     sg_pump: () => buildSgBx12({ id: 'sg_pump', ext: 0.08, wood: 0x5a3b22, teeth: false, hip: [0.145, -0.16, -0.36] }),
     sg_double: buildSgDouble,
     sg_auto: buildSgAuto,
-    sm_uzi_dual: buildSmUziDual,
+    sm_uzi_dual: buildSmTwin,
     mg_minigun: buildMgMinigun,
     sr_bolt: () => buildSniper({
       id: 'sr_bolt', body: 0x1f3557, fore: 0.27, barrel: 0.5, barrelR: 0.0105, brake: 'std', stock: 'solid', optic: 'std', bipod: 'folded',
@@ -2700,7 +2700,7 @@ export function createViewmodel(camera, opts = {}) {
     ml_tanto: buildMlTanto,
     ml_gurkha: buildMlGurkha,
     ml_katana: buildMlKatana,
-    ml_yasuo: buildMlYasuo,
+    ml_yasuo: buildMlGale,
     ml_case: buildMlCase,
     ml_saw: buildMlSaw,
     gr_frag: buildGrFrag,
@@ -2931,7 +2931,7 @@ export function createViewmodel(camera, opts = {}) {
   let reloadT = -1, reloadDur = 2, reloadEmpty = false;
   let act = null;               // { type: 'bolt'|'pump'|'prime'|'throw'|'inspect'|'clip', t, dur, ... }. 칼의 베기·강타·점검은 'clip'
   let slideT = 1, hammerT = 1, cylTurn = 0, cylAngle = 0, stageA = 0;
-  // 미니건 총열 회전(rad/s·누적 각)과 듀얼 우지의 번갈아 쏘기(어느 쪽이 쐈나, 쪽마다 남은 반동 0..1)
+  // 미니건 총열 회전(rad/s·누적 각)과 쌍발 기관단총의 번갈아 쏘기(어느 쪽이 쐈나, 쪽마다 남은 반동 0..1)
   let spinV = 0, spinA = 0, altSide = false;
   // 눈에 보이는 탄(말뚝·도끼·번개)이 다시 들어오는 진행도 0..1, 전기톱 체인 속도(m/s)·밀린 거리
   let feedT = 1, chainV = 0, chainA = 0;
@@ -3231,7 +3231,7 @@ export function createViewmodel(camera, opts = {}) {
     if (br) br.rotation.x = br.userData.base.rot.x - 0.5 * smooth(0.1, 0.22, u) * (1 - smooth(0.78, 0.9, u));
   }
 
-  /** 듀얼 우지 재장전: 총구를 위로 올리고 두 자루의 탄창(손잡이)이 함께 빠졌다 새것이 들어온다 */
+  /** 쌍발 기관단총 재장전: 총구를 위로 올리고 두 자루의 탄창(손잡이)이 함께 빠졌다 새것이 들어온다 */
   function dualReload(m, u, o) {
     const up = smooth(0, 0.16, u) * (1 - smooth(0.84, 1, u));
     o.py -= 0.02 * up; o.pz += 0.03 * up; o.rx += 0.4 * up;
@@ -3523,7 +3523,7 @@ export function createViewmodel(camera, opts = {}) {
       spinA += spinV * dt;
       m.parts.spin.rotation.z = m.parts.spin.userData.base.rot.z + spinA;
     }
-    // 듀얼 우지: 쏜 쪽 총이 뒤로 밀렸다 돌아온다(손도 함께). 재장전 중에는 재장전 동작이 맡는다
+    // 쌍발 기관단총: 쏜 쪽 총이 뒤로 밀렸다 돌아온다(손도 함께). 재장전 중에는 재장전 동작이 맡는다
     if (m.parts.right && m.parts.left) {
       for (let i = 0; i < 2; i++) gunK[i] = Math.max(0, gunK[i] - dt / 0.07);
       if (rT < 0) {

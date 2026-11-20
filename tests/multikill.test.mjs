@@ -24,8 +24,8 @@ describe('multiKillTier', () => {
     for (const n of [0, 1, -3, NaN, null, undefined, '1']) assert.equal(multiKillTier(n), null, String(n));
   });
 
-  test('2~6킬은 더블 킬~헥사 킬', () => {
-    assert.deepEqual([2, 3, 4, 5, 6].map((n) => multiKillTier(n).title), ['더블 킬!', '트리플 킬!', '쿼드라 킬!', '펜타 킬!', '헥사 킬!']);
+  test('2~6킬은 더블 킬~6연속 처치', () => {
+    assert.deepEqual([2, 3, 4, 5, 6].map((n) => multiKillTier(n).title), ['더블 킬!', '트리플 킬!', '쿼드 킬!', '5연속 처치!', '6연속 처치!']);
     for (const n of [2, 3, 4, 5, 6]) assert.equal(multiKillTier(n).count, n);
   });
 

@@ -39,9 +39,9 @@ const TARGET_LUFS = -16;           // 문장마다 같은 체감 크기(+ boost)
 export const VOICE_LINES = Object.freeze([
   { id: 'double', text: '더블 킬!', rate: 1.05, semitones: 0, boost: 0 },
   { id: 'triple', text: '트리플 킬!', rate: 1.08, semitones: 0.5, boost: 0.3 },
-  { id: 'quadra', text: '쿼드라 킬!', rate: 1.1, semitones: 1, boost: 0.6 },
-  { id: 'penta', text: '펜타 킬!', rate: 1.1, semitones: 1.5, boost: 0.9 },
-  { id: 'hexa', text: '헥사 킬!', rate: 1.12, semitones: 2, boost: 1.2 },
+  { id: 'quadra', text: '쿼드 킬!', rate: 1.1, semitones: 1, boost: 0.6 },
+  { id: 'penta', text: '5연속 처치!', rate: 1.1, semitones: 1.5, boost: 0.9 },
+  { id: 'hexa', text: '6연속 처치!', rate: 1.12, semitones: 2, boost: 1.2 },
   { id: 'legend', text: '당신은 전설입니다.', rate: 0.9, semitones: -2, boost: 1.2 }
 ]);
 

@@ -205,8 +205,8 @@ const ADDED = [
   { key: 'c4', name: 'C4 수류탄', icon: '🧲', tier: 'epic', max: 1, fx: { stickyNade: 1 }, nade: true, desc: '내 수류탄이 C4로 바뀐다. 좀비에 닿으면 그 몸에 붙어 따라가다 터진다' },
   { key: 'shieldKnife', name: '방패 칼', icon: '🛡️', tier: 'epic', max: 1, fx: { guard: 0.45 }, desc: '칼을 들면 방패를 함께 든다. 앞에서 때리는 공격의 피해 −45% (총·수류탄을 들면 방패를 내린다)' },
   { key: 'airStrike', name: '공중 강타', icon: '🦅', tier: 'epic', max: 1, fx: { airDmg: 5 }, desc: '점프로 공중에 떠 있는 동안 총 피해 +500%' },
-  // 보조무기를 중력건으로 바꾸는 증강(낮은 확률). 쏘면 앞쪽에서 중력이 생겨 좀비를 한 점으로 끌어 뭉친다
-  { key: 'sideGravity', name: '중력건', icon: '🌀', tier: 'epic', w: 2, max: 1, minStage: 2, instant: { side: 'gv_gun' }, desc: '보조무기가 GV-1 중력건으로 바뀐다(쏘면 앞쪽에 중력이 생겨 좀비가 한곳으로 뭉친다 · 맞히지는 못한다)' },
+  // 보조무기를 특이점포로 바꾸는 증강(낮은 확률). 쏘면 앞쪽에서 중력이 생겨 좀비를 한 점으로 끌어 뭉친다
+  { key: 'sideGravity', name: '특이점포', icon: '🌀', tier: 'epic', w: 2, max: 1, minStage: 2, instant: { side: 'gv_gun' }, desc: '보조무기가 GV-1 특이점포로 바뀐다(쏘면 앞쪽에 중력이 생겨 좀비가 한곳으로 뭉친다 · 맞히지는 못한다)' },
   { key: 'flameGun', name: '화염 방사기', icon: '🔥', tier: 'legend', max: 1, minStage: 3,
     instant: { primary: 'fl_horde' }, desc: '주무기가 FL-12 화염 방사기로 바뀐다(12 m 화염 5갈래 · 연료 100 · 연속 분사)' },
   { key: 'railGun', name: '레일건', icon: '⚡', tier: 'legend', max: 1, minStage: 3,
@@ -218,9 +218,9 @@ const ADDED = [
   // 제우스의 번개(요청 2026-11-20): 주무기가 번개를 던지는 무기로 바뀐다. 맞으면 근처 좀비로 다섯 번 튀고 피해가 줄지 않는다
   { key: 'zeus', name: '제우스의 번개', icon: '🌩️', tier: 'legend', max: 1, minStage: 3,
     instant: { primary: 'zs_bolt' }, desc: '주무기가 제우스의 번개로 바뀐다(던진 번개가 맞으면 근처 좀비로 5번 튄다 · 튈 때마다 피해 그대로 150 · 탄약 무제한)' },
-  // 야스오의 검(요청 2026-11-20): 좌·우클릭이 같은 칼 판정 찌르기. 두 번 맞히면 다음 공격이 회오리, 회오리가 보스에 닿으면 공중 연타
-  { key: 'yasuoSword', name: '야스오의 검', icon: '🌪️', tier: 'legend', max: 1, minStage: 3,
-    instant: { melee: 'ml_yasuo' }, desc: '칼이 야스오의 검으로 바뀐다. 좌·우클릭 같은 찌르기(0.7초 간격). 2번 맞히면(10초 유지) 다음 공격은 빗나가도 앞으로 회오리를 날려 맞은 적을 띄우고 기절시킨다. 회오리가 보스를 맞히면 보스 뒤로 순간이동해 2초 동안 무적으로 공중 연타(칼 피해 총 10배) 후 떨어진다' },
+  // 질풍검(요청 2026-11-20): 좌·우클릭이 같은 칼 판정 찌르기. 두 번 맞히면 다음 공격이 바닥을 타고 앞으로 가는 충격파
+  { key: 'yasuoSword', name: '질풍검', icon: '💨', tier: 'legend', max: 1, minStage: 3,
+    instant: { melee: 'ml_yasuo' }, desc: '칼이 GL-1 질풍검으로 바뀐다. 좌·우클릭 같은 찌르기(0.7초 간격). 2번 맞히면(10초 유지) 다음 공격은 빗나가도 바라보는 쪽 바닥을 따라 14 m 충격파를 보낸다(갈수록 넓어짐). 맞은 좀비는 칼 피해 · 0.6초 비틀거림 · 2초 동안 이동 −50%, 처음 맞은 보스 하나는 칼 피해 10배' },
   // 근력팔(요청 2026-11-20): 투척무기(수류탄·도끼)를 던진 뒤 딜레이 −45%. 두 장까지(−90%)
   { key: 'strongArm', name: '근력팔', icon: '💪', tier: 'rare', max: 2, fx: { throwCut: 0.45 }, desc: '투척무기(수류탄·투척 도끼)를 던진 뒤 딜레이 −45% (두 장까지, 두 장이면 −90%)' }
 ];

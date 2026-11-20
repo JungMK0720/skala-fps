@@ -7,7 +7,8 @@
 
 - 빌드 없음. 브라우저 ES 모듈 + importmap(CDN). GitHub Pages(`/skala-fps/` 하위 경로)에서 돌아야 하므로 **모든 경로는 상대 경로**다. `/js/...` 같은 절대 경로 금지.
 - 런타임 npm 의존성 없음. 외부 라이브러리는 importmap의 three, cannon-es만. Supabase는 `fetch`(REST RPC)와 `js/net`의 자체 Realtime 클라이언트로 접속한다.
-- 외부 이미지 파일 금지. 도형, 캔버스 텍스처를 쓴다(연속 킬 그림도 SVG 도형, `js/ui/multikill.js`). 소리는 WebAudio 합성이 기본이고, 이모트 음원은 사용 권리를 확인한 것만 묶음(`audio/emotes/*.bin`, docs/EMOTE_BGM.md)으로 넣는다. 원본 음원 파일은 올리지 않는다.
+- 외부 이미지 파일 금지. 도형, 캔버스 텍스처를 쓴다(연속 킬 그림도 SVG 도형, `js/ui/multikill.js`). 소리는 WebAudio 합성이고, 이모트 음악도 직접 쓴 음표 표로 합성한다(docs/EMOTE_BGM.md). 외부 음원 파일은 쓰지 않는다.
+- 저장소에 들어가는 모든 자산은 `docs/ASSETS.md` 장부에 한 줄씩 적는다. 새 파일 자산은 출처 주소, 라이선스, 내려받은 날짜를 적은 뒤에만 넣는다.
 - 사람 목소리는 녹음하거나 다른 게임에서 가져오지 않는다. 연속 킬 안내 음성(`audio/voice/*.mp3`)은 `tools/make-voice.mjs`가 Windows 한국어 TTS로 합성해 다듬은 파일이다(js/fx/README.md "안내 음성").
 - **상용 게임의 맵 구조·이름·캐릭터·모델·UI·사운드를 복제하지 않는다.** 장르 관습(좁은 교전 구역, 칼전, 공중 스트레이프 가속 같은 메커니즘)은 써도 되지만 레이아웃과 이름은 직접 설계한다.
 - 사용자 문자열은 `textContent`로만 넣는다. `innerHTML`에 넣지 않는다. `alert/confirm/prompt` 금지.
@@ -76,7 +77,7 @@ HTML은 `<!DOCTYPE html>` 다음 줄에 `<!-- ... -->`, SQL은 `--`, YAML은 `#`
 | `dm_mark` | DM-4 마크스맨 | dmr/semi | 200rpm | 130 | 52 | 38 | 26 | 없음 | 15/∞ | .9 | 1500 | 3배 스코프, 스코프 오버레이 없음 |
 | `sm_vx3` | VX-3 바이퍼 | smg/auto | 950rpm | 60 | 18 | 14 | 9 | 12~40→0.55 | 32/64 | 1.05 | 600 | 기동형 |
 | `sg_bx12` | BX-12 브리처 | shotgun/semi | .85s | 20 | 14 | 10 | 7 (펠릿당, 8발) | 8~22→0.35 | 6/12 | .98 | 700 | 근거리 |
-| `sr_bolt` | SK-7 볼트 | sniper/bolt | 1.2s | 200 | 120 | 100 | **50** | 없음 | 5/10 | .85 | 0 | 4배 줌 |
+| `sr_bolt` | SR-7 볼트 | sniper/bolt | 1.2s | 200 | 120 | 100 | **50** | 없음 | 5/10 | .85 | 0 | 4배 줌 |
 | `sr_twin` | T-2 트윈옵틱 | sniper/bolt | 1.35s | 200 | 120 | 100 | **50** | 없음 | 5/∞ | .82 | 1500 | **2단 줌 4배→9배** |
 | `sr_swift` | S-3 스위프트 | sniper/bolt | .85s | 150 | 85 | 60 | 40 | 없음 | 7/14 | .95 | 1000 | 3배 줌, 경량. 몸 1발 아님 |
 | `sr_heavy` | H-50 타이탄 | sniper/bolt | 1.9s | 300 | 200 | 150 | 70 | 없음 | 4/∞ | .75 | 2500 | 5배 줌, 대물 |
@@ -121,7 +122,7 @@ arsenal.getZoom() → { ..., level, levels }             // level 0 = 줌 아님
 
 ## 4. 이동 물리 (`js/engine/movement.js`, `js/engine/player.js`, `js/engine/input.js`)
 
-플레이어만 Quake 계열 가속을 쓴다. 봇은 기존 `physics.moveCharacter` 경로 그대로.
+플레이어만 관성형 공중 가속(버니합·공중 스트레이프가 되는 고전 아레나 FPS식)을 쓴다. 봇은 기존 `physics.moveCharacter` 경로 그대로.
 
 ```js
 // movement.js (순수)
@@ -135,7 +136,7 @@ export function moveQuake(world, body, wish, dt, opt) → ev   // moveCharacter�
 - **지면**: 마찰(`FRICTION`, 입력이 없을 때만 `STOP_SPEED`) → 가속(`GROUND_ACCEL × speed`). 기존 조작감(5.2 m/s까지 약 0.1초)을 유지한다. 지면에서 `speed`보다 빠르면 마찰로 자연히 줄어든다.
 - **스페이스 홀드 = 자동 점프**: `input.state.jump`가 눌려 있으면 착지 즉시 다시 뛴다. 눌림 직후 0.12초 버퍼도 유지. 스페이스를 누르고 있는 동안에는 이모트를 시작할 수 없다.
 - **버니합**: 뛰려고 한 틱, 또는 착지 후 `HOP_GRACE` 안의 점프는 마찰을 먹지 않아 속도가 유지된다. 뛰는 틱에 걷기 속도보다 느리면 지면 가속을 한 번 받는다.
-- **공중 스트레이프**: Quake `PM_AirAccelerate` 공식. `wishspeed = min(speed, AIR_WISH_CAP)`, `add = wishspeed − vel·wishdir`, `accel = AIR_ACCEL × wishspeed × dt`. 마우스를 스트레이프 방향으로 돌리면 가속된다.
+- **공중 스트레이프**: 진행 방향 성분이 목표보다 작을 때만 더하는 공중 가속 공식. `wishspeed = min(speed, AIR_WISH_CAP)`, `add = wishspeed − vel·wishdir`, `accel = AIR_ACCEL × wishspeed × dt`. 마우스를 스트레이프 방향으로 돌리면 가속된다.
 - **느릴 때 공중 조작**: 수평 속도가 `AIR_LOW_SPEED`보다 느리면 상한을 그 값까지 올려, 제자리 점프 뒤 W로 약 2.3 m를 갈 수 있게 한다.
 - **A/D 교체 보너스**: 공중에서 `strafeSign`이 바뀔 때마다 `SWAP_BONUS`를 현재 진행 방향으로 더한다(`SWAP_BONUS_MAX`까지, 최소 간격 `SWAP_GAP`). 마우스 없이 좌우로 흔들어도 가속감을 준다.
 - **상한**: 입력으로 늘릴 수 있는 수평 속도는 `MAX_SPEED`까지. 발판으로 이미 넘은 속도는 깎지 않는다(착지 지점이 어긋나므로).

@@ -1,4 +1,4 @@
-# 이모트 원본 음원은 올리지 않는다. 저장소에는 tools/pack-emote-audio.mjs로 묶은 audio/emotes/*.bin만 둔다
+# 이모트 음악은 코드 합성음만 쓴다. 외부 음원 파일은 출처·라이선스를 docs/ASSETS.md에 적기 전에는 올리지 않는다
 audio/emotes/*.mp3
 audio/emotes/*.wav
 audio/emotes/*.m4a

@@ -143,7 +143,7 @@ export function createHordeView(o) {
     leg: new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 0.86, 0.22), mat, MAX_Z * 2),
     torso: new THREE.InstancedMesh(new THREE.BoxGeometry(0.54, 0.64, 0.32), mat, MAX_Z),
     head: new THREE.InstancedMesh(new THREE.BoxGeometry(0.32, 0.34, 0.32), mat, MAX_Z),
-    arm: new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.14, 0.62), mat, MAX_Z * 10),  // 팔 둘 + 블리츠 주먹 둘 + 상자 소품(거미 어미 다리 8개가 가장 많다)
+    arm: new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.14, 0.62), mat, MAX_Z * 10),  // 팔 둘 + 사슬꾼 주먹 둘 + 상자 소품(거미 어미 다리 8개가 가장 많다)
     eye: new THREE.InstancedMesh(new THREE.BoxGeometry(0.07, 0.045, 0.03), eyeMat, MAX_Z * 5), // 눈 둘 + 빛나는 소품(역병 여왕 산성 주머니 3개가 가장 많다)
     pad: new THREE.InstancedMesh(new THREE.ConeGeometry(0.12, 0.34, 5), mat, MAX_Z * 7),        // 보스 어깨 뿔 둘 + 뿔 소품(크롤러 발톱·등뼈, 서리 망령 왕관)
     rod: new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 8), mat, MAX_Z * 4)   // 원통 소품(지름 1·높이 1, 폭발 군주 화약통·테·안전모가 가장 많다)
@@ -191,10 +191,10 @@ export function createHordeView(o) {
   const teleDiscs = decalPool(discGeo, 10, 0xff2a2a, 0.28);
   const teleRings = decalPool(ringGeo, 10, 0xff4a2a, 0.7);
   const teleRects = decalPool(planeGeo, 4, 0xff2a2a, 0.3);
-  // 블리츠 그랩: 예고 중 겨눈 쪽 바닥 선(노랑)과 날아가는 갈고리에서 손까지 이어지는 사슬
+  // 사슬꾼 그랩: 예고 중 겨눈 쪽 바닥 선(노랑)과 날아가는 갈고리에서 손까지 이어지는 사슬
   const hookRects = decalPool(planeGeo, 6, 0xffd34a, 0.3);
   const hookTele = [];               // 이번 프레임에 그릴 그랩 예고 { x, y, z, yaw, len }
-  const launchedHooks = new Set();    // 날아가는 동안 블리츠의 오른 주먹은 갈고리 자리에 없다
+  const launchedHooks = new Set();    // 날아가는 동안 사슬꾼의 오른 주먹은 갈고리 자리에 없다
   const chainMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.07, 0.07, 1), new THREE.MeshBasicMaterial({ color: 0x9c8a62 }), MAX_PROJ);
   chainMesh.frustumCulled = false; chainMesh.count = 0; chainMesh.name = 'horde:hook-chain';
   chainMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -212,6 +212,8 @@ export function createHordeView(o) {
   wisps.instanceColor.setUsage(THREE.DynamicDrawUsage);
   scene.add(wisps);
   const fxRings = decalPool(ringGeo, 12, 0xffffff, 0.6);
+  // 질풍검 충격파: 바닥을 타고 앞으로 가는 넓은 빛 띠(앞머리 하나 + 흐려지는 꼬리 둘)
+  const fxStrips = decalPool(planeGeo, 6, 0xbdeeff, 0.7);
   // 탄약(탄창·탄두), 구급 상자(빛나는 십자·반짝임), 보물 상자(뚜껑·띠·자물쇠)는 공통 부품 풀을 쓴다.
   const lootBoxMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
   const lootRoundMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
@@ -396,12 +398,10 @@ export function createHordeView(o) {
   function event(ev) {
     if (!active || !ev) return;
     if (ev.type === 'yasuo' && Array.isArray(ev.pos)) {
-      if (ev.kind === 'tornado') {
-        fxAnims.push({ kind: 'tornado', pos: ev.pos, dir: ev.dir || [0, 0, -1], r: 1.2, at: performance.now(), dur: ev.ms || 900, color: 0xbdeeff });
-        play('katana_swing', { pos: ev.pos });
-      } else {
-        fxAnims.push({ kind: 'ring', pos: ev.pos, r: ev.kind === 'ult' ? 2 : 1.2, at: performance.now(), dur: 500, color: 0x9edbff });
-        if (ev.kind === 'ult') play('katana_heavy', { pos: ev.pos });
+      if (ev.kind === 'shockwave') {
+        const dir = Array.isArray(ev.dir) ? ev.dir : [0, 0, -1];
+        fxAnims.push({ kind: 'shockwave', pos: ev.pos, dir, yaw: Math.atan2(-dir[0], -dir[2]), range: Number(ev.range) || 14, at: performance.now(), dur: ev.ms || 700, color: 0xbdeeff });
+        play('katana_heavy', { pos: ev.pos });
       }
       return;
     }
@@ -743,7 +743,7 @@ export function createHordeView(o) {
     put('head', HM.copy(partM(M, 0, 1.67, -0.08, -lean * 0.4 + Math.sin(e.walk * 0.7 + 1) * 0.08, Math.sin(e.walk * 0.33) * 0.2, 0.12 * Math.sin(e.walk * 0.21))), skinC);
     // 팔: 앞으로 뻗고(0 = 수평) 걸을 때 흔들, 공격 예고면 위로 들었다가 내리친다
     const armUp = wind ? 1.15 : -0.08 + Math.sin(e.walk + 0.5) * 0.12;
-    // 블리츠: 큰 쇠주먹 둘. 그랩 예고면 오른팔을 앞으로 뻗어 당기고 주먹이 노랗게 빛난다(바닥에 겨눈 선). 갈고리가 날아가는 동안 오른 주먹은 없다
+    // 사슬꾼: 큰 쇠주먹 둘. 그랩 예고면 오른팔을 앞으로 뻗어 당기고 주먹이 노랗게 빛난다(바닥에 겨눈 선). 갈고리가 날아가는 동안 오른 주먹은 없다
     const hook = !!(type && type.grab) && !!(f & ZF.hook) && !dead;
     const rArm = hook ? 0.05 : armUp - swing * 0.2, rOff = hook ? -0.12 : -0.29;
     put('arm', LA.copy(partM(M, -0.34, 1.43, -0.05, armUp + swing * 0.2, 0.08, 0, 0, -0.29)), skinC);
@@ -1097,7 +1097,7 @@ export function createHordeView(o) {
       }
     }
     teleDiscs.end(); teleRings.end(); teleRects.end();
-    // 블리츠 그랩 예고: 겨눈 쪽으로 사거리만큼 바닥 선(폭 = 갈고리가 맞히는 폭 1.1 m). 깜박이며 진해진다
+    // 사슬꾼 그랩 예고: 겨눈 쪽으로 사거리만큼 바닥 선(폭 = 갈고리가 맞히는 폭 1.1 m). 깜박이며 진해진다
     hookRects.begin();
     for (const h of hookTele) {
       const r = hookRects.take();
@@ -1129,7 +1129,7 @@ export function createHordeView(o) {
       projMesh.setMatrixAt(n, M);
       projMesh.setColorAt(n, C.setHex(PROJ_COLOR[p.kind] || 0x9dff4a));
       n++;
-      // 그랩 갈고리: 던진 블리츠의 오른손에서 갈고리까지 사슬
+      // 그랩 갈고리: 던진 사슬꾼의 오른손에서 갈고리까지 사슬
       const o = p.owner ? ents.get(p.owner) : null;
       if (o && o.prev && !o.deadAt) {
         const cy = Math.cos(o.prevYaw), sy = Math.sin(o.prevYaw);
@@ -1176,20 +1176,23 @@ export function createHordeView(o) {
   }
 
   function drawFx(now) {
-    fxRings.begin();
+    fxRings.begin(); fxStrips.begin();
     for (let i = fxAnims.length - 1; i >= 0; i--) {
       const a = fxAnims[i];
       const u = (now - a.at) / a.dur;
       if (u >= 1) { fxAnims.splice(i, 1); continue; }
-      if (a.kind === 'tornado') {
+      if (a.kind === 'shockwave') {
+        // 방장 판정과 같은 모양: 출발점 반폭 1 m에서 끝 2.2 m로 넓어지며 바닥을 따라 range만큼 나아간다
+        const travel = u * a.range, half = 1 + 1.2 * u;
         for (let j = 0; j < 3; j++) {
-          const r = fxRings.take();
+          const r = fxStrips.take();
           if (!r) break;
-          const travel = u * 12;
-          r.position.set(a.pos[0] + a.dir[0] * travel, a.pos[1] + 0.45 + j * 0.7, a.pos[2] + a.dir[2] * travel);
-          r.scale.setScalar((0.55 + j * 0.35) * (1 - 0.25 * u));
+          const d = Math.max(0, travel - j * 1.1);
+          r.position.set(a.pos[0] + a.dir[0] * d, a.pos[1] + 0.06, a.pos[2] + a.dir[2] * d);
+          r.rotation.set(0, a.yaw, 0);
+          r.scale.set(half * 2 * (1 - 0.18 * j), 1, 0.9);
           r.material.color.setHex(a.color);
-          r.material.opacity = 0.8 * (1 - u);
+          r.material.opacity = 0.75 * (1 - u) * (1 - 0.3 * j);
         }
       } else {
         const r = fxRings.take();
@@ -1200,7 +1203,7 @@ export function createHordeView(o) {
         r.material.opacity = 0.8 * (1 - u);
       }
     }
-    fxRings.end();
+    fxRings.end(); fxStrips.end();
   }
 
   /* ---------- 쓰러진 동료 표시 ---------- */
@@ -1597,7 +1600,7 @@ export function createHordeView(o) {
     for (const m of lootMeshes) { scene.remove(m); m.geometry.dispose(); m.material.dispose(); if (m.dispose) m.dispose(); }
     mat.dispose(); eyeMat.dispose();
     ringGeo.dispose(); discGeo.dispose(); planeGeo.dispose();
-    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hookRects, hazDiscs, hazRings, fxRings, lootRings, fireDiscs, fireRings, decoyRings, reviveRings, reviveDiscs]) pool.dispose();
+    for (const pool of [bossRings, teleDiscs, teleRings, teleRects, hookRects, hazDiscs, hazRings, fxRings, fxStrips, lootRings, fireDiscs, fireRings, decoyRings, reviveRings, reviveDiscs]) pool.dispose();
     for (const g of decoyMeshes) scene.remove(g);
     decoyBodyGeo.dispose(); decoyHeadGeo.dispose(); decoyMat.dispose();
     for (const m of [barBg, barFg]) scene.remove(m);

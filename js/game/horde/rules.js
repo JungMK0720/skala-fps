@@ -136,7 +136,7 @@ export const ZOMBIE_TYPES = Object.freeze({
     radius: 0.45, scale: 1.35, from: 6, weight: 2, color: 0x5b6b3a, cloth: 0x3b4252
   }),
   spitter: Object.freeze({
-    id: 'spitter', code: 4, name: '스피터', hp: 85, speed: 2.4, damage: 8, attackMs: 1200, windupMs: 400, range: 1.3,
+    id: 'spitter', code: 4, name: '산성 좀비', hp: 85, speed: 2.4, damage: 8, attackMs: 1200, windupMs: 400, range: 1.3,
     radius: 0.35, scale: 1, from: 11, weight: 2, color: 0x8fc23a, cloth: 0x2f5d50,
     ranged: Object.freeze({ every: 3200, speed: 15, dmg: 13, keep: 8, range: 24, windupMs: 500 })
   }),
@@ -154,9 +154,9 @@ export const ZOMBIE_TYPES = Object.freeze({
     radius: 0.3, scale: 0.72, from: 20, weight: 2, color: 0x9aabd2, cloth: 0x41476c, flying: true,
     ranged: Object.freeze({ every: 3300, speed: 17, dmg: 12, keep: 7, range: 20, windupMs: 450 })
   }),
-  // 블리츠: 30스테이지부터 가끔. 20초마다 그랩(맞으면 블리츠 앞으로 끌려간다), 평타에 맞으면 기절하며 공중에 뜬다
+  // 사슬꾼: 30스테이지부터 가끔. 20초마다 그랩(맞으면 사슬꾼 앞으로 끌려간다), 평타에 맞으면 기절하며 공중에 뜬다
   grabber: Object.freeze({
-    id: 'grabber', code: 8, name: '블리츠', hp: 700, speed: 2.4, damage: 14, attackMs: 1400, windupMs: 450, range: 1.6,
+    id: 'grabber', code: 8, name: '사슬꾼', hp: 700, speed: 2.4, damage: 14, attackMs: 1400, windupMs: 450, range: 1.6,
     radius: 0.45, scale: 1.3, from: 30, weight: 0.8, color: 0xd2a63a, cloth: 0x5a4a3a,
     // 그랩: 예고(0.7초) 동안 겨눈 쪽 바닥에 선이 뜨고, 갈고리는 18 m/s로 곧게 날아 사슬과 함께 보인다(20 m면 약 1.1초). 선 밖으로 비켜서면 피한다
     grab: Object.freeze({ every: 20000, range: 20, speed: 18, windupMs: 700, dmg: 8 }),
