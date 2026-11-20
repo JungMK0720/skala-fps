@@ -9,6 +9,7 @@ import { h, setText } from './dom.js';
 import { makeScreen } from './parts.js';
 import { createProviderRow, onlineState, paintNote } from './online.js';
 import { NICKNAME_MAX, NICKNAME_MIN, cleanNickname } from '../account/nickname.js';
+import { BRAND } from '../core/brand.js';
 
 export const NICKNAME_CHECK_DELAY_MS = 400;
 
@@ -168,7 +169,8 @@ export function createNicknameGate(ctx) {
     h('div', { class: 'sk-nick-card sk-steel' },
       h('div', { class: 'sk-hazard', 'aria-hidden': 'true' }),
       h('div', { class: 'sk-nick-body' },
-        h('p', { class: 'sk-nick-kicker', text: 'SKALA 작전' }),
+        h('p', { class: 'sk-nick-kicker', text: `${BRAND.nameEn} // ENLISTMENT` }),
+        h('p', { class: 'sk-nick-brand', text: BRAND.name }),
         titleEl, leadEl, explain, form, loginBox)));
 
   function renderLogin() {
@@ -206,7 +208,7 @@ export function createNicknameGate(ctx) {
     setText(titleEl, text ? '닉네임을 다시 정해 주세요' : '닉네임을 정해 주세요');
     setText(leadEl, text
       ? '멀티플레이에서 다른 플레이어에게 보이는 이름이에요.'
-      : '게임에서 쓸 이름이에요. 정한 뒤에도 마이페이지에서 언제든 바꿀 수 있어요.');
+      : '게임에서 쓸 이름이에요. 정한 뒤에도 요원 기록부에서 언제든 바꿀 수 있어요.');
     renderLogin();
     if (first) field.reset(ctx.account.nicknameConflict || '');
   }

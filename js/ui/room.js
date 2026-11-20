@@ -1,15 +1,15 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 대기실 화면. 팀 또는 개인전 명단, 준비와 시작, 모드·규칙·개인전 목표 킬·맵 변경, 채팅, 내 장비 칸(주무기·보조무기·근접·수류탄)을 다룬다.
+ * Purpose: 대기실 = 출격 대기(DEPLOYMENT). 팀 또는 개인전 명단, 준비와 시작, 모드·규칙·개인전 목표 킬·맵 변경, 채팅, 내 장비 칸(주무기·보조무기·근접·수류탄)을 다룬다.
  *          폭파 미션은 팀 칼럼에 전반 진영(먼저 공격/수비)을 붙이고, 규칙은 클래식, 맵은 미션 맵만 고른다.
  *          자리 비움으로 방이 곧 닫히면(idleLeft) 위에 남은 초와 [계속 기다리기] 띠를 띄운다. 화면을 누르거나 키를 치면 'room:active'(1초에 한 번까지).
  *          장비 칸을 누르면 그 칸의 무기 창이 뜨고, 가진 무기는 바로 장착, 안 가진 무기는 포인트로 사서 바로 장착한다(account.buy·equip).
  */
-// SKALA 작전 UI — 방(대기실): 팀 칼럼(팀전·폭파 미션) / 한 줄 명단(개인전), 준비/시작, 모드·규칙·목표 킬·맵 변경, 채팅
-import { h, btn, setText, num, fmtPoints, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, modeLabel, MODE_ICON, MODE_NAME, SIDE_NAME, bombSide } from './dom.js';
+// 대기실: 팀 칼럼(팀전·폭파 미션) / 한 줄 명단(개인전), 준비/출격, 모드·규칙·목표 킬·맵 변경, 채팅
+import { h, btn, setText, num, fmtPoints, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, modeLabel, MODE_NAME, SIDE_NAME, bombSide } from './dom.js';
 import { makeScreen, mapCard, createChoiceRow, createStepper, createModal, sheet, normWeapon, summaryChips, pointsBadge } from './parts.js';
-import { mapList, mapInfo } from './icons.js';
+import { mapList, mapInfo, uiIcon, weaponGlyph, MODE_GLYPH, RULE_GLYPH } from './icons.js';
 import { RULE_CHOICES, MODE_IDS, ZOMBIE_MAX, mapsForMode, missionMaps, ruleForMode } from './lobby.js';
 import { RULESETS, normalizeRuleset, FFA_KILLS, FFA_KILL_PRESETS, normalizeKillTarget } from '../game/modes.js';
 
@@ -44,10 +44,20 @@ export function createRoom(ctx) {
 
   // ---------- 헤더 ----------
   const title = h('h1', { class: 'sk-h1 sk-stencil sk-room-title' });
-  const modeChip = h('span', { class: 'sk-chip sk-chip--mode' });
-  const ruleChip = h('span', { class: 'sk-chip sk-chip--mode' });
-  const mapChip = h('span', { class: 'sk-chip' });
-  const countChip = h('span', { class: 'sk-chip' });
+  /** 아이콘 + 글자 칩. 글자는 text에, 아이콘은 ico에 바꿔 넣는다 */
+  const iconChip = (cls, glyph) => {
+    const ico = h('span', { class: 'sk-chip-ico', 'aria-hidden': 'true' }, uiIcon(glyph));
+    const text = h('span');
+    return { el: h('span', { class: cls }, ico, text), ico, text, glyph };
+  };
+  const modeChip = iconChip('sk-chip sk-chip--mode', 'team');
+  const ruleChip = iconChip('sk-chip sk-chip--mode', 'rifle');
+  const mapChip = iconChip('sk-chip', 'map');
+  const countChip = iconChip('sk-chip', 'squad');
+  const setChip = (c, glyph, text) => {
+    if (c.glyph !== glyph) { c.glyph = glyph; c.ico.replaceChildren(uiIcon(glyph)); }
+    setText(c.text, text);
+  };
   const idChip = h('span', { class: 'sk-chip sk-chip--dim' });
 
   // ---------- 팀 칼럼(폭파 미션은 머리에 전반 진영 '먼저 공격'/'먼저 수비') ----------
@@ -60,7 +70,7 @@ export function createRoom(ctx) {
     const el = h('section', { class: `sk-team sk-team--${team} sk-steel` },
       h('header', { class: 'sk-team-head' },
         h('h2', { class: 'sk-team-name' },
-          h('span', { class: 'sk-team-emoji', text: T.emoji, 'aria-hidden': 'true' }),
+          h('span', { class: 'sk-team-emoji', 'aria-hidden': 'true' }),
           h('span', { text: T.name }), h('small', { text: T.en }), side),
         count, move),
       list);
@@ -68,13 +78,14 @@ export function createRoom(ctx) {
   }
   const cols = { owner: teamCol('owner'), charterer: teamCol('charterer') };
   const waiting = h('p', { class: 'sk-unassigned' });
-  const bombNote = h('p', { class: 'sk-room-note', hidden: true, text: '💣 2라운드 뒤 공수 교대' });
+  const bombNote = h('p', { class: 'sk-room-note', hidden: true }, uiIcon('bomb', 'sk-uico--inline'), ' 2라운드 뒤 공수 교대');
   const teamsWrap = h('div', { class: 'sk-room-teams' }, waiting, cols.owner.el, h('div', { class: 'sk-vs', text: 'VS', 'aria-hidden': 'true' }), cols.charterer.el, bombNote);
 
   // ---------- 개인전 명단(팀 버튼 없음) ----------
   const ffaCount = h('span', { class: 'sk-team-count' });
   const ffaList = h('ul', { class: 'sk-team-list', 'aria-label': '개인전 명단' });
-  const ffaEmoji = h('span', { class: 'sk-team-emoji', text: MODE_ICON.ffa, 'aria-hidden': 'true' });
+  const ffaEmoji = h('span', { class: 'sk-team-emoji sk-team-emoji--ico', 'aria-hidden': 'true' }, uiIcon(MODE_GLYPH.ffa));
+  let ffaGlyph = MODE_GLYPH.ffa;
   const ffaName = h('span', { text: '개인전' });
   const ffaSub = h('small', { text: '· 모두가 적' });
   const ffaCol = h('section', { class: 'sk-team sk-team--ffa sk-steel', hidden: true },
@@ -85,7 +96,7 @@ export function createRoom(ctx) {
 
   // ---------- 모드(방장만 바꿀 수 있음 → 머리글 오른쪽 전환 버튼, 다른 사람은 모드 칩만) ----------
   const modeBtns = MODE_IDS.map((m) => btn([
-    h('span', { class: 'sk-mode-ico', text: MODE_ICON[m], 'aria-hidden': 'true' }),
+    h('span', { class: 'sk-mode-ico', 'aria-hidden': 'true' }, uiIcon(MODE_GLYPH[m])),
     h('span', { class: 'sk-mode-txt' }, h('b', { text: MODE_NAME[m] })),
   ], () => pickMode(m), 'sk-mode-btn', { role: 'radio', 'data-mode': m }));
   const modePick = h('div', { class: 'sk-modepick sk-modepick--bar', role: 'radiogroup', 'aria-label': '모드 변경(방장)', title: '방장만 모드를 바꿀 수 있어요' }, modeBtns);
@@ -102,11 +113,11 @@ export function createRoom(ctx) {
 
   function playerRow(x) {
     return h('li', { class: 'sk-pl' + (x.me ? ' is-me' : '') + (x.ready || x.host ? ' is-ready' : '') },
-      h('span', { class: 'sk-pl-crown', text: x.host ? '👑' : '', title: x.host ? '방장' : null }),
-      h('span', { class: 'sk-pl-name', text: (x.bot ? '🤖 ' : '') + x.name }),
+      h('span', { class: 'sk-pl-crown', title: x.host ? '방장' : null }, x.host ? uiIcon('crown') : null),
+      h('span', { class: 'sk-pl-name' }, x.bot ? uiIcon('bot', 'sk-uico--inline sk-pl-bot') : null, x.bot ? h('span', { class: 'sk-vh', text: '봇 ' }) : null, x.name),
       x.me ? h('span', { class: 'sk-tag', text: '나' }) : null,
       h('span', { class: 'sk-ping ' + pingClass(x.ping), text: pingText(x.ping), title: '핑' }),
-      h('span', { class: 'sk-pl-ready', text: x.host ? '방장' : x.ready ? '✔ 준비' : '대기 중' }));
+      h('span', { class: 'sk-pl-ready' }, x.ready && !x.host ? uiIcon('check', 'sk-uico--inline') : null, x.host ? '방장' : x.ready ? '준비' : '대기 중'));
   }
   const emptyRow = (n) => h('li', { class: 'sk-pl sk-pl--empty' }, h('span', { class: 'sk-pl-crown' }), h('span', { class: 'sk-pl-name', text: n > 1 ? `빈 자리 ×${n}` : '빈 자리' }));
 
@@ -127,7 +138,7 @@ export function createRoom(ctx) {
   });
   const killDesc = h('p', { class: 'sk-set-hint' });
   const killBox = h('div', { class: 'sk-room-kills', hidden: true },
-    h('h3', { class: 'sk-room-kills-title', text: '🎯 목표 킬' }), killPick.el, killDesc);
+    h('h3', { class: 'sk-room-kills-title' }, uiIcon('target', 'sk-uico--inline'), ' 목표 킬'), killPick.el, killDesc);
   function pickKills(n) {
     const me = normPlayers(p).find((x) => x.me);
     const next = normalizeKillTarget(n);
@@ -181,7 +192,7 @@ export function createRoom(ctx) {
   // ---------- 하단 ----------
   const status = h('p', { class: 'sk-room-status', role: 'status' });
   const readyBtn = btn('준비하기', toggleReady, 'sk-btn--big sk-ready-btn');
-  const startBtn = btn('▶ 게임 시작', () => {
+  const startBtn = btn('출격 · 게임 시작', () => {
     if (!startBtn.disabled) ctx.emit('room:start', { roomId: p.roomId, mapId: p.mapId, mode: modeKey(p.mode) });
   }, 'sk-btn--primary sk-btn--big');
 
@@ -207,7 +218,7 @@ export function createRoom(ctx) {
     return { ...g, el, ico, name };
   });
   const gearBox = h('section', { class: 'sk-panel sk-steel sk-rgear', 'aria-label': '내 장비' },
-    h('header', { class: 'sk-rgear-head' }, h('h2', { class: 'sk-panel-title', text: '🎒 내 장비' }), gearPoints.el),
+    h('header', { class: 'sk-rgear-head' }, h('h2', { class: 'sk-panel-title' }, uiIcon('armory'), '내 장비'), gearPoints.el),
     h('div', { class: 'sk-rgear-slots' }, gearSlots.map((s) => s.el)),
     gearNote);
   const gearSheetNote = h('p', { class: 'sk-set-hint sk-rgear-sheetnote', role: 'status' });
@@ -227,7 +238,7 @@ export function createRoom(ctx) {
     const state = h('span', { class: 'sk-shop-state' });
     const action = h('button', { type: 'button', class: 'sk-btn sk-btn--sm sk-rgear-act', onclick: () => pickGear(g, w) });
     const el = h('article', { class: 'sk-rgear-item', 'aria-label': w.name },
-      h('span', { class: 'sk-lo-ico', text: w.icon, 'aria-hidden': 'true' }),
+      h('span', { class: 'sk-lo-ico', 'aria-hidden': 'true' }, uiIcon(weaponGlyph(w.id, w.slot))),
       h('div', { class: 'sk-rgear-itext' },
         h('b', { class: 'sk-rgear-iname', text: w.name }, w.premium ? h('span', { class: 'sk-premium', text: '프리미엄' }) : null),
         w.tagline ? h('span', { class: 'sk-lo-tagline', text: w.tagline }) : null,
@@ -242,7 +253,7 @@ export function createRoom(ctx) {
     setText(gearSheetNote, g.key === 'grenade' ? '수류탄은 모두에게 기본으로 지급돼요.' : '가진 무기는 바로 장착하고, 없는 무기는 포인트로 사서 바로 장착해요.');
     gearRows = slotWeapons(g.slot).map((d) => gearRow(g, d));
     modal.open(sheet({
-      title: `${g.label} 고르기`, onClose: () => modal.close(), cls: 'sk-rgear-sheet',
+      title: `${g.label} 고르기`, kicker: 'LOADOUT', onClose: () => modal.close(), cls: 'sk-rgear-sheet',
       body: [gearSheetNote, h('div', { class: 'sk-rgear-list' }, gearRows.map((r) => r.el))],
     }), () => { gearOpen = null; gearRows = []; });
     paintGearRows();
@@ -307,7 +318,8 @@ export function createRoom(ctx) {
     for (const s of gearSlots) {
       const id = equippedId(s);
       const w = id ? normWeapon(ctx.weapons, id) : null;
-      setText(s.ico, w ? w.icon : '—');
+      const glyph = w ? weaponGlyph(w.id, w.slot) : '';
+      if (s.ico.dataset.glyph !== glyph) { s.ico.dataset.glyph = glyph; s.ico.replaceChildren(glyph ? uiIcon(glyph) : '—'); }
       setText(s.name, w ? w.name : '없음');
       s.el.title = `${s.label} 바꾸기`;
       s.el.disabled = !!p.starting;
@@ -321,23 +333,24 @@ export function createRoom(ctx) {
     idleText,
     btn('계속 기다리기', () => ctx.emit('room:stay', {}), 'sk-btn--sm sk-btn--primary sk-room-idle-stay'));
 
-  const el = h('section', { class: 'sk-screen sk-page sk-room', hidden: true, 'aria-label': '대기실' },
+  const el = h('section', { class: 'sk-screen sk-page sk-room', hidden: true, 'aria-label': '출격 대기' },
     h('div', { class: 'sk-page-inner' },
       h('header', { class: 'sk-bar' },
-        btn('← 나가기', () => ctx.emit('room:leave', { roomId: p.roomId }), 'sk-btn--ghost'),
-        h('div', { class: 'sk-bar-title' }, title, h('p', { class: 'sk-bar-sub sk-chips' }, ruleChip, modeChip, mapChip, countChip, idChip)),
+        btn([uiIcon('back'), h('span', { text: '나가기' })], () => ctx.emit('room:leave', { roomId: p.roomId }), 'sk-btn--ghost'),
+        h('div', { class: 'sk-bar-title' },
+          h('p', { class: 'sk-kicker', text: 'DEPLOYMENT // STANDBY', 'aria-hidden': 'true' }),
+          title, h('p', { class: 'sk-bar-sub sk-chips' }, ruleChip.el, modeChip.el, mapChip.el, countChip.el, idChip)),
         modePick),
-      h('div', { class: 'sk-hazard sk-hazard--thin', 'aria-hidden': 'true' }),
       idleBar,
       h('div', { class: 'sk-room-grid' },
         h('div', { class: 'sk-room-left' },
           teamsWrap,
           ffaCol,
-          h('section', { class: 'sk-panel sk-steel sk-chat' }, h('h2', { class: 'sk-panel-title', text: '💬 채팅' }), chatLog, chatForm)),
+          h('section', { class: 'sk-panel sk-steel sk-chat' }, h('h2', { class: 'sk-panel-title' }, uiIcon('chat'), '채팅'), chatLog, chatForm)),
         h('aside', { class: 'sk-room-side' },
           gearBox,
-          h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title', text: '🎮 규칙' }), rulePick.el, ruleDesc, killBox),
-          h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title', text: '🗺️ 맵' }), mapCur, mapPick, mapNote))),
+          h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title' }, uiIcon('rules'), '규칙'), rulePick.el, ruleDesc, killBox),
+          h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title' }, uiIcon('map'), '지도'), mapCur, mapPick, mapNote))),
       h('footer', { class: 'sk-room-foot sk-steel' }, status, h('div', { class: 'sk-room-foot-actions' }, readyBtn, startBtn))),
     modal.el);
 
@@ -356,7 +369,7 @@ export function createRoom(ctx) {
     p = props;
     const idleLeft = Math.max(0, Math.ceil(num(p.idleLeft, 0)));
     idleBar.hidden = !(idleLeft > 0);
-    if (idleLeft > 0) setText(idleText, `⏳ ${p.idleSpan || '1분'} 동안 아무 활동이 없어 ${idleLeft}초 뒤 방이 닫혀요`);
+    if (idleLeft > 0) setText(idleText, `${p.idleSpan || '1분'} 동안 아무 활동이 없어 ${idleLeft}초 뒤 방이 닫혀요`);
     const players = normPlayers(p);
     const me = players.find((x) => x.me);
     const isHost = !!(me && me.host);
@@ -371,17 +384,18 @@ export function createRoom(ctx) {
     const kills = normalizeKillTarget(p.killTarget);
 
     setText(title, p.name || '대기실');
-    setText(ruleChip, `${RULESETS[rs].icon} ${RULESETS[rs].name}`);
-    setText(modeChip, `${MODE_ICON[mode]} ${modeLabel(mode, { killTarget: kills })}`);
-    modeChip.classList.toggle('is-ffa', mode === 'ffa');
-    modeChip.classList.toggle('is-zombie', zombie);
-    setText(ffaEmoji, zombie ? MODE_ICON.zombie : MODE_ICON.ffa);
+    setChip(ruleChip, RULE_GLYPH[rs] || 'rifle', RULESETS[rs].name);
+    setChip(modeChip, MODE_GLYPH[mode], modeLabel(mode, { killTarget: kills }));
+    modeChip.el.classList.toggle('is-ffa', mode === 'ffa');
+    modeChip.el.classList.toggle('is-zombie', zombie);
+    const fg = zombie ? MODE_GLYPH.zombie : MODE_GLYPH.ffa;
+    if (fg !== ffaGlyph) { ffaGlyph = fg; ffaEmoji.replaceChildren(uiIcon(fg)); }
     setText(ffaName, zombie ? '함께 막는 사람' : '개인전');
     setText(ffaSub, zombie ? '· 모두 같은 편' : '· 모두가 적');
-    modeChip.classList.toggle('is-bomb', bomb);
+    modeChip.el.classList.toggle('is-bomb', bomb);
     const m = mapInfo(ctx.maps, p.maps, p.mapId);
-    setText(mapChip, `🗺️ ${m ? m.name : '맵 미정'}`);
-    setText(countChip, `👥 ${players.length}/${max}`);
+    setChip(mapChip, 'map', m ? m.name : '맵 미정');
+    setChip(countChip, 'squad', `${players.length}/${max}`);
     setText(idChip, p.roomId ? `#${p.roomId}` : '');
     idChip.hidden = !p.roomId;
 
@@ -404,7 +418,7 @@ export function createRoom(ctx) {
         const empties = Array.from({ length: Math.max(0, cap - byTeam[t].length) }, emptyRow);
         c.list.replaceChildren(...byTeam[t].map(playerRow), ...empties);
       }
-      setText(waiting, unassigned.length ? `⏳ 팀 배정 대기: ${unassigned.map((x) => x.name).join(', ')}` : '');
+      setText(waiting, unassigned.length ? `팀 배정 대기: ${unassigned.map((x) => x.name).join(', ')}` : '');
       waiting.hidden = !unassigned.length;
     }
     // 폭파 미션: 전반 진영(firstAttack, 기본은 블루가 먼저 공격)과 공수 교대 안내
@@ -430,7 +444,7 @@ export function createRoom(ctx) {
       if (id === 'zombie') b.title = players.length > ZOMBIE_MAX ? `좀비 물량 막기는 ${ZOMBIE_MAX}명까지예요` : '';
     }
     modePick.hidden = !isHost;
-    modeChip.title = isHost ? '' : '모드는 방장만 바꿀 수 있어요';
+    modeChip.el.title = isHost ? '' : '모드는 방장만 바꿀 수 있어요';
 
     // 규칙: 방장만 바꾼다. 다른 사람은 설명과 칩으로 확인. 폭파 미션은 클래식뿐이라 고르는 버튼이 없다
     rulePick.el.hidden = !isHost || fixedRule;
@@ -476,9 +490,9 @@ export function createRoom(ctx) {
     startBtn.hidden = !isHost;
     readyBtn.hidden = isHost || !me;
     startBtn.disabled = !isHost || !!reason || !!p.starting;
-    setText(startBtn, p.starting ? '시작하는 중…' : '▶ 게임 시작');
+    setText(startBtn, p.starting ? '출격 준비 중…' : '출격 · 게임 시작');
     if (me && !isHost) {
-      setText(readyBtn, me.ready ? '✔ 준비 완료 (취소)' : '준비하기');
+      setText(readyBtn, me.ready ? '준비 완료 (취소)' : '준비하기');
       readyBtn.classList.toggle('is-on', me.ready);
       readyBtn.setAttribute('aria-pressed', me.ready ? 'true' : 'false');
     }

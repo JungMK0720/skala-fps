@@ -552,7 +552,7 @@ export default {
       t.setSection(`${phone.id}: 새 손님의 상점과 마이페이지`);
       page = await openPhone(t, phone, { profile: { nickname: '새손님', points: 800, createdAt: 1 }, screen: 'menu' });
       await page.waitFor('__qa.ui.isVisible("menu")', 5000, { label: '메뉴' });
-      await tap(page, '.sk-menu-btn--sub', '상점');
+      await tap(page, '.sk-menu-btn--sub', '무기고');
       await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '터치로 상점' });
       await see('shop-new-rifle', '.sk-shop');
       await tap(page, '.sk-shop .sk-tab', '보조무기');

@@ -7,7 +7,7 @@
  */
 import { h, setText, clamp, fmtTime, num, TEAMS, TEAM_KEYS, teamKey, FFA_TARGET, SIDE_NAME, bombSide } from './dom.js';
 import { makeScreen } from './parts.js';
-import { headshotIcon, weaponInfo } from './icons.js';
+import { headshotIcon, weaponInfo, uiIcon, weaponGlyph } from './icons.js';
 import { multiKillArt, multiKillPalette, MULTI_KILL_ART } from './multikill.js';
 import { createStatusRow } from './status.js';
 import { PLAYER, MOVE } from '../core/consts.js';
@@ -240,7 +240,7 @@ export function createHud(ctx) {
   const ffaTotal = h('small', { class: 'sk-ffa-total' });
   const ffaLeader = h('span', { class: 'sk-ts-alive-n sk-ffa-leader' });
   const ffaMe = h('div', { class: 'sk-ts sk-ts--ffa sk-ffa-me' },
-    h('div', { class: 'sk-ts-row' }, h('span', { class: 'sk-ts-name', text: '🎯 내 킬' }), h('span', { class: 'sk-ffa-kv' }, ffaKills, h('small', { text: '킬' }))),
+    h('div', { class: 'sk-ts-row' }, h('span', { class: 'sk-ts-name' }, uiIcon('target', 'sk-uico--inline'), ' 내 킬'), h('span', { class: 'sk-ffa-kv' }, ffaKills, h('small', { text: '킬' }))),
     h('div', { class: 'sk-ts-alive' }, ffaGoal));
   const ffaStand = h('div', { class: 'sk-ts sk-ts--ffa sk-ffa-stand' },
     h('div', { class: 'sk-ts-row' }, h('span', { class: 'sk-ffa-kv' }, ffaRank, h('small', { text: '위' }), ffaTotal), h('span', { class: 'sk-ts-name', text: '순위' })),
@@ -531,7 +531,9 @@ export function createHud(ctx) {
       if (s) st.slotSeen[i] = true;
       se.el.hidden = !st.slotSeen[i];
       se.el.classList.toggle('is-empty', !s);
-      setText(se.ico, s ? s.icon : '');
+      // 칸 아이콘은 무기 종류 선 아이콘(무기고와 같은 그림). 칸 번호(i + 1)가 곧 무기 칸이다
+      const glyph = s ? weaponGlyph(s.id, i + 1) : '';
+      if (se.ico.dataset.glyph !== glyph) { se.ico.dataset.glyph = glyph; se.ico.replaceChildren(...(glyph ? [uiIcon(glyph)] : [])); }
       setText(se.nm, s ? s.name : '비어 있음');
       se.el.title = s ? s.full : '';
     });
@@ -547,7 +549,7 @@ export function createHud(ctx) {
   }
   function applyWeaponName() {
     const s = st.slotList && st.slot ? st.slotList[st.slot - 1] : null;
-    st.weaponLabel = st.weaponName != null ? st.weaponName : s ? `${s.icon} ${s.full}` : '';
+    st.weaponLabel = st.weaponName != null ? st.weaponName : s ? s.full : '';
     setText(wpnName, st.weaponLabel);
     syncAmmoPanel();
   }

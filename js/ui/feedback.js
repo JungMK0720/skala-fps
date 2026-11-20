@@ -99,6 +99,7 @@ export function createFeedbackPanel(ctx, { onClose, where = 'menu', onSeen } = {
 
   const el = sheet({
     title: '건의하기',
+    kicker: 'COMMS // FEEDBACK',
     onClose: () => onClose && onClose(),
     cls: 'sk-feedback',
     body: [

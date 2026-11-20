@@ -43,13 +43,15 @@ export function makeScreen(el, { render, onShow, onHide, onDispose } = {}) {
   return api;
 }
 
-/** 모달 내용물 시트 */
-export function sheet({ title, body, foot, onClose, cls = '' }) {
+/** 모달 내용물 시트. kicker는 제목 위의 작은 영문 라벨(예: 'SETTINGS') */
+export function sheet({ title, kicker = '', body, foot, onClose, cls = '' }) {
   return h('div', { class: 'sk-sheet sk-steel' + (cls ? ' ' + cls : ''), role: 'dialog', 'aria-modal': 'true', 'aria-label': title, tabindex: '-1' },
     h('div', { class: 'sk-hazard', 'aria-hidden': 'true' }),
     h('header', { class: 'sk-sheet-head' },
-      h('h2', { class: 'sk-sheet-title sk-stencil', text: title }),
-      btn('✕', onClose, 'sk-btn--icon', { 'aria-label': '닫기' })),
+      h('div', { class: 'sk-sheet-heading' },
+        kicker ? h('p', { class: 'sk-kicker', text: kicker, 'aria-hidden': 'true' }) : null,
+        h('h2', { class: 'sk-sheet-title sk-stencil', text: title })),
+      btn(uiIcon('close'), onClose, 'sk-btn--icon', { 'aria-label': '닫기' })),
     h('div', { class: 'sk-sheet-body' }, body),
     foot ? h('footer', { class: 'sk-sheet-foot' }, foot) : null);
 }
@@ -121,12 +123,13 @@ export function avatarArtEl(a, cls = '') {
   let cur = a;
   let key = '';
   const img = h('img', { class: 'sk-av-img', alt: '', draggable: 'false', hidden: true });
-  const ico = h('span', { class: 'sk-av-ico', text: (a && a.icon) || '' });
+  // 그림이 없을 때(그릴 렌더러가 없는 데모 등)는 이모지 대신 헬멧 선 아이콘
+  const ico = h('span', { class: 'sk-av-ico' }, uiIcon('helmet'));
   const el = h('div', { class: 'sk-av-art' + (cls ? ' ' + cls : ''), 'aria-hidden': 'true' }, img, ico);
   return {
     el,
     paint(artFn, team, next) {
-      if (next && next !== cur) { cur = next; key = ''; setText(ico, cur.icon || ''); }
+      if (next && next !== cur) { cur = next; key = ''; }
       const k = cur.id + ':' + team;
       if (k === key) return;
       let url = null;
@@ -231,7 +234,7 @@ export function summaryChips(rows) {
 // ---------- 하나만 고르는 버튼 묶음 ----------
 /**
  * 장비 칸처럼 몇 개 중 하나를 고르는 작은 버튼 묶음. set(items, selectedId)는 같은 id의 버튼을 그대로 두어 키보드 포커스를 잃지 않는다.
- * items: [{ id, label, icon?, title? }]. 화살표 키로 옆 버튼으로 옮겨 간다.
+ * items: [{ id, label, icon?, glyph?, title? }]. glyph(icons.js uiIcon 이름)가 있으면 icon 글자 대신 선 아이콘을 그린다. 화살표 키로 옆 버튼으로 옮겨 간다.
  */
 export function createChoiceRow({ label, onPick, cls = '' }) {
   const buttons = new Map();
@@ -248,7 +251,7 @@ export function createChoiceRow({ label, onPick, cls = '' }) {
     const icon = h('span', { class: 'sk-choice-ico', 'aria-hidden': 'true' });
     const text = h('span', { class: 'sk-choice-txt' });
     const el = h('button', { type: 'button', class: 'sk-choice', role: 'radio', onclick: () => onPick(id) }, icon, text);
-    return { el, icon, text };
+    return { el, icon, text, glyph: '' };
   }
 
   function set(items, selected) {
@@ -258,7 +261,12 @@ export function createChoiceRow({ label, onPick, cls = '' }) {
     const order = items.map((it) => {
       if (!buttons.has(it.id)) buttons.set(it.id, make(it.id));
       const b = buttons.get(it.id);
-      setText(b.icon, it.icon || '');
+      if (it.glyph) {
+        if (b.glyph !== it.glyph) { b.glyph = it.glyph; b.icon.replaceChildren(uiIcon(it.glyph)); }
+      } else {
+        if (b.glyph) { b.glyph = ''; b.icon.replaceChildren(); }
+        setText(b.icon, it.icon || '');
+      }
       setText(b.text, it.label);
       b.el.title = it.title || it.label;
       b.el.classList.toggle('is-on', it.id === selected);

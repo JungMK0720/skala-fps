@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 상점. 무기는 큰 탭(주무기·보조무기·근접무기·투척무기) 아래 def.category로 나눈 작은 탭으로 보여 주고, 무기 카드(이름·가격·막대·스탯·구매/장착), 이모트 탭(휠 8칸 장착·구매·미리 듣기)을 보여 준다.
+ * Purpose: 상점 = 무기고(ARMORY). 큰 탭에 선 아이콘을 붙인다. 무기는 큰 탭(주무기·보조무기·근접무기·투척무기) 아래 def.category로 나눈 작은 탭으로 보여 주고, 무기 카드(이름·가격·막대·스탯·구매/장착), 이모트 탭(휠 8칸 장착·구매·미리 듣기)을 보여 준다.
  *          포인트는 계정이 바뀔 때마다 바로 갱신한다. 이벤트: shop:back, shop:preview { id }, ui:sound { name:'purchase' }.
  *          카드는 다시 만들지 않고 고쳐서 키보드 포커스를 잃지 않는다.
  *          캐릭터 탭: 초상(ui.setAvatarArt로 받은 그림, 없으면 아이콘)·구매·장착. 초상은 탭을 처음 열 때 그린다.
@@ -10,6 +10,7 @@
  */
 import { h, btn, fmtPoints, setText } from './dom.js';
 import { avatarArtEl, barMeters, makeScreen, normWeapon, pointsBadge } from './parts.js';
+import { uiIcon, weaponGlyph } from './icons.js';
 import { onlineState, orderStatusText, paintNote } from './online.js';
 import { PREMIUM_PRICE } from '../weapons/defs.js';
 import { EMOTES, EMOTE_WHEEL, TEAMS, TEAM_IDS } from '../core/consts.js';
@@ -36,6 +37,8 @@ export const NOT_READY_NOTE = '이 물건은 서버 업데이트 뒤에 살 수 
 const sellable = (a, id) => typeof a.canSell !== 'function' || a.canSell(id);
 /** 상점에서 다루는 슬롯과 계정 장비 칸. 기본 수류탄 카드에는 구매/장착 동작이 없다. */
 const SLOT_KEYS = { 1: 'primary', 2: 'secondary', 3: 'melee', 4: 'grenade' };
+/** 큰 탭 → 선 아이콘 이름 */
+const TAB_GLYPH = Object.freeze({ primary: 'rifle', secondary: 'pistol', melee: 'knife', throw: 'grenade', emote: 'emote', avatar: 'helmet', coins: 'coin' });
 const groupOf = (d) => (d.slot === 4 ? 'throw' : SLOT_KEYS[d.slot]);
 
 export function createShop(ctx) {
@@ -51,22 +54,22 @@ export function createShop(ctx) {
   let slot = 0;               // 이모트 탭에서 고른 휠 칸(0 = 12시)
 
   const points = pointsBadge('sk-points--big');
-  const tabsEl = h('div', { class: 'sk-tabs', role: 'tablist', 'aria-label': '상점 종류' });
+  const tabsEl = h('div', { class: 'sk-tabs', role: 'tablist', 'aria-label': '무기고 종류' });
   const subTabsEl = h('div', { class: 'sk-tabs sk-subtabs', role: 'tablist', 'aria-label': '무기 종류', hidden: true });
   const subBreak = h('span', { class: 'sk-shop-break', 'aria-hidden': 'true', hidden: true });
   const grid = h('div', { class: 'sk-shop-grid', role: 'tabpanel', 'aria-label': '상품 목록' });
   const note = h('p', { class: 'sk-shop-note', role: 'status' });
-  const backBtn = btn('← 메뉴', () => ctx.emit('shop:back', {}), 'sk-btn--ghost');
+  const backBtn = btn([uiIcon('back'), h('span', { text: '뒤로' })], () => ctx.emit('shop:back', {}), 'sk-btn--ghost');
 
-  const el = h('section', { class: 'sk-screen sk-page sk-shop', hidden: true, tabindex: '-1', 'aria-label': '상점' },
+  const el = h('section', { class: 'sk-screen sk-page sk-shop', hidden: true, tabindex: '-1', 'aria-label': '무기고' },
     h('div', { class: 'sk-page-inner' },
       h('header', { class: 'sk-bar' },
         backBtn,
         h('div', { class: 'sk-bar-title' },
-          h('h1', { class: 'sk-h1 sk-stencil', text: '상점' }),
+          h('p', { class: 'sk-kicker', text: 'ARMORY // SUPPLY', 'aria-hidden': 'true' }),
+          h('h1', { class: 'sk-h1 sk-stencil', text: '무기고' }),
           h('p', { class: 'sk-bar-sub', text: `경기와 비밀 스팟으로 모은 포인트로 무기·이모트·캐릭터를 사서 장착해요. ${fmtPoints(PREMIUM_PRICE)} 이상인 프리미엄 총은 예비 탄약이 무제한이에요.` })),
         points.el),
-      h('div', { class: 'sk-hazard sk-hazard--thin', 'aria-hidden': 'true' }),
       // 작은 탭 줄은 큰 탭 아래 새 줄(sk-shop-break)에 둔다. 같은 sk-shop-bar 안이라 휴대폰에서도 함께 위에 붙어 있다
       h('div', { class: 'sk-shop-bar' }, tabsEl, note, subBreak, subTabsEl),
       grid));
@@ -140,7 +143,7 @@ export function createShop(ctx) {
       onclick: () => ctx.account.online.buyCoins(p.id) });
     const el = h('article', { class: 'sk-shop-card sk-steel sk-coin-card', 'aria-label': p.name },
       h('header', { class: 'sk-shop-head' },
-        h('span', { class: 'sk-lo-ico', text: '🪙', 'aria-hidden': 'true' }),
+        h('span', { class: 'sk-lo-ico', 'aria-hidden': 'true' }, uiIcon('coin')),
         h('div', { class: 'sk-shop-names' },
           h('h3', { class: 'sk-shop-name', text: p.name }),
           h('p', { class: 'sk-lo-tagline', text: `코인 ${count(p.coins)}개 · 실제로 돈이 나가지 않는 테스트 결제` })),
@@ -202,7 +205,7 @@ export function createShop(ctx) {
     const action = h('button', { type: 'button', class: 'sk-btn sk-shop-action', onclick: () => act(card) });
     const articleEl = h('article', { class: 'sk-shop-card sk-steel', 'aria-label': w.name },
       h('header', { class: 'sk-shop-head' },
-        h('span', { class: 'sk-lo-ico', text: w.icon, 'aria-hidden': 'true' }),
+        h('span', { class: 'sk-lo-ico', 'aria-hidden': 'true' }, uiIcon(weaponGlyph(w.id, w.slot))),
         h('div', { class: 'sk-shop-names' },
           h('h3', { class: 'sk-shop-name', text: w.name },
             w.premium ? h('span', { class: 'sk-premium', text: '프리미엄' }) : null),
@@ -288,8 +291,8 @@ export function createShop(ctx) {
     const need = h('p', { class: 'sk-shop-need' });
     const action = h('button', { type: 'button', class: 'sk-btn sk-shop-action', onclick: () => actEmote(card) });
     const coinBtn = coinButton(() => card);
-    const preview = h('button', { type: 'button', class: 'sk-btn sk-btn--ghost sk-emo-preview', text: '▶ 듣기', title: `${e.name} 미리 듣기`,
-      onclick: () => { ctx.emit('shop:preview', { id: e.id }); say(`${e.name} 미리 듣는 중…`); } });
+    const preview = h('button', { type: 'button', class: 'sk-btn sk-btn--ghost sk-emo-preview', title: `${e.name} 미리 듣기`,
+      onclick: () => { ctx.emit('shop:preview', { id: e.id }); say(`${e.name} 미리 듣는 중…`); } }, uiIcon('play'), '듣기');
     const articleEl = h('article', { class: 'sk-shop-card sk-steel sk-emo-card', 'aria-label': e.name },
       h('header', { class: 'sk-shop-head' },
         h('span', { class: 'sk-lo-ico', text: e.icon, 'aria-hidden': 'true' }),
@@ -555,7 +558,8 @@ export function createShop(ctx) {
     const groups = GROUPS.filter(([g]) => defs.some((d) => groupOf(d) === g));
     const label = Object.fromEntries([...groups, [EMOTE_TAB, '이모트'], [AVATAR_TAB, '캐릭터'], [COIN_TAB, '코인']]);
     tabs = [...groups.map(([g]) => g), EMOTE_TAB, AVATAR_TAB, COIN_TAB].map((id) => {
-      const tabEl = h('button', { type: 'button', class: 'sk-tab', role: 'tab', 'data-tab': id, onclick: () => showTab(id), text: label[id] });
+      const tabEl = h('button', { type: 'button', class: 'sk-tab', role: 'tab', 'data-tab': id, onclick: () => showTab(id) },
+        TAB_GLYPH[id] ? uiIcon(TAB_GLYPH[id], 'sk-tab-ico') : null, label[id]);
       return { id, el: tabEl };
     });
     tabsEl.replaceChildren(...tabs.map((t) => t.el));

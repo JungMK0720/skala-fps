@@ -86,7 +86,7 @@ async function avatarSection(t) {
   let page = await openGame(t, '', { profile: richProfile({ points: 12345 }), settings: LOW_QUALITY, screen: 'menu', width: 1280, height: 720 });
   const styleIds = await page.eval(`import('./js/engine/avatars.js').then((m) => [...m.AVATAR_STYLE_IDS])`);
   t.check(JSON.stringify(styleIds) === JSON.stringify(AVATAR_IDS), '모든 캐릭터에 모양이 있다(engine STYLES = core AVATARS)', { styleIds });
-  await page.clickText('.sk-menu-btn--sub', '상점');
+  await page.clickText('.sk-menu-btn--sub', '무기고');
   await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '상점' });
   await page.clickText('.sk-shop .sk-tab', '캐릭터');
   await page.waitFor(`document.querySelectorAll('.sk-av-card .sk-av-img:not([hidden])').length === ${AVATARS.length}`, 8000, { label: '초상 그리기' })
@@ -137,7 +137,7 @@ async function avatarSection(t) {
     page = await openGame(t, '', { profile: richProfile({ points: 1000 }), settings: LOW_QUALITY, screen: 'menu', width: 1280, height: 720 });
     await page.waitFor(`__qa.ctx.account.avatarShop === 'closed'`, 10000, { label: '캐릭터 구매 닫힘' })
       .then(() => t.check(true, '서버가 fps_features를 모르면 캐릭터 구매를 닫는다'), (err) => t.check(false, '서버가 fps_features를 모르면 캐릭터 구매를 닫는다', err.message));
-    await page.clickText('.sk-menu-btn--sub', '상점');
+    await page.clickText('.sk-menu-btn--sub', '무기고');
     await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '상점' });
     await page.clickText('.sk-shop .sk-tab', '캐릭터');
     const closed = await page.eval(`({

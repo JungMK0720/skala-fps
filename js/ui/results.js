@@ -1,15 +1,14 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 결과 화면. 팀전은 승리 팀·라운드 기록·MVP, 개인전은 시상대와 순위표를 보여 주고, reward 값이 있으면 획득 포인트를 올라가는 숫자로 보여 준다.
- *          폭파 미션은 팀전 화면에 라운드마다 끝난 방식(💥 폭파 · ✂️ 해체 · ☠️ 전멸 · ⏱ 시간)과 이긴 진영(공격/수비)을 더한다.
+ * Purpose: 결과 = 작전 결과 보고서(AFTER ACTION REPORT). 맨 위에 내 처치·전사·K/D·헤드샷 비율 요약 줄을 두고, 팀전은 승리 팀·라운드 기록·MVP, 개인전은 시상대와 순위표를 보여 주고, reward 값이 있으면 획득 포인트를 올라가는 숫자로 보여 준다.
+ *          폭파 미션은 팀전 화면에 라운드마다 끝난 방식(폭파 · 해체 · 전멸 · 시간, 선 아이콘)과 이긴 진영(공격/수비)을 더한다.
  */
 import { h, btn, setText, num, fmtPoints, fmtDelta, TEAMS, teamKey, modeKey, FFA_TARGET, SIDE_NAME, bombSide } from './dom.js';
 import { makeScreen } from './parts.js';
-import { mapInfo } from './icons.js';
+import { mapInfo, uiIcon } from './icons.js';
 import { normStatPlayers, byPerformance, rankPlayers } from './scoreboard.js';
 
-const MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' };
 const COUNT_UP_MS = 900;
 const COUNT_UP_STEP_MS = 30;
 const FFA_REASON = {
@@ -26,6 +25,8 @@ const BOMB_REASON = Object.freeze({
   elimination: Object.freeze({ icon: '☠️', label: '전멸' }),
   time: Object.freeze({ icon: '⏱', label: '시간 종료' }),
 });
+/** 끝난 방식 → 화면에 그리는 선 아이콘(BOMB_REASON의 icon 글자는 라운드 제목 문구에 쓴다) */
+const BOMB_REASON_GLYPH = Object.freeze({ bomb: 'bomb', defuse: 'knife', elimination: 'skull', time: 'clock' });
 const bombReason = (code) => (typeof code === 'string' && Object.prototype.hasOwnProperty.call(BOMB_REASON, code) ? BOMB_REASON[code] : null);
 
 /** rounds 항목 → { n, winner, reason, reasonCode, attack }. reasonCode·attack은 폭파 미션만 쓴다 */
@@ -53,13 +54,29 @@ export function bombRoundInfo(r) {
   return { icon: why ? why.icon : '', reason, won, side, title };
 }
 
+/** 이름 칸: 봇이면 앞에 봇 선 아이콘(읽기 프로그램에는 '봇') */
+function botName(x) {
+  return h('span', {}, x.bot ? uiIcon('bot', 'sk-uico--inline sk-pl-bot') : null, x.bot ? h('span', { class: 'sk-vh', text: '봇 ' }) : null, x.name);
+}
+
 export function createResults(ctx) {
   const banner = h('div', { class: 'sk-res-banner' });
+  const aar = h('p', { class: 'sk-kicker sk-res-aar', text: 'AFTER ACTION REPORT', 'aria-hidden': 'true' });
   const kicker = h('p', { class: 'sk-res-kicker sk-stencil', text: 'MATCH RESULT' });
   const titleEl = h('h1', { class: 'sk-res-title sk-stencil' });
   const scoreEl = h('p', { class: 'sk-res-score' });
   const verdict = h('p', { class: 'sk-res-verdict' });
-  banner.append(kicker, titleEl, scoreEl, verdict);
+  banner.append(aar, kicker, titleEl, scoreEl, verdict);
+
+  // ---------- 내 작전 요약: 처치 · 전사 · K/D · 헤드샷 비율 ----------
+  const summary = h('dl', { class: 'sk-res-summary', hidden: true, 'aria-label': '내 작전 요약' });
+  function renderSummary(me) {
+    summary.hidden = !me;
+    if (!me) return;
+    const rate = me.kills ? `${Math.round((me.head / me.kills) * 100)}%` : '—';
+    summary.replaceChildren(...[['처치', me.kills], ['전사', me.deaths], ['K/D', (me.kills / Math.max(1, me.deaths)).toFixed(2)], ['헤드샷 비율', rate]]
+      .map(([k, v]) => h('div', { class: 'sk-res-sum' }, h('dt', { text: k }), h('dd', { text: v }))));
+  }
 
   // ---------- 획득 포인트 ----------
   const rewardNum = h('b', { class: 'sk-res-gain-num' });
@@ -119,10 +136,11 @@ export function createResults(ctx) {
   const podium = h('section', { class: 'sk-res-podium', 'aria-label': '시상대', hidden: true });
   const tableTitle = h('h2', { class: 'sk-panel-title', text: '개인 기록' });
 
-  const el = h('section', { class: 'sk-screen sk-page sk-results', hidden: true, 'aria-label': '매치 결과' },
+  const el = h('section', { class: 'sk-screen sk-page sk-results', hidden: true, 'aria-label': '작전 결과 보고서' },
     h('div', { class: 'sk-page-inner sk-res-inner' },
       banner,
       h('div', { class: 'sk-hazard', 'aria-hidden': 'true' }),
+      summary,
       rewardBox,
       teamGrid,
       podium,
@@ -132,8 +150,8 @@ export function createResults(ctx) {
   // ---------- 개인전 ----------
   function pod(x, place) {
     return h('div', { class: `sk-pod sk-pod--${place}` + (x.me ? ' is-me' : '') },
-      h('span', { class: 'sk-pod-medal', text: MEDALS[x.rank] || `${x.rank}위`, 'aria-hidden': 'true' }),
-      h('b', { class: 'sk-pod-name' }, h('span', { text: (x.bot ? '🤖 ' : '') + x.name }), x.me ? h('span', { class: 'sk-tag', text: '나' }) : null),
+      h('span', { class: 'sk-pod-medal', 'aria-hidden': 'true' }, x.rank === 1 ? uiIcon('trophy') : h('b', { text: `${x.rank}위` })),
+      h('b', { class: 'sk-pod-name' }, botName(x), x.me ? h('span', { class: 'sk-tag', text: '나' }) : null),
       h('span', { class: 'sk-pod-kills', text: `${x.kills}킬 · ${x.deaths}데스` }),
       h('div', { class: 'sk-pod-block', 'aria-label': `${x.rank}위` }, h('span', { text: x.rank })));
   }
@@ -149,11 +167,11 @@ export function createResults(ctx) {
     }
     el.dataset.winner = winner ? 'ffa' : 'draw';
     setText(kicker, 'FREE FOR ALL');
-    setText(titleEl, winner ? `🏆 ${winner.name} 우승!` : '무승부');
+    setText(titleEl, winner ? `${winner.name} 우승!` : '무승부');
     const reasonFn = FFA_REASON[p.reason];
     setText(scoreEl, reasonFn ? reasonFn(target) : `개인전 · 목표 ${target}킬`);
     let v = '';
-    if (me) v = winner && (winner.me || (winner.id != null && winner.id === me.id)) ? '🏆 내가 우승했어요!' : `내 순위 ${me.rank}위 / ${rows.length}명`;
+    if (me) v = winner && (winner.me || (winner.id != null && winner.id === me.id)) ? '내가 우승했어요!' : `내 순위 ${me.rank}위 / ${rows.length}명`;
     const m = p.mapName ? { name: p.mapName } : mapInfo(ctx.maps, p.maps, p.mapId);
     setText(verdict, [v, m && m.name].filter(Boolean).join(' · '));
 
@@ -166,8 +184,8 @@ export function createResults(ctx) {
     table.replaceChildren(h('table', { class: 'sk-sb-table' },
       h('thead', {}, h('tr', {}, ['순위', '이름', '킬', '데스', '헤드샷'].map((t, i) => h('th', { scope: 'col', class: i === 1 ? '' : 'num', text: t })))),
       h('tbody', {}, rows.length ? rows.map((x) => h('tr', { class: x.me ? 'is-me' : '' },
-        h('td', { class: 'num sk-sb-rank', text: MEDALS[x.rank] ? `${MEDALS[x.rank]} ${x.rank}` : x.rank }),
-        h('th', { scope: 'row', class: 'sk-sb-name' }, h('span', { text: (x.bot ? '🤖 ' : '') + x.name }), x.me ? h('span', { class: 'sk-tag', text: '나' }) : null),
+        h('td', { class: 'num sk-sb-rank' + (x.rank <= 3 ? ' is-top' : ''), text: x.rank }),
+        h('th', { scope: 'row', class: 'sk-sb-name' }, botName(x), x.me ? h('span', { class: 'sk-tag', text: '나' }) : null),
         h('td', { class: 'num', text: x.kills }),
         h('td', { class: 'num', text: x.deaths }),
         h('td', { class: 'num', text: x.head })))
@@ -182,10 +200,10 @@ export function createResults(ctx) {
     const best = Math.max(0, Math.floor(num(p.best, 0)));
     el.dataset.winner = 'zombie';
     setText(kicker, 'ZOMBIE HOLDOUT');
-    setText(titleEl, `🧟 스테이지 ${stage}까지 버텼어요`);
+    setText(titleEl, `스테이지 ${stage}까지 버텼어요`);
     setText(scoreEl, cleared ? `${cleared}스테이지 클리어 · 생존 ${fmtMs(p.ms)}` : `생존 ${fmtMs(p.ms)}`);
     const m = p.mapName ? { name: p.mapName } : mapInfo(ctx.maps, p.maps, p.mapId);
-    setText(verdict, [p.newBest ? '🏆 내 최고 기록!' : best ? `내 최고 ${best}스테이지` : '', m && m.name].filter(Boolean).join(' · '));
+    setText(verdict, [p.newBest ? '내 최고 기록!' : best ? `내 최고 ${best}스테이지` : '', m && m.name].filter(Boolean).join(' · '));
     // 고른 카드(내 것): 왼쪽 칸 · 기록 요약: 오른쪽 칸
     const cards = Array.isArray(p.cards) ? p.cards : [];
     rounds.replaceChildren(...(cards.length ? cards.map((c) => h('li', { class: 'sk-res-round sk-res-card', title: c.desc || null, style: { '--cd-color': c.color || '#c9d4e0' } },
@@ -217,6 +235,8 @@ export function createResults(ctx) {
 
   function render(p) {
     renderReward(p.reward);
+    const mode0 = modeKey(p.mode);
+    renderSummary(mode0 === 'zombie' ? null : normStatPlayers({ players: Array.isArray(p.ranking) && p.ranking.length && mode0 === 'ffa' ? p.ranking : p.players, meId: p.meId }).find((x) => x.me) || null);
     const mode = modeKey(p.mode);
     const ffa = mode === 'ffa';
     el.dataset.mode = mode;
@@ -240,7 +260,7 @@ export function createResults(ctx) {
 
   /** 라운드 칸. 폭파 미션이면 끝난 방식 아이콘과 이긴 진영 줄을 더한다 */
   function roundItem(r, bomb) {
-    const who = r.winner === 'draw' ? '무승부' : `${TEAMS[r.winner].emoji} ${TEAMS[r.winner].name}`;
+    const who = r.winner === 'draw' ? '무승부' : TEAMS[r.winner].name;
     if (!bomb) {
       return h('li', { class: `sk-res-round t-${r.winner}`, title: r.reason || null },
         h('span', { class: 'sk-res-rn', text: `R${r.n}` }),
@@ -251,7 +271,7 @@ export function createResults(ctx) {
     return h('li', { class: `sk-res-round t-${r.winner}`, title: info.title, dataset: { reason: r.reasonCode } },
       h('span', { class: 'sk-res-rn', text: `R${r.n}` }),
       h('span', { class: 'sk-res-rw', text: who }),
-      info.reason ? h('span', { class: 'sk-res-reason' }, info.icon ? h('span', { class: 'sk-res-ico', text: info.icon, 'aria-hidden': 'true' }) : null, info.reason) : null,
+      info.reason ? h('span', { class: 'sk-res-reason' }, BOMB_REASON_GLYPH[r.reasonCode] ? h('span', { class: 'sk-res-ico', 'aria-hidden': 'true' }, uiIcon(BOMB_REASON_GLYPH[r.reasonCode])) : null, info.reason) : null,
       info.side ? h('span', { class: 'sk-res-side', dataset: { side: info.won }, text: info.side }) : null);
   }
 
@@ -266,7 +286,7 @@ export function createResults(ctx) {
     setText(titleEl, winner === 'draw' ? '무승부' : `${TEAMS[winner].name} 팀 승리`);
     setText(scoreEl, `${bomb ? '폭파 미션 · ' : ''}블루 ${Math.floor(num(sc.owner, 0))} : ${Math.floor(num(sc.charterer, 0))} 레드`);
     let v = '';
-    if (myTeam && winner !== 'draw') v = myTeam === winner ? '🏆 우리 팀이 이겼어요!' : '패배 — 다음 매치를 노려 보세요.';
+    if (myTeam && winner !== 'draw') v = myTeam === winner ? '우리 팀이 이겼어요!' : '패배 — 다음 매치를 노려 보세요.';
     else if (winner === 'draw') v = '승부를 가리지 못했어요.';
     const m = p.mapName ? { name: p.mapName } : mapInfo(ctx.maps, p.maps, p.mapId);
     setText(verdict, [v, m && m.name].filter(Boolean).join(' · '));
@@ -288,7 +308,7 @@ export function createResults(ctx) {
       h('h2', { class: 'sk-panel-title', text: 'MVP' }),
       mvp ? h('div', { class: 'sk-mvp' },
         h('p', { class: `sk-mvp-name t-${mvp.team || 'none'}`, text: mvp.name }),
-        mvp.team ? h('p', { class: 'sk-mvp-team', text: `${TEAMS[mvp.team].emoji} ${TEAMS[mvp.team].name}` }) : null,
+        mvp.team ? h('p', { class: `sk-mvp-team t-${mvp.team}`, text: `${TEAMS[mvp.team].name} 팀` }) : null,
         h('dl', { class: 'sk-mvp-stats' },
           h('div', {}, h('dt', { text: '킬' }), h('dd', { text: mvp.kills })),
           h('div', {}, h('dt', { text: '데스' }), h('dd', { text: mvp.deaths })),
@@ -298,7 +318,7 @@ export function createResults(ctx) {
     table.replaceChildren(h('table', { class: 'sk-sb-table' },
       h('thead', {}, h('tr', {}, ['이름', '팀', '킬', '데스', '헤드샷'].map((t, i) => h('th', { scope: 'col', class: i > 1 ? 'num' : '', text: t })))),
       h('tbody', {}, players.length ? players.map((x) => h('tr', { class: x.me ? 'is-me' : '' },
-        h('th', { scope: 'row', class: 'sk-sb-name' }, h('span', { text: (x.bot ? '🤖 ' : '') + x.name }), x.me ? h('span', { class: 'sk-tag', text: '나' }) : null),
+        h('th', { scope: 'row', class: 'sk-sb-name' }, botName(x), x.me ? h('span', { class: 'sk-tag', text: '나' }) : null),
         h('td', { class: `t-${x.team || 'none'}`, text: x.team ? TEAMS[x.team].name : '—' }),
         h('td', { class: 'num', text: x.kills }),
         h('td', { class: 'num', text: x.deaths }),
