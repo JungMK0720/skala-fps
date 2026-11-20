@@ -491,7 +491,7 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 - 원격 액터:
   - `avatars.push(id, t, { …, emote: 번호 })` → 처음부터 재생한다(반복형은 계속). 0이 되면 0.15초에 걸쳐 총 든 자세로 돌아온다.
   - 번호 대신 id 문자열도 받는다. 죽으면 이모트를 바로 끈다.
-- 히트박스(`getTargets`)는 이모트 중에도 서 있는 그대로다. 모델은 머리 중심 1.62 m·몸통·다리가 `HITBOX`와 겹치게 놓았다. 손 구(`HITBOX.HANDS`)는 이 모델의 짧은 팔보다 앞이라 총 쪽에 걸린다.
+- 히트박스(`getTargets`)는 이모트 중에도 서 있는 그대로다. 모델은 머리 중심 1.62 m·몸통·다리가 `HITBOX`와 겹치게 놓았다. 손 구(`HITBOX.HANDS`·`HITBOX_CROUCH.HANDS`)는 이 모델이 총을 든 자세에서 잰 손바닥 위치다(모델이 기준. 총 든 자세를 바꾸면 다시 재서 고친다).
 - 내 몸:
   - `avatars.setLocalBody(player.getBodyState())`로 그린다. core main.js가 매 프레임 부르므로 World가 할 일은 없다.
   - `{ visible, pos, yaw, team, name, emote, crouch, avatar }`를 받는다. 히트 대상·목록에는 들어가지 않는다. `avatar`(내 캐릭터)는 game World가 계정 장비로 채운다.

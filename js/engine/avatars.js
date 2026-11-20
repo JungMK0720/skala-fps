@@ -519,10 +519,10 @@ export function createAvatarPortraits(three, { width = 240, height = 320 } = {})
     const sun = new THREE.DirectionalLight(0xffffff, 2.6);
     sun.position.set(-1.8, 3.4, -3.2);
     scene.add(sun);
-    // 무릎 위부터 머리 장비·안테나 끝(약 2 m)까지 담는다. 머리 장비가 대원을 가장 잘 구별하므로 전신보다 크게 보인다
-    const cam = new THREE.PerspectiveCamera(31, width / height, 0.1, 20);
-    cam.position.set(0, 1.32, -2.96);
-    cam.lookAt(0, 1.24, 0);
+    // 무릎(약 0.5 m)부터 모자·헬멧 끝(약 1.85 m)까지 꽉 차게 담는다. 머리 장비가 대원을 가장 잘 구별하므로 전신보다 크게 보인다
+    const cam = new THREE.PerspectiveCamera(27, width / height, 0.1, 20);
+    cam.position.set(0, 1.3, -2.85);
+    cam.lookAt(0, 1.18, 0);
     const post = new THREE.ShaderMaterial({
       uniforms: { tSrc: { value: src.texture } }, vertexShader: POST_VERT, fragmentShader: POST_FRAG,
       depthTest: false, depthWrite: false, blending: THREE.NoBlending, toneMapped: false

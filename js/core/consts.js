@@ -60,8 +60,8 @@ export const HITBOX = Object.freeze({
   BODY: Object.freeze({ y0: 1.0, y1: 1.5, hw: 0.26, hd: 0.17 }),
   LEGS: Object.freeze({ y0: 0.13, y1: 1.0, hw: 0.22, hd: 0.15 }),
   FOOT: Object.freeze({ y0: 0.0, y1: 0.13, hw: 0.22, hd: 0.19, cz: -0.035 }),
-  // 손끝: 총을 든 두 손(구). 저격총은 손·발에 맞으면 반샷(50)이다. 위치는 engine/avatars.js 모델과 맞춘다
-  HANDS: Object.freeze([Object.freeze({ x: 0.244, y: 1.278, z: -0.518, r: 0.075 }), Object.freeze({ x: -0.023, y: 1.258, z: -0.428, r: 0.075 })])
+  // 손: 총을 든 두 손바닥(구). 저격총은 손·발에 맞으면 반샷(50)이다. 대원 모델(engine/operator-model.js)이 총을 든 자세에서 잰 손바닥 위치다
+  HANDS: Object.freeze([Object.freeze({ x: 0.12, y: 1.246, z: -0.259, r: 0.075 }), Object.freeze({ x: 0.062, y: 1.237, z: -0.364, r: 0.075 })])
 });
 
 /** 앉은 히트박스 (hw·hd는 서 있을 때와 같음). 레이 대상의 crouch(true 또는 0..1)로 HITBOX와 섞는다 */
@@ -70,7 +70,7 @@ export const HITBOX_CROUCH = Object.freeze({
   BODY: Object.freeze({ y0: 0.6, y1: 1.05, hw: 0.26, hd: 0.17 }),
   LEGS: Object.freeze({ y0: 0.13, y1: 0.6, hw: 0.22, hd: 0.15 }),
   FOOT: Object.freeze({ y0: 0.0, y1: 0.13, hw: 0.22, hd: 0.19, cz: -0.035 }),
-  HANDS: Object.freeze([Object.freeze({ x: 0.244, y: 0.798, z: -0.513, r: 0.075 }), Object.freeze({ x: -0.023, y: 0.779, z: -0.423, r: 0.075 })])
+  HANDS: Object.freeze([Object.freeze({ x: 0.119, y: 0.806, z: -0.224, r: 0.075 }), Object.freeze({ x: 0.057, y: 0.797, z: -0.326, r: 0.075 })])
 });
 
 /** 앉은 상태에서의 탄퍼짐 배율 (weapons/logic.js · 임시 총) */

@@ -125,23 +125,35 @@ const atHead = (geos) => geos.map((g) => g.translate(HEAD_ORIGIN[0], HEAD_ORIGIN
 /** 색을 섞는다(k = 0이면 a, 1이면 b) */
 const mix = (a, b, k) => new THREE.Color(a).lerp(new THREE.Color(b), k).getHex();
 
-/* ---------------- 모든 대원 공통: 팀 강조(완장·어깨 패치·가슴·등 표식) ----------------
- * 강조색이 멀리서도 보이게(화면 면적 15~25%, PRODUCT_PLAN.md 4.3) 위팔 완장을 넓게 두르고 어깨 위·가슴·등에 판을 붙인다.
+/* ---------------- 모든 대원 공통: 팀 강조(완장·어깨 패치·조끼 옆판·가슴·등 표식·무릎 보호대) ----------------
+ * 강조색이 멀리서도 보이게(보이는 면적 15~25%, PRODUCT_PLAN.md 4.3) 위팔 완장을 넓게 두르고 어깨 위·조끼 옆·가슴·등·무릎에 판을 붙인다.
+ * 전투복 자체는 어두운 팀 색 그대로다(GLB 'Swat' 재질 = uniform).
  */
 const ARM_Y = 1.388, ARM_Z = -0.05;
-function teamMarks(c, { chest = true, back = true } = {}) {
+function teamMarks(c, { chest = true, back = true, chestZ = -0.192, backZ = 0.062 } = {}) {
   const out = [];
   for (const s of [1, -1]) {
     const bone = s > 0 ? 'UpperArmR' : 'UpperArmL';
     out.push([bone, merge([
-      box(0.075, 0.136, 0.128, s * 0.232, ARM_Y, ARM_Z, c.accent),             // 완장(위팔을 한 바퀴)
-      box(0.07, 0.012, 0.075, s * 0.195, ARM_Y + 0.07, ARM_Z, c.accent)         // 어깨 패치(T자에서 위 = 팔을 내리면 바깥)
+      box(0.09, 0.136, 0.128, s * 0.235, ARM_Y, ARM_Z, c.accent),              // 완장(위팔을 한 바퀴)
+      box(0.075, 0.012, 0.085, s * 0.19, ARM_Y + 0.07, ARM_Z, c.accent)         // 어깨 패치(T자에서 위 = 팔을 내리면 바깥)
     ])]);
+    // 무릎 보호대(팀 색): 앞에서도 옆에서도 보이게 무릎을 감싼다
+    out.push([s > 0 ? 'LowerLegR' : 'LowerLegL', merge([
+      box(0.13, 0.13, 0.045, s * 0.116, 0.5, -0.165, c.accent),
+      box(0.04, 0.11, 0.1, s * 0.178, 0.5, -0.11, c.accent)
+    ])]);
+    // 아래팔 소매 끝 띠(T자에서 팔 끝 쪽)·허벅지 띠
+    out.push([s > 0 ? 'LowerArmR' : 'LowerArmL', merge([box(0.06, 0.112, 0.112, s * 0.47, 1.376, -0.054, c.accent)])]);
+    out.push([s > 0 ? 'UpperLegR' : 'UpperLegL', merge([box(0.18, 0.07, 0.215, s * 0.116, 0.74, -0.065, c.accent)])]);
   }
-  const torso = [];
-  if (chest) torso.push(box(0.17, 0.06, 0.014, 0, 1.275, -0.192, c.accent));   // 가슴 표식 띠
-  if (back) torso.push(box(0.2, 0.09, 0.014, 0, 1.28, 0.062, c.accent));        // 등 표식 판
-  if (torso.length) out.push(['Chest', merge(torso)]);
+  const torso = [
+    box(0.014, 0.17, 0.16, 0.142, 1.21, -0.07, c.accent),                       // 조끼 옆판(오른쪽)
+    box(0.014, 0.17, 0.16, -0.142, 1.21, -0.07, c.accent)                       // 조끼 옆판(왼쪽)
+  ];
+  if (chest) torso.push(box(0.2, 0.07, 0.014, 0, 1.275, chestZ, c.accent));    // 가슴 표식 띠(조끼판이 있으면 그 앞)
+  if (back) torso.push(box(0.22, 0.12, 0.014, 0, 1.27, backZ, c.accent));       // 등 표식 판(등판이 있으면 그 뒤)
+  out.push(['Chest', merge(torso)]);
   return out;
 }
 
@@ -168,8 +180,8 @@ function nvgParts() {
     box(0.05, 0.028, 0.05, 0, 0, 0.015, NVG)
   ];
 }
-/** 무릎 보호대(정강이 뼈, 무릎 앞) */
-const kneePads = (hex) => [1, -1].map((s) => [s > 0 ? 'LowerLegR' : 'LowerLegL', merge([box(0.125, 0.12, 0.045, s * 0.116, 0.5, -0.165, hex)])]);
+/** 정강이 보호판(무릎 아래, 장비 색). 무릎 보호대는 팀 강조(teamMarks)가 맡는다 */
+const shinGuards = (hex) => [1, -1].map((s) => [s > 0 ? 'LowerLegR' : 'LowerLegL', merge([box(0.11, 0.14, 0.035, s * 0.116, 0.36, -0.15, hex)])]);
 
 const KITS = Object.freeze({
   // 보병: SWAT 헬멧(GLB) 옆 팀 색 띠와 뒤쪽 적외선 표시등, 허리 뒤 주머니
@@ -204,6 +216,7 @@ const KITS = Object.freeze({
       ['Neck', merge([cyl(0.105, 0.12, 0.07, 12, 0, 1.47, -0.05, c.gear)])],            // 목둘레(후드 아래)
       ['Chest', merge([
         box(0.2, 0.26, 0.05, 0, 1.24, 0.085, c.gear),                                   // 등 물주머니
+        box(0.205, 0.07, 0.054, 0, 1.3, 0.085, c.accent),                               // 물주머니 팀 색 띠(등 표식 대신)
         cylZ(0.026, 0.08, 10, -0.03, 1.12, -0.205, BINO), cylZ(0.026, 0.08, 10, 0.03, 1.12, -0.205, BINO),   // 쌍안경
         cylZ(0.02, 0.01, 10, -0.03, 1.12, -0.25, LENS_DK), cylZ(0.02, 0.01, 10, 0.03, 1.12, -0.25, LENS_DK)
       ])],
@@ -226,7 +239,7 @@ const KITS = Object.freeze({
       box(0.012, 0.16, 0.024, 0.215, 0.89, -0.06, WRENCH), box(0.016, 0.034, 0.06, 0.215, 0.98, -0.06, WRENCH)    // 렌치
     ])],
     ['Chest', merge([box(0.29, 0.025, 0.012, 0, 1.2, -0.19, REFLECT), box(0.29, 0.025, 0.012, 0, 1.2, 0.058, REFLECT)])],   // 반사띠
-    ...kneePads(c.gearDark),
+    ...shinGuards(c.gearDark),
     ...teamMarks(c)
   ],
 
@@ -247,6 +260,7 @@ const KITS = Object.freeze({
     ]))],
     ['Chest', merge([
       box(0.22, 0.3, 0.09, 0, 1.24, 0.11, c.gear),                            // 등에 멘 무전기
+      box(0.226, 0.07, 0.094, 0, 1.19, 0.11, c.accent),                       // 무전기 팀 색 띠(등 표식 대신)
       box(0.225, 0.035, 0.095, 0, 1.1, 0.11, c.gearDark),
       box(0.1, 0.07, 0.012, 0.04, 1.31, 0.16, c.gearDark),
       cylZ(0.016, 0.02, 8, -0.06, 1.33, 0.162, KNOB), cylZ(0.016, 0.02, 8, -0.06, 1.27, 0.162, KNOB),
@@ -288,8 +302,8 @@ const KITS = Object.freeze({
       group(nvgParts(), 0, 0.29, -0.178, 1.15)                                // 이마 위로 올린 투시경
     ]))],
     ['Chest', merge([box(0.27, 0.22, 0.04, 0, 1.22, -0.2, c.gearDark), box(0.24, 0.2, 0.03, 0, 1.22, 0.07, c.gearDark)])],
-    ...kneePads(c.gearDark),
-    ...teamMarks(c)
+    ...shinGuards(c.gearDark),
+    ...teamMarks(c, { chestZ: -0.226, backZ: 0.092 })
   ],
 
   // 중장갑병: 머리를 감싼 헬멧(가리개·팀 색 볏), 가슴·등판, 어깨 장갑(위팔), 무릎 판
@@ -318,8 +332,8 @@ const KITS = Object.freeze({
         box(0.22, 0.06, 0.2, 0, 1.43, -0.05, light)                           // 목 보호대
       ])],
       ...pads,
-      ...kneePads(dark),
-      ...teamMarks(c, { chest: false })
+      ...shinGuards(dark),
+      ...teamMarks(c, { chest: false, backZ: 0.112 })
     ];
   }
 });
