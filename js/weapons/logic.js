@@ -135,7 +135,7 @@ export function createArsenal(opts = {}) {
    * spread·recoil: 탄퍼짐·반동 배율, reserve: 예비 탄 배율, finiteMags > 0이면 예비가 무제한인 총도 '탄창 × finiteMags × reserve'로 제한,
    * nades: 최대 수류탄 +, thrift: 쏴도 탄이 줄지 않을 확률, sideFire·sideMag: 보조무기(슬롯 2)에만 더 곱하는 연사·탄창 배율
    */
-  const MOD_BASE = Object.freeze({ mag: 1, magAdd: 0, fire: 1, reload: 1, draw: 1, spread: 1, recoil: 1, reserve: 1, finiteMags: 0, nades: 0, thrift: 0, sideFire: 1, sideMag: 1 });
+  const MOD_BASE = Object.freeze({ mag: 1, magAdd: 0, fire: 1, reload: 1, draw: 1, spread: 1, recoil: 1, reserve: 1, finiteMags: 0, nades: 0, thrift: 0, sideFire: 1, sideMag: 1, throwRecover: 1 });
   const mods = { ...MOD_BASE };
   const pos = (v, d) => (Number.isFinite(v) && v > 0 ? v : d);
   /** 이 무기의 탄창 크기(배율 반영). 탄창이 없는 무기는 null */
@@ -656,7 +656,7 @@ export function createArsenal(opts = {}) {
     w.count = Math.max(0, w.count - 1);
     w.lastShotAt = time;
     prime = null;
-    setState('throw', d.throwRecover);
+    setState('throw', d.throwRecover * mods.throwRecover);   // 던진 뒤 딜레이(근력팔 증강이 줄인다)
     emit('throw', { kind, speed: t.speed, pitchUp: t.pitchUp * DEG, fuse: d.fuse, count: w.count });
   }
 

@@ -223,7 +223,7 @@ describe('새 카드: 이미 있는 카드의 전송 번호는 그대로', () =>
   const OLD_SPECIALS = ('second glass wall chain luck wide medkit syringe drop hunter thrift perfect giant thirst runngun drum samurai iron ' +
     'tactical react dread coin adrenaline bunker fireNade iceNade decoyNade multiNade rearm sideGl sideRl').split(' ');
   const OLD = [...OLD_FAMILIES.flatMap((f) => [1, 2, 3, 4].map((n) => `${f}${n}`)), ...OLD_SPECIALS];
-  const ADDED = ['reflex1', 'reflex2', 'reflex3', 'reflex4', 'wave1', 'wave2', 'wave3', 'wave4', 'anchor', 'c4', 'shieldKnife', 'airStrike', 'sideGravity', 'flameGun', 'railGun', 'aiGlasses', 'sideMaster', 'zeus', 'yasuoSword'];
+  const ADDED = ['reflex1', 'reflex2', 'reflex3', 'reflex4', 'wave1', 'wave2', 'wave3', 'wave4', 'anchor', 'c4', 'shieldKnife', 'airStrike', 'sideGravity', 'flameGun', 'railGun', 'aiGlasses', 'sideMaster', 'zeus', 'yasuoSword', 'strongArm'];
 
   test('기존 카드 번호는 유지하고 신규 전설 증강은 맨 뒤에 붙는다', () => {
     assert.equal(OLD.length, 187);

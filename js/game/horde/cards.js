@@ -82,7 +82,8 @@ export const PERK_BASE = Object.freeze({
   guard: 0,        // H  칼을 들면 방패를 든다: 정면에서 오는 공격의 피해 −비율
   airDmg: 0,       // H  점프로 떠 있는 동안 주는 피해 +배율(5 = +500%)
   autoAim: 0,      // C  총을 쏠 때 앞쪽 조준 원뿔 안의 좀비 몸통을 자동 조준
-  sideMaster: 0    // HC 1이면 주무기를 못 쓰고 보조무기 연사 2배 · 피해 +500% · 탄창 2배
+  sideMaster: 0,   // HC 1이면 주무기를 못 쓰고 보조무기 연사 2배 · 피해 +500% · 탄창 2배
+  throwCut: 0      // C  투척무기를 던진 뒤 딜레이 −비율(근력팔, 0.9까지)
 });
 
 /* ------------------------------------------------------------------ 카드 표 (바꾸면 docs/AUGMENTS.md도 고친다) */
@@ -219,7 +220,9 @@ const ADDED = [
     instant: { primary: 'zs_bolt' }, desc: '주무기가 제우스의 번개로 바뀐다(던진 번개가 맞으면 근처 좀비로 5번 튄다 · 튈 때마다 피해 그대로 150 · 탄약 무제한)' },
   // 야스오의 검(요청 2026-11-20): 좌·우클릭이 같은 칼 판정 찌르기. 두 번 맞히면 다음 공격이 회오리, 회오리가 보스에 닿으면 공중 연타
   { key: 'yasuoSword', name: '야스오의 검', icon: '🌪️', tier: 'legend', max: 1, minStage: 3,
-    instant: { melee: 'ml_yasuo' }, desc: '칼이 야스오의 검으로 바뀐다. 좌·우클릭 같은 찌르기(0.7초 간격). 2번 맞히면(10초 유지) 다음 공격은 빗나가도 앞으로 회오리를 날려 맞은 적을 띄우고 기절시킨다. 회오리가 보스를 맞히면 보스 뒤로 순간이동해 2초 동안 무적으로 공중 연타(칼 피해 총 10배) 후 떨어진다' }
+    instant: { melee: 'ml_yasuo' }, desc: '칼이 야스오의 검으로 바뀐다. 좌·우클릭 같은 찌르기(0.7초 간격). 2번 맞히면(10초 유지) 다음 공격은 빗나가도 앞으로 회오리를 날려 맞은 적을 띄우고 기절시킨다. 회오리가 보스를 맞히면 보스 뒤로 순간이동해 2초 동안 무적으로 공중 연타(칼 피해 총 10배) 후 떨어진다' },
+  // 근력팔(요청 2026-11-20): 투척무기(수류탄·도끼)를 던진 뒤 딜레이 −45%. 두 장까지(−90%)
+  { key: 'strongArm', name: '근력팔', icon: '💪', tier: 'rare', max: 2, fx: { throwCut: 0.45 }, desc: '투척무기(수류탄·투척 도끼)를 던진 뒤 딜레이 −45% (두 장까지, 두 장이면 −90%)' }
 ];
 
 /** 묶음 하나 → 카드 네 장(I 일반 · II 희귀 · III 영웅 · IV 전설, minTier가 있으면 그 등급부터) */
@@ -383,6 +386,7 @@ export function perkSummary(stats) {
   add('방어', s.armor, (v) => `−${Math.round(v * 100)}%`); add('회복', s.regen, (v) => `${fx(v)}/초`);
   add('흡혈', s.lifesteal, (v) => `${fx(v * 100)}%`); add('타격 회복', s.hitHeal, (v) => `+${fx(v)}`); add('관통', s.pierce, (v) => `${v}`);
   add('수류탄', s.nades, (v) => `+${v}`); add('폭발 반경', s.nadeRadius, plus); add('한 번에 던지기', s.nadeMulti, (v) => `+${v}`);
+  add('던진 뒤 딜레이', s.throwCut, (v) => `-${Math.round(Math.min(0.9, v) * 100)}%`);
   add('화염', s.nadeFire, (v) => `${v}단계`); add('빙결', s.nadeFreeze, (v) => `${v}단계`); add('분신', s.nadeDecoy, (v) => `${v}단계`);
   add('구급 상자 확률', s.medDrop, plus); add('구급 상자 회복', s.medHeal, (v) => `+${v}`);
   add('탄창 확률', s.ammoDrop, plus); add('탄창 양', s.ammoMags, (v) => `+${fx(v)}회분`);

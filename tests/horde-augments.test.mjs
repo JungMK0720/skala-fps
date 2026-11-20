@@ -168,6 +168,26 @@ describe('QA 요청 증강 묶음', () => {
     assert.equal(cardById('shieldKnife').fx.guard, 0.45);
   });
 
+  test('근력팔: 투척무기를 던진 뒤 딜레이 −45%, 두 장이면 −90%, 세 장째는 나오지 않는다', () => {
+    const recover = (cards) => {
+      const a = createArsenal({ allowedSlots: [1, 2, 3, 4] });
+      a.setMods(modsFromPerks(computePerks(cards)));
+      a.select(4);
+      for (let i = 0; i < 60; i++) a.update(1 / 60, {});
+      a.update(1 / 60, { fireDown: true });
+      for (let i = 0; i < 120; i++) {
+        a.update(1 / 60, {});
+        if (a.getWeapon().state === 'throw') return a.getWeapon().duration;
+      }
+      return null;
+    };
+    const base = WEAPONS.gr_frag.throwRecover;
+    assert.ok(Math.abs(recover([]) - base) < 1e-9);
+    assert.ok(Math.abs(recover(['strongArm']) - base * 0.55) < 1e-9);
+    assert.ok(Math.abs(recover(['strongArm', 'strongArm']) - base * 0.1) < 1e-9);
+    assert.equal(cardById('strongArm').max, 2);
+  });
+
   test('공중 강타: 점프로 떠 있을 때만 총 피해 +500%, 칼은 그대로(방장 판정과 피해 숫자가 같다)', () => {
     const k = computePerks(['airStrike']);
     const hit = (air) => zombieHitDamage({ weaponId: 'ar_std', part: 'body', dist: 5, kind: 'shot' }, k, {}, { air }).dmg;

@@ -34,7 +34,9 @@ export function modsFromPerks(k, frenzyStacks = 0) {
     draw: 1 + k.draw, spread: Math.max(0.2, 1 - k.spread), recoil: Math.max(0.2, 1 - k.recoil),
     reserve: HORDE.reserveMul * (1 + k.reserve), finiteMags: HORDE.premiumReserveMags, nades: Math.round(k.nades), thrift: k.thrift,
     // 보조무기 마스터: 보조무기만 연사 2배 · 탄창 2배
-    sideFire: k.sideMaster > 0 ? 2 : 1, sideMag: k.sideMaster > 0 ? 2 : 1
+    sideFire: k.sideMaster > 0 ? 2 : 1, sideMag: k.sideMaster > 0 ? 2 : 1,
+    // 근력팔: 던진 뒤 딜레이 ×(1 − throwCut), 최소 10%
+    throwRecover: Math.max(0.1, 1 - (k.throwCut || 0))
   };
 }
 
