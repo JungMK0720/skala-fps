@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
 
 import { createBus } from '../js/core/bus.js';
-import { createAccount, SAVE_DEBOUNCE_MS, RETRY_MIN_MS } from '../js/account/index.js';
+import { createAccount, SAVE_DEBOUNCE_MS, RETRY_MIN_MS, REFRESH_INTERVAL_MS, REFRESH_MIN_MS } from '../js/account/index.js';
 import {
   BOT_SUFFIX, NICKNAME_CHARSET, NICKNAME_MAX, NICKNAME_MIN, NICKNAME_SPACES, RESERVED_NICKNAMES,
   cleanNickname, nicknameKey, validateNickname
@@ -24,7 +24,7 @@ import {
 import { DEFAULT_LOADOUT, WEAPON_IDS, getDef } from '../js/weapons/defs.js';
 import { DEFAULT_EMOTE_WHEEL, EMOTES, EMOTE_IDS } from '../js/core/consts.js';
 import { AVATARS, AVATAR_IDS, DEFAULT_AVATAR, avatarById, avatarIdOf, isAvatarId } from '../js/core/avatar-defs.js';
-import { ITEM_IDS } from '../js/account/economy.js';
+import { ITEM_IDS, priceTable } from '../js/account/economy.js';
 
 /** 처음 장비: 무기 3칸 + 기본 이모트 휠 + 기본 캐릭터 */
 const DEFAULT_GEAR = Object.freeze({ ...DEFAULT_LOADOUT, emotes: [...DEFAULT_EMOTE_WHEEL], avatar: DEFAULT_AVATAR });
@@ -89,23 +89,25 @@ function fakeServer() {
       const row = rows.get(p_token);
       return row ? { ok: true, profile: row } : { ok: false, error: 'NOT_FOUND' };
     },
-    fps_save_profile({ p_token, p_points, p_owned, p_loadout, p_stats, p_secrets }) {
+    fps_save_profile({ p_token, p_points, p_owned, p_loadout, p_stats, p_secrets, p_delta }) {
       const row = rows.get(p_token);
       if (!row) return { ok: false, error: 'NOT_FOUND' };
       // 진짜 서버처럼 받아들인 값을 돌려준다. capPoints를 넣으면 포인트를 그만큼으로 깎는다(늘어나는 속도 한도 흉내)
-      const points = server.capPoints == null ? p_points : Math.min(p_points, server.capPoints);
+      // p_delta가 있으면 진짜 서버처럼 '저장된 포인트 + 변화량'(운영자가 바꾼 값 위에 더한다). 없으면 옛 서버처럼 보낸 합계
+      const asked = Number.isInteger(p_delta) ? Math.max(0, row.points + p_delta) : p_points;
+      const points = server.capPoints == null ? asked : Math.min(asked, server.capPoints);
       // unpriced(id)가 true인 물건은 가격표에 없는 것처럼 버린다. 옛 서버(oldSchema)는 캐릭터를 모른다.
       // 진짜 옛 fps_save_profile처럼 모르는 물건은 버리면서 줄어든 포인트는 그대로 받아들인다
       const unpriced = server.unpriced || (server.oldSchema ? (id) => id.startsWith('av_') : null);
       const owned = unpriced ? p_owned.filter((id) => !unpriced(id)) : p_owned;
       rows.set(p_token, { ...row, points, owned, loadout: p_loadout, stats: p_stats, secrets: p_secrets });
-      return { ok: true, clamped: points !== p_points || owned.length !== p_owned.length, profile: { points, owned, stats: p_stats } };
+      return { ok: true, clamped: points !== asked || owned.length !== p_owned.length, profile: { points, owned, stats: p_stats } };
     },
     fps_top_players() {
       return { ok: true, players: [...rows.values()].map((r) => ({ name: r.name, kills: r.stats.kills || 0, wins: r.stats.wins || 0, points: r.points })) };
     },
     fps_features() {
-      return { ok: true, avatars: true };
+      return { ok: true, avatars: true, prices: server.prices || priceTable(), ...(server.delta ? { delta: true } : {}) };
     }
   };
   const server = {
@@ -115,6 +117,15 @@ function fakeServer() {
     capPoints: null,
     /** (id) => true면 저장할 때 그 물건을 owned에서 버린다 */
     unpriced: null,
+    /** fps_features가 알려 주는 서버 가격표. null이면 클라이언트와 같은 표 */
+    prices: null,
+    /** false면 p_delta를 모르는 옛 서버(fps_features에 delta가 없다) */
+    delta: true,
+    /** 운영자가 SQL Editor·Table Editor로 그 행의 포인트를 바꾼다 */
+    setPoints: (points) => {
+      const [token, row] = [...rows][0];
+      rows.set(token, { ...row, points });
+    },
     /** true면 schema.sql을 다시 실행하기 전의 서버: fps_features가 없어(404 PGRST202) 캐릭터를 모르고 가격표에도 없다 */
     oldSchema: false,
     /** Promise를 넣으면 풀릴 때까지 응답을 미룬다 */
@@ -395,7 +406,9 @@ describe('store', () => {
     const store = createStore({ storage });
     const profile = { ...defaultProfile(1000), nickname: '철수', points: 777 };
     store.save({ profile, dirty: true, pendingClaim: '철수' });
-    assert.deepEqual(store.load(), { profile, dirty: true, pendingClaim: '철수' });
+    assert.deepEqual(store.load(), { profile, dirty: true, pendingClaim: '철수', base: null }, '기준 포인트를 주지 않으면 null');
+    store.save({ profile, dirty: true, pendingClaim: '철수', base: 700 });
+    assert.equal(store.load().base, 700);
     assert.equal(storedEnvelope(storage).v, PROFILE_VERSION);
 
     const future = storedEnvelope(storage);
@@ -1015,13 +1028,14 @@ describe('createAccount 상점과 장비', () => {
     const { account, bus } = makeAccount(t, { server });
     assert.equal(account.avatarShop, 'checking');
     assert.deepEqual(account.buy('av_scout'), { ok: false, reason: 'closed', points: START_POINTS }, '묻는 동안에도 사지 못한다');
-    assert.ok(account.buy('pt_magnum').ok, '무기는 기다리지 않는다');
+    assert.equal(account.buy('pt_magnum').reason, 'closed', '무기도 서버 가격표를 받을 때까지 기다린다');
     server.gate = null;
     release();
     await account.ready;
     assert.equal(account.avatarShop, 'open');
+    assert.ok(account.buy('pt_magnum').ok, '가격표를 받으면 무기를 산다');
     assert.ok(bus.of('account:change').length >= 2, '열리면 화면이 다시 그리도록 알린다');
-    assert.equal(server.count('fps_features'), 1);
+    assert.equal(server.count('fps_features'), 1, '묻는 동안 사려 해도 같은 질문을 기다린다');
   });
 
   test('시작할 때 서버에 닿지 못하면 닫아 두고, 연결이 돌아오면(online) 다시 묻는다', async (t) => {
@@ -1248,6 +1262,126 @@ describe('createAccount 저장 디바운스', () => {
     return { ...made, server };
   }
 
+  // ───── 2026-11-20: 운영자가 DB에서 바꾼 포인트가 늘 이긴다 ─────
+  const rowPoints = (server) => [...server.rows.values()][0].points;
+
+  test('운영자가 넣어 준 포인트를 열린 탭의 저장이 지우지 않는다(변화량만 보낸다)', async (t) => {
+    const { account, server } = await onlineAccount(t);
+    const before = account.profile.points;
+    server.setPoints(before + 4000);
+    account.recordMatch({ kills: 1 });
+    const gained = account.profile.points - before;
+    assert.ok(gained > 0);
+    t.mock.timers.tick(SAVE_DEBOUNCE_MS);
+    await settle();
+    assert.equal(server.last('fps_save_profile').args.p_delta, gained, '합계가 아니라 번 만큼만 보낸다');
+    assert.equal(rowPoints(server), before + 4000 + gained, '넣어 준 4,000P가 남는다');
+    assert.equal(account.profile.points, before + 4000 + gained, '화면도 서버 값을 따른다');
+  });
+
+  test('운영자가 0으로 만든 포인트를 열린 탭이 되살리지 않는다', async (t) => {
+    const { account, server } = await onlineAccount(t);
+    const before = account.profile.points;
+    server.setPoints(0);
+    account.recordMatch({ kills: 1 });
+    const gained = account.profile.points - before;
+    t.mock.timers.tick(SAVE_DEBOUNCE_MS);
+    await settle();
+    assert.equal(rowPoints(server), gained, '0 위에 이번에 번 것만 더한다');
+    assert.equal(account.profile.points, gained);
+  });
+
+  test('운영자가 줄인 포인트에서 물건 값이 모자라면 서버가 0 아래로 내리지 않는다', async (t) => {
+    const { account, server } = await onlineAccount(t);
+    assert.ok(account.buy('pt_magnum').ok);
+    server.setPoints(100);
+    t.mock.timers.tick(SAVE_DEBOUNCE_MS);
+    await settle();
+    assert.equal(rowPoints(server), 0);
+    assert.equal(account.profile.points, 0);
+  });
+
+  test('다시 켜면 로컬이 더 커도 서버 값을 따른다', async (t) => {
+    const { account, server, storage } = await onlineAccount(t);
+    assert.ok(account.profile.points > 0);
+    server.setPoints(0);
+    const again = makeAccount(t, { server, storage }).account;
+    await again.ready;
+    assert.equal(again.profile.points, 0, '운영자가 0으로 만든 값이 남는다');
+    assert.equal(storedEnvelope(storage).sync.dirty, false, '서버와 같으니 다시 올리지 않는다');
+  });
+
+  test('탭으로 돌아오면(focus) 서버 값을 다시 읽는다. 너무 잦으면 건너뛴다', async (t) => {
+    const target = new EventTarget();
+    const { account, server } = await onlineAccount(t, { target });
+    const before = account.profile.points;
+    server.setPoints(before + 4000);
+    target.dispatchEvent(new Event('focus'));
+    await settle();
+    assert.equal(account.profile.points, before + 4000, '새로고침 없이 화면에 온다');
+    target.dispatchEvent(new Event('focus'));
+    await settle();
+    assert.equal(server.count('fps_get_profile'), 1, `${REFRESH_MIN_MS}ms 안에 다시 돌아오면 묻지 않는다`);
+    assert.equal(await account.refreshFromServer({ force: true }), true);
+    assert.equal(server.count('fps_save_profile'), 0, '읽기만 하고 저장하지 않는다');
+  });
+
+  test('탭이 보이는 동안 1분마다 서버 값을 다시 읽고, 숨어 있으면 쉰다', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+    const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+    const target = Object.assign(new EventTarget(), { document: doc });
+    const server = fakeServer();
+    const { account } = makeAccount(t, { server, target });
+    await account.ready;
+    await account.setNickname('철수');
+    t.mock.timers.tick(SAVE_DEBOUNCE_MS);
+    await settle();
+    server.setPoints(4321);
+    const reads = server.count('fps_get_profile');
+    doc.visibilityState = 'hidden';
+    t.mock.timers.tick(REFRESH_INTERVAL_MS);
+    await settle();
+    assert.equal(server.count('fps_get_profile'), reads, '숨은 탭은 묻지 않는다');
+    doc.visibilityState = 'visible';
+    t.mock.timers.tick(REFRESH_INTERVAL_MS);
+    await settle();
+    assert.equal(account.profile.points, 4321);
+  });
+
+  test('저장하는 사이에 또 벌면 서버 값 위에 그 뒤의 변화만 얹는다', async (t) => {
+    const { account, server } = await onlineAccount(t);
+    const before = account.profile.points;
+    server.setPoints(before + 4000);
+    account.recordMatch({ kills: 1 });
+    const g1 = account.profile.points - before;
+    let release;
+    server.gate = new Promise((resolve) => { release = resolve; });
+    t.mock.timers.tick(SAVE_DEBOUNCE_MS);
+    await settle();
+    account.recordMatch({ kills: 1 });
+    const g2 = account.profile.points - before - g1;
+    server.gate = null;
+    release();
+    await settle();
+    await settle();
+    assert.equal(account.profile.points, before + 4000 + g1 + g2);
+    t.mock.timers.tick(SAVE_DEBOUNCE_MS);
+    await settle();
+    assert.equal(server.last('fps_save_profile').args.p_delta, g2, '두 번째 저장은 그 뒤에 번 것만');
+    assert.equal(rowPoints(server), before + 4000 + g1 + g2);
+  });
+
+  test('p_delta를 모르는 옛 서버에는 보내지 않는다(모르는 인자라 저장이 실패하므로)', async (t) => {
+    const server = fakeServer();
+    server.delta = false;
+    const { account } = await onlineAccount(t, { server });
+    account.recordMatch({ kills: 1 });
+    t.mock.timers.tick(SAVE_DEBOUNCE_MS);
+    await settle();
+    assert.equal('p_delta' in server.last('fps_save_profile').args, false);
+    assert.equal(rowPoints(server), account.profile.points);
+  });
+
   test('2초 안의 변경은 한 번에 저장한다', async (t) => {
     const { account, server } = await onlineAccount(t);
     assert.equal(SAVE_DEBOUNCE_MS, 2000);
@@ -1290,7 +1424,7 @@ describe('createAccount 저장 디바운스', () => {
     assert.equal([...server.rows.values()][0].loadout.avatar, 'av_scout');
   });
 
-  test('schema.sql을 다시 실행하기 전의 서버: 캐릭터 구매가 닫혀 포인트를 잃지 않는다. 기본 캐릭터와 무기는 그대로', async (t) => {
+  test('schema.sql을 다시 실행하기 전의 서버: 값 있는 물건 구매가 닫혀 포인트를 잃지 않는다. 기본 캐릭터는 그대로', async (t) => {
     const server = fakeServer();
     server.oldSchema = true;
     const { account } = await onlineAccount(t, { server });
@@ -1302,16 +1436,46 @@ describe('createAccount 저장 디바운스', () => {
     assert.equal(account.buy(DEFAULT_AVATAR).reason, 'owned', '기본 캐릭터는 원래 가진다');
     assert.ok(account.equipAvatar(DEFAULT_AVATAR).ok, '기본 캐릭터 장착은 된다');
 
-    assert.ok(account.buy('pt_magnum').ok, '무기는 그대로 산다');
+    assert.equal(account.buy('pt_magnum').reason, 'closed', '가격표가 없는 옛 서버에서는 무기도 사지 않는다');
     account.recordMatch({ kills: 1 });
     t.mock.timers.tick(SAVE_DEBOUNCE_MS);
     await settle();
     const row = [...server.rows.values()][0];
-    assert.equal(account.profile.points, START_POINTS - priceOf('pt_magnum') + 15, '무기 값과 경기 보상만 반영된다');
+    assert.equal(account.profile.points, START_POINTS + 15, '경기 보상만 반영된다');
     assert.equal(row.points, account.profile.points, '서버와 포인트가 같다');
-    assert.ok(row.owned.includes('pt_magnum') && !row.owned.some((id) => id.startsWith('av_')), '옛 서버는 캐릭터를 모른다');
+    assert.ok(!row.owned.includes('pt_magnum') && !row.owned.some((id) => id.startsWith('av_')));
     assert.equal(account.isOwned(DEFAULT_AVATAR), true, '기본 캐릭터는 서버 owned에 없어도 가진다');
     assert.equal(account.avatar, DEFAULT_AVATAR);
+  });
+
+  test('서버 가격표에 없는 새 무기는 팔지 않는다: defs.js에만 넣고 schema.sql을 다시 실행하지 않은 경우(2026-11-20 4,000P 사고)', async (t) => {
+    const server = fakeServer();
+    const fresh = 'sg_shorty';
+    server.prices = Object.fromEntries(Object.entries(priceTable()).filter(([id]) => id !== fresh));
+    server.unpriced = (id) => id === fresh;   // 진짜 fps_save_profile처럼 모르는 물건은 버리고 줄어든 포인트는 받아들인다
+    const { account } = await onlineAccount(t, { server });
+    const points = account.profile.points;
+    assert.equal(account.canSell(fresh), false);
+    assert.deepEqual(account.buy(fresh), { ok: false, reason: 'closed', points }, '서버가 모르는 무기는 사지 못한다');
+    assert.equal(account.canSell('pt_magnum'), true, '서버가 아는 무기는 판다');
+    t.mock.timers.tick(SAVE_DEBOUNCE_MS);
+    await settle();
+    assert.equal([...server.rows.values()][0].points, points, '서버 포인트가 그대로다');
+
+    // 소유자가 schema.sql을 다시 실행하면 다음 구매 시도에서 다시 묻고 연다
+    server.prices = null;
+    assert.equal(account.buy(fresh).reason, 'closed');
+    await settle();
+    assert.equal(account.canSell(fresh), true);
+    server.unpriced = null;
+    assert.ok(account.buy(fresh).ok);
+  });
+
+  test('서버 가격표와 값이 다르면 팔지 않는다', async (t) => {
+    const server = fakeServer();
+    server.prices = { ...priceTable(), pt_magnum: priceOf('pt_magnum') + 100 };
+    const { account } = await onlineAccount(t, { server });
+    assert.equal(account.buy('pt_magnum').reason, 'closed');
   });
 
   test('서버가 캐릭터를 알면(fps_features avatars:true) 구매가 열리고 포인트가 서버까지 맞게 간다', async (t) => {
@@ -1504,7 +1668,7 @@ describe('syncFromRemote 병합 규칙', () => {
     assert.equal(storedEnvelope(storage).sync.dirty, false, '서버와 같으면 다시 올리지 않는다');
   });
 
-  test('닉네임은 서버, 무기는 합집합, 전적은 큰 값, 포인트는 큰 값', async (t) => {
+  test('닉네임은 서버, 무기는 합집합, 전적은 큰 값, 포인트는 서버 값(올리지 못한 변경이 없으면)', async (t) => {
     const local = {
       profile: {
         nickname: '로컬이름', points: 1200, owned: ['sm_vx3'],
@@ -1520,7 +1684,7 @@ describe('syncFromRemote 병합 규칙', () => {
     await account.ready;
     const p = account.profile;
     assert.equal(p.nickname, '서버이름');
-    assert.equal(p.points, 1200);
+    assert.equal(p.points, 900, '로컬이 더 커도 서버 값: 운영자가 줄인 포인트가 다시 켤 때 돌아오지 않는다');
     assert.ok(p.owned.includes('sm_vx3') && p.owned.includes('ar_rapid'));
     assert.equal(p.stats.kills, 50);
     assert.equal(p.stats.deaths, 9);
@@ -1550,7 +1714,8 @@ describe('syncFromRemote 병합 규칙', () => {
     const { server, storage } = withRemote(remoteRow(), local);
     const { account } = makeAccount(t, { server, storage });
     await account.ready;
-    assert.equal(account.profile.points, 100);
+    // 기준 포인트가 없는 옛 저장: 서버 값(900)이 기준이고, 서버가 모르는 이 기기의 구매(sm_vx3)만 뺀다
+    assert.equal(account.profile.points, 900 - priceOf('sm_vx3'));
     assert.equal(account.isOwned('sm_vx3'), true);
     assert.equal(account.loadout.primary, 'sm_vx3', '장비도 로컬 값');
     assert.equal(storedEnvelope(storage).sync.dirty, true);
@@ -1630,11 +1795,12 @@ describe('syncFromRemote 병합 규칙', () => {
     const server = normalizeProfile({ nickname: '철수', points: 120, owned: ['sr_heavy'] });
     assert.equal(mergeProfiles(fresh, server).points, 120);
     assert.equal(mergeProfiles(fresh, normalizeProfile({ points: 900 })).points, 900);
-    assert.equal(mergeProfiles(fresh, server, { dirty: true }).points, START_POINTS, '올리지 못한 변경이 있으면 로컬');
+    assert.equal(mergeProfiles(fresh, server, { dirty: true }).points, 120, '올리지 못한 변경이 있어도 서버 값이 기준');
+    assert.equal(mergeProfiles(fresh, server, { dirty: true, pendingPoints: 30 }).points, 150, '서버 값 + 못 올린 변화량');
+    assert.equal(mergeProfiles(fresh, server, { pendingPoints: -500 }).points, 0, '0 아래로 내려가지 않는다');
     const played = normalizeProfile({ points: START_POINTS, stats: { kills: 1 } });
-    assert.equal(mergeProfiles(played, server).points, START_POINTS, '진행이 있으면 지금처럼 큰 값');
-    const bought = normalizeProfile({ points: START_POINTS, owned: ['pt_magnum'] });
-    assert.equal(mergeProfiles(bought, server).points, START_POINTS);
+    assert.equal(mergeProfiles(played, server).points, 120, '진행이 있어도 올리지 못한 변경이 없으면 서버 값');
+    assert.equal(mergeProfiles(played, server, { serverPoints: false }).points, START_POINTS, '서버 포인트가 깨져 있으면 로컬');
   });
 
   test('mergeProfiles는 입력을 바꾸지 않는다', () => {
@@ -1648,7 +1814,8 @@ describe('syncFromRemote 병합 규칙', () => {
     assert.equal(merged.createdAt, 5);
     assert.equal(mergeProfiles(local, normalizeProfile({ createdAt: 9 }), {}).nickname, '철수', '서버에 이름이 없으면 로컬 값');
     assert.equal(mergeProfiles(local, server, { keepNickname: true }).nickname, '철수');
-    assert.equal(mergeProfiles(local, server, { dirty: true }).points, 100);
+    assert.equal(mergeProfiles(local, server, { dirty: true }).points, 200, '로컬이 더 작아도 서버 값');
+    assert.equal(mergeProfiles(local, server, { dirty: true, pendingPoints: -50 }).points, 150);
   });
 });
 
@@ -1838,7 +2005,7 @@ describe('supabase/schema.sql', () => {
     fps_check_nickname: 'text',
     fps_claim_nickname: 'text, text',
     fps_get_profile: 'text',
-    fps_save_profile: 'text, int, jsonb, jsonb, jsonb, jsonb',
+    fps_save_profile: 'text, int, jsonb, jsonb, jsonb, jsonb, int',
     fps_top_players: 'int',
     fps_features: '',
     fps_send_feedback: 'text, text, text, jsonb',
@@ -1846,7 +2013,7 @@ describe('supabase/schema.sql', () => {
   };
   const INTERNAL = {
     fps_clean_name: 'text', fps_name_error: 'text', fps_token_hash: 'text', fps_owned_ok: 'jsonb',
-    fps_item_price: 'text', fps_client_key: '', fps_rate_ok: 'text, int, interval',
+    fps_item_price: 'text', fps_price_table: '', fps_client_key: '', fps_rate_ok: 'text, int, interval',
     fps_feedback_clean: 'text', fps_feedback_stamp: ''
   };
 
@@ -1902,9 +2069,11 @@ describe('supabase/schema.sql', () => {
   });
 
   test('서버 가격표가 defs.js의 가격과 같다', () => {
-    const m = code.match(/function public\.fps_item_price[\s\S]*?\$\$;/);
-    assert.ok(m, 'fps_item_price 정의');
-    const listed = Object.fromEntries([...m[0].matchAll(/when '([A-Za-z0-9_]+)' then (\d+)/g)].map((x) => [x[1], Number(x[2])]));
+    const m = code.match(/function public\.fps_price_table\(\) returns jsonb[\s\S]*?select '(\{[\s\S]*?\})'::jsonb\s*\$\$;/);
+    assert.ok(m, 'fps_price_table 정의');
+    const listed = JSON.parse(m[1]);
+    assert.ok(code.includes("select (public.fps_price_table() ->> p_id)::int"), 'fps_item_price는 같은 표를 읽는다');
+    assert.deepEqual(listed, priceTable(), 'economy.js priceTable과 같다');
     assert.deepEqual(listed, Object.fromEntries([
       ...SHOP_WEAPONS.map((id) => [id, getDef(id).price]), ...EMOTES.map((e) => [e.id, e.price]), ...AVATARS.map((a) => [a.id, a.price])
     ]));
@@ -1914,10 +2083,10 @@ describe('supabase/schema.sql', () => {
     for (const id of ZOMBIE_ONLY) assert.ok(!m[0].includes(`'${id}'`), id);
   });
 
-  test('fps_features는 캐릭터 구매와 건의함을 연다(클라이언트가 읽는 모양 { ok:true, avatars:true, feedback:true })', () => {
+  test('fps_features는 캐릭터 구매·건의함을 열고 서버 가격표를 알린다(클라이언트가 읽는 모양 { ok:true, avatars:true, feedback:true, prices })', () => {
     const m = code.match(/function public\.fps_features\(\)[\s\S]*?\$\$;/);
     assert.ok(m, 'fps_features 정의');
-    assert.ok(m[0].includes("jsonb_build_object('ok', true, 'avatars', true, 'feedback', true)"), m[0]);
+    assert.ok(m[0].includes("jsonb_build_object('ok', true, 'avatars', true, 'feedback', true, 'prices', public.fps_price_table(), 'delta', true)"), m[0]);
     const remoteSrc = readFileSync(new URL('../js/account/remote.js', import.meta.url), 'utf8');
     assert.ok(remoteSrc.includes("call('fps_features'"), '클라이언트가 같은 이름을 부른다');
   });
@@ -1952,11 +2121,26 @@ describe('supabase/schema.sql', () => {
     assert.match(code, /revoke all on public\.fps_rate from public, anon, authenticated;/);
   });
 
+  test('운영자가 points를 바꾸면 다음 저장이 되돌리지 않는다(points_adjust, 2026-11-20)', () => {
+    assert.ok(code.includes('add column if not exists points_adjust int not null default 0'));
+    const trg = code.split('function public.fps_points_adjust_track()')[1].split('end $$;')[0];
+    assert.ok(trg.includes("current_setting('fps.saving', true)"), '저장 함수 밖의 변경만 센다');
+    assert.ok(trg.includes('new.points_adjust := old.points_adjust + (new.points - old.points)'));
+    assert.match(code, /create or replace trigger fps_points_adjust_track before update of points on public\.fps_players/);
+    const save = code.split('function public.fps_save_profile')[1].split('end $$;')[0];
+    assert.ok(save.includes('- (v.points - v.points_adjust) + v_spent'), '클라이언트가 아는 포인트를 기준으로 번 양을 센다');
+    assert.ok(save.includes('points_adjust = 0,'), '알렸으니 비운다');
+    const on = save.indexOf("set_config('fps.saving', 'on', true)");
+    const upd = save.indexOf('update public.fps_players');
+    const off = save.indexOf("set_config('fps.saving', '', true)");
+    assert.ok(on >= 0 && on < upd && upd < off, '저장하는 update만 표시한다');
+  });
+
   test('처음부터 끝까지 다시 실행해도 안전한 형태다', () => {
     assert.ok(!/create\s+table\s+(?!if not exists)/i.test(code));
     assert.ok(!/create\s+function/i.test(code), '함수는 create or replace만 쓴다');
     assert.ok(!/create\s+(unique\s+)?index\s+(?!if not exists)/i.test(code));
-    assert.ok(!/\bdrop\s/i.test(code), '데이터를 지우는 문장이 없다');
+    assert.ok(!/\bdrop\s+(?!function if exists )/i.test(code), '데이터를 지우는 문장이 없다(인자가 바뀐 함수만 지우고 다시 만든다)');
     assert.ok(!/\b(truncate|delete from)\b/i.test(code));
     assert.match(code, /create extension if not exists pgcrypto with schema extensions;/);
     assert.equal((code.match(/\$\$/g) || []).length % 2, 0, '$$ 짝이 맞는다');

@@ -292,7 +292,7 @@ account.remoteEnabled
 개인전 승리 보상은 `round(승리 × 목표 킬 / 20)`이다(`FFA_FULL_WIN_KILLS`). 멀티 10킬 판은 30, 5킬 판은 15이고 내역 줄은 "승리(10킬 판)"이다. 5킬보다 작은 값은 5킬로, `killTarget`이 없는 예전 기록과 20킬보다 긴 판(연습장 주소 값)은 표의 값 그대로다. 봇전은 줄인 값에 난이도 배율을 곱한다. 킬·헤드샷·완주 보상은 줄이지 않는다.
 
 ### Supabase (`supabase/schema.sql`, 새 프로젝트 전용)
-테이블 `public.fps_players(id, token_hash unique, name, name_key unique, points, owned jsonb, loadout jsonb, stats jsonb, secrets jsonb, created_at, updated_at)`. RLS 켜고 anon 직접 접근 없음. RPC(SECURITY DEFINER): `fps_check_nickname(p_name)`, `fps_claim_nickname(p_token, p_name)`, `fps_get_profile(p_token)`, `fps_save_profile(p_token, p_points, p_owned, p_loadout, p_stats, p_secrets)`, `fps_top_players(p_limit)`, `fps_features()`(서버가 아는 기능, 캐릭터 구매 열기). 설정 절차는 `docs/SUPABASE_SETUP.md`. 멀티 채널은 `skalafps:lobby`, `skalafps:room:<id>`이며 테이블이 필요 없다.
+테이블 `public.fps_players(id, token_hash unique, name, name_key unique, points, owned jsonb, loadout jsonb, stats jsonb, secrets jsonb, created_at, updated_at)`. RLS 켜고 anon 직접 접근 없음. RPC(SECURITY DEFINER): `fps_check_nickname(p_name)`, `fps_claim_nickname(p_token, p_name)`, `fps_get_profile(p_token)`, `fps_save_profile(p_token, p_points, p_owned, p_loadout, p_stats, p_secrets, p_delta?)`(p_delta: 포인트 변화량, 있으면 서버가 `저장된 값 + 변화량`으로 계산), `fps_top_players(p_limit)`, `fps_features()`(서버가 아는 기능: 캐릭터 구매, 건의함, 서버 가격표 prices, delta). 화면은 서버 포인트를 기준으로 하고 탭 복귀·1분마다 다시 읽는다(`docs/POINTS_SOP.md`). 설정 절차는 `docs/SUPABASE_SETUP.md`. 멀티 채널은 `skalafps:lobby`, `skalafps:room:<id>`이며 테이블이 필요 없다.
 로그인 연결·테스트 결제 절(`fps_tokens`, `fps_identities`, `fps_auth_used`, `fps_orders`, `fps_coin_ledger`, `fps_players.coins`, `fps_api_*`)은 server/api Worker만 Supabase 비밀 키로 부른다. 토큰으로 사람을 찾는 RPC는 `fps_player_id(hash)`로 처음 기기 토큰과 로그인으로 더한 토큰을 함께 본다.
 
 ## 8. UI

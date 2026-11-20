@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { createShop } from '../js/ui/shop.js';
 import { WEAPONS } from '../js/weapons/defs.js';
 import { createAccount } from '../js/account/index.js';
+import { priceTable } from '../js/account/economy.js';
 import { AVATARS, DEFAULT_AVATAR } from '../js/core/avatar-defs.js';
 
 class FakeNode {}
@@ -62,7 +63,7 @@ class FakeEl extends FakeNode {
 const CONFIG = Object.freeze({ url: 'https://proj.supabase.co', anonKey: 'sb_publishable_test' });
 
 /** 서버 대역. features가 null이면 schema.sql을 다시 실행하기 전의 서버(fps_features 404) */
-function fakeFetch({ features = { ok: true, avatars: true } } = {}) {
+function fakeFetch({ features = { ok: true, avatars: true, prices: priceTable() } } = {}) {
   return async (url) => {
     const fn = url.split('/rpc/')[1];
     if (fn === 'fps_features' && !features) return { ok: false, status: 404, json: async () => ({ code: 'PGRST202' }) };

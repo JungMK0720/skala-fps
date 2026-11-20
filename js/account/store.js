@@ -108,12 +108,6 @@ export function defaultProfile(now = Date.now()) {
   return normalizeProfile({}, now);
 }
 
-/** 시작 상태 그대로인가: 포인트·무기·전적·비밀 스팟에 아무 진행이 없다 */
-function isUntouched(p) {
-  return p.points === START_POINTS && p.owned.length === defaultOwned().length &&
-    Object.keys(p.secrets).length === 0 && STAT_KEYS.every((key) => !p.stats[key]);
-}
-
 function mergeSecrets(a, b) {
   const out = normalizeSecrets(a);
   for (const mapId of Object.keys(b)) {
@@ -135,20 +129,20 @@ function mergeSecrets(a, b) {
  *  - 무기   : 합집합
  *  - 비밀   : 합집합, 먼저 찾은 시각을 유지
  *  - 전적   : 항목별로 큰 값
- *  - 포인트 : 둘 중 큰 값. 단 서버에 올리지 못한 변경이 있으면(dirty) 로컬 값.
- *             큰 값을 그대로 쓰면 오프라인 구매가 다음 접속 때 환불되어 무기가 공짜가 된다.
- *             아무것도 하지 않은 로컬(처음 보는 기기, 초기화 직후)이면 서버 값. 시작 포인트는 번 포인트가 아니라서,
- *             큰 값을 고르면 무기를 다 산 뒤 초기화하고 다시 켜는 것만으로 포인트가 돌아온다
+ *  - 포인트 : 서버 값 + 아직 서버에 올리지 못한 변화량(pendingPoints, 부르는 쪽이 '지난번 서버 값' 기준으로 계산).
+ *             서버가 늘 기준이다. 운영자가 DB에서 바꾼 포인트도 그대로 따르고 그 위에 이 기기의 변화만 더한다(2026-11-20).
+ *             큰 값을 고르면 운영자가 줄인 포인트가 다시 켤 때 돌아오고, 무기를 다 산 뒤 초기화하고 다시 켜는 것만으로 포인트가 돌아온다.
+ *             서버가 숫자가 아닌 포인트를 보냈으면(serverPoints:false) 로컬 값
  *  - 장비   : dirty면 로컬, 아니면 서버 값. 가지지 않은 무기·캐릭터는 기본 장비로
  *  - 생성일 : 더 이른 값
  */
-export function mergeProfiles(local, server, { dirty = false, keepNickname = false } = {}) {
+export function mergeProfiles(local, server, { dirty = false, keepNickname = false, serverPoints = true, pendingPoints = 0 } = {}) {
   const owned = normalizeOwned([...local.owned, ...server.owned]);
   const stats = {};
   for (const key of STAT_KEYS) stats[key] = Math.max(local.stats[key], server.stats[key]);
   return {
     nickname: keepNickname ? local.nickname : server.nickname || local.nickname,
-    points: dirty ? local.points : isUntouched(local) ? server.points : Math.max(local.points, server.points),
+    points: serverPoints ? clampPoints(server.points + (Number(pendingPoints) || 0)) : local.points,
     owned,
     loadout: normalizeLoadout(dirty ? local.loadout : server.loadout, owned),
     stats,
@@ -198,7 +192,7 @@ function resolveStorage(injected) {
 
 /**
  * opts.storage: localStorage와 같은 getItem·setItem·removeItem 객체. null이면 저장하지 않는다.
- * 저장 형식: { v, profile, sync: { dirty, pendingClaim } }
+ * 저장 형식: { v, profile, sync: { dirty, pendingClaim, base } }. base는 마지막으로 서버에서 받은 포인트(없으면 null)
  */
 export function createStore({ storage } = {}) {
   const backing = resolveStorage(storage);
@@ -231,11 +225,12 @@ export function createStore({ storage } = {}) {
     const sync = isRecord(data.sync) ? data.sync : {};
     const pending = validateNickname(sync.pendingClaim);
     const saved = data.v === 1 ? migrateV1(data.profile) : data.profile;
-    return { profile: normalizeProfile(saved), dirty: sync.dirty === true, pendingClaim: pending.ok ? pending.name : null };
+    const base = Number.isFinite(sync.base) ? clampPoints(sync.base) : null;
+    return { profile: normalizeProfile(saved), dirty: sync.dirty === true, pendingClaim: pending.ok ? pending.name : null, base };
   }
 
-  function save({ profile, dirty, pendingClaim }) {
-    write(PROFILE_KEY, JSON.stringify({ v: PROFILE_VERSION, profile, sync: { dirty, pendingClaim } }));
+  function save({ profile, dirty, pendingClaim, base = null }) {
+    write(PROFILE_KEY, JSON.stringify({ v: PROFILE_VERSION, profile, sync: { dirty, pendingClaim, base } }));
   }
 
   /** 프로필만 지운다. 토큰은 서버 행과 닉네임의 소유 증명이라 남긴다. */

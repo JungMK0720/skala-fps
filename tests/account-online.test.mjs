@@ -8,6 +8,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createAccount, coinPriceOf } from '../js/account/index.js';
+import { priceTable } from '../js/account/economy.js';
 import { TOKEN_KEY } from '../js/account/store.js';
 import { OAUTH_KEY, authorizeUrl, cleanedUrl, pkceChallenge, readPayResult, redirectUriOf } from '../js/account/oauth.js';
 import { readApiUrl } from '../js/account/api.js';
@@ -54,7 +55,7 @@ function backend() {
   };
   const who = (t) => (b.tokens.has(t) ? b.players.get(b.tokens.get(t)) : null);
   const rpc = {
-    fps_features: () => ({ ok: true, avatars: true, feedback: true }),
+    fps_features: () => ({ ok: true, avatars: true, feedback: true, prices: priceTable() }),
     fps_get_profile: ({ p_token }) => {
       if (b.failProfile) return null;   // 아래 fetch가 500으로 바꾼다
       const p = who(p_token);

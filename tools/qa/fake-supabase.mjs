@@ -6,6 +6,7 @@
  */
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
+import { START_POINTS, priceTable } from '../../js/account/economy.js';
 
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
@@ -64,7 +65,7 @@ export async function startFakeSupabase({ takenNames = [], delayMs = 0, features
       case 'fps_claim_nickname': {
         const owner = nameOwner(a.p_name);
         if (taken.has(String(a.p_name).toLowerCase()) || (owner && owner !== a.p_token)) return { ok: false, error: 'NAME_TAKEN' };
-        players.set(a.p_token, { ...(players.get(a.p_token) || {}), name: a.p_name });
+        players.set(a.p_token, { points: START_POINTS, ...(players.get(a.p_token) || {}), name: a.p_name });   // 진짜 새 행처럼 시작 포인트
         return { ok: true, name: a.p_name };
       }
       case 'fps_get_profile': {
@@ -73,12 +74,17 @@ export async function startFakeSupabase({ takenNames = [], delayMs = 0, features
       }
       case 'fps_save_profile':
         if (!players.has(a.p_token)) return { ok: false, error: 'NOT_FOUND' };
-        players.set(a.p_token, { ...players.get(a.p_token), points: a.p_points, owned: a.p_owned, loadout: a.p_loadout, stats: a.p_stats, secrets: a.p_secrets });
-        return { ok: true };
+      {
+        // 진짜 서버처럼 p_delta가 있으면 '저장된 포인트 + 변화량', 없으면 보낸 합계
+        const row = players.get(a.p_token);
+        const points = Number.isInteger(a.p_delta) ? Math.max(0, row.points + a.p_delta) : a.p_points;
+        players.set(a.p_token, { ...row, points, owned: a.p_owned, loadout: a.p_loadout, stats: a.p_stats, secrets: a.p_secrets });
+        return { ok: true, clamped: false, profile: { points, owned: a.p_owned, stats: a.p_stats } };
+      }
       case 'fps_top_players':
         return { ok: true, players: [] };
       case 'fps_features':
-        return features ? { ok: true, avatars: true, feedback: feedbackOn } : { ok: false, error: 'UNKNOWN' };
+        return features ? { ok: true, avatars: true, feedback: feedbackOn, prices: priceTable(), delta: true } : { ok: false, error: 'UNKNOWN' };
       case 'fps_send_feedback': {
         if (!players.has(a.p_token)) return { ok: false, error: 'NOT_FOUND' };
         const body = String(a.p_body || '').trim();

@@ -1728,7 +1728,7 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
   .sk-sheet { max-height: calc(100dvh - 32px); }
   .sk-sheet-body { overscroll-behavior: contain; }
 
-  .sk-btn--sm, .sk-seg-btn, .sk-choice, .sk-tab, .sk-modepick--bar .sk-mode-btn { min-height: 40px; }
+  .sk-btn--sm, .sk-seg-btn, .sk-choice, .sk-tab, .sk-subtab, .sk-modepick--bar .sk-mode-btn { min-height: 40px; }
   .sk-range { height: 40px; touch-action: pan-y; }
   .sk-range::-webkit-slider-thumb { width: 24px; height: 24px; margin-top: -9px; }
   .sk-range::-moz-range-thumb { width: 22px; height: 22px; }
