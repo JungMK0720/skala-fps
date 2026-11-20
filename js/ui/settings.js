@@ -150,6 +150,7 @@ export function createSettingsPanel(ctx, { onClose }) {
   const done = btn('완료', onClose, 'sk-btn--primary', { 'data-autofocus': '' });
   const el = sheet({
     title: '설정',
+    kicker: 'SYSTEM SETUP',
     onClose,
     cls: 'sk-settings',
     body: [rows.map((r) => r.row), h('p', { class: 'sk-note', text: '설정은 이 브라우저에 저장되고 바로 적용돼요.' })],

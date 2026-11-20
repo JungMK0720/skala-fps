@@ -265,7 +265,7 @@ export default {
     t.check(/좀비 물량 막기/.test(quick.on) && /예비 탄 3배/.test(quick.hint), '혼자 하기는 좀비 모드를 고른 연습장 시트를 연다', quick);
     t.check(/40초/.test(quick.hint) && /레벨이 오르면 증강/.test(quick.hint) && /같이 하기/.test(quick.hint), '안내는 지금 규칙(40초 스테이지 · 레벨 업 증강 · 같이 하기)', quick.hint);
     const green = await page.eval(`(() => { const b = [...document.querySelectorAll('.sk-menu-btn')].find((x) => /좀비 물량 막기/.test(x.textContent)); const cs = getComputedStyle(b); return { bg: cs.backgroundImage, cls: b.className }; })()`);
-    const rgb = (green.bg.match(/rgb\((\d+), (\d+), (\d+)\)/) || []).slice(1).map(Number);
+    const rgb = (green.bg.match(/rgba?\((\d+), (\d+), (\d+)/) || []).slice(1).map(Number);
     t.check(/sk-menu-btn--zombie/.test(green.cls) && rgb.length === 3 && rgb[1] > rgb[0] && rgb[1] > rgb[2], '메인 메뉴의 좀비 물량 막기 버튼은 초록색이다', green);
     const quickMaps = await page.eval(`[...document.querySelectorAll('.sk-sheet .sk-mapcard-name')].map((e) => e.textContent)`);
     t.check(quickMaps.join() === '고속도로 휴게소,지하철 환승역', '좀비 모드는 좀비 전용 맵 둘만 고른다', quickMaps);

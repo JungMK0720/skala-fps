@@ -1,12 +1,13 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 마이페이지. 닉네임 변경, 포인트, 전적, 장비 3칸, 캐릭터(초상·가진 캐릭터 고르기), 찾은 비밀 스팟, 이 기기의 데이터 초기화(두 번 확인)를 보여 준다.
+ * Purpose: 마이페이지 = 요원 기록부(OPERATOR FILE). 닉네임 변경, 포인트, 전적, 장비 3칸, 캐릭터(초상·가진 캐릭터 고르기), 찾은 비밀 스팟, 이 기기의 데이터 초기화(두 번 확인)를 보여 준다.
  *          계정 연결 칸(account.online): 구글·카카오 계정 잇기, 다른 닉네임에 연결된 계정으로 이 기기를 바꿀지 묻기, 이 기기에서 로그아웃(두 번 확인).
  *          이벤트: mypage:back, mypage:shop { tab? }. 계정이 바뀌면 index.js가 다시 그린다.
  */
 import { h, btn, setText, fmtPlayTime } from './dom.js';
 import { avatarArtEl, createChoiceRow, makeScreen, pointsBadge } from './parts.js';
+import { uiIcon, weaponGlyph } from './icons.js';
 import { createNicknameField } from './nickname.js';
 import { createProviderRow, onlineState, paintNote, providerLabel } from './online.js';
 import { TEAM_IDS } from '../core/consts.js';
@@ -89,7 +90,7 @@ export function createMyPage(ctx) {
   function renderEquip() {
     const loadout = account().loadout;
     for (const r of equipRows) {
-      const items = ownedInSlot(r.slot).map((w) => ({ id: w.id, label: w.short || w.name, icon: w.icon, title: w.name }));
+      const items = ownedInSlot(r.slot).map((w) => ({ id: w.id, label: w.short || w.name, glyph: weaponGlyph(w.id, w.slot), title: w.name }));
       r.row.set(items, loadout[r.key]);
       const def = ctx.weapons.get(loadout[r.key]);
       setText(r.current, def ? def.name : loadout[r.key]);
@@ -104,7 +105,7 @@ export function createMyPage(ctx) {
     label: '캐릭터 고르기', cls: 'sk-my-avchoices',
     onPick: (id) => { const a = account(); if (typeof a.equipAvatar === 'function') a.equipAvatar(id); renderAvatar(); }
   });
-  const avShopBtn = btn('캐릭터 상점', () => ctx.emit('mypage:shop', { tab: 'avatar' }), 'sk-btn--sm');
+  const avShopBtn = btn('캐릭터 무기고', () => ctx.emit('mypage:shop', { tab: 'avatar' }), 'sk-btn--sm');
 
   function renderAvatar() {
     const a = account();
@@ -112,7 +113,7 @@ export function createMyPage(ctx) {
     setText(avName, now.name);
     setText(avDesc, now.desc);
     avArt.paint(ctx.avatarArt, TEAM_IDS[0], now);
-    avRow.set(AVATARS.filter((x) => a.isOwned(x.id)).map((x) => ({ id: x.id, label: x.name, icon: x.icon, title: x.name })), now.id);
+    avRow.set(AVATARS.filter((x) => a.isOwned(x.id)).map((x) => ({ id: x.id, label: x.name, title: x.name })), now.id);
   }
 
   // ---------- 비밀 스팟 ----------
@@ -193,7 +194,7 @@ export function createMyPage(ctx) {
     logoutText, h('div', { class: 'sk-row' }, logoutYes, logoutNo));
   const logoutBtn = btn('이 기기에서 로그아웃', openLogout, 'sk-btn--danger sk-btn--sm sk-my-logout');
   const linkPanel = h('section', { class: 'sk-panel sk-steel sk-my-link', hidden: true },
-    h('h2', { class: 'sk-panel-title', text: '계정 연결' }), linkState, linkRow.el, switchBox, logoutBtn, logoutBox, linkNote);
+    h('h2', { class: 'sk-panel-title' }, uiIcon('lock'), '계정 연결'), linkState, linkRow.el, switchBox, logoutBtn, logoutBox, linkNote);
 
   function openLogout() {
     logoutBox.hidden = false;
@@ -239,38 +240,38 @@ export function createMyPage(ctx) {
   }
 
   // ---------- 화면 ----------
-  const backBtn = btn('← 메뉴', back, 'sk-btn--ghost');
-  const shopBtn = btn('상점으로', () => ctx.emit('mypage:shop', {}), 'sk-btn--sm');
+  const backBtn = btn([uiIcon('back'), h('span', { text: '메뉴' })], back, 'sk-btn--ghost', { 'aria-label': '메뉴로' });
+  const shopBtn = btn('무기고로', () => ctx.emit('mypage:shop', {}), 'sk-btn--sm');
 
-  const el = h('section', { class: 'sk-screen sk-page sk-mypage', hidden: true, tabindex: '-1', 'aria-label': '마이페이지' },
+  const el = h('section', { class: 'sk-screen sk-page sk-mypage', hidden: true, tabindex: '-1', 'aria-label': '요원 기록부' },
     h('div', { class: 'sk-page-inner' },
       h('header', { class: 'sk-bar' },
         backBtn,
         h('div', { class: 'sk-bar-title' },
-          h('h1', { class: 'sk-h1 sk-stencil', text: '마이페이지' }),
+          h('p', { class: 'sk-kicker', text: 'OPERATOR FILE', 'aria-hidden': 'true' }),
+          h('h1', { class: 'sk-h1 sk-stencil', text: '요원 기록부' }),
           h('p', { class: 'sk-bar-sub' }, h('span', { text: '지금 닉네임 · ' }), nameNow)),
         points.el),
-      h('div', { class: 'sk-hazard sk-hazard--thin', 'aria-hidden': 'true' }),
       h('div', { class: 'sk-my-grid' },
         h('div', { class: 'sk-my-col' },
           h('section', { class: 'sk-panel sk-steel' },
-            h('h2', { class: 'sk-panel-title', text: '닉네임 변경' }), nameForm, nameNote),
+            h('h2', { class: 'sk-panel-title' }, uiIcon('user'), '닉네임 변경'), nameForm, nameNote),
           h('section', { class: 'sk-panel sk-steel' },
             h('div', { class: 'sk-my-panelhead' },
-              h('h2', { class: 'sk-panel-title', text: '장비' }), shopBtn),
+              h('h2', { class: 'sk-panel-title' }, uiIcon('armory'), '장비'), shopBtn),
             equipRows.map((r) => r.el)),
           h('section', { class: 'sk-panel sk-steel sk-my-avatar' },
             h('div', { class: 'sk-my-panelhead' },
-              h('h2', { class: 'sk-panel-title', text: '캐릭터' }), avShopBtn),
+              h('h2', { class: 'sk-panel-title' }, uiIcon('helmet'), '캐릭터'), avShopBtn),
             h('div', { class: 'sk-my-avnow' }, avArt.el, h('div', { class: 'sk-my-avtext' }, avName, avDesc)),
             avRow.el)),
         h('div', { class: 'sk-my-col' },
           linkPanel,
           h('section', { class: 'sk-panel sk-steel' },
-            h('h2', { class: 'sk-panel-title', text: '전적' }), statGrid),
+            h('h2', { class: 'sk-panel-title' }, uiIcon('target'), '전적'), statGrid),
           h('section', { class: 'sk-panel sk-steel' }, secretsTitle, secretsBox),
           h('section', { class: 'sk-panel sk-steel' },
-            h('h2', { class: 'sk-panel-title', text: '데이터' }), resetBtn, resetBox)))));
+            h('h2', { class: 'sk-panel-title' }, uiIcon('alert'), '데이터'), resetBtn, resetBox)))));
 
   // 입력칸에서 친 키는 index.js가 전파를 막으므로 캡처 단계에서 듣는다. 게이트가 위에 떠 있으면(inert) 무시한다.
   ctx.listen(window, 'keydown', (e) => {

@@ -296,7 +296,7 @@ export default {
     t.setSection('상점: 이모트 휠');
     page = await openGame(t, '', { profile: { nickname: NICK, points: 1000, createdAt: 1 }, settings: LOW_QUALITY, screen: 'menu' });
     await page.waitFor('__qa.ui.isVisible("menu")', 5000, { label: '메뉴' });
-    await page.clickText('.sk-menu-btn--sub', '상점');
+    await page.clickText('.sk-menu-btn--sub', '무기고');
     await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '상점' });
     await page.clickText('.sk-shop .sk-tab', '이모트');
     const emo = (id) => `.sk-emo-card[aria-label="${id}"]`;
@@ -365,7 +365,7 @@ export default {
     page = await openGame(t, '', { profile: { nickname: NICK, points: 1000, createdAt: 1 }, settings: LOW_QUALITY, screen: 'menu' });
     await page.waitFor('__qa.ui.isVisible("menu")', 5000, { label: '메뉴' });
     t.check((await page.eval('__qa.ctx.account.avatar')) === DEFAULT_AVATAR, '처음에는 기본 캐릭터');
-    await page.clickText('.sk-menu-btn--sub', '상점');
+    await page.clickText('.sk-menu-btn--sub', '무기고');
     await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '상점' });
     await page.clickText('.sk-shop .sk-tab', '캐릭터');
     const av = (name) => `.sk-av-card[aria-label="${name}"]`;
@@ -416,7 +416,7 @@ export default {
     await page.waitFor('__qa.ui.isVisible("mypage")', 3000, { label: '마이페이지로' });
     await page.press('Escape');
     await page.waitFor('__qa.ui.isVisible("menu")', 3000, { label: '메뉴로' });
-    await page.clickText('.sk-menu-btn--sub', '상점');
+    await page.clickText('.sk-menu-btn--sub', '무기고');
     await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '메뉴에서 상점' });
     t.check((await textOf(page, '.sk-shop .sk-tab.is-on')) === '캐릭터', '메뉴에서 다시 열면 보던 탭 그대로', await textOf(page, '.sk-shop .sk-tab.is-on'));
     await page.click('.sk-shop .sk-btn--ghost');

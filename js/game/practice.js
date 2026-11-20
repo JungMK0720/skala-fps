@@ -42,6 +42,7 @@ import { quickRespawnCost, withQuickRespawns } from '../account/economy.js';
 import { startHordeSolo } from './horde/solo.js';
 import { h, btn } from '../ui/dom.js';
 import { sheet, createModal, mapCard } from '../ui/parts.js';
+import { mapIcon } from '../ui/icons.js';
 
 export const PRACTICE_DEFAULTS = Object.freeze({ mapId: 'alley', mode: 'ffa', ruleset: 'classic', size: 2, ffaBots: 5, difficulty: 'normal', timeScale: 1 });
 /** 규칙을 고르면 먼저 선택되는 맵 */
@@ -1109,10 +1110,16 @@ export function createPractice({ ctx, world, ui }) {
   };
 }
 
-/* ============================================================ 시작 설정 시트 (규칙 · 모드 · 맵 · 인원 · 난이도) */
+/* ============================================================ 시작 설정 시트 = 작전 브리핑 (규칙 · 모드 · 맵 · 인원 · 난이도) */
+
+/** 브리핑 왼쪽 칸의 목표 한 줄 */
+const BRIEF_GOAL = Object.freeze({ team: '적 팀 섬멸 · 5판 3선승', ffa: '먼저 20킬 · 모두가 적', bomb: 'A·B 구역에 폭탄 설치 또는 해체', zombie: '스테이지마다 몰려오는 좀비 저지' });
+/** 봇 난이도 → 위험도 */
+const BRIEF_THREAT = Object.freeze({ easy: '낮음', normal: '보통', hard: '높음' });
 
 /**
- * 메뉴의 연습장을 누르면 여는 설정 시트(규칙 → 모드 → 맵 → 인원 → 난이도). UI 모듈의 부품(sheet·mapCard·sk-seg)을 그대로 쓴다.
+ * 메뉴의 연습장을 누르면 여는 설정 시트 = 작전 브리핑(규칙 → 모드 → 맵 → 인원 → 난이도). UI 모듈의 부품(sheet·mapCard·sk-seg)을 그대로 쓴다.
+ * 왼쪽 칸은 고른 맵을 위에서 본 평면도와 목표·위험도·인원 요약이다(.sk-brief-intel).
  * @param {{ ui, maps, onStart:(opts)=>void }} o
  */
 export function createPracticeSetup({ ui, maps, onStart }) {
@@ -1143,7 +1150,27 @@ export function createPracticeSetup({ ui, maps, onStart }) {
     const fixed = (m) => m === 'bomb' || m === 'zombie';
     if (fixed(sel.mode)) sel.ruleset = 'classic';
     const mapBox = h('div', { class: 'sk-mapcards', role: 'radiogroup', 'aria-label': '맵 선택' });
-    const drawMaps = () => mapBox.replaceChildren(...mapsFor(maps, sel.ruleset, sel.mode).map((m) => mapCard(m, { selected: m.id === sel.mapId, onPick: (id) => { sel.mapId = id; drawMaps(); } })));
+    // 브리핑 요약: 고른 맵 평면도 · 목표 · 위험도 · 인원
+    const intelMap = h('div', { class: 'sk-brief-map' });
+    const intelName = h('b', { class: 'sk-brief-mapname' });
+    const intelEn = h('span', { class: 'sk-brief-mapen' });
+    const intelRows = h('dl', { class: 'sk-brief-rows' });
+    const intel = h('aside', { class: 'sk-brief-intel', 'aria-label': '작전 요약' },
+      h('p', { class: 'sk-kicker', text: 'AREA OF OPERATIONS', 'aria-hidden': 'true' }),
+      intelMap, h('div', { class: 'sk-brief-mapline' }, intelName, intelEn), intelRows);
+    let intelMapId = null;
+    const drawIntel = () => {
+      const m = mapsFor(maps, sel.ruleset, sel.mode).find((x) => x.id === sel.mapId);
+      if (intelMapId !== sel.mapId) { intelMapId = sel.mapId; intelMap.replaceChildren(mapIcon(sel.mapId, 'sk-brief-plan')); }
+      intelName.textContent = m ? m.name : '맵 미정';
+      intelEn.textContent = m && m.nameEn ? m.nameEn : '';
+      const zombie = sel.mode === 'zombie';
+      const crew = zombie ? '혼자' : sel.mode === 'ffa' ? `나 + 봇 ${sel.ffaBots}` : `${sel.size} vs ${sel.size}`;
+      const threat = zombie ? '높음' : BRIEF_THREAT[sel.difficulty] || '보통';
+      intelRows.replaceChildren(...[['목표', BRIEF_GOAL[sel.mode] || BRIEF_GOAL.team], ['위험도', threat], ['인원', crew], ['규칙', rulesetOf(sel.ruleset).name]]
+        .map(([k, v]) => h('div', { class: 'sk-brief-row' + (k === '위험도' ? ` is-${threat === '높음' ? 'high' : threat === '낮음' ? 'low' : 'mid'}` : '') }, h('dt', { text: k }), h('dd', { text: v }))));
+    };
+    const drawMaps = () => { mapBox.replaceChildren(...mapsFor(maps, sel.ruleset, sel.mode).map((m) => mapCard(m, { selected: m.id === sel.mapId, onPick: (id) => { sel.mapId = id; drawMaps(); } }))); drawIntel(); };
     sel.mapId = validMapFor(maps, sel.ruleset, sel.mapId, sel.mode);
     drawMaps();
     // 규칙을 바꾸면 그 규칙의 대표 맵으로 옮긴다
@@ -1164,7 +1191,7 @@ export function createPracticeSetup({ ui, maps, onStart }) {
     const countBox = h('div', { class: 'sk-seg', role: 'radiogroup', 'aria-label': '인원' });
     const drawCount = () => {
       const key = countKey();
-      countBox.replaceChildren(...countItems().map(([v, text]) => btn(text, () => { sel[key] = v; drawCount(); },
+      countBox.replaceChildren(...countItems().map(([v, text]) => btn(text, () => { sel[key] = v; drawCount(); drawIntel(); },
         'sk-seg-btn' + (sel[key] === v ? ' is-on' : ''), { role: 'radio', 'aria-checked': sel[key] === v ? 'true' : 'false' })));
     };
     drawCount();
@@ -1177,7 +1204,7 @@ export function createPracticeSetup({ ui, maps, onStart }) {
       zombie: '혼자 스테이지마다 몰려오는 좀비를 막아요 · 스테이지는 40초씩 · 탄은 스테이지 사이에 채워지지 않고(예비 탄 3배) 좀비를 잡아 레벨이 오르면 증강을 골라요(고르는 동안 멈춤) · 3스테이지마다 보스 · 무기는 시작 전에 N으로 고르고, 좀비가 떨어뜨린 탄창을 주워요. 친구와 하려면 메뉴의 좀비 물량 막기 → 같이 하기(최대 4명).'
     };
     let shownMode = sel.mode;
-    const diff = field('봇 난이도', seg(() => [['easy', '쉬움'], ['normal', '보통'], ['hard', '어려움']], 'difficulty', '난이도'));
+    const diff = field('봇 난이도', seg(() => [['easy', '쉬움'], ['normal', '보통'], ['hard', '어려움']], 'difficulty', '난이도', () => drawIntel()));
     const drawMode = () => {
       count.lab.textContent = sel.mode === 'ffa' ? '봇 수 (나 + 봇, 최대 8명)' : '인원 (나 + 봇)';
       hint.textContent = HINTS[sel.mode] || HINTS.team;
@@ -1185,6 +1212,7 @@ export function createPracticeSetup({ ui, maps, onStart }) {
       count.el.hidden = sel.mode === 'zombie';
       diff.el.hidden = sel.mode === 'zombie';
       drawCount();
+      drawIntel();
       if (sel.mode !== shownMode) {
         // 폭파 미션·좀비 ↔ 다른 모드: 규칙과 맵 목록이 달라진다
         if (fixed(sel.mode) && !fixed(shownMode)) ruleBeforeBomb = sel.ruleset;
@@ -1199,7 +1227,7 @@ export function createPracticeSetup({ ui, maps, onStart }) {
         shownMode = sel.mode;
       }
     };
-    const modeItems = () => [['team', MODE_NAME.team], ['ffa', MODE_NAME.ffa], ...(bombOk ? [['bomb', MODE_NAME.bomb]] : []), ['zombie', `🧟 ${MODE_NAME.zombie}`]];
+    const modeItems = () => [['team', MODE_NAME.team], ['ffa', MODE_NAME.ffa], ...(bombOk ? [['bomb', MODE_NAME.bomb]] : []), ['zombie', MODE_NAME.zombie]];
     const modeBox = seg(modeItems, 'mode', '모드', drawMode);
     drawMode();
     const start = btn('출격', () => {
@@ -1210,16 +1238,19 @@ export function createPracticeSetup({ ui, maps, onStart }) {
       onStart({ mapId: sel.mapId, mode: sel.mode, ruleset: sel.ruleset, size: sel.size, bots: sel.ffaBots, difficulty: sel.difficulty });
     }, 'sk-btn--primary', { 'data-autofocus': '' });
     return sheet({
-      title: '연습장 · 봇전',
-      body: [
-        field('규칙', ruleBox).el,
-        ruleHint,
-        field('모드', modeBox).el,
-        field('맵', mapBox).el,
-        count.el,
-        diff.el,
-        hint
-      ],
+      title: '작전 브리핑 · 연습장',
+      kicker: 'MISSION BRIEFING',
+      cls: 'sk-brief-sheet',
+      body: h('div', { class: 'sk-brief' },
+        intel,
+        h('div', { class: 'sk-brief-form' },
+          field('규칙', ruleBox).el,
+          ruleHint,
+          field('모드', modeBox).el,
+          field('맵', mapBox).el,
+          count.el,
+          diff.el,
+          hint)),
       foot: [btn('취소', () => modal.close(), 'sk-btn--ghost'), start],
       onClose: () => modal.close()
     });

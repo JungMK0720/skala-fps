@@ -307,7 +307,7 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
       // 이 기기에는 다른 닉네임이 있다: 바꿀지 먼저 묻는다(마이페이지의 계정 연결 칸)
       pending = { kind: 'switch', ticket: ex.ticket, provider: p.id, providerName: p.name, name: linkedName, at: Date.now() };
       say('warn', `이 ${p.name} 계정은 '${linkedName}' 닉네임에 연결돼 있어요.`);
-      tell('warn', `이 ${p.name} 계정은 '${linkedName}' 닉네임에 연결돼 있어요. 마이페이지에서 이 기기를 바꿀지 골라 주세요.`, 'mypage');
+      tell('warn', `이 ${p.name} 계정은 '${linkedName}' 닉네임에 연결돼 있어요. 요원 기록부에서 이 기기를 바꿀지 골라 주세요.`, 'mypage');
       changed();
       return;
     }
@@ -344,7 +344,7 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
         linkNow(p.provider, p.ticket);
         return;
       }
-      say('bad', `${p.providerName} 로그인 시간이 지나 연결하지 못했어요. 마이페이지에서 다시 연결해 주세요.`);
+      say('bad', `${p.providerName} 로그인 시간이 지나 연결하지 못했어요. 요원 기록부에서 다시 연결해 주세요.`);
     }
     refresh();
   }

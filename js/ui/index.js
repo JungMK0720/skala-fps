@@ -261,6 +261,8 @@ export function createUI(rootEl, options = {}) {
     hide,
     update,
     isVisible: (name) => !!(screens[name] && screens[name].visible),
+    /** 메뉴(작전 지휘소) 가운데 3D 대원 무대 요소(.sk-operator-stage). 3D 미리 보기 캔버스를 이 안에 붙인다 */
+    operatorStage: () => screens.menu.operatorStage,
     needsCursor: () => cursorNeeded,
     /** 포커스가 UI 텍스트 입력칸에 있는가(엔진 키 처리 무시용) */
     isTyping: () => root.contains(document.activeElement) && isTextField(document.activeElement),

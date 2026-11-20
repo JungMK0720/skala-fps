@@ -9,6 +9,7 @@
  */
 import { h, setText, isTextField } from './dom.js';
 import { barMeters, createChoiceRow, makeScreen, normWeapon, summaryChips } from './parts.js';
+import { uiIcon, weaponGlyph } from './icons.js';
 import { pickableWeapons, rulesetOf } from '../game/modes.js';
 
 const EXTRA_SLOTS = [['secondary', 2, '보조'], ['melee', 3, '근접'], ['grenade', 4, '투척']];
@@ -92,7 +93,7 @@ export function createLoadout(ctx) {
       title: w.name, onclick: () => pick(w.id, false),
     },
       keyLabel(i) ? h('kbd', { class: 'sk-key', text: keyLabel(i) }) : null,
-      h('span', { class: 'sk-lc-ico', text: w.icon, 'aria-hidden': 'true' }),
+      h('span', { class: 'sk-lc-ico', 'aria-hidden': 'true' }, uiIcon(weaponGlyph(w.id, w.slot))),
       h('span', { class: 'sk-lc-txt' },
         h('span', { class: 'sk-lc-name' },
           h('span', { class: 'sk-lc-full', text: detail ? w.name : w.short }),
@@ -125,7 +126,7 @@ export function createLoadout(ctx) {
     return h('button', { type: 'button', class: 'sk-lo-card' + (sel ? ' is-sel' : ''), title: w.name, onclick: () => pick(w.id, false) },
       h('span', { class: 'sk-lo-head' },
         keyLabel(i) ? h('kbd', { class: 'sk-key', text: keyLabel(i), title: `${i + 1}번 키` }) : null,
-        h('span', { class: 'sk-lo-ico', text: w.icon, 'aria-hidden': 'true' }),
+        h('span', { class: 'sk-lo-ico', 'aria-hidden': 'true' }, uiIcon(weaponGlyph(w.id, w.slot))),
         h('span', { class: 'sk-lo-names' },
           h('span', { class: 'sk-lo-name', text: w.name }),
           w.tagline ? h('span', { class: 'sk-lo-tagline', text: w.tagline }) : null)),
@@ -168,7 +169,7 @@ export function createLoadout(ctx) {
       // 좀비 전용 무기(유탄 발사기·바주카포)는 증강으로만 얻으므로 빠른 교체 줄에 넣지 않는다. 상점에서 파는 좀비 전용 무기(shop)는 좀비 모드 창(free)에만 넣는다
       const list = [...ctx.weapons.values()].filter((w) => w.slot === r.slot && (!w.zombieOnly || (w.shop && p.free)) && (p.free || a.isOwned(w.id)));
       const sel = p.free ? (p.current && p.current[r.key]) || null : a.loadout[r.key];
-      r.row.set(list.map((w) => ({ id: w.id, label: w.short || w.name, icon: w.icon, title: w.name })), sel);
+      r.row.set(list.map((w) => ({ id: w.id, label: w.short || w.name, glyph: weaponGlyph(w.id, w.slot), title: w.name })), sel);
     }
     extras.hidden = !shown;
   }
