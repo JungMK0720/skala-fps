@@ -1,0 +1,22 @@
+#!/bin/sh
+# Date: 06NOV2026
+# Author: Minkyu Jung
+# Purpose: 기록에서 지운 이모트 음원(docs/HISTORY_PURGE.md)이 옛 클론에서 다시 올라가지 않게 push를 막는다.
+#          설치: cp tools/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+#          (core.hooksPath를 바꾸지 않는다: .git/hooks의 다른 훅(commit-msg 등)이 꺼진다.)
+BLOBS="6d5370e1ebf76f4046f0a004d38de9f5f9ae387d a3b264007729d240285c8e6dbe7fcdc94314123f a5a488ccb0adc219009c9be8401c31cefa514001 c82b73f80621205f222294ee89f44109eb7f0f98 d071caed0cddb015de4ff5a8d5c8db08d2cd4154 e9c2afc3c2b76f1fcfbdb1e1a038c7134d6dfd25"
+ZERO=0000000000000000000000000000000000000000
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$ZERO" ] && continue
+  if [ "$remote_sha" = "$ZERO" ]; then range="$local_sha"; else range="$remote_sha..$local_sha"; fi
+  objects=$(git rev-list --objects "$range" 2>/dev/null | cut -d' ' -f1)
+  for b in $BLOBS; do
+    if printf '%s\n' "$objects" | grep -qx "$b"; then
+      echo "pre-push: $local_ref 에 기록에서 지운 이모트 음원($b)이 들어 있습니다." >&2
+      echo "pre-push: 이 클론은 옛 기록입니다. 새로 clone한 뒤 작업을 옮기세요(docs/HISTORY_PURGE.md)." >&2
+      exit 1
+    fi
+  done
+done
+exit 0
