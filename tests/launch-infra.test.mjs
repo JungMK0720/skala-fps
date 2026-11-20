@@ -45,7 +45,7 @@ function assertHeaders(html, headers) {
 
 test('Pages 실제 CSP는 index.html과 같고 포털 프레임만 추가 허용한다', () => {
   assertHeaders(content(root, 'index.html'), content(root, '_headers'));
-  const headers = content(root, '_headers');
+  const headers = content(root, '_headers').replace(/\r\n/g, '\n');   // Windows 작업 사본은 CRLF일 수 있다
   assert.match(headers, /X-Content-Type-Options: nosniff/);
   assert.match(headers, /Referrer-Policy: strict-origin-when-cross-origin/);
   assert.match(headers, /Permissions-Policy: camera=\(\), microphone=\(\), geolocation=\(\), payment=\(\)/);
