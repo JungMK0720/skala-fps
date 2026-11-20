@@ -123,7 +123,7 @@ const count = (log, type) => (log.events[type] ? log.events[type].length : 0);
 const horiz = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
 
 describe('칼전 봇', () => {
-  for (const melee of MELEE_IDS) {
+  for (const melee of MELEE_IDS.filter((id) => !WEAPONS[id].zombieOnly)) {
     test(`${melee}: 벽을 돌아 다가가서 벤다`, () => {
       const target = enemyAt(30, -14);
       const r = makeRunner({ pick: melee, ruleset: 'knife', start: [-30, -14] });
@@ -566,7 +566,7 @@ describe('봇 무기 뽑기', () => {
 
   test('스나전은 모두 저격총, 칼전은 나이프와 카타나', () => {
     assert.ok([...drawMany('sniper').keys()].every((id) => getDef(id).kind === 'sniper'));
-    assert.deepEqual([...drawMany('knife').keys()].sort(), [...MELEE_IDS].sort());
+    assert.deepEqual([...drawMany('knife').keys()].sort(), MELEE_IDS.filter((id) => !WEAPONS[id].zombieOnly).sort());
   });
 
   test('botWeapon 지정: 쓸 수 있는 무기면 그대로, 아니면 확률표', () => {

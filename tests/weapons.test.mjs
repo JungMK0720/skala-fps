@@ -110,7 +110,7 @@ describe('무기 표(DESIGN 3.2)', () => {
     assert.equal(isWeaponAllowed('classic', 'mg_m249', 'yes'), false, '정확히 true일 때만 연다');
     assert.equal(isWeaponAllowed('knife', 'mg_m249', true), false);
     assert.equal(isWeaponAllowed('sniper', 'mg_m249', true), false);
-    assert.deepEqual(pickableWeapons('knife', null, true), [...MELEE_IDS]);
+    assert.deepEqual(pickableWeapons('knife', null, true), MELEE_IDS.filter((id) => !WEAPONS[id].cardOnly));
     assert.deepEqual([...pickableWeapons('sniper', null, true)].sort(), [...SNIPER_IDS].sort());
   });
 
@@ -1764,7 +1764,7 @@ describe('규칙(modes.js)', () => {
 
   test('칼전은 칼만 허용한다', () => {
     for (const id of ALL_IDS) assert.equal(isWeaponAllowed('knife', id), MELEE_IDS.includes(id), id);
-    assert.deepEqual(pickableWeapons('knife'), [...MELEE_IDS]);
+    assert.deepEqual(pickableWeapons('knife'), MELEE_IDS.filter((id) => !WEAPONS[id].zombieOnly));
     assert.equal(defaultPick('knife'), 'ml_knife');
   });
 

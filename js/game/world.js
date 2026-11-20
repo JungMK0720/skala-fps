@@ -738,6 +738,7 @@ function buildWorld(ctx, opts) {
   /** 라운드 전환: 투사체·이펙트·예약 소리·관전 정리(액터는 유지) */
   function reset() {
     closeSwap();
+    swordHold = null;
     if (nades) nades.clear();
     c4Stuck.clear(); axeHits.clear(); clearWells();
     for (const m of nadeMeshes) { m.visible = false; m.userData.pillar.visible = false; }
@@ -758,6 +759,7 @@ function buildWorld(ctx, opts) {
   function spawnLocal(o = {}) {
     if (!map) throw new Error('spawnLocal: 먼저 loadMap()을 부르세요');
     cancelLocalEmote('spawn');
+    swordHold = null;
     if (o.id != null && String(o.id)) { local.id = String(o.id); player.state.id = local.id; }
     if (o.name) { local.name = String(o.name); player.state.name = local.name; }
     // 팀전: owner/charterer. 개인전: 팀 없음(null) — 아군 이름표 없음, 뷰모델 소매는 남색
@@ -1432,6 +1434,12 @@ function buildWorld(ctx, opts) {
       ? horde.melee(eye, fwd, num(ev.range, 1.8), num(ev.arc, 0.6), worldLos)
       : meleeTrace(map.world, eye, fwd, num(ev.range, 1.8), num(ev.arc, 0.6), targets(), local.id);
     const def = getDef(ev.weaponId);
+    const yasuo = zombie && ev.weaponId === 'ml_yasuo';
+    const shotId = ++shotSeq;
+    if (yasuo) emit('hitClaim', {
+      victimId: 'z0', part: ev.kind === 'stab' ? 'stab' : 'slash', weaponId: ev.weaponId,
+      dist: 0, kind: 'yasuoSwing', t: performance.now(), shotId
+    });
     if (hit) {
       if (zombie) horde.noteHit(hit.id);
       if (def) play(def.hitSound);
@@ -1439,11 +1447,11 @@ function buildWorld(ctx, opts) {
       protectUntil = 0;
       emit('hitClaim', {
         victimId: hit.id, part: hit.part, weaponId: ev.weaponId, dist: hit.dist, kind: ev.kind === 'stab' ? 'stab' : 'slash',
-        t: performance.now(), point: hit.point, origin: r3(eye), count: 1, shotId: ++shotSeq
+        t: performance.now(), point: hit.point, origin: r3(eye), count: 1, shotId
       });
     }
     // 좀비 물량 막기 '검기': 우클릭 찌르기에만 검기가 나간다. 좌클릭 베기는 칼 타격만 한다.
-    if (zombie && ev.kind === 'stab' && hordePerk.waveRange > 0) launchWave(ev, eye, fwd, hit ? hit.id : null, def);
+    if (zombie && !yasuo && ev.kind === 'stab' && hordePerk.waveRange > 0) launchWave(ev, eye, fwd, hit ? hit.id : null, def);
   }
 
   /**
@@ -1824,7 +1832,7 @@ function buildWorld(ctx, opts) {
       const av = avatars.get(String(o.id));
       if (av) av.swing(o.kind);                  // 3인칭: 든 칼을 휘두른다
       // 우클릭 찌르기의 검기만 재현한다. 베기 애니메이션에는 검기가 없다.
-      const range = mode === 'zombie' && o.kind === 'stab' ? waveRangeOfActor(String(o.id)) : 0;
+      const range = mode === 'zombie' && o.kind === 'stab' && w !== 'ml_yasuo' ? waveRangeOfActor(String(o.id)) : 0;
       if (range > 0) {
         const m = def.melee.stab;
         horde.wave({
@@ -1965,7 +1973,8 @@ function buildWorld(ctx, opts) {
   }
 
   /* ---------- 루프 ---------- */
-  const localCanMove = () => controls && rnd.phase !== 'loadout' && rnd.phase !== 'matchEnd' && local.spawned && local.alive && !(stunUntil > performance.now());
+  let swordHold = null;
+  const localCanMove = () => !swordHold && controls && rnd.phase !== 'loadout' && rnd.phase !== 'matchEnd' && local.spawned && local.alive && !(stunUntil > performance.now());
   /** 무기 입력을 받을 수 있는가: 움직일 수 있고, 입력이 켜져 있고, 커서가 필요한 화면·이모트·휠이 없을 때 */
   const localCanAct = () => localCanMove() && input.enabled && !(ui && ui.needsCursor()) && !emoteLocal && !wheel.open;
   /**
@@ -1988,6 +1997,7 @@ function buildWorld(ctx, opts) {
     clock += dt;
     runScheduled();
     const st = player.state;
+    if (swordHold) player.teleport({ x: swordHold[0], y: swordHold[1], z: swordHold[2] });
     syncFrozen();
     syncLocalEmote();
     const canAct = localCanAct();
@@ -2283,6 +2293,22 @@ function buildWorld(ctx, opts) {
       const ok = arsenal.equipWith(id);
       if (ok) { settleArsenal(); play('switch', { gain: 0.8 }); }
       return ok;
+    },
+    /** 카드 전용 칼은 좀비 모드에서만 즉시 장비한다. */
+    equipHordeMelee(id) {
+      const def = getDef(id);
+      if (mode !== 'zombie' || !def || !def.cardOnly || def.slot !== 3 || !local.spawned || !local.alive) return false;
+      if (arsenal.getLoadout().melee === id) return false;
+      const ok = arsenal.equipWith(id);
+      if (ok) { settleArsenal(); play('switch', { gain: 0.8 }); }
+      return ok;
+    },
+    /** 방장이 확인한 2초 공중 연타: 입력을 묶고 위치를 고정한다. 착지 이벤트에서 해제한다. */
+    hordeSwordPosition(pos, hold = false) {
+      if (mode !== 'zombie' || !local.spawned || !local.alive || !Array.isArray(pos) || !pos.every(Number.isFinite)) return;
+      swordHold = hold ? pos : null;
+      player.teleport({ x: pos[0], y: pos[1], z: pos[2] });
+      syncFrozen();
     },
     /** (좀비 물량 막기 증강) 보조무기 칸을 이 무기로 바꾼다(새 탄 가득). 살아 있을 때만 → 바꿨으면 true */
     equipSidearm(id) {

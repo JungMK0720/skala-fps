@@ -197,13 +197,15 @@ export function pickBotWeapon(rulesetId, rng = Math.random, override = null) {
   return table[table.length - 1].id;
 }
 
+/** 봇이 쓰는 칼(좀비 물량 막기 증강 전용 칼은 뺀다) */
+const BOT_MELEE = Object.freeze(MELEE_IDS.filter((id) => !getDef(id).zombieOnly));
 /** 고른 무기(pick)를 제자리에 넣은 봇 로드아웃 { primary, secondary, melee }. 고르지 않는 칸에는 약간의 변화를 준다 */
 export function botLoadout(rulesetId, pick, rng = Math.random) {
   const rs = rulesetOf(rulesetId);
   const out = {
     primary: rs.pickSlot === 1 ? defaultPick(rs.id) : DEFAULT_LOADOUT.primary,
     secondary: DEFAULT_LOADOUT.secondary,
-    melee: rs.pickSlot === 3 ? defaultPick(rs.id) : MELEE_IDS[Math.min(MELEE_IDS.length - 1, Math.floor(rng() * MELEE_IDS.length))]
+    melee: rs.pickSlot === 3 ? defaultPick(rs.id) : BOT_MELEE[Math.min(BOT_MELEE.length - 1, Math.floor(rng() * BOT_MELEE.length))]
   };
   const others = SECONDARY_IDS.filter((id) => id !== DEFAULT_LOADOUT.secondary && !getDef(id).zombieOnly);
   if (others.length && rng() < 0.25) out.secondary = others[Math.min(others.length - 1, Math.floor(rng() * others.length))];

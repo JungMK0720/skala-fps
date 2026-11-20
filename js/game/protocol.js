@@ -59,8 +59,8 @@ export const EMOTE_MASK = 15 << EMOTE_SHIFT;
 
 /** 코드 표 — 알려진 문자열은 작은 정수로, 모르는 문자열은 그대로(디코더는 둘 다 받는다) */
 export const PART_CODES = Object.freeze(['head', 'body', 'legs', 'hand', 'foot']);   // 앞 순서는 바꾸지 않고 뒤에만 더한다
-/** 히트 주장 종류. wave·waveStab = 좀비 물량 막기 '검기'(베기·찌르기에서 나간 것). 앞 순서는 바꾸지 않고 뒤에만 더한다 */
-export const KIND_CODES = Object.freeze(['shot', 'slash', 'stab', 'grenade', 'other', 'wave', 'waveStab']);
+/** 히트 주장 종류. 앞 순서는 전송 코드라 유지한다. yasuoSwing은 적중 없이도 검 찌르기를 알리는 의도다. */
+export const KIND_CODES = Object.freeze(['shot', 'slash', 'stab', 'grenade', 'other', 'wave', 'waveStab', 'yasuoSwing']);
 /** 수류탄 메시지의 종류 번호(g2x 9번째 칸). 0 = 손으로 던진 수류탄(칸 없음). 앞 순서는 바꾸지 않고 뒤에만 더한다 */
 export const GRENADE_KIND_CODES = Object.freeze(['', 'gl', 'rocket', 'c4', 'gravity', 'stake', 'axe', 'bolt']);
 export const PHASE_CODES = Object.freeze(['lobby', 'warmup', 'loadout', 'live', 'roundEnd', 'matchEnd']);

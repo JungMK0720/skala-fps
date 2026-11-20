@@ -115,6 +115,10 @@ export function startHordeSolo(o) {
 
   /* ---------- 내 판정 → 시뮬레이션 ---------- */
   offs.push(world.on('hitClaim', (c) => {
+    if (c && c.kind === 'yasuoSwing') {
+      queue(director.claimSwordSwing({ attackerId: me.id, weaponId: c.weaponId, kind: c.kind, shotId: c.shotId }));
+      return;
+    }
     if (!c || String(c.victimId)[0] !== 'z') return;
     queue(director.claimHit({ attackerId: me.id, victimId: c.victimId, weaponId: c.weaponId, part: c.part, dist: c.dist, kind: c.kind, count: c.count, shotId: c.shotId }));
   }));

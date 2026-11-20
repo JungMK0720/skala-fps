@@ -145,6 +145,7 @@ export function createHordeClient(o) {
   let phase = null, stage = 0, ammoStage = 0, overAt = 0, overShown = false;
   let cardsSig = '', appliedCards = 0, perks = computePerks([]), maxHp = HORDE.baseHp;
   let myKills = 0, myHp = null, myAlive = false, spawnedOnce = false;
+  let swordUlt = false;
   let frenzy = [];                 // 끝나는 시각들
   let ammoAcc = 0, hudAt = 0, timeBase = null, timeAt = 0;
   const killSeen = new Set();
@@ -221,9 +222,10 @@ export function createHordeClient(o) {
     if (phase == null || phase === 'prep') W('openSwap', swapProps());
     // 카드로 바뀐 주·보조무기는 다음 스테이지에 일어나도 유지한다(나중에 고른 카드가 우선).
     const cards = last ? ((last.players.find((p) => p.id === meId) || {}).cards || []) : [];
-    const primary = primaryOf(cards), side = sidearmOf(cards);
+    const primary = primaryOf(cards), side = sidearmOf(cards), melee = meleeOf(cards);
     if (primary) W('equipHordePrimary', primary);
     if (side) W('equipSidearm', side);
+    if (melee) W('equipHordeMelee', melee);
   }
 
   function centerFor(ev) {
@@ -321,6 +323,14 @@ export function createHordeClient(o) {
       case 'reroll': if (String(ev.id) === meId) W('sound', 'card_shuffle'); break;
       case 'loot': onLoot(ev); break;
       case 'crit': onCrit(ev); break;
+      case 'yasuo':
+        W('hordeEvent', ev);
+        if (String(ev.by) === meId) {
+          if (ev.kind === 'ult') { swordUlt = true; W('hordeSwordPosition', ev.pos, true); if (H) H.callout('보스 공중 연타 · 2초 무적'); }
+          else if (ev.kind === 'land') { swordUlt = false; W('hordeSwordPosition', ev.pos, false); }
+          else if (ev.kind === 'tornado' && H) H.callout('회오리!');
+        }
+        break;
       case 'skill': case 'enrage': case 'bossSpawn': W('hordeEvent', ev); break;
       case 'over': overAt = performance.now(); break;
       case 'join': if (H && String(ev.id) !== meId) H.callout(`${ev.name || '동료'}님 합류 · 다음 스테이지부터`); break;
@@ -460,6 +470,12 @@ export function createHordeClient(o) {
     return id;
   }
 
+  function meleeOf(cards) {
+    let id = null;
+    for (const cid of cards) { const c = cardById(cid); if (c && c.instant && c.instant.melee) id = c.instant.melee; }
+    return id;
+  }
+
   /** 새로 생긴 내 카드의 한 번짜리 효과(재장전 탄창·수류탄 채우기·무기 교체권·보조무기 바꾸기) */
   function applyNewCards(cards) {
     let swapNow = false;
@@ -472,6 +488,7 @@ export function createHordeClient(o) {
       if (inst.swap) swapNow = true;
       if (inst.side && W('equipSidearm', inst.side) && ui && ui.hud) ui.hud.callout(`${c.icon} 보조무기: ${(WEAPONS[inst.side] || {}).name || inst.side}`);
       if (inst.primary && W('equipHordePrimary', inst.primary) && ui && ui.hud) ui.hud.callout(`${c.icon} 주무기: ${(WEAPONS[inst.primary] || {}).name || inst.primary}`);
+      if (inst.melee && W('equipHordeMelee', inst.melee) && ui && ui.hud) ui.hud.callout(`${c.icon} 칼: ${(WEAPONS[inst.melee] || {}).name || inst.melee}`);
     }
     appliedCards = cards.length;
     // 무기 교체권: 무기 목록을 한 번 연다(고르면 닫힌다. 못 골랐으면 N으로 다시 연다)
@@ -642,6 +659,12 @@ export function createHordeClient(o) {
     W('hordePush', lootPending.size ? { ...v, loot: (v.loot || []).filter((L) => { const s = lootPending.get(L.id); return !(s && t - s < LOOT_HIDE_MS); }) } : v, t);
     const me = v.players.find((p) => p.id === meId);
     if (me) {
+      if (me.yasuoUlt && Array.isArray(me.yasuoUlt.pos)) {
+        if (!swordUlt) { swordUlt = true; W('hordeSwordPosition', me.yasuoUlt.pos, true); }
+      } else if (swordUlt) {
+        swordUlt = false;
+        W('hordeSwordPosition', Array.isArray(me.pos) ? me.pos : [0, 0, 0], false);
+      }
       // 카드 → 능력치(바뀔 때만)
       const sig = me.cards.join(',');
       if (sig !== cardsSig || me.maxHp !== maxHp) {
@@ -753,7 +776,7 @@ export function createHordeClient(o) {
   /** 좀비 한 마리(스냅샷의 좀비 행) */
   const zombieOf = (vid) => { const n = Number(String(vid).slice(1)) | 0; return last ? last.zombies.find((z) => z.id === n) : null; };
   const offHit = typeof world.on === 'function' ? world.on('hitClaim', (c) => {
-    if (!c || String(c.victimId)[0] !== 'z') return;
+    if (!c || c.kind === 'yasuoSwing' || String(c.victimId)[0] !== 'z') return;
     // 좀비를 맞힌 순간의 히트마커(방장 확인 전에 보여 준다. 처치 표시는 스냅샷이 확인한다)
     W('feedbackDamage', { amount: 0, head: c.part === 'head', kill: false, incoming: false });
     // 피해 숫자: 방장과 같은 공식. 치명타는 방장이 굴려 'crit' 이벤트로 오면 따로 크게 띄운다(onCrit). 머리는 크고 노랗게, 몸은 작게

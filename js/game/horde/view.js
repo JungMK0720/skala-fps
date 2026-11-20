@@ -395,6 +395,16 @@ export function createHordeView(o) {
   /** 방장 이벤트 중 화면 연출이 필요한 것(스킬 예고 소리·성남·보스 등장) */
   function event(ev) {
     if (!active || !ev) return;
+    if (ev.type === 'yasuo' && Array.isArray(ev.pos)) {
+      if (ev.kind === 'tornado') {
+        fxAnims.push({ kind: 'tornado', pos: ev.pos, dir: ev.dir || [0, 0, -1], r: 1.2, at: performance.now(), dur: ev.ms || 900, color: 0xbdeeff });
+        play('katana_swing', { pos: ev.pos });
+      } else {
+        fxAnims.push({ kind: 'ring', pos: ev.pos, r: ev.kind === 'ult' ? 2 : 1.2, at: performance.now(), dur: 500, color: 0x9edbff });
+        if (ev.kind === 'ult') play('katana_heavy', { pos: ev.pos });
+      }
+      return;
+    }
     if (ev.type === 'skill') {
       const e = ents.get(ev.z);
       const pos = e && e.hist.length ? e.hist[e.hist.length - 1].pos : null;
@@ -1171,12 +1181,24 @@ export function createHordeView(o) {
       const a = fxAnims[i];
       const u = (now - a.at) / a.dur;
       if (u >= 1) { fxAnims.splice(i, 1); continue; }
-      const r = fxRings.take();
-      if (!r) continue;
-      r.position.set(a.pos[0], a.pos[1] + 0.1, a.pos[2]);
-      r.scale.setScalar(Math.max(0.3, a.r * (0.25 + 0.75 * u)));
-      r.material.color.setHex(a.color);
-      r.material.opacity = 0.8 * (1 - u);
+      if (a.kind === 'tornado') {
+        for (let j = 0; j < 3; j++) {
+          const r = fxRings.take();
+          if (!r) break;
+          const travel = u * 12;
+          r.position.set(a.pos[0] + a.dir[0] * travel, a.pos[1] + 0.45 + j * 0.7, a.pos[2] + a.dir[2] * travel);
+          r.scale.setScalar((0.55 + j * 0.35) * (1 - 0.25 * u));
+          r.material.color.setHex(a.color);
+          r.material.opacity = 0.8 * (1 - u);
+        }
+      } else {
+        const r = fxRings.take();
+        if (!r) continue;
+        r.position.set(a.pos[0], a.pos[1] + 0.1, a.pos[2]);
+        r.scale.setScalar(Math.max(0.3, a.r * (0.25 + 0.75 * u)));
+        r.material.color.setHex(a.color);
+        r.material.opacity = 0.8 * (1 - u);
+      }
     }
     fxRings.end();
   }

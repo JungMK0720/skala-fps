@@ -255,6 +255,38 @@ describe('상점·증강 새 무기(2026-11-20)', () => {
     assert.equal(cardById('zeus').instant.primary, 'zs_bolt');
   });
 
+  test('야스오의 검: 두 번 맞힌 뒤 세 번째 공격은 빗나가도 회오리, 회오리가 보스를 맞히면 2초 무적 공중 연타로 칼 피해 10배', () => {
+    const { d, p } = makeFlat({ p1: { x: 0, y: 0, z: 0, yaw: -Math.PI / 2, slot: 3 } }, ['yasuoSword']);
+    const Z = zombieAt(d, 1.5);
+    const swing = (id) => d.claimSwordSwing({ attackerId: 'p1', weaponId: 'ml_yasuo', kind: 'yasuoSwing', shotId: id });
+    const hit = (id, kind) => d.claimHit({ attackerId: 'p1', victimId: 'z' + Z.id, weaponId: 'ml_yasuo', part: 'body', dist: 1.5, kind, count: 1, shotId: id });
+    assert.deepEqual(swing(1), []);
+    assert.equal(hit(1, 'slash').some((e) => e.type === 'reject'), false, '좌클릭도 칼 판정');
+    assert.equal(swing(2)[0]?.type, 'reject', '0.7초 전에는 다시 휘두를 수 없다');
+    step(d, Math.ceil(700 / STEP));
+    swing(2);
+    assert.equal(hit(2, 'stab').some((e) => e.type === 'reject'), false, '우클릭도 같은 칼 판정');
+    assert.equal(p.yasuoHits, 2);
+    step(d, Math.ceil(700 / STEP));
+    Z.body.pos[0] = 50;   // 빗나가도 나간다
+    const t = swing(3);
+    assert.equal(t[0].type, 'yasuo');
+    assert.equal(t[0].kind, 'tornado');
+    assert.equal(p.yasuoHits, 0);
+
+    const boss = alive(d).find((z) => z !== Z);
+    boss.boss = { id: 'test', skills: [], enrage: { at: 0 } };
+    boss.skillReady = []; boss.attackReady = Infinity;
+    boss.state = 'move'; boss.hp = boss.maxHp = 1e6;
+    boss.body.pos[0] = 3; boss.body.pos[1] = 0; boss.body.pos[2] = 0;
+    const evs = [];
+    for (let i = 0; i < Math.ceil(2600 / STEP); i++) evs.push(...d.tick(STEP));
+    const base = zombieHitDamage({ weaponId: 'ml_yasuo', part: 'body', dist: 1, kind: 'stab' }, p.perks, { boss: true }).dmg;
+    assert.ok(evs.some((e) => e.type === 'yasuo' && e.kind === 'ult'), '보스에게 맞으면 뒤로 이동');
+    assert.ok(evs.some((e) => e.type === 'yasuo' && e.kind === 'land'), '2초 뒤 착지');
+    assert.ok(Math.abs(boss.maxHp - boss.hp - base * 10) < 1e-6, `보스 피해 ${boss.maxHp - boss.hp}`);
+  });
+
   test('제우스의 번개는 좀비 모드의 프리미엄 탄창 제한(finiteMags)을 받지 않고 예비가 무제한이다', () => {
     assert.equal(hordeAmmo(WEAPONS.zs_bolt).reserve, Infinity);
     const a = createArsenal({ primary: 'zs_bolt', secondary: 'pt_std', melee: 'ml_knife' });

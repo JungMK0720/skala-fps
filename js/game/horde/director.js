@@ -82,6 +82,12 @@ const BOSS_STUN_UP = 8;
 const LEAP_LEAD_MAX = 12;      // 보스 도약이 사람의 움직임을 앞질러 잡는 최대 거리(m)
 const VEL_MAX = 12;            // 사람 속도 추정의 상한(m/s). 부활·끌려감 같은 순간 이동이 튀지 않게
 const NADE_RADIUS = (getDef('gr_frag') && getDef('gr_frag').explosion && getDef('gr_frag').explosion.radius) || 5;
+const YASUO_STACK_MS = 10000;
+const YASUO_TORNADO_SPEED = 16;
+const YASUO_TORNADO_RANGE = 14;
+const YASUO_TORNADO_RADIUS = 1.1;
+const YASUO_ULT_MS = 2000;
+const YASUO_ULT_STRIKES = 5;
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const num = (v, d = 0) => (Number.isFinite(+v) && v !== null && v !== '' ? +v : d);
@@ -148,6 +154,8 @@ export function createHorde(o = {}) {
   const fxList = [];                  // { id, kind, x, y, z, r, at }
   const shotCounts = new Map();       // 사수 → { shotId, n } (관통 순서)
   const waveCounts = new Map();       // 사수 → Map(검기 shotId → 맞힌 수). 최근 검기 몇 개만 기억한다
+  const yasuoTornadoes = [];          // 방장 판정 회오리 { owner, pos, dir, left, hit }
+
   const revives = new Map();          // 쓰러진 사람 id → { by: 살리는 사람 id, ms: 누른 시간, seen: 마지막 신호 시각 } (멀티)
   let acc = 0;
 
@@ -166,6 +174,7 @@ export function createHorde(o = {}) {
       vel: [0, 0, 0], movedAt: 0,     // 위치가 바뀐 간격으로 잰 수평 속도(m/s)와 마지막으로 움직인 시각. 보스 도약·침이 앞질러 노린다
       knockSeq: 0, knockAt: -Infinity, knockV: null,   // 좀비에게 맞아 밀려남: 번호, 시각, 속도 [x, y, z](m/s). 스냅샷에 knockKeepMs 동안 싣는다
       downPos: null, downAt: 0,       // 쓰러진 자리 [x, y, z]와 시각(멀티에서 동료가 여기서 살린다)
+      yasuoHits: 0, yasuoExpires: 0, yasuoSwing: null, yasuoLastAt: -Infinity, yasuoLastShot: 0, yasuoUlt: null,
       joinedStage: S.stage
     };
     return P;
@@ -198,7 +207,7 @@ export function createHorde(o = {}) {
     for (const P of players.values()) {
       const r = raw[P.id];
       const p = pos3(r);
-      if (p) { trackVelocity(P, p); P.pos = p; }
+      if (p && !P.yasuoUlt) { trackVelocity(P, p); P.pos = p; }
       // 방패(바라보는 방향·든 무기 슬롯)와 공중 강타(점프 중)가 읽는다. 모르면 비워 둔다(방패는 쓰이지 않는다)
       if (p && r && !Array.isArray(r)) {
         P.yaw = Number.isFinite(+r.yaw) ? +r.yaw : null;
@@ -238,6 +247,8 @@ export function createHorde(o = {}) {
     P.hitUntil = 0;
     P.burnUntil = P.burnNext = P.noHealUntil = 0;
     P.downPos = null;
+    P.yasuoHits = 0; P.yasuoExpires = 0; P.yasuoSwing = null; P.yasuoUlt = null;
+    P.yasuoLastAt = -Infinity; P.yasuoLastShot = 0;
     revives.delete(P.id);
     const sp = playerSpawn(i);
     P.pos = [sp.x, num(sp.y), sp.z];
@@ -287,7 +298,12 @@ export function createHorde(o = {}) {
     S.spawnAt = S.clock + 900;
     S.stageEnd = S.clock + R.stageMs;
     if (S.startedAt == null) S.startedAt = S.clock;
-    for (const P of players.values()) P.secondUsed = false;
+    yasuoTornadoes.length = 0;
+    for (const P of players.values()) {
+      P.secondUsed = false;
+      if (P.yasuoUlt) landYasuo(P, ev);
+      P.yasuoHits = 0; P.yasuoExpires = 0; P.yasuoSwing = null;
+    }
     const bosses = S.queue.filter((x) => x.boss).map((x) => { const b = bossById(x.boss); return { id: b.id, name: b.name, icon: b.icon }; });
     setPhase('wave', 0, ev, { count: S.total, bosses, stageMs: R.stageMs });
     if (bosses.length) ev.push({ type: 'boss', stage: S.stage, bosses });
@@ -359,7 +375,7 @@ export function createHorde(o = {}) {
   const randomCard = (P) => P.offer.cards[Math.floor(rng() * P.offer.cards.length)];
 
   /** 증강을 고르는 중이거나 고른 직후라 무적인가(동료가 살려 일어난 직후도) */
-  const invulnerable = (P) => !!(P && (P.offer || S.clock < P.invulnUntil));
+  const invulnerable = (P) => !!(P && (P.offer || P.yasuoUlt || S.clock < P.invulnUntil));
 
   /** 좀비가 노릴 수 있는가: 살아 있고 자리를 알며, 증강을 고르는 중이 아니다(멀티에서 고르는 사람은 좀비가 쫓지 않는다). 분신도 같은 검사를 쓴다 */
   const targetable = (T) => !!(T && T.alive && T.pos && !T.offer);
@@ -425,6 +441,8 @@ export function createHorde(o = {}) {
       cleared: Math.max(0, S.stage - S.firstStage)
     };
     zombies.clear();
+    yasuoTornadoes.length = 0;
+    for (const P of players.values()) { P.yasuoHits = 0; P.yasuoExpires = 0; P.yasuoSwing = null; P.yasuoUlt = null; }
     projectiles.length = 0;
     hazards.length = 0;
     revives.clear();
@@ -683,6 +701,7 @@ export function createHorde(o = {}) {
   function downPlayer(P, ev) {
     if (!P.alive) return;
     P.alive = false;
+    P.yasuoHits = 0; P.yasuoExpires = 0; P.yasuoSwing = null; P.yasuoUlt = null;
     P.hp = 0;
     P.downs++;
     // 쓰러진 자리(멀티에서 동료가 여기서 살린다). 이 사람이 하던 살리기는 끊긴다.
@@ -1019,20 +1038,57 @@ export function createHorde(o = {}) {
   const targetById = (id) => (typeof id === 'string' && id.startsWith(DECOY_PREFIX) ? decoys.get(id) : players.get(id));
 
   /* ------------------------------------------------------------------ 주장 */
+  /** 검을 휘두른 사실은 빗나가도 알려야 한다. 위치·방향은 클라이언트 주장이 아닌 방장의 최신 사람 상태를 쓴다. */
+  function claimSwordSwing(c = {}) {
+    if (S.phase !== 'wave') return [{ type: 'reject', reason: 'not_wave' }];
+    const P = players.get(String(c.attackerId));
+    const def = getDef('ml_yasuo');
+    if (!P || !P.connected || !P.alive || P.offer || P.yasuoUlt) return [{ type: 'reject', reason: 'dead_attacker' }];
+    if (c.weaponId !== 'ml_yasuo' || !P.cards.includes('yasuoSword') || !def?.melee || c.kind !== 'yasuoSwing') return [{ type: 'reject', reason: 'bad_weapon' }];
+    const shot = c.shotId;
+    if (!Number.isSafeInteger(shot) || shot <= P.yasuoLastShot) return [{ type: 'reject', reason: 'bad_shot' }];
+    readPositions();
+    if (!P.pos || !Number.isFinite(P.yaw) || (P.slot != null && P.slot !== 3)) return [{ type: 'reject', reason: 'bad_position' }];
+    const cooldown = Math.max(def.melee.slash.cooldown, def.melee.stab.cooldown) * 1000;
+    if (S.clock - P.yasuoLastAt < cooldown - 50) return [{ type: 'reject', reason: 'fire_rate' }];
+    if (S.clock >= P.yasuoExpires) P.yasuoHits = 0;
+    const finisher = P.yasuoHits === 2;
+    const dir = [-Math.sin(P.yaw), 0, -Math.cos(P.yaw)];
+    P.yasuoSwing = { id: shot, at: S.clock, origin: P.pos.slice(), dir, hit: false, finisher };
+    P.yasuoLastShot = shot;
+    P.yasuoLastAt = S.clock;
+    if (!finisher) return [];
+    P.yasuoHits = 0; P.yasuoExpires = 0;
+    const pos = [P.pos[0], P.pos[1] + 0.9, P.pos[2]];
+    const ms = Math.round(YASUO_TORNADO_RANGE / YASUO_TORNADO_SPEED * 1000);
+    yasuoTornadoes.push({ owner: P.id, pos: pos.slice(), dir, left: YASUO_TORNADO_RANGE, hit: new Set() });
+    return [{ type: 'yasuo', kind: 'tornado', by: P.id, pos, dir: dir.slice(), ms }];
+  }
+
   function claimHit(c = {}) {
     if (S.phase !== 'wave') return [{ type: 'reject', reason: 'not_wave' }];
     const Z = zombies.get(zombieIdOf(c.victimId));
     const P = players.get(String(c.attackerId));
     if (!Z || Z.state === 'dead') return [{ type: 'reject', reason: 'unknown_zombie' }];
-    if (!P || !P.alive) return [{ type: 'reject', reason: 'dead_attacker' }];
+    if (!P || !P.connected || !P.alive) return [{ type: 'reject', reason: 'dead_attacker' }];
     const def = getDef(c.weaponId);
     if (!def || def.explosion) return [{ type: 'reject', reason: 'bad_weapon' }];
-    if (def.cardOnly && !((def.id === 'fl_horde' && P.cards.includes('flameGun')) || (def.id === 'rg_horde' && P.cards.includes('railGun')))) return [{ type: 'reject', reason: 'bad_weapon' }];
+    if (def.cardOnly && !((def.id === 'fl_horde' && P.cards.includes('flameGun')) || (def.id === 'rg_horde' && P.cards.includes('railGun')) || (def.id === 'ml_yasuo' && P.cards.includes('yasuoSword')))) return [{ type: 'reject', reason: 'bad_weapon' }];
     if (def.slot === 1 && P.perks.sideMaster > 0) return [{ type: 'reject', reason: 'bad_weapon' }];   // 보조무기 마스터: 주무기 봉인
     const dist = Math.max(0, num(c.dist));
     const melee = !!def.melee;
     const k = P.perks;
     const shot = num(c.shotId, 0) | 0;
+    const yasuo = def.id === 'ml_yasuo';
+    if (yasuo) {
+      const sw = P.yasuoSwing;
+      if (P.offer || P.yasuoUlt || !sw || sw.id !== c.shotId || sw.hit || S.clock - sw.at > 1200 || (c.kind !== 'slash' && c.kind !== 'stab')) return [{ type: 'reject', reason: 'bad_swing' }];
+      const zp = Z.body.pos, op = sw.origin;
+      const dx = zp[0] - op[0], dz = zp[2] - op[2], d = hyp2(dx, dz);
+      const reach = Math.max(def.melee.slash.range, def.melee.stab.range) + MELEE_SLACK + (Z.boss ? 1.2 : 0);
+      if (d > reach || Math.abs(zp[1] - op[1]) > 2.5 || (d > 0.2 && (dx * sw.dir[0] + dz * sw.dir[2]) / d < 0.2) ||
+        (world && !lineOfSight(world, [op[0], op[1] + 1.1, op[2]], [zp[0], zp[1] + 1.1, zp[2]]))) return [{ type: 'reject', reason: 'out_of_range' }];
+    }
     if (c.kind === 'wave') return [{ type: 'reject', reason: 'no_wave' }]; // 좌클릭 베기는 검기를 낼 수 없다
     if (c.kind === 'waveStab') {
       // 우클릭 찌르기 검기: 칼·증강·거리·검기 하나의 적중 상한을 검증한다.
@@ -1057,15 +1113,101 @@ export function createHorde(o = {}) {
     let dmg = hit.dmg;
     let crit = false;
     if (k.crit > 0 && rng() < k.crit) { crit = true; dmg *= 1.5 + k.critDmg; }
+    const swordSwing = yasuo ? P.yasuoSwing : null;
+    if (swordSwing) swordSwing.hit = true;
     const ev = [];
     if (crit) ev.push({ type: 'crit', by: P.id, z: Z.id, dmg: Math.max(1, Math.round(dmg)) });
     hurtZombie(Z, dmg, P, { head: hit.head, crit, kind: melee ? 'melee' : 'shot' }, ev);
+    if (swordSwing && P.alive && !swordSwing.finisher) {
+      if (S.clock >= P.yasuoExpires) P.yasuoHits = 0;
+      P.yasuoHits = Math.min(2, P.yasuoHits + 1);
+      P.yasuoExpires = S.clock + YASUO_STACK_MS;
+    }
     // 밀어내기(공기총·007 가방): 총은 'shot', 칼은 휘두르기 'slash'·우클릭 'stab'. 검기('wave'·'waveStab')는 밀지 않는다
     const knock = def.knock && def.knock[melee ? c.kind : 'shot'];
     if (knock && P.pos) knockZombie(Z, P.pos, knock);
     maybeCards(ev);
     return ev;
   }
+  /** 보스 뒤 1.7 m의 체공 자리. 방장 위치와 보스 방향으로만 계산한다. */
+  function yasuoBehind(Z) {
+    const p = Z.body.pos;
+    return [p[0] + Math.sin(Z.yaw) * 1.7, p[1] + 2.4, p[2] + Math.cos(Z.yaw) * 1.7];
+  }
+
+  function startYasuoUlt(P, Z, ev) {
+    if (P.yasuoUlt || !P.alive || Z.state === 'dead') return;
+    const base = zombieHitDamage({ weaponId: 'ml_yasuo', part: 'body', dist: 1, kind: 'stab' }, P.perks,
+      { boss: true, hpFrac: Z.hp / Z.maxHp }, { myHpFrac: P.hp / Math.max(1, P.maxHp), air: false });
+    if (!base) return;
+    const pos = yasuoBehind(Z);
+    P.yasuoUlt = { z: Z.id, until: S.clock + YASUO_ULT_MS, next: 1, damage: base.dmg * 10 / YASUO_ULT_STRIKES, pos };
+    P.invulnUntil = Math.max(P.invulnUntil, P.yasuoUlt.until);
+    P.pos = pos.slice();
+    Z.frozenUntil = Math.max(Z.frozenUntil || 0, P.yasuoUlt.until);
+    if (Z.state === 'wind') Z.state = 'move';
+    if (Z.skill && Z.skill.phase === 'wind') Z.skill = null;
+    ev.push({ type: 'yasuo', kind: 'ult', by: P.id, z: Z.id, pos: pos.slice(), ms: YASUO_ULT_MS });
+  }
+
+  function landYasuo(P, ev) {
+    const ult = P.yasuoUlt;
+    if (!ult) return;
+    const Z = zombies.get(ult.z);
+    const air = Z && Z.state !== 'dead' ? yasuoBehind(Z) : ult.pos;
+    const gy = world ? getGroundY(world, air[0], air[2], air[1] + 1) : air[1] - 2.4;
+    const pos = [air[0], Number.isFinite(gy) ? gy : air[1] - 2.4, air[2]];
+    P.yasuoUlt = null;
+    P.pos = pos;
+    ev.push({ type: 'yasuo', kind: 'land', by: P.id, z: ult.z, pos: pos.slice() });
+  }
+
+  /** 다섯 번에 나눠 정확히 칼 기본 피해 10배. 보스가 먼저 죽으면 남은 타격은 생략한다. */
+  function stepYasuoUlts(ev) {
+    for (const P of players.values()) {
+      const ult = P.yasuoUlt;
+      if (!ult || !P.alive) continue;
+      const Z = zombies.get(ult.z);
+      if (Z && Z.state !== 'dead') { ult.pos = yasuoBehind(Z); P.pos = ult.pos.slice(); }
+      while (ult.next <= YASUO_ULT_STRIKES && S.clock >= ult.until - YASUO_ULT_MS + (YASUO_ULT_MS / YASUO_ULT_STRIKES) * ult.next) {
+        ult.next++;
+        if (Z && Z.state !== 'dead') hurtZombie(Z, ult.damage, P, { kind: 'melee' }, ev);
+      }
+      if (S.clock >= ult.until) landYasuo(P, ev);
+    }
+  }
+
+  /** 회오리는 적중 주장 없이 방장이 직접 이동·충돌 판정한다. 벽 너머의 좀비는 맞지 않는다. */
+  function stepYasuoTornadoes(dt, ev) {
+    for (let i = yasuoTornadoes.length - 1; i >= 0; i--) {
+      const t = yasuoTornadoes[i];
+      const P = players.get(t.owner);
+      if (!P || !P.alive || !P.connected || t.left <= 0) { yasuoTornadoes.splice(i, 1); continue; }
+      const step = Math.min(t.left, YASUO_TORNADO_SPEED * dt);
+      const x0 = t.pos[0], z0 = t.pos[2], x1 = x0 + t.dir[0] * step, z1 = z0 + t.dir[2] * step;
+      if (world && !lineOfSight(world, [x0, t.pos[1], z0], [x1, t.pos[1], z1])) { yasuoTornadoes.splice(i, 1); continue; }
+      t.pos[0] = x1; t.pos[2] = z1; t.left -= step;
+      for (const Z of zombies.values()) {
+        if (Z.state === 'dead' || t.hit.has(Z.id)) continue;
+        const zp = Z.body.pos, along = clamp((zp[0] - x0) * t.dir[0] + (zp[2] - z0) * t.dir[2], 0, step);
+        if (hyp2(zp[0] - x0 - t.dir[0] * along, zp[2] - z0 - t.dir[2] * along) > YASUO_TORNADO_RADIUS + Z.radius ||
+          Math.abs(zp[1] + 0.9 - t.pos[1]) > (Z.boss ? 3.2 : 2.2)) continue;
+        if (world && !lineOfSight(world, [x0 + t.dir[0] * along, t.pos[1], z0 + t.dir[2] * along],
+          [zp[0], zp[1] + 1, zp[2]])) continue;
+        t.hit.add(Z.id);
+        knockZombie(Z, [zp[0] - t.dir[0], zp[1], zp[2] - t.dir[2]], { speed: 10, up: 65 });
+        Z.frozenUntil = Math.max(Z.frozenUntil || 0, S.clock + (Z.boss ? YASUO_ULT_MS : 1500));
+        if (Z.boss) startYasuoUlt(P, Z, ev);
+        else {
+          const hit = zombieHitDamage({ weaponId: 'ml_yasuo', part: 'body', dist: 1, kind: 'stab' }, P.perks,
+            { boss: false, hpFrac: Z.hp / Z.maxHp }, { myHpFrac: P.hp / Math.max(1, P.maxHp), air: false });
+          if (hit) hurtZombie(Z, hit.dmg, P, { kind: 'melee' }, ev);
+        }
+      }
+      if (t.left <= 0) yasuoTornadoes.splice(i, 1);
+    }
+  }
+
 
   /** 검기 하나(사수·shotId)가 맞힌 수를 센다. waveMaxHits를 넘으면 false. 사수마다 최근 검기 8개만 기억한다 */
   function countWave(id, shot) {
@@ -1864,6 +2006,8 @@ export function createHorde(o = {}) {
     if (revives.size) stepRevives(ms, ev);
     updateFlow();
     spawnTick(ev);
+    if (yasuoTornadoes.length) stepYasuoTornadoes(dt, ev);
+    stepYasuoUlts(ev);
     rebuildGrid();
     for (const Z of zombies.values()) {
       if (S.phase !== 'wave') break;
@@ -1923,6 +2067,7 @@ export function createHorde(o = {}) {
     const ev = [{ type: 'leave', id: P.id }];
     if (P.alive) { P.alive = false; }
     P.offer = null; P.picks = 0; P.chestPicks = 0;
+    P.yasuoHits = 0; P.yasuoExpires = 0; P.yasuoSwing = null; P.yasuoUlt = null;
     // 나간 사람은 쓰러진 몸도 없다(다시 들어오면 다음 스테이지에 나온다). 이 사람이 하던 살리기, 이 사람을 살리던 것도 끝
     P.downPos = null;
     revives.delete(P.id);
@@ -1955,7 +2100,9 @@ export function createHorde(o = {}) {
         P.offer && !R.pauseOnCards ? Math.max(0, Math.round(P.offerUntil - now)) : 0, invulnerable(P) ? Math.max(1, Math.round((P.offer ? 0 : P.invulnUntil - now))) : 0,
         kn, dn,
         Math.max(0, Math.round((P.burnUntil || 0) - now)), Math.max(0, Math.round((P.burnNext || 0) - now)),
-        Math.max(0, Math.round((P.noHealUntil || 0) - now))
+        Math.max(0, Math.round((P.noHealUntil || 0) - now)),
+        [P.yasuoHits, Math.max(0, Math.round(P.yasuoExpires - now)), P.yasuoLastShot, P.yasuoLastShot ? Math.max(0, Math.round(now - P.yasuoLastAt)) : 0],
+        P.yasuoUlt ? [P.yasuoUlt.z, Math.max(0, Math.round(P.yasuoUlt.until - now)), ...P.yasuoUlt.pos.map(cm), P.yasuoUlt.next, P.yasuoUlt.damage] : 0
       ]);
     }
     const z = [];
@@ -1992,6 +2139,8 @@ export function createHorde(o = {}) {
     // 불길: [번호, 종류, x, y, z, 반지름(cm), 남은 ms, 전체 ms] · 분신: [번호, x, y, z, 체력 %, 주인 번호(p 순서), 남은 ms]
     const af = fields.map((f) => [f.id, f.kind, cm(f.x), cm(f.y), cm(f.z), cm(f.r), Math.max(0, Math.round(f.until - now)), f.ms]);
     const dc = [...decoys.values()].map((D) => [D.n, cm(D.pos[0]), cm(D.pos[1]), cm(D.pos[2]), Math.ceil((D.hp / D.maxHp) * 100), pids.indexOf(D.owner), Math.max(0, Math.round(D.until - now))]);
+    // 진행 중인 회오리는 방장 이전 뒤에도 같은 적을 두 번 맞히지 않도록 적중 번호를 싣는다.
+    const yt = yasuoTornadoes.map((t) => [pids.indexOf(t.owner), cm(t.pos[0]), cm(t.pos[1]), cm(t.pos[2]), t.dir[0], t.dir[2], cm(t.left), [...t.hit]]);
     let alive = 0;
     for (const Z of zombies.values()) if (Z.state !== 'dead') alive++;
     const stageLeft = S.phase === 'wave' || S.phase === 'cards' ? Math.max(0, Math.round(S.stageEnd - now)) : null;
@@ -2003,11 +2152,11 @@ export function createHorde(o = {}) {
       sl: stageLeft, xp: [S.level, S.xp, xpNeed(S.level, R), S.xpTotal],
       el: S.startedAt == null ? 0 : Math.round((S.endedAt != null ? S.endedAt : now) - S.startedAt),
       sd: seed, left: S.queue.length + alive, tot: S.total, kd: S.killedStage, rb: S.recentBosses.slice(0, 10), fs: S.firstStage,
-      p, z, kz: killers, b, pr, hz, fx, lt, af, dc, over: S.over
+      p, z, kz: killers, b, pr, hz, fx, lt, af, dc, yt, over: S.over
     };
   }
 
-  function dispose() { S.disposed = true; zombies.clear(); players.clear(); loot.clear(); decoys.clear(); revives.clear(); fields.length = 0; projectiles.length = 0; hazards.length = 0; }
+  function dispose() { S.disposed = true; zombies.clear(); players.clear(); loot.clear(); decoys.clear(); revives.clear(); fields.length = 0; projectiles.length = 0; hazards.length = 0; yasuoTornadoes.length = 0; }
 
   /** 방장 이전: 스냅샷의 단계·사람·좀비를 이어받는다(좀비 판단·보스 스킬 시간은 처음부터) */
   function restoreFrom(view) {
@@ -2036,6 +2185,16 @@ export function createHorde(o = {}) {
       P.offerUntil = S.clock + Math.max(5000, vp.offerLeftMs || R.cardMs);
       P.invulnUntil = vp.invuln ? S.clock + Math.min(R.pickInvulnMs, vp.invulnMs || R.pickInvulnMs) : 0;
       P.hitUntil = 0;
+      P.yasuoHits = vp.yasuoHits || 0;
+      P.yasuoExpires = S.clock + (vp.yasuoStackMs || 0);
+      P.yasuoLastShot = vp.yasuoLastShot || 0;
+      P.yasuoLastAt = P.yasuoLastShot ? S.clock - (vp.yasuoLastAgo || 0) : -Infinity;
+      if (P.alive && vp.yasuoUlt && vp.yasuoUlt.leftMs > 0) {
+        const u = vp.yasuoUlt;
+        P.yasuoUlt = { z: u.z, until: S.clock + u.leftMs, next: u.next, damage: u.damage, pos: u.pos.slice() };
+        P.pos = u.pos.slice();
+        P.invulnUntil = Math.max(P.invulnUntil, P.yasuoUlt.until);
+      }
       // 쓰러진 자리는 잇는다(동료가 그 자리에서 살린다. 하던 살리기는 처음부터). 아직 화면에 실리는 밀려남은 같은 번호로 이어 싣는다
       P.downPos = !P.alive && P.connected && vp.down ? vp.down.pos.slice() : null;
       if (vp.knock && vp.knock.ago < R.knockKeepMs) { P.knockSeq = vp.knock.seq | 0; P.knockV = vp.knock.v.slice(); P.knockAt = S.clock - vp.knock.ago; }
@@ -2068,6 +2227,12 @@ export function createHorde(o = {}) {
         alive++;
       }
       const mix = zombieMix(S.stage);
+      for (const P of players.values()) if (P.yasuoUlt) {
+        const Z = zombies.get(P.yasuoUlt.z);
+        if (Z) Z.frozenUntil = Math.max(Z.frozenUntil || 0, P.yasuoUlt.until);
+      }
+      for (const t of view.yasuoTornadoes || []) if (players.get(t.owner)?.alive && t.left > 0)
+        yasuoTornadoes.push({ owner: t.owner, pos: t.pos.slice(), dir: t.dir.slice(), left: t.left, hit: new Set(t.hit) });
       for (let i = Math.max(0, view.left - alive); i > 0; i--) S.queue.push({ type: pickWeighted(mix, rng).type.id });
       S.spawnAt = S.clock + 1500;
       if (phase === 'cards') { S.phase = 'cards'; S.cardsLeft = Math.max(5000, view.timeLeftMs || R.cardMs); }
@@ -2079,7 +2244,7 @@ export function createHorde(o = {}) {
   if (o.restore) restoreFrom(o.restore);
 
   return {
-    start, tick, claimHit, claimExplosion, cardAction, claimLoot, reviveAction, addPlayer, removePlayer, snapshot, dispose,
+    start, tick, claimHit, claimSwordSwing, claimExplosion, cardAction, claimLoot, reviveAction, addPlayer, removePlayer, snapshot, dispose,
     /** 세션의 방장 루프가 부르는 match.js 메서드 중 이 모드에서 할 일이 없는 것 */
     setLoadout: () => [],
     respawnNow: () => [{ type: 'reject', reason: 'not_ffa' }],
@@ -2126,7 +2291,13 @@ export function applyHordeSnapshot(s) {
       picks: num(r[18]) | 0, chest: !!r[19], offerLeftMs: num(r[20]) | 0, invuln: num(r[21]) > 0, invulnMs: num(r[21]) | 0,
       knock: kn ? { seq: num(kn[0]) | 0, v: [fromCm(kn[1]), fromCm(kn[2]), fromCm(kn[3])], ago: num(kn[4]) } : null,
       down: dn ? { pos: [fromCm(dn[0]), fromCm(dn[1]), fromCm(dn[2])], progress: clamp(num(dn[3]) / 1000, 0, 1), by: by >= 0 && rowIds[by] ? rowIds[by] : null } : null,
-      burnMs: Math.max(0, num(r[24]) | 0), burnNextMs: Math.max(0, num(r[25]) | 0), noHealMs: Math.max(0, num(r[26]) | 0)
+      burnMs: Math.max(0, num(r[24]) | 0), burnNextMs: Math.max(0, num(r[25]) | 0), noHealMs: Math.max(0, num(r[26]) | 0),
+      yasuoHits: Array.isArray(r[27]) ? clamp(num(r[27][0]) | 0, 0, 2) : 0,
+      yasuoStackMs: Array.isArray(r[27]) ? Math.max(0, num(r[27][1]) | 0) : 0,
+      yasuoLastShot: Array.isArray(r[27]) ? Math.max(0, num(r[27][2]) | 0) : 0,
+      yasuoLastAgo: Array.isArray(r[27]) ? Math.max(0, num(r[27][3]) | 0) : 0,
+      yasuoUlt: Array.isArray(r[28]) ? { z: num(r[28][0]) | 0, leftMs: Math.max(0, num(r[28][1]) | 0),
+        pos: [fromCm(r[28][2]), fromCm(r[28][3]), fromCm(r[28][4])], next: clamp(num(r[28][5]) | 0, 1, YASUO_ULT_STRIKES + 1), damage: num(r[28][6]) } : null
     });
   }
   const zombies = [];
@@ -2176,12 +2347,16 @@ export function applyHordeSnapshot(s) {
   const decoys = (Array.isArray(s.dc) ? s.dc : []).filter(Array.isArray).map((r) => ({
     id: num(r[0]) | 0, pos: [fromCm(r[1]), fromCm(r[2]), fromCm(r[3])], hpFrac: clamp(num(r[4]) / 100, 0, 1), owner: players[num(r[5], -1)] ? players[num(r[5])].id : null, leftMs: num(r[6])
   }));
+  const yasuoTornadoes = (Array.isArray(s.yt) ? s.yt : []).filter((r) => Array.isArray(r) && rowIds[r[0]]).map((r) => ({
+    owner: rowIds[r[0]], pos: [fromCm(r[1]), fromCm(r[2]), fromCm(r[3])], dir: [num(r[4]), 0, num(r[5])],
+    left: fromCm(r[6]), hit: Array.isArray(r[7]) ? r[7].map((id) => num(id) | 0) : []
+  }));
   const xa = Array.isArray(s.xp) ? s.xp : [1, 0, 10, 0];
   return {
     mode: 'zombie', phase, stage: num(s.st) | 0, firstStage: Math.max(1, num(s.fs, 1) | 0), timeLeftMs: s.tl == null ? null : num(s.tl), elapsedMs: num(s.el), seed: num(s.sd) >>> 0,
     stageLeftMs: s.sl == null ? null : num(s.sl), xp: { level: Math.max(1, num(xa[0], 1) | 0), xp: num(xa[1]) | 0, need: Math.max(1, num(xa[2], 10) | 0), total: num(xa[3]) | 0 },
     left: num(s.left) | 0, total: num(s.tot) | 0, killedStage: num(s.kd) | 0, recentBosses: Array.isArray(s.rb) ? s.rb.map(String) : [],
-    players, zombies, bosses, projectiles, hazards, fx, loot, fields, decoys, over: s.over && typeof s.over === 'object' ? { ...s.over } : null
+    players, zombies, bosses, projectiles, hazards, fx, loot, fields, decoys, yasuoTornadoes, over: s.over && typeof s.over === 'object' ? { ...s.over } : null
   };
 }
 

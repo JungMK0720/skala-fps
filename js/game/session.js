@@ -1674,6 +1674,10 @@ export function createSession(options = {}) {
     const from = String(e.from);
     if (banned.has(from)) return;
     if (isZombieMode(hm.mode)) {
+      if (e.kind === 'yasuoSwing') {
+        publishReal(hm.m.claimSwordSwing({ attackerId: from, weaponId: e.weaponId, kind: e.kind, shotId: e.shotId }));
+        return;
+      }
       if (!zombieIdOf(e.victimId)) return;   // 이 모드에는 사람끼리 주는 피해가 없다
       publishReal(hm.m.claimHit({ attackerId: from, victimId: e.victimId, weaponId: e.weaponId, part: e.part, dist: e.dist, kind: e.kind, count: e.count, shotId: e.shotId }));
       return;

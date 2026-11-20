@@ -578,7 +578,7 @@ describe('연사 검사', () => {
   });
 
   test('칼은 직전 공격의 쿨다운을 쓴다: 찌르기 연타는 막고 찌르기→베기 최단 간격은 통과한다', () => {
-    for (const id of MELEE_IDS) {
+    for (const id of pvp(MELEE_IDS)) {
       const { slash, stab } = WEAPONS[id].melee;
       const short = (stab.cooldown + slash.windup - stab.windup) * 1000;   // 강타 판정 → 다음 베기 판정의 최단 간격
       const m = liveDuel({ hp: 1000 });
@@ -616,7 +616,7 @@ describe('연사 검사', () => {
 
   test('실제 arsenal의 칼 공격은 판정 시각 기준으로 통과한다', () => {
     const TICK = 1 / 60;
-    for (const id of MELEE_IDS) {
+    for (const id of pvp(MELEE_IDS)) {
       const arsenal = createArsenal({ melee: id, allowedSlots: [3] });
       const m = liveDuel({ hp: 1000000, roundTimeMs: 3600000 });
       let hits = 0;
@@ -652,12 +652,12 @@ describe('연사 검사', () => {
 /* ============================================================ 규칙(룰셋) */
 
 describe('규칙', () => {
-  const GUN_1 = pvp(PRIMARY_IDS), GUN_2 = pvp(SECONDARY_IDS);
+  const GUN_1 = pvp(PRIMARY_IDS), GUN_2 = pvp(SECONDARY_IDS), MELEE = pvp(MELEE_IDS);
   const FIRE_BY_RULESET = {
-    classic: { ok: [...GUN_1, ...GUN_2, ...MELEE_IDS], no: [] },
-    knife: { ok: [...MELEE_IDS], no: [...GUN_1, ...GUN_2] },
+    classic: { ok: [...GUN_1, ...GUN_2, ...MELEE], no: [] },
+    knife: { ok: [...MELEE], no: [...GUN_1, ...GUN_2] },
     sniper: {
-      ok: [...GUN_1.filter((id) => WEAPONS[id].kind === 'sniper'), ...MELEE_IDS],
+      ok: [...GUN_1.filter((id) => WEAPONS[id].kind === 'sniper'), ...MELEE],
       no: [...GUN_1.filter((id) => WEAPONS[id].kind !== 'sniper'), ...GUN_2]
     }
   };
@@ -665,7 +665,7 @@ describe('규칙', () => {
   for (const ruleset of RULESET_IDS) {
     test(`${ruleset}: claimHit이 무기를 거른다`, () => {
       const { ok, no } = FIRE_BY_RULESET[ruleset];
-      assert.equal(ok.length + no.length, GUN_1.length + GUN_2.length + MELEE_IDS.length);
+      assert.equal(ok.length + no.length, GUN_1.length + GUN_2.length + MELEE.length);
       // 좀비 전용 무기는 어느 규칙에서도 맞힌 것으로 받지 않는다(다른 모드에서는 쏴도 피해가 없다)
       for (const weaponId of ZOMBIE_ONLY) {
         const m = liveDuel({ ruleset });

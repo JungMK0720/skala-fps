@@ -441,11 +441,12 @@ describe('좀비 물량 막기: C4 수류탄·검기 주장', () => {
     }
   });
 
-  test('검기 주장 종류: wave·waveStab을 뒤에 더했고 앞 코드는 그대로다', () => {
+  test('검기·야스오 주장 종류: 뒤에만 더했고 앞 코드는 그대로다', () => {
     assert.deepEqual(KIND_CODES.slice(0, 5), OLD_KINDS);
     assert.equal(KIND_CODES.indexOf('wave'), 5);
     assert.equal(KIND_CODES.indexOf('waveStab'), 6);
-    assert.equal(KIND_CODES.length, 7);
+    assert.equal(KIND_CODES.indexOf('yasuoSwing'), 7);
+    assert.equal(KIND_CODES.length, 8);
     assert.ok(Object.isFrozen(KIND_CODES));
     const base = { victimId: 'z12', part: 'body', weaponId: 'ml_knife', dist: 7.25, shotT: 500, count: 1 };
     for (const [kind, n] of [['shot', 0], ['slash', 1], ['stab', 2], ['grenade', 3], ['other', 4], ['wave', 5], ['waveStab', 6]]) {

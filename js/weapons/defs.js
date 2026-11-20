@@ -837,6 +837,29 @@ const WEAPON_TABLE = {
     spread: null, recoil: null, zoom: null,
   }),
 
+  // 야스오의 검: 좀비 증강 카드 전용. 좌우 클릭 모두 같은 칼 판정 찌르기이고, 두 번 맞힌 뒤 다음 공격으로 회오리를 날린다.
+  ml_yasuo: blade({
+    id: 'ml_yasuo', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 0, zombieOnly: true, cardOnly: true,
+    name: '야스오의 검', nameEn: 'Yasuo Sword', short: 'YASUO', role: '바람 검술',
+    icon: '🗡️', color: '#70e8e3', sound: 'katana_swing', fxKind: null,
+    heavySound: 'katana_swing', hitSound: 'katana_hit',
+    tagline: '두 번 맞히면 다음 찌르기가 회오리가 된다.',
+    desc: '좌우 클릭 모두 0.7초마다 같은 칼 판정으로 찌른다. 10초 안에 두 번 맞히면 다음 공격은 빗나가도 전방에 회오리를 날려 좀비를 띄우고 기절시킨다. 회오리가 보스를 맞히면 보스 뒤로 순간이동해 2초 동안 무적으로 공중 연타(총 10배 피해)를 하고 떨어진다.',
+    bars: { power: 82, rate: 58, accuracy: 70, mobility: 94 },
+
+    damage: null,
+    falloff: null,
+    melee: {
+      slash: { label: '찌르기', damage: 100, cooldown: 0.7, windup: 0.16, range: 2.9, arc: 12 },
+      stab: { label: '찌르기', damage: 100, cooldown: 0.7, windup: 0.16, range: 2.9, arc: 12 },
+    },
+    maxRange: 2.9,
+    rpm: 86, fireInterval: 0.7,
+    mag: null, reserve: null, reload: null,
+    drawTime: 0.5, moveMul: 1.07,
+    spread: null, recoil: null, zoom: null,
+  }),
+
   // 007 가방(요청 2026-11-20): 금속 모서리를 댄 서류 가방으로 친다. 휘두르기는 약하게, 우클릭 내려치기는 중간 피해로 더 세게 밀어낸다.
   // 밀어내기(knock)는 좀비 물량 막기 방장(director.js knockZombie)만 쓰고, 다른 모드에서는 피해만 준다.
   ml_case: blade({

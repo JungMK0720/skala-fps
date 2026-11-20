@@ -34,7 +34,7 @@ export const VIEWMODEL_LAYER = 30;
 export const VIEWMODEL_IDS = Object.freeze([
   'ar_std', 'ar_rapid', 'ar_line', 'ar_burst', 'dm_mark', 'sm_vx3', 'sg_bx12', 'sg_pump', 'sg_double', 'sg_auto', 'sm_uzi_dual', 'mg_minigun',
   'sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy', 'mg_m249', 'fl_horde', 'rg_horde', 'zs_bolt', 'pt_std', 'pt_magnum', 'sg_shorty', 'pn_air', 'sk_stake', 'th_axe',
-  'ml_knife', 'ml_tanto', 'ml_gurkha', 'ml_katana', 'ml_case', 'ml_saw', 'gr_frag',
+  'ml_knife', 'ml_tanto', 'ml_gurkha', 'ml_katana', 'ml_yasuo', 'ml_case', 'ml_saw', 'gr_frag',
 ]);
 
 const RO = 10000;                 // renderOrder 기준(월드의 투명 물체보다 뒤에 그려지도록 크게)
@@ -773,8 +773,8 @@ export function createViewmodel(camera, opts = {}) {
     return tex;
   }
 
-  // ── 카타나 ──────────────────────────────────────────────────
-  function buildMlKatana() {
+  // ── 카타나 / 질풍의 검 ────────────────────────────────────────
+  function buildMlKatana(gale = false) {
     const g = new THREE.Group();
     const parts = {};
     const GRIP = 0.13;                         // 코등이 ~ 두 손 가운데
@@ -782,18 +782,20 @@ export function createViewmodel(camera, opts = {}) {
     sword.position.z = -GRIP;
     g.add(sword);
     const RIDGE = 0.7;
-    const B = bladeLoft({ L: 1.12, W0: 0.042, W1: 0.03, T0: 0.0092, T1: 0.0056, sag: 0.064, tipLen: 0.092, ridge: RIDGE, tipPow: 2.25, rings: 34, tipRings: 10 });
+    const B = bladeLoft(gale
+      ? { L: 1.24, W0: 0.046, W1: 0.032, T0: 0.0092, T1: 0.0056, sag: 0.026, tipLen: 0.13, ridge: RIDGE, tipPow: 2.25, rings: 38, tipRings: 12 }
+      : { L: 1.12, W0: 0.042, W1: 0.03, T0: 0.0092, T1: 0.0056, sag: 0.064, tipLen: 0.092, ridge: RIDGE, tipPow: 2.25, rings: 34, tipRings: 10 });
     const T = katanaTextures(B.L, B.tipLen, RIDGE);
     const bladeMat = new THREE.MeshStandardMaterial({
       color: 0xffffff, map: T.map || null, roughness: T.orm ? 1 : 0.28, metalness: T.orm ? 1 : 0.85,
       roughnessMap: T.orm || null, metalnessMap: T.orm || null, envMap: envTex, envMapIntensity: 1.55,
-      emissive: 0x8fdcff, emissiveMap: T.glow || null, emissiveIntensity: T.glow ? 0.7 : 0.02, transparent: true, fog: false,
+      emissive: gale ? 0x53ffe5 : 0x8fdcff, emissiveMap: T.glow || null, emissiveIntensity: T.glow ? 0.7 : 0.02, transparent: true, fog: false,
     });
     owned.mats.add(bladeMat);
     const blade = add(B.geo, bladeMat, sword);
 
     // 날끝 빛 띠: 평소에는 옅고 휘두를 때 밝아진다
-    const edgeMat = new THREE.MeshBasicMaterial({ color: 0x9fe6ff, vertexColors: true, transparent: true, opacity: 0.32, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false, toneMapped: false });
+    const edgeMat = new THREE.MeshBasicMaterial({ color: gale ? 0x6effdd : 0x9fe6ff, vertexColors: true, transparent: true, opacity: 0.32, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false, toneMapped: false });
     owned.mats.add(edgeMat);
     const edge = add(edgeSheet(B, 0.012), edgeMat, sword, 0, 0, 0, 3);
 
@@ -867,6 +869,26 @@ export function createViewmodel(camera, opts = {}) {
     const rim = new THREE.ExtrudeGeometry(rimShape, { depth: 0.0058, bevelEnabled: false, curveSegments: 6 });
     rim.translate(0, 0, -0.0029);
     add(rim, M.brass, sword, 0, cy, 0.0085);
+    if (gale) {
+      // 바람을 닮은 양쪽 날개형 코등이와 청록색 보석. 기존 카타나의 둥근 철판과 실루엣을 달리한다.
+      const windMetal = paint(0x69dad0, { rough: 0.26, metal: 0.82, glow: 0.18 });
+      for (const side of [-1, 1]) {
+        const wing = new THREE.Shape();
+        wing.moveTo(0.027, -0.018);
+        wing.quadraticCurveTo(0.057, -0.045, 0.084, 0.002);
+        wing.quadraticCurveTo(0.067, 0.01, 0.049, 0.008);
+        wing.quadraticCurveTo(0.067, 0.035, 0.055, 0.041);
+        wing.quadraticCurveTo(0.039, 0.025, 0.027, 0.018);
+        wing.closePath();
+        const wingGeo = new THREE.ExtrudeGeometry(wing, { depth: 0.004, bevelEnabled: true, bevelSize: 0.001, bevelThickness: 0.001, bevelSegments: 1 });
+        if (side < 0) {
+          add(mirrorGeoX(wingGeo.toNonIndexed()), windMetal, sword, 0, cy, 0.0085);
+          wingGeo.dispose();
+        } else add(wingGeo, windMetal, sword, 0, cy, 0.0085);
+      }
+      const jewel = add(new THREE.OctahedronGeometry(0.012, 0), paint(0x8afce5, { rough: 0.13, metal: 0.4, glow: 0.8 }), sword, 0, cy, 0.017);
+      jewel.scale.set(0.7, 1.4, 0.45);
+    }
 
     // 손잡이: 칼날 곡선을 이어 받는 타원 통에 끈 무늬. 호는 칼날보다 완만하다
     const Rh = (B.Rc === Infinity ? 1e6 : B.Rc) * 1.7;
@@ -879,10 +901,20 @@ export function createViewmodel(camera, opts = {}) {
       const waist = 1 - 0.08 * Math.sin(Math.PI * t);
       stations.push({ s: -(0.03 + t * (HL - 0.03)), ex: ex * waist * lerp(1, 1.05, t), ey: ey * waist * lerp(1.02, 1.03, t), n: cy });
     }
-    const tsukaTex = tsukaTexture();
-    const tsukaMat = std(0xffffff, { rough: 0.8, metal: 0, glow: 0, env: false });
-    if (tsukaTex) tsukaMat.map = tsukaTex; else tsukaMat.color.setHex(0x2c0b16);
+    const tsukaTex = gale ? null : tsukaTexture();
+    const tsukaMat = std(gale ? 0x133d49 : 0xffffff, { rough: 0.8, metal: 0, glow: gale ? 0.09 : 0, env: false });
+    if (tsukaTex) tsukaMat.map = tsukaTex; else if (!gale) tsukaMat.color.setHex(0x2c0b16);
     add(arcTube(hFrame, stations, 18), tsukaMat, sword);
+    if (gale) {
+      const wrap = paint(0x91c9b6, { rough: 0.56, metal: 0.35, glow: 0.11 });
+      for (let i = 0; i < 7; i++) {
+        const s = -0.047 - i * 0.031;
+        add(arcTube(hFrame, [
+          { s, ex: ex * 1.025, ey: ey * 1.06, n: cy },
+          { s: s - 0.004, ex: ex * 1.025, ey: ey * 1.06, n: cy },
+        ], 14), wrap, sword);
+      }
+    }
     // 금속 고리(후치)·손잡이 끝 마개(카시라)
     const fuchi = arcTube(hFrame, [
       { s: -0.0145, ex: ex * 1.1, ey: ey * 1.1, n: cy }, { s: -0.016, ex: ex * 1.14, ey: ey * 1.14, n: cy },
@@ -963,18 +995,25 @@ export function createViewmodel(camera, opts = {}) {
     const bM = K([0.17, -0.15, -0.48], [-0.08, 0.5, -0.86], [0.84, 0.42, 0.33]);
     const bE = K([0.335, -0.115, -0.46], [0.45, 0.75, -0.48], [0.68, -0.6, 0.42]);
     const bA = K([0.355, -0.122, -0.45], [0.52, 0.7, -0.49], [0.62, -0.68, 0.38]);
-    // 강타: 두 손으로 머리 위로 들었다가(칼끝은 앞을 향해 화면에 남는다) 조준점을 지나 내려친다
-    const hW = K([0.17, -0.055, -0.47], [-0.06, 0.9, -0.43], [0.02, 0.43, -0.9]);
-    const hM = K([0.14, -0.13, -0.53], [-0.1, 0.22, -0.97], [-0.03, -0.97, -0.22]);
-    const hE = K([0.15, -0.205, -0.5], [-0.14, -0.13, -0.98], [-0.08, -0.98, 0.14]);
+    // 강타 / 질풍의 검 찌르기
+    const hW = gale
+      ? K([0.235, -0.2, -0.39], [-0.3, 0.24, -0.92], [-0.79, -0.58, 0.1])
+      : K([0.17, -0.055, -0.47], [-0.06, 0.9, -0.43], [0.02, 0.43, -0.9]);
+    const hM = gale
+      ? K([0.16, -0.15, -0.52], [-0.23, 0.21, -0.95], [-0.79, -0.58, 0.1])
+      : K([0.14, -0.13, -0.53], [-0.1, 0.22, -0.97], [-0.03, -0.97, -0.22]);
+    const hE = gale
+      ? K([0.125, -0.12, -0.66], [-0.2, 0.18, -0.96], [-0.79, -0.58, 0.1])
+      : K([0.15, -0.205, -0.5], [-0.14, -0.13, -0.98], [-0.08, -0.98, 0.14]);
     const melee = {
       idle,
-      span: 0.105, heavySpan: 0.085, heavyAfter: 0.13,
-      slashA: { wind: aW, mid: aM, end: aE, after: aA },
-      slashB: { wind: bW, mid: bM, end: bE, after: bA },
+      span: 0.105, heavySpan: gale ? 0.105 : 0.085, heavyAfter: gale ? 0.063 : 0.13,
+      slashA: gale ? { wind: hW, mid: hM, end: hE, after: hE } : { wind: aW, mid: aM, end: aE, after: aA },
+      slashB: gale ? { wind: hW, mid: hM, end: hE, after: hE } : { wind: bW, mid: bM, end: bE, after: bA },
+      twoHand: gale,
       heavy: {
-        wind: hW, hold: between(hW, hW, 0, [0.172, -0.04, -0.46]), mid: hM, end: hE,
-        after: between(hM, hE, 1.06, [0.15, -0.218, -0.495]),
+        wind: hW, hold: gale ? between(hW, hW, 0, [0.24, -0.205, -0.38]) : between(hW, hW, 0, [0.172, -0.04, -0.46]), mid: hM, end: hE,
+        after: gale ? hE : between(hM, hE, 1.06, [0.15, -0.218, -0.495]),
       },
       // 점검: 칼을 눈앞에 가로로 들고 → 빛을 따라 기울이고 → 뒤집어 반대쪽 면을 본다
       inspect: [
@@ -1003,10 +1042,12 @@ export function createViewmodel(camera, opts = {}) {
       ads: null,
       kick: { z: 0, pitch: 0, roll: 0 }, flash: 0,
       elbowR: new THREE.Vector3(0.62, -0.62, -0.1), elbowL: new THREE.Vector3(0.0, -0.8, 0.0),
-      melee, tipP, midP, mouthP, trailColor: 0xa9eaff, trailGain: 1,
+      melee, tipP, midP, mouthP, trailColor: gale ? 0x72ffe2 : 0xa9eaff, trailGain: 1,
       blade: bladeMat, edge: edgeMat, gleam, sayaRc: Rc, sayaLen: B.L + 0.06, swordZ: -GRIP,
     };
   }
+
+  function buildMlYasuo() { return buildMlKatana(true); }
 
   // ── 호크빌 나이프 ───────────────────────────────────────────
   /** 기본 칼: 안으로 굽은 갈고리 날과 톱니, 밧줄을 감은 손잡이 */
@@ -2659,6 +2700,7 @@ export function createViewmodel(camera, opts = {}) {
     ml_tanto: buildMlTanto,
     ml_gurkha: buildMlGurkha,
     ml_katana: buildMlKatana,
+    ml_yasuo: buildMlYasuo,
     ml_case: buildMlCase,
     ml_saw: buildMlSaw,
     gr_frag: buildGrFrag,
