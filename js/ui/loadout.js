@@ -1,9 +1,9 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 로드아웃. 무기 고르기(작은 카드 격자, 숫자키 1~9, 카운트다운)와 부활 대기 중의 compact 패널, 보조·근접 빠른 교체 줄을 보여 준다.
+ * Purpose: 로드아웃. 무기 고르기(작은 카드 격자, 숫자키 1~9, 카운트다운)와 부활 대기 중의 compact 패널, 보조·근접·투척 빠른 교체 줄을 보여 준다.
  *          swap이면 라운드 시작 전 대기 시간에 N으로 여닫는 무기 교체 창이다: 무기를 누르면 바로 바뀌고 닫히며, 시간이 끝나면 고르지 않고 닫힌다.
- *          free면(좀비 물량 막기) 가진 것과 상관없이 모든 무기를 보여 주고, 보조·근접 줄은 지금 든 장비(props.current)를 고른 칸으로 그린다.
+ *          free면(좀비 물량 막기) 가진 것과 상관없이 모든 무기를 보여 주고, 다른 장비 줄은 지금 든 장비(props.current)를 고른 칸으로 그린다.
  *          그 줄에서 고르면 'loadout:equip'에 free: true를 붙인다(계정 장비는 바꾸지 않는다).
  *          무기 이름·수치는 무기 정의(defs)에서 읽고 여기서는 표시만 한다. 칼전이면 칼 목록이 그대로 들어온다.
  */
@@ -11,7 +11,7 @@ import { h, setText, isTextField } from './dom.js';
 import { barMeters, createChoiceRow, makeScreen, normWeapon, summaryChips } from './parts.js';
 import { pickableWeapons, rulesetOf } from '../game/modes.js';
 
-const EXTRA_SLOTS = [['secondary', 2, '보조'], ['melee', 3, '근접']];
+const EXTRA_SLOTS = [['secondary', 2, '보조'], ['melee', 3, '근접'], ['grenade', 4, '투척']];
 const NUMBER_KEYS = 9;
 /** 무기가 이보다 많으면 compact 패널은 이름만 보여 준다 */
 const COMPACT_DETAIL_MAX = 4;
@@ -133,7 +133,7 @@ export function createLoadout(ctx) {
       w.bars.length ? barMeters(w.bars) : null);
   }
 
-  // ---------- 보조·근접 빠른 교체 ----------
+  // ---------- 보조·근접·투척 빠른 교체 ----------
   const extraRows = EXTRA_SLOTS.map(([key, slot, label]) => {
     const row = createChoiceRow({
       label: `${label} 바꾸기`,

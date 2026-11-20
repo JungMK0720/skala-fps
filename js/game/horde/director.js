@@ -2206,9 +2206,9 @@ export function hordeSummary(view, meId) {
 
 /**
  * 폭발 종류별 배율: 손으로 던진 수류탄 10(폭심 기본 피해 1000), 유탄 발사기 1.2(여러 발), 바주카포 2.6(한 발씩), 말뚝건 4.5(반경 1.2 m 안 450),
- * 투척 도끼 1.2(뚫고 지나가며 닿은 좀비마다 120), 제우스의 번개 1.5(맞은 좀비와 튄 다섯 마리 모두 150)
+ * 투척 도끼 7(뚫고 지나가며 닿은 좀비마다 700), 제우스의 번개 1.5(맞은 좀비와 튄 다섯 마리 모두 150)
  */
-export const BLAST_MUL = Object.freeze({ nade: 10, gl: 1.2, rocket: 2.6, stake: 4.5, axe: 1.2, bolt: 1.5 });
+export const BLAST_MUL = Object.freeze({ nade: 10, gl: 1.2, rocket: 2.6, stake: 4.5, axe: 7, bolt: 1.5 });
 
 /** 대상별 피해 배율: 보스 피해 증가와 일반 좀비 피해 감소를 같은 경로로 적용한다. */
 function targetDamageMul(k, boss) {
@@ -2219,7 +2219,7 @@ function targetDamageMul(k, boss) {
 export function nadeDamage(dmg, k, boss = false, kind = null) {
   const kk = k || {};
   const base = BLAST_MUL[kind] || BLAST_MUL.nade;
-  const side = (kind === 'gl' || kind === 'rocket' || kind === 'stake' || kind === 'axe') && (kk.sideMaster || 0) > 0 ? 6 : 1;   // 보조무기 마스터: 보조 발사기 피해 +500%
+  const side = (kind === 'gl' || kind === 'rocket' || kind === 'stake') && (kk.sideMaster || 0) > 0 ? 6 : 1;   // 보조무기 마스터: 보조 발사기 피해 +500%
   return clamp(num(dmg), 0, 100) * base * (1 + (kk.dmg || 0)) * (1 + (kk.nade || 0)) * targetDamageMul(kk, boss) * side;
 }
 

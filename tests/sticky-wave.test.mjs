@@ -111,6 +111,41 @@ describe('C4 수류탄 물리(grenade.js)', () => {
     assert.ok(seen.pos[1] > -0.01 && seen.pos[1] < 0.3, `바닥 위 ${seen.pos[1]}`);
   });
 
+  test('도끼는 지형 충돌 후 10초 동안 회수 가능하고 폭발하지 않는다', () => {
+    for (const cfg of [{ floorY: 0 }, { world: createWorld([makeBox(-20, -1, -20, 20, 0, 20)]) }]) {
+      const sys = createGrenadeSystem(cfg);
+      sys.spawn([0, 1.5, 0], [2, -3, 0], { kind: 'axe', fuse: 3, id: 'axe', owner: 'mine' });
+      const clock = { t: 0 };
+      const landing = run(sys, 1, clock);
+      assert.equal(landing.filter((e) => e.id === 'axe' && e.type === 'land').length, 1);
+      assert.equal(landing.some((e) => e.id === 'axe' && (e.type === 'explode' || e.type === 'bounce')), false);
+      assert.equal(sys.list()[0].landed, true);
+      assert.equal(sys.list()[0].owner, 'mine');
+      assert.equal(run(sys, 9, clock).some((e) => e.id === 'axe' && e.type === 'explode'), false);
+      assert.equal(sys.list().length, 1);
+      const expired = run(sys, 2, clock);
+      assert.equal(expired.filter((e) => e.id === 'axe' && e.type === 'expire').length, 1);
+      assert.equal(sys.list().length, 0);
+      sys.dispose();
+    }
+  });
+  test('도끼는 바닥뿐 아니라 벽에 닿은 자리와 면 방향을 유지한다', () => {
+    const world = createWorld([makeBox(2, 0, -2, 2.2, 3, 2)]);
+    const sys = createGrenadeSystem({ world });
+    sys.spawn([0, 1.5, 0], [15, 0, 0], { kind: 'axe', id: 'wall' });
+    const ev = run(sys, 0.5);
+    assert.equal(ev.filter((e) => e.type === 'land').length, 1);
+    assert.equal(ev.some((e) => e.type === 'explode'), false);
+    const stuck = sys.list()[0];
+    assert.equal(stuck.landed, true);
+    assert.ok(stuck.pos[0] > 1.5 && stuck.pos[0] < 2 && stuck.pos[1] > 0.5, String(stuck.pos));
+    assert.ok(stuck.normal[0] < -0.9, String(stuck.normal));
+    assert.equal(sys.remove('wall'), true);
+    assert.equal(sys.list().length, 0);
+    sys.dispose();
+  });
+
+
   test('stick: 그 자리에 멈추고(속도 0) 신관은 계속 가서 제시간에 터진다', () => {
     const sys = createGrenadeSystem({ floorY: 0 });
     sys.spawn([0, 3, 0], [4, 6, 0], { kind: 'c4', fuse: 2.5, id: 'c' });

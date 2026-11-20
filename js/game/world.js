@@ -58,12 +58,14 @@ const PELLET_TRACERS = 3;
 const MAX_LIVE_GRENADES = 32;
 /** C4(좀비 물량 막기 증강)가 좀비에 닿았다고 보는 거리(유탄과 같다) */
 const C4_TOUCH_R = 0.45;
+/** 착지한 내 도끼 회수 거리(수평·높이). */
+const AXE_PICKUP_R = 1.2;
 const ZEUS_BOUNCES = 5;      // 제우스의 번개: 처음 맞은 좀비에서 다른 좀비로 튀는 횟수(피해는 줄지 않는다)
 const ZEUS_JUMP_M = 8;       // 한 번 튈 때 닿는 거리(m)
 /** 늦게 받은 남의 C4를 앞당길 때 한 번에 진행하는 시간(초). 이만큼마다 좀비에 닿았는지 본다 */
 const C4_CATCHUP_STEP = 1 / 60;
 /** 무기 슬롯 → arsenal 로드아웃 키 */
-const SLOT_KEYS = Object.freeze({ 1: 'primary', 2: 'secondary', 3: 'melee' });
+const SLOT_KEYS = Object.freeze({ 1: 'primary', 2: 'secondary', 3: 'melee', 4: 'grenade' });
 
 const num = (v, d = 0) => (Number.isFinite(+v) && v !== null && v !== '' ? +v : d);
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -178,13 +180,15 @@ function buildWorld(ctx, opts) {
   // 수류탄 모형(풀)
   const nadeGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.13, 10);
   const nadeMat = new THREE.MeshLambertMaterial({ color: 0xe2b52a });
-  // 좀비 물량 막기 보조무기의 발사체: 유탄(어두운 초록)·로켓(주황, 날아가는 쪽으로 길게)·중력탄(보라)·말뚝(나무색, 길게)·투척 도끼(강철, 돌며 난다)
+  // 좀비 모드 발사체: 유탄·로켓·중력탄·말뚝·투척 도끼·번개
   const projMats = {
     gl: new THREE.MeshLambertMaterial({ color: 0x4f6b2a }), rocket: new THREE.MeshLambertMaterial({ color: 0xff8a2a, emissive: 0x7a2a00 }),
     gravity: new THREE.MeshLambertMaterial({ color: 0x8a5cff, emissive: 0x4b2aa8 }), stake: new THREE.MeshLambertMaterial({ color: 0x9b6b3d }),
     axe: new THREE.MeshLambertMaterial({ color: 0xb0b8c0, emissive: 0x202428 }),
     bolt: new THREE.MeshBasicMaterial({ color: 0xfff27a, fog: false, toneMapped: false })
   };
+  const axePillarGeo = new THREE.CylinderGeometry(0.12, 0.12, 2.4, 8);
+  const axePillarMat = new THREE.MeshBasicMaterial({ color: 0x3a9eff, transparent: true, opacity: 0.48, depthWrite: false, fog: false });
   // 발사체 종류 → 그 무기의 정의(폭발 반경·최대 피해). C4는 손으로 던진 수류탄과 같은 폭발이라 없다
   const PROJ_DEF = { gl: WEAPONS.gl_m32, rocket: WEAPONS.rl_b9, gravity: WEAPONS.gv_gun, stake: WEAPONS.sk_stake, axe: WEAPONS.th_axe, bolt: WEAPONS.zs_bolt };
   // 투척 도끼가 이미 뚫고 지나간 좀비(도끼 id → 좀비 id 묶음). 한 좀비는 한 도끼에 한 번만 맞는다
@@ -266,7 +270,11 @@ function buildWorld(ctx, opts) {
       led.visible = false;
       m.add(led);
       m.userData.led = led;
-      R.scene.add(m);
+      const pillar = new THREE.Mesh(axePillarGeo, axePillarMat);
+      pillar.name = 'world:axe-pickup';
+      pillar.visible = false;
+      m.userData.pillar = pillar;
+      R.scene.add(m, pillar);
       nadeMeshes.push(m);
     }
     return nadeMeshes[i];
@@ -274,7 +282,7 @@ function buildWorld(ctx, opts) {
 
   /* ---------- 상태 ---------- */
   // loadout = 이 규칙에서 직접 고른 무기(pickSlot). 아직 안 골랐으면 null이고 계정 장비를 쓴다
-  // ammoBank: 좀비 물량 막기에서 이번 목숨 동안 바꿔 넣었던 총의 남은 탄(무기 id → { mag, reserve }). 다시 들면 그 탄 그대로다
+  // ammoBank: 좀비 물량 막기에서 바꿔 넣었던 무기의 남은 탄/투척 횟수(무기 id → { mag, reserve } | { count })
   const local = { id: String(ctx.session.id), name: String(ctx.session.name || ''), team: 'owner', alive: false, spawned: false, deadAt: 0, loadout: null, ownDrops: new Set(), ammoBank: new Map() };
   const spec = { id: null, idx: 0, yaw: 0, name: '' };
   const actors = new Map();
@@ -695,7 +703,7 @@ function buildWorld(ctx, opts) {
     setHordePerks(null);
     if (nades) { nades.dispose(); nades = null; }
     c4Stuck.clear(); axeHits.clear(); clearWells();
-    for (const m of nadeMeshes) m.visible = false;
+    for (const m of nadeMeshes) { m.visible = false; m.userData.pillar.visible = false; }
     fx.clear(false);
     fx.setSpeedAmount(0);
     props.clear();
@@ -732,7 +740,7 @@ function buildWorld(ctx, opts) {
     closeSwap();
     if (nades) nades.clear();
     c4Stuck.clear(); axeHits.clear(); clearWells();
-    for (const m of nadeMeshes) m.visible = false;
+    for (const m of nadeMeshes) { m.visible = false; m.userData.pillar.visible = false; }
     clearDrops();
     bombView.reset();
     horde.clear();
@@ -798,15 +806,17 @@ function buildWorld(ctx, opts) {
   }
 
   /**
-   * 규칙에 맞는 3슬롯 장비. pick = 규칙의 pickSlot 무기. 없거나 이 규칙에서 못 고르는 무기면 직전 선택 → 계정 장비 → 규칙 기본값 순서로 찾는다.
-   * 스나전은 pickSlot이 1이라 주무기가 항상 저격총이 되고, 칼전은 슬롯 1·2·4가 잠겨 있어 칼 슬롯만 의미가 있다.
-   * 나머지 칸의 계정 장비가 이 모드에서 못 쓰는 무기면(상점에서 산 좀비 전용 공기총·말뚝건을 팀전에서) 기본 장비로 바꾼다.
+   * 규칙에 맞는 장비. 고른 무기가 없거나 이 규칙에서 못 쓰면 계정 장비·규칙 기본값 순서로 찾는다.
+   * 좀비 전용 장비(투척 도끼 포함)는 다른 모드에서 각 슬롯의 기본 장비로 바꾼다.
    */
   function resolveLoadout(pick) {
     const rs = rulesetOf(ruleset);
     const zombie = mode === 'zombie';
     const acc = accountLoadout();
-    for (const k of ['primary', 'secondary', 'melee']) { const d = getDef(acc[k]); if (d && d.zombieOnly && !zombie) acc[k] = DEFAULT_LOADOUT[k]; }
+    for (const k of ['primary', 'secondary', 'melee', 'grenade']) {
+      const d = getDef(acc[k]);
+      if (d && d.zombieOnly && !zombie) acc[k] = DEFAULT_LOADOUT[k];
+    }
     const key = SLOT_KEYS[rs.pickSlot];
     const allowed = pickableWeapons(ruleset, null, zombie);
     const chosen = [pick, local.loadout, acc[key]].find((id) => allowed.includes(id)) || rs.defaultPick;
@@ -1080,7 +1090,7 @@ function buildWorld(ctx, opts) {
   }
 
   /**
-   * 무기 하나를 슬롯에 넣는다(주무기·보조·칼 모두). 이 규칙에서 못 쓰는 무기는 false.
+   * 무기 하나를 슬롯에 넣는다(주무기·보조·칼·투척). 이 규칙에서 못 쓰는 무기는 false.
    * 규칙이 고르게 하는 슬롯(pickSlot)의 무기면 다음 스폰의 기본값으로도 기억한다.
    */
   function setLocalLoadout(id) {
@@ -1089,11 +1099,12 @@ function buildWorld(ctx, opts) {
     if (!key || !isWeaponAllowed(ruleset, id, mode === 'zombie')) return false;
     if (pickableWeapons(ruleset, null, mode === 'zombie').includes(id)) local.loadout = id;
     if (mode === 'zombie' && local.spawned && local.alive) {
-      // 좀비 물량 막기는 언제든 바꿀 수 있는 대신 탄창이 이어진다: 내려놓는 총의 남은 탄을 기억하고, 다시 들면 그 탄 그대로 준다
+      // 좀비 물량 막기는 언제든 교체할 수 있지만 탄창·투척 횟수는 이어진다
       const old = arsenal.getLoadout()[key];
       if (old !== id) {
         const a = old ? arsenal.getAmmo(old) : null;
         if (a && a.kind === 'mag') local.ammoBank.set(old, { mag: a.mag, reserve: a.reserve });
+        else if (a && a.kind === 'count') local.ammoBank.set(old, { count: a.mag });
         arsenal.equipWith(id, local.ammoBank.get(id));
         play('switch', { gain: 0.6 });
       }
@@ -1466,28 +1477,29 @@ function buildWorld(ctx, opts) {
     const st = player.state;
     const eye = player.getEye();
     const fwd = player.getAimDir();
-    // 좀비 물량 막기 '다연발 투척' 증강: 하나만 줄고 부채꼴로 더 날아간다(가운데, 오른쪽, 왼쪽, 더 오른쪽, …)
-    const extra = mode === 'zombie' ? hordePerk.nadeMulti : 0;
-    // 'C4 수류탄' 증강: 같은 궤적으로 날고 튀지만 좀비에 닿으면 붙는다(tick). 모두에게 kind 'c4'로 알려 다른 화면에서도 붙는다
-    const c4 = mode === 'zombie' && hordePerk.sticky ? 'c4' : null;
+    const axe = mode === 'zombie' && ev.weaponId === 'th_axe';
+    // 도끼는 한 개씩 던져 회수한다. 수류탄 전용 다연발·C4 증강은 적용하지 않는다.
+    const extra = !axe && mode === 'zombie' ? hordePerk.nadeMulti : 0;
+    const kind = axe ? 'axe' : mode === 'zombie' && hordePerk.sticky ? 'c4' : null;
     for (let i = 0; i <= extra; i++) {
       const ang = i === 0 ? 0 : (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 0.16;
       const c = Math.cos(ang), s = Math.sin(ang);
       const dir = i === 0 ? fwd : [fwd[0] * c - fwd[2] * s, fwd[1], fwd[0] * s + fwd[2] * c];
       const gid = `${local.id}#${++grenadeSeq}`;
-      const g0 = nades.throwFrom({ eye, forward: dir, speed: ev.speed, pitchUp: ev.pitchUp, fuse: ev.fuse, owner: local.id, inherit: st.vel, inheritScale: 0.5, id: gid, kind: c4 });
+      const g0 = nades.throwFrom({ eye, forward: dir, speed: ev.speed, pitchUp: ev.pitchUp, fuse: ev.fuse, owner: local.id, inherit: st.vel, inheritScale: 0.5, id: gid, kind });
       // 보낼 값(protocol.encodeGrenade의 cm 해상도)과 내가 시뮬레이션하는 값을 똑같이 → 모든 클라이언트가 같은 궤적
       const pos = r2(g0.pos), vel = r2(g0.vel);
       nades.remove(gid);
-      nades.spawn(pos, vel, { owner: local.id, fuse: g0.fuse, id: gid, kind: c4 });
-      emit('grenade', { id: local.id, grenadeId: gid, pos, vel, fuse: g0.fuse, t: performance.now(), kind: c4 || ev.kind });
+      nades.spawn(pos, vel, { owner: local.id, fuse: g0.fuse, id: gid, kind });
+      emit('grenade', { id: local.id, grenadeId: gid, pos, vel, fuse: g0.fuse, t: performance.now(), kind: kind || ev.kind });
     }
   }
 
   /* ---------- 수류탄 ---------- */
   function onGrenadeEvent(e) {
     if (e.type === 'bounce') { play('grenade_bounce', { pos: e.pos, gain: Math.min(1, num(e.speed, 2) / 6) }); return; }
-    if (e.type !== 'explode') return;
+    if (e.type === 'expire') { axeHits.delete(e.id); return; }
+    if (e.type !== 'explode') return; // 도끼 착지는 폭발·피해·이펙트 없이 그대로 남는다
     c4Stuck.delete(e.id);
     const c = arr3(e.pos);
     // 좀비 물량 막기 '폭발 반경' 증강: 던진 사람의 배율만큼 넓게 터진다(방장 화면은 남의 수류탄도 그 사람 배율로 잰다)
@@ -1495,8 +1507,6 @@ function buildWorld(ctx, opts) {
     const ex = pdef ? pdef.explosion : WEAPONS.gr_frag.explosion;
     let rk = 1;
     if (!pdef && mode === 'zombie' && hordePerk.nadeRadiusOf) { try { rk = clamp(num(hordePerk.nadeRadiusOf(e.owner), 1), 1, 3); } catch (err) { rk = 1; } }
-    // 투척 도끼는 날아가며 닿은 좀비마다 이미 피해를 냈다(pierceZombies): 벽·바닥에 박히면 작은 불빛과 소리만
-    if (e.kind === 'axe') { axeHits.delete(e.id); fx.explosion(c, { radius: 0.35 }); play('knife_hit', { pos: c }); return; }
     // 제우스의 번개: 떨어진 자리 옆 좀비를 맞히고 다른 좀비로 다섯 번 튄다(zeusChain). 폭발 반경 피해는 없다
     if (e.kind === 'bolt') {
       const victims = mode === 'zombie' ? zeusChain(c) : [];
@@ -1571,7 +1581,21 @@ function buildWorld(ctx, opts) {
     nades.place(g.id, c4WorldPos(z, s, c4At));
   }
 
-  /** 투척 도끼 한 개: 이번 프레임에 닿은 좀비 중 아직 안 맞은 좀비마다 피해 주장(폭발 이벤트 kind 'axe', 좀비 하나)을 낸다. 도끼는 멈추지 않는다 */
+  /** 자기 도끼만 지형에 박힌 자리에서 회수해 투척 칸 충전을 한 개 돌려받는다. 가득 차면 그대로 둔다. */
+  function pickAxe(g) {
+    if (!g.landed || g.owner !== local.id || !local.spawned || !local.alive || !arsenal.carries('th_axe')) return;
+    const p = player.state.pos, a = g.pos, eye = player.getEye();
+    const aboveOrBelow = Math.max(0, p[1] - a[1], a[1] - eye[1]);
+    if (Math.hypot(p[0] - a[0], p[2] - a[2], aboveOrBelow) > AXE_PICKUP_R) return;
+    const ammo = arsenal.getAmmo('th_axe');
+    if (!ammo || ammo.mag >= ammo.magSize || !nades.remove(g.id)) return;
+    arsenal.giveGrenade(1);
+    axeHits.delete(g.id);
+    play('switch', { gain: 0.5 });
+    if (ui) ui.hud.callout('투척 도끼 회수 +1');
+  }
+
+  /** 공중 도끼가 닿은 좀비마다 한 번씩 피해를 낸다. 땅에 놓인 도끼는 더 때리지 않는다. */
   function pierceZombies(g) {
     const ids = horde.touchingIds(g.pos, 0.35);
     if (!ids.length) return;
@@ -1618,9 +1642,11 @@ function buildWorld(ctx, opts) {
     const list = nades ? nades.list() : [];
     for (let i = 0; i < list.length; i++) {
       const g = list[i], m = nadeMesh(i);
-      const led = m.userData.led;
+      const led = m.userData.led, pillar = m.userData.pillar;
       m.visible = true;
       m.position.set(g.pos[0], g.pos[1], g.pos[2]);
+      pillar.visible = g.kind === 'axe' && g.landed && g.owner === local.id && local.spawned && local.alive;
+      if (pillar.visible) pillar.position.set(g.pos[0], g.pos[1] + 1.2, g.pos[2]);
       if (g.kind === 'c4') { drawC4(g, m, led); continue; }
       m.geometry = nadeGeo;
       if (led) led.visible = false;
@@ -1632,10 +1658,13 @@ function buildWorld(ctx, opts) {
         tmpV.set(g.vel[0] / sp, g.vel[1] / sp, g.vel[2] / sp);
         m.quaternion.setFromUnitVectors(UP_V, tmpV);
       } else if (g.kind === 'axe') {
-        // 투척 도끼: 납작한 날을 날아가는 쪽 세로면에 세우고 앞으로 굴러 돈다
+        // 공중에서는 회전하고, 지형에 닿으면 그 면에 박힌 채 회수를 기다린다
         m.material = projMats.axe;
         m.scale.set(0.35, 1.6, 3.2);
-        if (!g.sleeping) m.rotation.set(-g.age * 18, Math.atan2(g.vel[0], g.vel[2]), 0, 'YXZ');
+        if (g.landed) {
+          tmpV.set(g.normal[0], g.normal[1], g.normal[2]).normalize();
+          m.quaternion.setFromUnitVectors(UP_V, tmpV);
+        } else m.rotation.set(-g.age * 18, Math.atan2(g.vel[0], g.vel[2]), 0, 'YXZ');
       } else {
         m.material = projMats[g.kind] || nadeMat;
         m.scale.set(g.kind === 'gl' ? 1.1 : 1, g.kind === 'gl' ? 0.8 : 1, g.kind === 'gl' ? 1.1 : 1);
@@ -1643,7 +1672,10 @@ function buildWorld(ctx, opts) {
         if (!g.sleeping) m.rotation.set(g.age * 9, 0, g.age * 5.5, 'XYZ');
       }
     }
-    for (let i = list.length; i < nadeMeshes.length; i++) nadeMeshes[i].visible = false;
+    for (let i = list.length; i < nadeMeshes.length; i++) {
+      nadeMeshes[i].visible = false;
+      nadeMeshes[i].userData.pillar.visible = false;
+    }
   }
 
   /** 바닥에 멈춘 C4의 방향: 수류탄 번호로 정해 두어 화면마다 같고 멈춘 동안 바뀌지 않는다 */
@@ -1988,6 +2020,7 @@ function buildWorld(ctx, opts) {
       for (const g of nades.list()) {
         const pj = g.kind ? PROJECTILES[g.kind] : null;
         if (!pj) continue;
+        if (g.kind === 'axe' && g.landed) { pickAxe(g); continue; }
         // 유탄·로켓은 좀비에 닿으면 바로 터지고, C4는 닿은 좀비에 붙어 따라간다(내 것·남의 것 모두)
         if (pj.pierce) pierceZombies(g);
         else if (pj.impact) { if (horde.touching(g.pos, g.kind === 'rocket' ? 0.55 : 0.45)) nades.detonate(g.id); }
@@ -2171,8 +2204,8 @@ function buildWorld(ctx, opts) {
     try { fx.dispose(); } catch (e) { /* ignore */ }
     try { audio.dispose(); } catch (e) { /* ignore */ }
     if (nades) nades.dispose();
-    for (const m of nadeMeshes) R.scene.remove(m);
-    nadeGeo.dispose(); nadeMat.dispose();
+    for (const m of nadeMeshes) R.scene.remove(m, m.userData.pillar);
+    nadeGeo.dispose(); nadeMat.dispose(); axePillarGeo.dispose(); axePillarMat.dispose();
     clearWells(); wellCoreGeo.dispose(); wellStreakGeo.dispose(); wellCoreMat.dispose(); wellHaloMat.dispose(); wellStreakMat.dispose();
     c4Geo.dispose(); c4Mat.dispose(); ledGeo.dispose(); ledOn.dispose(); ledOff.dispose();
     clearDrops();

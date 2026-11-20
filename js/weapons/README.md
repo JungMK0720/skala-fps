@@ -47,8 +47,8 @@
 **밀어내기(`knock`):** 공기총 `pn_air`(`shot`)와 007 가방(`slash`·`stab`)은 `knock: { [kind]: { speed(m/s), up(°) } }`를 가진다. 좀비 물량 막기 방장(`director.js knockZombie`)만 쓰고, 다른 모드에서는 사람을 밀지 않는다. 카드의 마지막 줄 '밀어내기'로 보인다.
 
 **좀비 전용 무기(`zombieOnly: true`):** 기관총 `mg_m249`(슬롯 1)와 유탄 발사기 `gl_m32`·바주카포 `rl_b9`·중력건 `gv_gun`(슬롯 2, 중력건은 피해 없이 좀비를 한 점으로 끌어당긴다), 증강 주무기 `fl_horde`·`rg_horde`·`zs_bolt`(제우스의 번개, `cardOnly`).
-**상점에서 파는 좀비 전용 보조무기(`zombieOnly: true, shop: true`, 2026-11-20):** 공기총 `pn_air`(900 P, 8 m 펠릿 5발 · 맞은 좀비를 위 45°로 날린다), 말뚝건 `sk_stake`(1,000 P, 포물선 말뚝 · 반경 1.2 m 450), 투척 도끼 `th_axe`(800 P, 휘어 날며 닿는 좀비마다 120 · 관통).
-상점의 '좀비 전용'(`launcher`) 탭에서 사고 보조 칸에 장착한다. 다른 모드에서는 스폰할 때 기본 보조무기로 바뀐다(`world.js resolveLoadout`).
+**상점에서 파는 좀비 전용 무기(`zombieOnly: true, shop: true`, 2026-11-20):** 보조무기 공기총 `pn_air`(900 P, 8 m 펠릿 5발 · 맞은 좀비를 위 45°로 날린다), 말뚝건 `sk_stake`(1,000 P, 포물선 말뚝 · 반경 1.2 m 450), 투척무기 `th_axe`(800 P, 4번 칸, 5개 · 비행 중 좀비마다 700 · 착지 후 10초 안에 자기 것 회수).
+상점의 '좀비 전용' 탭에서 사고 해당 칸에 장착한다. 다른 모드에서는 스폰할 때 보조무기와 투척무기를 각 칸의 기본 무기로 바꾼다(`world.js resolveLoadout`).
 상점에 새로 들어온 주무기(2026-11-18): 샷건 `sg_pump`(900 P)·`sg_double`(1,000 P)·`sg_auto`(1,500 P), 양손 우지 `sm_uzi_dual`(1,100 P), 미니건 `mg_minigun`(2,800 P). 수치와 이유는 `defs.js` 각 무기의 주석. 상점 값이 없고(`ITEM_IDS`에 없다) 봇이 쓰지 않으며,
 `game/modes.js`의 `isWeaponAllowed(ruleset, id, zombie)`·`pickableWeapons(ruleset, owned, zombie)`는 `zombie`가 `true`가 아니면 이 무기를 **어느 규칙에서도 거절**한다
 (팀전·개인전·폭파 미션·칼전·스나전, 방장의 히트 검증, 바닥 총 줍기, 원격 아바타 그리기). 좀비 물량 막기를 하는 코드(`game/horde`, 좀비 방의 `session.js`, `world.js`의 `mode === 'zombie'`)만 `true`를 넘긴다.

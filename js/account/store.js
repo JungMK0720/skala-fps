@@ -16,7 +16,7 @@ export const PROFILE_VERSION = 2;
 // zombieKills·zombieRuns·zombieBest(도달한 가장 높은 스테이지)는 좀비 물량 막기 기록이다. 사람 킬(kills)과 따로 센다
 export const STAT_KEYS = Object.freeze(['kills', 'deaths', 'headshots', 'halfShots', 'matches', 'wins', 'draws', 'knifeKills', 'secondsPlayed', 'zombieKills', 'zombieRuns', 'zombieBest']);
 /** 장비 칸 → 무기 정의의 slot 번호 */
-export const LOADOUT_SLOTS = Object.freeze({ primary: 1, secondary: 2, melee: 3 });
+export const LOADOUT_SLOTS = Object.freeze({ primary: 1, secondary: 2, melee: 3, grenade: 4 });
 /** supabase/schema.sql의 fps_save_profile과 같은 상한 */
 export const STAT_MAX = 1000000000;
 
@@ -38,7 +38,8 @@ function normalizeLoadout(raw, owned) {
   const src = isRecord(raw) ? raw : {};
   const out = {};
   for (const key of Object.keys(LOADOUT_SLOTS)) {
-    const id = src[key];
+    const id = key === 'grenade' && src.grenade == null && src.secondary === 'th_axe' && owned.includes('th_axe')
+      ? 'th_axe' : src[key];
     const def = typeof id === 'string' ? getDef(id) : null;
     out[key] = def && def.slot === LOADOUT_SLOTS[key] && owned.includes(id) ? id : DEFAULT_LOADOUT[key];
   }

@@ -25,12 +25,12 @@ const CROUCH_SPREAD = 0.8;      // 앉아 있으면 탄퍼짐 ×0.8 (core consts
 const MELEE_RANGE_SLACK = 1.2;  // 방장 검증: 칼 사거리에 더하는 지연 보간 여유(m)
 
 const SLOTS = Object.freeze([1, 2, 3, 4]);
-const GRENADE_ID = GRENADE_IDS[0];
 /** 로드아웃 키 → 슬롯과 고를 수 있는 무기 */
 const LOADOUT_KEYS = Object.freeze([
   ['primary', 1, PRIMARY_IDS],
   ['secondary', 2, SECONDARY_IDS],
   ['melee', 3, MELEE_IDS],
+  ['grenade', 4, GRENADE_IDS],
 ]);
 
 /** serialize().s 값 목록 */
@@ -104,6 +104,7 @@ export function validateHit(weaponId, info = {}) {
  * @param {string} [opts.primary]    슬롯 1 무기(PRIMARY_IDS). 잘못된 값이면 DEFAULT_LOADOUT
  * @param {string} [opts.secondary]  슬롯 2 무기(SECONDARY_IDS)
  * @param {string} [opts.melee]      슬롯 3 무기(MELEE_IDS)
+ * @param {string} [opts.grenade]    슬롯 4 무기(GRENADE_IDS)
  * @param {number[]} [opts.allowedSlots=[1,2,3,4]] 쓸 수 있는 슬롯. 금지된 슬롯은 어떤 입력으로도 고를 수 없다
  * @param {'hold'|'toggle'} [opts.zoomMode='hold'] 단일 배율 무기의 우클릭 방식
  * @param {boolean} [opts.stageCycle=true]  false면 다단 줌 무기도 1단만 쓰는 단일 배율처럼 동작한다.
@@ -122,7 +123,7 @@ export function createArsenal(opts = {}) {
     1: PRIMARY_IDS.includes(opts.primary) ? opts.primary : DEFAULT_LOADOUT.primary,
     2: SECONDARY_IDS.includes(opts.secondary) ? opts.secondary : DEFAULT_LOADOUT.secondary,
     3: MELEE_IDS.includes(opts.melee) ? opts.melee : DEFAULT_LOADOUT.melee,
-    4: GRENADE_ID,
+    4: GRENADE_IDS.includes(opts.grenade) ? opts.grenade : DEFAULT_LOADOUT.grenade,
   };
   let allowed = normSlots(opts.allowedSlots) || SLOTS;
   /** 이번 목숨에 바닥에 버려 비어 있는 칸(1·2). 다음 목숨(resetRound)에 자기 장비로 돌아온다 */
@@ -916,7 +917,7 @@ export function createArsenal(opts = {}) {
   }
 
   function getLoadout() {
-    return { primary: loadout[1], secondary: loadout[2], melee: loadout[3] };
+    return { primary: loadout[1], secondary: loadout[2], melee: loadout[3], grenade: loadout[4] };
   }
 
   /** 슬롯 제한을 바꾼다(칼전 등). 들고 있는 무기가 금지되면 허용된 첫 슬롯을 꺼낸다. 쓸 슬롯이 없으면 false. */
@@ -999,10 +1000,11 @@ export function createArsenal(opts = {}) {
     }
   }
 
-  /** 수류탄을 최대까지 채운다 */
+  /** 현재 투척 장비의 수량을 최대까지 채운다 */
   function refillGrenades() {
-    const g = inv[GRENADE_ID];
-    g.count = countOf(GRENADE_ID);
+    const id = loadout[4];
+    const g = inv[id];
+    g.count = countOf(id);
     return g.count;
   }
   /** 든 총의 탄창에 n발을 바로 넣는다(탄창 크기까지, 좀비 모드 '탄약 회수') → 넣은 수 */
@@ -1023,7 +1025,7 @@ export function createArsenal(opts = {}) {
   }
 
   /**
-   * 무기 id를 제 칸(주무기·보조·근접)에 넣는다. ammo { mag, reserve }를 주면 그 탄으로(최대를 넘지 않게), 안 주면 새 탄으로 채운다.
+   * 무기 id를 제 칸(주무기·보조·근접·투척)에 넣는다. ammo { mag, reserve, count }가 있으면 남은 수량을 이어받고, 없으면 새 탄으로 채운다.
    * 그 칸을 들고 있었으면 새 무기를 바로 꺼낸다. 버려서 빈 칸도 다시 채운다.
    * 좀비 물량 막기의 무기 교체가 '한 번 쓴 총은 남은 탄 그대로'를 지키려고 쓴다. → 넣었으면 true
    */
@@ -1042,6 +1044,7 @@ export function createArsenal(opts = {}) {
       w.mag = left(ammo.mag, magOf(id));
       if (w.reserve !== Infinity) w.reserve = left(ammo.reserve, w.reserve);
     }
+    if (ammo && d.count != null && Number.isFinite(ammo.count)) w.count = clamp(Math.floor(ammo.count), 0, countOf(id));
     inv[id] = w;
     if (id !== old || wasEmpty) {
       if (prev === old) prev = id;
@@ -1091,8 +1094,8 @@ export function createArsenal(opts = {}) {
     getZoomMode: () => zoomMode,
     resetRound,
     giveGrenade: (n = 1) => {
-      const g = inv[GRENADE_ID];
-      g.count = clamp((g.count || 0) + (n | 0), 0, countOf(GRENADE_ID));
+      const id = loadout[4], g = inv[id];
+      g.count = clamp((g.count || 0) + (n | 0), 0, countOf(id));
       return g.count;
     },
     setMods,

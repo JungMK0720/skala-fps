@@ -11,7 +11,7 @@
 import { computePerks, perkSummary, cardById, TIERS } from './cards.js';
 import { HORDE, fmtClock, hordeAmmo } from './rules.js';
 import { zombieHitDamage, nadeDamage } from './director.js';
-import { WEAPONS, GRENADE_IDS } from '../../weapons/defs.js';
+import { WEAPONS } from '../../weapons/defs.js';
 import { SKILL_NAMES, skillKindOf, HAZARD_KINDS } from './bosses.js';
 import { pickableWeapons } from '../modes.js';
 
@@ -350,11 +350,12 @@ export function createHordeClient(o) {
       // 주무기·보조무기의 탄창과 예비 탄을 모두 최대까지 채운다
       W('refillAmmo');
       text = '🧷 탄약 · 모든 총 탄 가득';
-      // 탄창은 수류탄도 최대까지 채운다(늘었을 때만 알린다)
-      const nade = a.getAmmo(GRENADE_IDS[0]);
+      // 투척 장비도 최대까지 채운다(늘었을 때만 알린다)
+      const grenadeId = a.getLoadout().grenade;
+      const nade = a.getAmmo(grenadeId);
       const before = nade && nade.kind === 'count' ? nade.mag : null;
       const after = W('refillGrenades');
-      if (before != null && Number(after) > before) text += ' · 💣 수류탄 가득';
+      if (before != null && Number(after) > before) text += ' · 💣 투척 장비 가득';
     } else if (ev.kind === 'med') {
       text = ev.heal > 0 ? `➕ 구급 상자 · 체력 +${ev.heal}` : '➕ 구급 상자 · 체력이 가득해요';
     } else if (ev.kind === 'chest') {

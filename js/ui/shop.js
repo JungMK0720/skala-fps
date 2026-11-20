@@ -15,7 +15,7 @@ import { PREMIUM_PRICE } from '../weapons/defs.js';
 import { EMOTES, EMOTE_WHEEL, TEAMS, TEAM_IDS } from '../core/consts.js';
 import { AVATARS, DEFAULT_AVATAR } from '../core/avatar-defs.js';
 
-/** 무기 큰 탭. 무기는 슬롯으로 나누고, 투척 무기(수류탄·def.throwing인 투척 도끼)는 따로 모은다 */
+/** 무기 큰 탭. 무기는 슬롯으로 나누고 투척 장비는 별도 탭에 모은다 */
 const GROUPS = Object.freeze([['primary', '주무기'], ['secondary', '보조무기'], ['melee', '근접무기'], ['throw', '투척무기']]);
 /** 큰 탭 안의 작은 탭(def.category) 이름과 순서 */
 const SUB_LABELS = { rifle: '라이플', sniper: '저격', smg: 'SMG', pistol: '권총', shotgun: '샷건', lmg: '기관총', melee: '근접', grenade: '수류탄', launcher: '좀비 전용' };
@@ -34,9 +34,9 @@ const CHECKING_NOTE = '캐릭터 구매를 열 수 있는지 서버에 확인하
 export const NOT_READY_NOTE = '이 물건은 서버 업데이트 뒤에 살 수 있어요. 포인트는 그대로예요.';
 /** 계정이 지금 팔 수 있는 물건인가. canSell이 없는 옛 계정 대역은 판다고 본다 */
 const sellable = (a, id) => typeof a.canSell !== 'function' || a.canSell(id);
-/** 상점에서 다루는 슬롯과 계정 장비 칸. 슬롯 4(수류탄)는 모두에게 기본으로 주므로 카드만 보이고 사거나 장착하지 않는다. */
-const SLOT_KEYS = { 1: 'primary', 2: 'secondary', 3: 'melee' };
-const groupOf = (d) => (d.slot === 4 || d.throwing ? 'throw' : SLOT_KEYS[d.slot]);
+/** 상점에서 다루는 슬롯과 계정 장비 칸. 기본 수류탄 카드에는 구매/장착 동작이 없다. */
+const SLOT_KEYS = { 1: 'primary', 2: 'secondary', 3: 'melee', 4: 'grenade' };
+const groupOf = (d) => (d.slot === 4 ? 'throw' : SLOT_KEYS[d.slot]);
 
 export function createShop(ctx) {
   const cards = new Map();    // 무기 id → 카드
@@ -212,7 +212,7 @@ export function createShop(ctx) {
       w.stats.length ? h('dl', { class: 'sk-shop-stats' },
         w.stats.map((s) => h('div', { class: 'sk-shop-stat' }, h('dt', { text: s.label }), h('dd', { text: s.value })))) : null,
       h('footer', { class: 'sk-shop-foot' }, need, action));
-    const card = { id: def.id, w, slotKey: SLOT_KEYS[def.slot] || null, el: articleEl, state, need, action };
+    const card = { id: def.id, w, slotKey: def.id === 'gr_frag' ? null : SLOT_KEYS[def.slot] || null, el: articleEl, state, need, action };
     return card;
   }
 

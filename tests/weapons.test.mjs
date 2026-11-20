@@ -1311,11 +1311,11 @@ describe('허용 슬롯', () => {
 describe('로드아웃', () => {
   test('기본값과 잘못된 id', () => {
     const a = createArsenal();
-    assert.deepEqual(a.getLoadout(), { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
+    assert.deepEqual(a.getLoadout(), { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife', grenade: 'gr_frag' });
     assert.equal(a.getWeapon().id, 'ar_std');
     assert.equal(a.getWeapon().previous, 'pt_std');
     const b = createArsenal({ primary: 'pt_std', secondary: 'ar_std', melee: 'gr_frag' });
-    assert.deepEqual(b.getLoadout(), { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
+    assert.deepEqual(b.getLoadout(), { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife', grenade: 'gr_frag' });
     assert.ok(!('SLOT_DEFAULTS' in defs));
   });
 
@@ -1362,11 +1362,11 @@ describe('로드아웃', () => {
 
   test('setLoadout: 없는 키는 유지하고 잘못된 값은 무시한다', () => {
     const a = createArsenal({ primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
-    assert.deepEqual(a.setLoadout({ secondary: 'pt_magnum' }), { primary: 'ar_std', secondary: 'pt_magnum', melee: 'ml_knife' });
-    assert.deepEqual(a.setLoadout({ melee: 'ml_katana', primary: 'nope' }), { primary: 'ar_std', secondary: 'pt_magnum', melee: 'ml_katana' });
-    assert.deepEqual(a.setLoadout({}), { primary: 'ar_std', secondary: 'pt_magnum', melee: 'ml_katana' });
-    assert.deepEqual(a.setLoadout(null), { primary: 'ar_std', secondary: 'pt_magnum', melee: 'ml_katana' });
-    assert.deepEqual(a.setLoadout({ primary: 'pt_std', secondary: 'ml_knife', melee: 'ar_std' }), { primary: 'ar_std', secondary: 'pt_magnum', melee: 'ml_katana' });
+    assert.deepEqual(a.setLoadout({ secondary: 'pt_magnum' }), { primary: 'ar_std', secondary: 'pt_magnum', melee: 'ml_knife', grenade: 'gr_frag' });
+    assert.deepEqual(a.setLoadout({ melee: 'ml_katana', primary: 'nope' }), { primary: 'ar_std', secondary: 'pt_magnum', melee: 'ml_katana', grenade: 'gr_frag' });
+    assert.deepEqual(a.setLoadout({}), { primary: 'ar_std', secondary: 'pt_magnum', melee: 'ml_katana', grenade: 'gr_frag' });
+    assert.deepEqual(a.setLoadout(null), { primary: 'ar_std', secondary: 'pt_magnum', melee: 'ml_katana', grenade: 'gr_frag' });
+    assert.deepEqual(a.setLoadout({ primary: 'pt_std', secondary: 'ml_knife', melee: 'ar_std' }), { primary: 'ar_std', secondary: 'pt_magnum', melee: 'ml_katana', grenade: 'gr_frag' });
   });
 
   test('setLoadout: 들고 있지 않은 슬롯을 바꾸면 이벤트 없이 탄약을 채워 둔다', () => {
@@ -1474,11 +1474,24 @@ describe('로드아웃', () => {
     });
   }
 
-  test('resetRound: 세 슬롯을 함께 바꾸고 탄약을 채운다', () => {
+  test('투척 도끼는 4번 슬롯의 수량을 이어받고 회수 시 한 개만 채운다', () => {
+    const a = createArsenal({ grenade: 'th_axe' });
+    assert.equal(a.getLoadout().grenade, 'th_axe');
+    assert.equal(a.getAmmo('th_axe').mag, 5);
+    assert.equal(a.select(4), true);
+    assert.equal(a.getWeapon().id, 'th_axe');
+    a.equipWith('gr_frag');
+    assert.equal(a.equipWith('th_axe', { count: 2 }), true);
+    assert.equal(a.getAmmo('th_axe').mag, 2);
+    assert.equal(a.giveGrenade(1), 3);
+    assert.equal(a.getAmmo('th_axe').mag, 3);
+  });
+
+  test('resetRound: 네 슬롯을 함께 바꾸고 탄약을 채운다', () => {
     const a = createArsenal({ primary: 'ar_std' });
     run(a, 0.3, { fireDown: true });
     a.resetRound({ primary: 'sg_bx12', secondary: 'pt_magnum', melee: 'ml_knife', draw: true });
-    assert.deepEqual(a.getLoadout(), { primary: 'sg_bx12', secondary: 'pt_magnum', melee: 'ml_knife' });
+    assert.deepEqual(a.getLoadout(), { primary: 'sg_bx12', secondary: 'pt_magnum', melee: 'ml_knife', grenade: 'gr_frag' });
     const sw = only(a.update(0, {}), 'switch');
     assert.equal(sw.length, 1, '이벤트는 한 번만');
     assert.deepEqual([sw[0].to, sw[0].slot, sw[0].reset], ['sg_bx12', 1, true]);

@@ -32,6 +32,8 @@ const SKIN = 0.002;          // 접촉 후 표면에서 띄우는 거리
 const MAX_ITER = 4;          // 한 스텝 안에서 연속 충돌 처리 횟수
 const MAX_STEPS_PER_CALL = 64;
 const KILL_Y = -60;          // 이 아래로 떨어지면 그 자리에서 폭발 처리
+const AXE_GROUND_TIME = 10;
+const AXE_MAX_FLIGHT = 8;
 
 let nextId = 1;
 
@@ -117,7 +119,7 @@ export function createGrenade({ pos, vel, fuse = G.fuse, owner = null, id, kind 
     id: id ?? nextId++, owner, kind: PROJECTILES[kind] ? kind : null,
     pos: toVec3(pos), vel: toVec3(vel),
     age: 0, fuse: num(fuse, G.fuse), acc: 0,
-    exploded: false, sleeping: false, onGround: false, groundT: 0, stuck: false,
+    exploded: false, sleeping: false, onGround: false, groundT: 0, stuck: false, landed: false, landedAt: null,
     bounces: 0, lastNormal: vec3(0, 1, 0),
   };
 }
@@ -190,6 +192,15 @@ function integrateSegment(g, h, sweep, P, floorY, out) {
     const to = { x: pos.x + vel.x * h * remaining, y: pos.y + vel.y * h * remaining, z: pos.z + vel.z * h * remaining };
     const hit = sweepWorld(pos, to, P.radius, sweep, floorY);
     if (!hit) { pos = to; break; }
+    if (g.kind === 'axe') {
+      g.pos = out3(hit.center);
+      g.vel = vec3(0, 0, 0);
+      g.lastNormal = out3(hit.normal);
+      g.sleeping = true;
+      g.onGround = true;
+      g.landed = true;
+      return;
+    }
     const n = hit.normal;
     pos = { x: hit.center.x + n.x * SKIN, y: hit.center.y + n.y * SKIN, z: hit.center.z + n.z * SKIN };
     const vn = dot(vel, n);
@@ -231,6 +242,13 @@ function integrateSegment(g, h, sweep, P, floorY, out) {
 
 function integrateCore(g, h, coreSweep, P, out) {
   const body = { pos: [g.pos.x, g.pos.y, g.pos.z], vel: [g.vel.x, g.vel.y, g.vel.z] };
+  const axe = g.kind === 'axe';
+  const expectedVelX = axe ? g.vel.x : 0;
+  const expectedVelZ = axe ? g.vel.z : 0;
+  const expectedVelY = axe ? g.vel.y + P.gravity * h : 0;
+  const expectedX = axe ? g.pos.x + g.vel.x * h : 0;
+  const expectedY = axe ? g.pos.y + expectedVelY * h : 0;
+  const expectedZ = axe ? g.pos.z + g.vel.z * h : 0;
   let res = null;
   try {
     res = coreSweep(body, h, { radius: P.radius, gravity: P.gravity, restitution: P.restitution, friction: 1 - P.friction });
@@ -240,6 +258,21 @@ function integrateCore(g, h, coreSweep, P, out) {
   g.pos = out3(pos);
   g.vel = out3(vel);
   const hits = res && Array.isArray(res.hits) ? res.hits : [];
+  // core reports only hard impacts; detect soft contacts from the change to the free-flight trajectory too.
+  if (axe && res && (hits.length || res.resting
+    || Math.abs(pos.x - expectedX) > 1e-6 || Math.abs(pos.y - expectedY) > 1e-6 || Math.abs(pos.z - expectedZ) > 1e-6
+    || Math.abs(vel.x - expectedVelX) > 1e-6 || Math.abs(vel.y - expectedVelY) > 1e-6 || Math.abs(vel.z - expectedVelZ) > 1e-6)) {
+    const hit = hits[0];
+    const normal = hit ? normalize(hit.normal) : { x: 0, y: 1, z: 0 };
+    const point = hit ? readV(hit.point) : null;
+    if (point) g.pos = vec3(point.x + normal.x * P.radius, point.y + normal.y * P.radius, point.z + normal.z * P.radius);
+    g.vel = vec3(0, 0, 0);
+    g.lastNormal = out3(normal);
+    g.sleeping = true;
+    g.onGround = true;
+    g.landed = true;
+    return;
+  }
   let ground = false;
   for (const hit of hits) {
     const n = normalize(hit.normal);
@@ -279,7 +312,7 @@ export function detectSweepStyle(fn) {
  * @param {Function} [sphereSweep]
  * @param {{floorY?:number|null, physics?:object, style?:'segment'|'integrator'}} [opts]
  *        floorY: 선분 방식에서 쓰는 암묵적 바닥(기본 0, 끄려면 null). style 기본 'segment'.
- * @returns {object[]} 이벤트: {type:'bounce', id, owner, pos, normal, speed, mat} | {type:'explode', id, owner, pos}
+ * @returns {object[]} 이벤트: bounce | explode | {type:'land'|'expire', id, owner, pos, kind:'axe'}
  */
 export function stepGrenade(g, dt, sphereSweep, opts = {}) {
   const out = [];
@@ -297,11 +330,32 @@ export function stepGrenade(g, dt, sphereSweep, opts = {}) {
     g.acc -= step;
     n++;
     g.age += step;
+    if (g.kind === 'axe' && g.landed) {
+      if (g.age - g.landedAt + 1e-9 >= AXE_GROUND_TIME) {
+        g.exploded = true;
+        out.push({ type: 'expire', id: g.id, owner: g.owner, pos: out3(g.pos), kind: 'axe' });
+      }
+      continue;
+    }
     const before = out3(g.pos);
     const b0 = g.bounces;
     if (!g.sleeping) {
       if (core) integrateCore(g, step, sphereSweep, P, out);
       else integrateSegment(g, step, sphereSweep, P, floorY, out);
+    }
+    if (g.kind === 'axe') {
+      if (!finiteV(g.pos) || !finiteV(g.vel)) {
+        g.pos = before;
+        g.vel = vec3(0, 0, 0);
+        g.exploded = true;
+      } else if (g.landed) {
+        g.landedAt = g.age;
+        out.push({ type: 'land', id: g.id, owner: g.owner, pos: out3(g.pos), kind: 'axe' });
+      } else if (g.age + 1e-9 >= AXE_MAX_FLIGHT || g.pos.y < KILL_Y) {
+        g.exploded = true;
+      }
+      if (g.exploded) out.push({ type: 'expire', id: g.id, owner: g.owner, pos: out3(g.pos), kind: 'axe' });
+      continue;
     }
     // 발사체(유탄·로켓)는 처음 부딪히는 곳에서 터진다
     if (proj && proj.impact && (g.bounces > b0 || g.onGround || g.sleeping)) g.age = Math.max(g.age, g.fuse);
@@ -395,7 +449,7 @@ export function explosionDamage(center, targets, lineOfSight, opts = {}) {
  * @param {'auto'|'segment'|'integrator'} [cfg.sweepStyle='auto']
  * @param {number|null} [cfg.floorY=0] (A) 방식의 암묵적 바닥 평면(없애려면 null). (B)는 core 월드 설정을 따른다.
  * @param {object} [cfg.physics]       GRENADE_PHYSICS 덮어쓰기
- * @param {(ev)=>void} [cfg.onEvent]   bounce/explode 콜백(선택)
+ * @param {(ev)=>void} [cfg.onEvent]   bounce/explode/land/expire 콜백(선택)
  */
 export function createGrenadeSystem(cfg = {}) {
   const world = cfg.world && typeof cfg.world === 'object' ? cfg.world : null;
@@ -487,8 +541,8 @@ export function createGrenadeSystem(cfg = {}) {
     update,
     /** 주입받은 lineOfSight로 폭발 피해 계산 */
     explosionDamage: (center, targets, o) => explosionDamage(center, targets, lineOfSight, o),
-    /** 살아 있는 수류탄 목록(렌더링용 사본: {id, owner, kind, pos, vel, age, fuse, sleeping, stuck}) */
-    list: () => list.map((g) => ({ id: g.id, owner: g.owner, kind: g.kind, pos: out3(g.pos), vel: out3(g.vel), age: g.age, fuse: g.fuse, sleeping: g.sleeping, stuck: !!g.stuck })),
+    /** 살아 있는 수류탄 목록(렌더링용 사본: {id, owner, kind, pos, vel, normal, age, fuse, sleeping, stuck, landed}) */
+    list: () => list.map((g) => ({ id: g.id, owner: g.owner, kind: g.kind, pos: out3(g.pos), vel: out3(g.vel), normal: out3(g.lastNormal), age: g.age, fuse: g.fuse, sleeping: g.sleeping, stuck: !!g.stuck, landed: g.landed })),
     /** 이 수류탄(발사체)을 다음 진행에서 바로 터뜨린다(좀비에 닿은 로켓 등) → 찾았으면 true */
     detonate: (id) => { const g = list.find((x) => x.id === id); if (!g || g.exploded) return false; g.age = Math.max(g.age, g.fuse); g.sleeping = false; return true; },
     stick,

@@ -1025,27 +1025,29 @@ const WEAPON_TABLE = {
     projectile: { kind: 'stake', speed: 28, pitchUp: 0.04, fuse: 3.0 },
     explosion: { radius: 1.2, inner: 1.2, max: 100 },
   }),
-  // 투척 도끼(요청 2026-11-20): 좀비 물량 막기 전용이지만 상점에서 판다. 중력을 받아 휘어 날아가며(grenade.js PROJECTILES.axe, pierce)
-  // 닿는 좀비마다 100 × BLAST_MUL.axe(1.2) = 120을 주고 그대로 뚫고 지나간다(한 좀비는 한 번만). 벽·바닥에 박히면 멈추고 피해는 없다.
-  th_axe: gun({
-    id: 'th_axe', slot: 2, kind: 'launcher', category: 'launcher', fire: 'semi', price: 800, zombieOnly: true, shop: true, throwing: true,
+  // 투척 도끼: 좀비 물량 막기 전용 투척 장비. 비행 중 좀비를 관통하고, 벽·바닥에 닿으면 주울 수 있게 남는다.
+  th_axe: {
+    id: 'th_axe', slot: 4, kind: 'grenade', category: 'launcher', fire: 'throw', price: 800, zombieOnly: true, shop: true,
     name: 'TX-3 투척 도끼', nameEn: 'TX-3 Throwing Axe', short: 'TX-3', role: '관통 투척',
-    icon: '🪓', color: '#b0b8c0', sound: 'knife_slash', fxKind: 'pistol',
+    icon: '🪓', color: '#b0b8c0', sound: 'knife_slash', fxKind: null,
     tagline: '휘어 날아가며 줄지어 선 좀비를 꿰뚫는다.',
-    desc: '좀비 물량 막기에서만 쓰는 보조무기다. 던진 도끼가 중력을 받아 휘어 날아가며 닿는 좀비마다 피해 120을 주고 그대로 뚫고 지나간다. 벽이나 바닥에 박히면 멈춘다.',
+    desc: '좀비 물량 막기의 투척 장비다. 비행 중 닿는 좀비마다 피해 700을 주고 관통한다. 지형에 박히면 10초 동안 그 자리에서 다시 주울 수 있다.',
+    stats: [
+      { label: '투척', value: '누르고 떼기 · 24 m/s' }, { label: '낮게 던지기', value: '우클릭' },
+      { label: '관통', value: '비행 중 좀비마다 피해 700' }, { label: '회수', value: '지형 충돌 뒤 10초' }, { label: '수량', value: '5개' },
+    ],
     bars: { power: 70, rate: 40, accuracy: 50, mobility: 95 },
-    damage: { head: 0, body: 0, legs: 0, hand: 0, foot: 0 },
-    falloff: null,
-    maxRange: 60,
-    rpm: 100, fireInterval: 0.6,
-    mag: 5, reserve: 10, reload: 2.0, reloadEmpty: 2.3,
+    damage: null, falloff: null,
+    explosion: { radius: 0.6, inner: 0.6, max: 100 }, // 비행 중 관통 피해의 기본값. 착지 폭발은 없다.
+    count: 5,
+    fuse: 3.0,
+    throw: { speed: 24, pitchUp: 0.06 / DEG },
+    lob: { speed: 12, pitchUp: 0.06 / DEG },
+    primeTime: 0.25,
+    throwRecover: 0.35,
     drawTime: 0.45, moveMul: 1.0,
-    spread: { hip: 0.4, move: 0.8, air: 1.5, bloomPerShot: 0, bloomMax: 0, bloomDecay: 6, max: 2 },
-    recoil: { pattern: PN_AIR_PATTERN, loopFrom: 0, adsMul: 1, maxPitch: 4, maxYaw: 1.5, recoverDelay: 0.1, recoverRate: 8, patternRecover: 8 },
-    zoom: null,
-    projectile: { kind: 'axe', speed: 24, pitchUp: 0.06, fuse: 3.0 },
-    explosion: { radius: 0.6, inner: 0.6, max: 100 },   // 닿은 좀비 한 마리의 기본 피해(폭발 반경은 쓰지 않는다)
-  }),
+    spread: null, recoil: null, zoom: null,
+  },
 
   // ───────────── 좀비 물량 막기 전용 주무기(상점·메뉴·봇·다른 모드에는 나오지 않는다. 좀비 모드의 무기 고르기 창과 무기 교체권으로만 든다) ─────────────
   // 100발 박스 탄창을 끊지 않고 쏟아붓는 기관총. 750rpm에 몸 22라 한 탄창의 피해가 2,200(RX-4의 720)이고 한 탄창 8초를 쉬지 않고 쏜다.
@@ -1155,7 +1157,7 @@ export const SECONDARY_IDS = idsInSlot(2);
 export const MELEE_IDS = idsInSlot(3);
 export const GRENADE_IDS = idsInSlot(4);
 
-export const DEFAULT_LOADOUT = Object.freeze({ primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' });
+export const DEFAULT_LOADOUT = Object.freeze({ primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife', grenade: 'gr_frag' });
 
 /** 프리미엄 총인가(PREMIUM_PRICE). 모르는 무기와 칼은 false */
 export function isPremium(id) {

@@ -33,7 +33,7 @@ import { cleanPassword } from '../net/secret.js';
 import { checkHitClaim, createMoveGuard, createStrikes, GUARD } from './anticheat.js';
 import { lineOfSight } from '../engine/physics.js';
 import { createMatch, applySnapshot, standings, REASON_LABELS, DEFAULT_RULES, TEAM_IDS, normalizeWeaponId } from './match.js';
-import { getDef, GRENADE_IDS, DEFAULT_LOADOUT as DEFAULT_GEAR } from '../weapons/defs.js';
+import { getDef, DEFAULT_LOADOUT as DEFAULT_GEAR } from '../weapons/defs.js';
 import {
   RULESETS, DEFAULT_RULESET, normalizeRuleset, rulesetOf, isWeaponAllowed, pickableWeapons, defaultPick, FFA_KILLS, normalizeKillTarget, parseKillTarget
 } from './modes.js';
@@ -81,8 +81,8 @@ export const CONTROL_EVENT = 'mx';
 const TEAM_NAME = Object.freeze({ owner: '블루', charterer: '레드' });
 const PHASE_ORDER = Object.freeze({ warmup: 0, loadout: 1, live: 2, roundEnd: 3, matchEnd: 4 });
 const ACTIVE = new Set(['loadout', 'live', 'roundEnd']);
-/** 무기 슬롯 → 장비 키. 4번(수류탄)은 고르는 칸이 없다 */
-const SLOT_KEY = Object.freeze({ 1: 'primary', 2: 'secondary', 3: 'melee' });
+/** 무기 슬롯 → 장비 키. */
+const SLOT_KEY = Object.freeze({ 1: 'primary', 2: 'secondary', 3: 'melee', 4: 'grenade' });
 const REASON_CODE = Object.freeze({ elimination: 'e', time: 't', hp: 'h', draw: 'd', bomb: 'b', defuse: 'f' });
 const RULE_KEYS = Object.freeze(Object.keys(DEFAULT_RULES));
 const SNAPSHOT_BUDGET = 1800;   // match.js와 같은 예산(protocol 부가 영역 2048B 안)
@@ -232,19 +232,19 @@ export function preferredPick(ruleset, owned, equipped, last) {
   return [last, mine, defaultPick(ruleset)].find((id) => id && list.includes(id)) || list[0];
 }
 
-/** g2l 로드아웃 내용: pick = 규칙의 pickSlot 무기, primary·secondary·melee = 다른 사람 화면에 그릴 장비 */
+/** g2l 로드아웃 내용: pick = 규칙의 pickSlot 무기, 장비 키 = 다른 사람 화면에 그릴 장비 */
 export function gearMessage(ruleset, pick, equipped) {
   const eq = equipped && typeof equipped === 'object' ? equipped : DEFAULT_GEAR;
-  const gear = { primary: eq.primary, secondary: eq.secondary, melee: eq.melee };
+  const gear = { primary: eq.primary, secondary: eq.secondary, melee: eq.melee, grenade: eq.grenade || DEFAULT_GEAR.grenade };
   gear[SLOT_KEY[rulesetOf(ruleset).pickSlot]] = pick;
   return { pick, ...gear };
 }
 
-/** 받은 g2l 내용(믿을 수 없는 값) → { pick?, primary?, secondary?, melee? }. 모르는 무기와 슬롯이 안 맞는 무기는 조용히 버린다 */
+/** 받은 g2l 내용(믿을 수 없는 값) → 슬롯별 장비와 pick. 모르는 무기와 슬롯이 안 맞는 무기는 버린다 */
 export function readGear(raw) {
   const src = raw && typeof raw === 'object' ? raw : {};
   const out = {};
-  for (const slot of [1, 2, 3]) {
+  for (const slot of [1, 2, 3, 4]) {
     const key = SLOT_KEY[slot];
     const id = normalizeWeaponId(src[key]);
     if (id && getDef(id).slot === slot) out[key] = id;
@@ -256,14 +256,13 @@ export function readGear(raw) {
 
 /**
  * 원격 아바타가 든 무기: 그 사람의 장비 → (pickSlot이면) 방장이 확정한 선택 → 규칙 기본값 → 기본 장비.
- * 이 규칙에서 못 쓰는 무기는 그리지 않는다. 수류탄은 한 종류뿐이라 표에서 찾는다.
- * zombie(좀비 방)가 아니면 좀비 전용 무기(기관총·발사기)를 든 것으로 그리지 않는다
+ * 이 규칙에서 못 쓰는 무기는 그리지 않는다. PvP에서는 좀비 전용 투척 도끼 대신 기본 수류탄을 쓴다.
  */
 export function weaponForSlot(gear, slot, ruleset, confirmed, zombie = false) {
   const rs = rulesetOf(ruleset);
   const n = allowedSlot(rs.id, slot);
   const key = SLOT_KEY[n];
-  if (!key) return GRENADE_IDS[0];
+  if (!key) return DEFAULT_GEAR.grenade;
   const mine = gear && typeof gear === 'object' ? gear[key] : null;
   if (mine && isWeaponAllowed(rs.id, mine, zombie)) return mine;
   if (n !== rs.pickSlot) return DEFAULT_GEAR[key];

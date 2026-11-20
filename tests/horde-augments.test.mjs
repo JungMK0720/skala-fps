@@ -240,7 +240,7 @@ describe('상점·증강 새 무기(2026-11-20)', () => {
     assert.equal(push('ml_knife', 'slash'), 0);
   });
 
-  test('말뚝건 450 · 투척 도끼는 주장 하나에 한 마리 120 · 제우스의 번개는 카드가 있어야 하고 여섯 마리까지 150씩', () => {
+  test('말뚝건 450 · 투척 도끼는 주장 하나에 한 마리 700 · 제우스의 번개는 카드가 있어야 하고 여섯 마리까지 150씩', () => {
     const dealt = (cards, kind, times) => {
       const { d } = makeFlat({ p1: [0, 0, 0] }, cards);
       const Z = zombieAt(d, 6);
@@ -248,7 +248,8 @@ describe('상점·증강 새 무기(2026-11-20)', () => {
       return Z.maxHp - Z.hp;
     };
     assert.equal(dealt([], 'stake', 1), 450);
-    assert.equal(dealt([], 'axe', 3), 120, '도끼는 닿은 좀비 하나마다 따로 주장한다');
+    assert.equal(dealt([], 'axe', 3), 700, '도끼는 닿은 좀비 하나마다 따로 주장한다');
+    assert.equal(nadeDamage(100, { sideMaster: 1 }, false, 'axe'), 700, '투척 칸 도끼는 보조무기 마스터 효과를 받지 않는다');
     assert.equal(dealt([], 'bolt', 1), 0, '카드 없이는 번개 주장을 받지 않는다');
     assert.equal(dealt(['zeus'], 'bolt', 9), 6 * 150, '처음 하나 + 다섯 번 튄 것까지, 피해는 줄지 않는다');
     assert.equal(cardById('zeus').instant.primary, 'zs_bolt');
