@@ -18,3 +18,9 @@ supabase/.env
 supabase/functions/.env
 # 운영자 열쇠(전체 공지 서명용, tools/make-notice-key.mjs) 보관 폴더. 비밀 열쇠는 저장소에 올리지 않는다
 .secrets/
+# Pages 빌드 산출물과 Terraform 로컬 상태·공급자 캐시
+dist/
+.terraform/
+*.tfstate*
+*.tfplan
+infra/aws/terraform.tfvars
