@@ -1542,6 +1542,8 @@ function buildWorld(ctx, opts) {
     const fuse = num(o.fuse, WEAPONS.gr_frag.fuse);
     const kind = PROJECTILES[o.kind] ? o.kind : null;
     const g = nades.spawn(arr3(o.pos), arr3(o.vel), { owner: o.id != null ? String(o.id) : null, fuse, id: gid, kind });
+    const thrower = g && o.id != null ? avatars.get(String(o.id)) : null;
+    if (thrower) thrower.throwNade();              // 3인칭: 던지는 팔 동작
     // 늦게 받은 만큼 앞당기기(폭발 직전까지만). C4는 잘게 나눠 가며 좀비에 닿았는지 본다(던진 사람 화면에서 붙은 C4가 지나쳐 날아가지 않게)
     const lag = Number.isFinite(o.t) ? (performance.now() - o.t) / 1000 : 0;
     if (g && lag > 0.02) {
@@ -1801,6 +1803,13 @@ function buildWorld(ctx, opts) {
     }
   }
 
+  /** 원격·봇 재장전 연출: 3인칭 아바타가 탄창을 갈아 끼우는 팔 동작(duration초). 소리는 부르는 쪽이 낸다 */
+  function actorReload(o = {}) {
+    if (!active || !o) return;
+    const av = avatars.get(String(o.id));
+    if (av) av.reload(num(o.duration, 2));
+  }
+
   function actorDeath(id, info = {}) {
     const a = actors.get(String(id));
     if (!a) return;
@@ -1841,6 +1850,8 @@ function buildWorld(ctx, opts) {
       return;
     }
     const kind = (def && def.fxKind) || 'rifle';
+    const shooterAv = avatars.get(String(o.id));
+    if (shooterAv) shooterAv.recoil();             // 3인칭: 쏠 때마다 총이 튄다
     const yaw = Math.atan2(-d[0], -d[2]);
     const rx = Math.cos(yaw), rz = -Math.sin(yaw);
     const muzzle = [origin[0] + d[0] * 0.75 + rx * 0.12, origin[1] + d[1] * 0.75 - 0.2, origin[2] + d[2] * 0.75 + rz * 0.12];
@@ -2247,6 +2258,7 @@ function buildWorld(ctx, opts) {
     clearActors,
     setActorState,
     actorFire,
+    actorReload,
     actorGrenade,
     actorDeath,
     addDrop,

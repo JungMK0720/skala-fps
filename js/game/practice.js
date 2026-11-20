@@ -1039,7 +1039,7 @@ export function createPractice({ ctx, world, ui }) {
           break;
         }
         case 'prime': world.sound('grenade_pin', { pos: eyeOf(b) }); break;
-        case 'reloadStart': world.sound('reload_mag_out', { pos: eyeOf(b) }); break;
+        case 'reloadStart': world.sound('reload_mag_out', { pos: eyeOf(b) }); world.actorReload({ id: b.id, duration: ev.duration }); break;
         case 'boltCycle': world.sound('bolt', { pos: eyeOf(b) }); break;
         default: break;
       }

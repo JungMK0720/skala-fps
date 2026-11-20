@@ -47,7 +47,7 @@ const LOCAL_TOOL_DIR = `.${BANNED_WORDS[0]}`;   // git에서 제외된 개발 �
 // .wrangler = wrangler dev가 server/relay 안에 만드는 로컬 상태·임시 번들(.gitignore)
 const HEADER_SKIP_DIRS = new Set(['.git', LOCAL_TOOL_DIR, 'node_modules', '.wrangler', 'audio']);
 const SCAN_SKIP_DIRS = new Set(['.git', LOCAL_TOOL_DIR, 'node_modules', '.wrangler']);   // git을 못 쓸 때의 금지 단어 검사용
-const BINARY_EXT = new Set(['.bin', '.mp3', '.wav', '.ogg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.woff', '.woff2', '.ttf', '.zip', '.pdf']);
+const BINARY_EXT = new Set(['.bin', '.mp3', '.wav', '.ogg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.woff', '.woff2', '.ttf', '.zip', '.pdf', '.glb']);
 
 const KEY_RE = /^(Date|Author|Purpose)\s*:\s*(.*)$/;
 const indentOf = (line) => line.length - line.trimStart().length;

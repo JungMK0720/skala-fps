@@ -2,7 +2,7 @@
 # Author: Minkyu Jung
 # Purpose: Pages의 실제 보안 응답 헤더와 정적 자산 캐시 정책을 설정한다.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-qf5YcinHJcNKJQ14NoW09k3ui1WC8mZLwfpMnBxtJSc='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://tvsoacvbjvggqdgnzijc.supabase.co wss://tvsoacvbjvggqdgnzijc.supabase.co https://skala-relay.skala-fps.workers.dev wss://skala-relay.skala-fps.workers.dev https://skala-api.skala-fps.workers.dev; media-src 'self' blob: data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self' https://*.crazygames.com https://crazygames.com capacitor://app.crazygames.com
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-TM0KDHAQbO12MKjS7wA+y53W8I0SldAmN++tBE9dMgI='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://tvsoacvbjvggqdgnzijc.supabase.co wss://tvsoacvbjvggqdgnzijc.supabase.co https://skala-relay.skala-fps.workers.dev wss://skala-relay.skala-fps.workers.dev https://skala-api.skala-fps.workers.dev; media-src 'self' blob: data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self' https://*.crazygames.com https://crazygames.com capacitor://app.crazygames.com
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()

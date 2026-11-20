@@ -164,9 +164,14 @@ export async function install(ctx) {
   // 무기 표 전부를 등록한다: HUD(슬롯·탄약 칸)와 무기 고르기 카드가 id로 이름·아이콘을 찾는다.
   // 좀비 물량 막기 전용 무기(기관총·유탄 발사기·바주카포, zombieOnly)는 상점·마이페이지·빠른 교체 줄이 스스로 거른다(ui/shop.js·mypage.js·loadout.js). shop이 붙은 공기총·말뚝건은 판다
   ui.setWeapons(WEAPONS);
-  // 상점·마이페이지 캐릭터 초상: 게임 렌더러로 캐릭터 × 팀마다 한 번 그려 둔다(처음 보여 줄 때)
+  // 상점·마이페이지 캐릭터 초상: 같은 대원 모델을 게임 렌더러로 캐릭터 × 팀마다 한 번 그려 둔다(처음 보여 줄 때).
+  // 모델을 받기 전에는 아이콘을 보이고, 받으면 다시 연결해 열려 있는 화면도 초상으로 바꾼다
   const portraits = ctx.renderer && ctx.renderer.three ? createAvatarPortraits(ctx.renderer.three) : null;
-  if (portraits) ui.setAvatarArt((id, team) => portraits.get(id, team));
+  if (portraits) {
+    const art = (id, team) => portraits.get(id, team);
+    ui.setAvatarArt(art);
+    portraits.ready.then(() => ui.setAvatarArt(art), () => { /* 모델 오류는 맵 불러오기가 화면에 알린다 */ });
+  }
   const world = await createWorld({ ctx, ui });
   const practice = createPractice({ ctx, world, ui });
   const toast = createToast(ui);
