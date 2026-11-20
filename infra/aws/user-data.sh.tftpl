@@ -1,0 +1,85 @@
+#!/bin/bash
+# Date: 06NOV2026
+# Author: Minkyu Jung
+# Purpose: 공식 arm64 실행 파일과 저장소를 설치하고 Node·TLS 프록시를 서비스로 시작한다.
+set -euo pipefail
+
+dnf install -y git tar xz gzip curl-minimal
+systemctl enable --now amazon-ssm-agent
+install -d /var/tmp/fps-bootstrap
+cd /var/tmp/fps-bootstrap
+
+# Node 24의 공식 체크섬과 arm64 바이너리만 사용한다.
+curl --fail --silent --show-error --location https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt -o node-checksums.txt
+read -r node_hash node_archive < <(grep 'node-v24.*-linux-arm64.tar.xz$' node-checksums.txt)
+curl --fail --silent --show-error --location "https://nodejs.org/dist/latest-v24.x/$node_archive" -o "$node_archive"
+printf '%s  %s\n' "$node_hash" "$node_archive" | sha256sum --check -
+tar -xJf "$node_archive" -C /usr/local --strip-components=1
+
+# Caddy 공식 릴리스. 버전 교체 때 체크섬 파일도 같은 릴리스에서 받는다.
+curl --fail --silent --show-error --location https://github.com/caddyserver/caddy/releases/download/v2.10.2/caddy_2.10.2_linux_arm64.tar.gz -o caddy_2.10.2_linux_arm64.tar.gz
+curl --fail --silent --show-error --location https://github.com/caddyserver/caddy/releases/download/v2.10.2/caddy_2.10.2_checksums.txt -o caddy-checksums.txt
+grep 'caddy_2.10.2_linux_arm64.tar.gz$' caddy-checksums.txt | sha256sum --check -
+tar -xzf caddy_2.10.2_linux_arm64.tar.gz caddy
+install -m 0755 caddy /usr/local/bin/caddy
+
+useradd --system --home-dir /var/lib/fps --create-home --shell /sbin/nologin fps
+useradd --system --home-dir /var/lib/caddy --create-home --shell /sbin/nologin caddy
+git clone --no-checkout '${repo_url}' /opt/fps
+git -C /opt/fps checkout --detach '${repo_ref}'
+chown -R fps:fps /opt/fps
+install -d -o caddy -g caddy /etc/caddy /var/lib/caddy
+cat > /etc/caddy/Caddyfile <<'CADDY'
+${game_server_host} {
+    reverse_proxy 127.0.0.1:8788
+}
+CADDY
+cat > /etc/systemd/system/fps.service <<'UNIT'
+[Unit]
+Description=Game Node service
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=fps
+Group=fps
+WorkingDirectory=/opt/fps
+Environment=NODE_ENV=production
+ExecStart=${service_command}
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/fps
+[Install]
+WantedBy=multi-user.target
+UNIT
+cat > /etc/systemd/system/caddy.service <<'UNIT'
+[Unit]
+Description=Game HTTPS reverse proxy
+After=network-online.target fps.service
+Wants=network-online.target
+[Service]
+Type=notify
+User=caddy
+Group=caddy
+Environment=HOME=/var/lib/caddy
+ExecStart=/usr/local/bin/caddy run --environ --config /etc/caddy/Caddyfile --adapter caddyfile
+ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=5
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/caddy
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now fps caddy
