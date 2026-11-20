@@ -1775,7 +1775,7 @@ describe('장비 메시지', () => {
     assert.deepEqual(payload[1], msg, '256B를 넘으면 protocol이 비워 버린다');
     assert.ok(byteSize(msg) <= 256, `${byteSize(msg)}B`);
     const back = decodeMessage(EV.loadout, copy(payload)).data;
-    assert.deepEqual(readGear(back.loadout), { primary: 'sr_heavy', secondary: 'pt_magnum', melee: 'ml_katana', pick: 'sr_heavy' });
+    assert.deepEqual(readGear(back.loadout), { primary: 'sr_heavy', secondary: 'pt_magnum', melee: 'ml_katana', grenade: 'gr_frag', pick: 'sr_heavy' });
     const knife = gearMessage('knife', 'ml_knife', { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_katana' });
     assert.equal(knife.melee, 'ml_knife');
     assert.equal(knife.pick, 'ml_knife');

@@ -450,7 +450,7 @@ describe('store', () => {
     assert.equal(p.loadout.primary, DEFAULT_LOADOUT.primary, '가지지 않은 무기');
     assert.equal(p.loadout.secondary, DEFAULT_LOADOUT.secondary, '칸이 맞지 않는 무기');
     assert.equal(p.loadout.melee, 'ml_knife');
-    assert.deepEqual(Object.keys(p.loadout).sort(), ['avatar', 'emotes', 'melee', 'primary', 'secondary']);
+    assert.deepEqual(Object.keys(p.loadout).sort(), ['avatar', 'emotes', 'grenade', 'melee', 'primary', 'secondary']);
     assert.deepEqual(p.loadout.emotes, [...DEFAULT_EMOTE_WHEEL]);
     assert.equal(p.loadout.avatar, DEFAULT_AVATAR, '칸이 없으면 기본 캐릭터');
     assert.equal(p.stats.kills, 3);

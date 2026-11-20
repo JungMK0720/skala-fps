@@ -66,7 +66,7 @@ function fakeWorld() {
     refillAmmo() { for (const a of Object.values(ammo)) { a.mag = a.size; a.reserve = a.max; } log.push(['refillAmmo', {}]); },
     internals: {
       arsenal: {
-        getLoadout: () => ({ primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' }),
+        getLoadout: () => ({ primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife', grenade: NADE }),
         getAmmo(id = 'ar_std') {
           if (id === NADE) return { weaponId: id, kind: 'count', mag: w.nades, magSize: w.nadeMax, reserve: 0 };
           const a = ammo[id];
@@ -361,7 +361,7 @@ describe('탄창 줍기', () => {
     assert.deepEqual([env.world.ammo.ar_std.mag, env.world.ammo.ar_std.reserve], [30, 90], '주무기 가득');
     assert.deepEqual([env.world.ammo.pt_std.mag, env.world.ammo.pt_std.reserve], [12, 72], '보조무기도 가득');
     assert.equal(env.world.nades, 4);
-    assert.equal(env.ui.hud.callouts.at(-1), '🧷 탄약 · 모든 총 탄 가득 · 💣 수류탄 가득');
+    assert.equal(env.ui.hud.callouts.at(-1), '🧷 탄약 · 모든 총 탄 가득 · 💣 투척 장비 가득');
     env.apply([player('me')], [loot(7)]);
     assert.equal(env.world.calls('refillAmmo').length, 1, '같은 이벤트는 한 번');
     env.apply([player('me')], [loot(8)]);

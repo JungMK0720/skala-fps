@@ -1043,6 +1043,7 @@ const WEAPON_TABLE = {
     fuse: 3.0,
     throw: { speed: 24, pitchUp: 0.06 / DEG },
     lob: { speed: 12, pitchUp: 0.06 / DEG },
+    physics: { gravity: -12 },
     primeTime: 0.25,
     throwRecover: 0.35,
     drawTime: 0.45, moveMul: 1.0,
