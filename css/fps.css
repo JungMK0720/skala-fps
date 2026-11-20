@@ -594,7 +594,7 @@
   .sk-cmd-stage-name { font-size: 15px; }
   .sk-cmd-rail { gap: 4px; padding: 0; overflow: hidden; }
   .sk-cmd-rail .sk-kicker { display: none; }
-  .sk-menu-btn { min-height: 38px; padding: 4px 10px; gap: 8px; }
+  .sk-menu-btn { min-height: 40px; padding: 4px 10px; gap: 8px; }
   .sk-menu-ico, .sk-menu-btn--sub .sk-menu-ico { font-size: 17px; }
   .sk-menu-label, .sk-menu-btn--sub .sk-menu-label { font-size: 13.5px; }
   .sk-menu-sub, .sk-menu-en { display: none; }
@@ -609,7 +609,7 @@
   .sk-cmd-stat { padding: 3px 6px; }
   .sk-cmd-stat dt { font-size: 10.5px; }
   .sk-cmd-stat dd { font-size: 13.5px; }
-  .sk-player-mypage { min-height: 36px; margin-top: auto; padding: 0 8px; font-size: 12.5px; }
+  .sk-player-mypage { min-height: 40px; margin-top: auto; padding: 0 8px; font-size: 12.5px; }
   .sk-deploy .sk-menu-label { white-space: nowrap; }
 }
 /* 아주 좁은 가로 화면(568~760px): 레일·요원 기록을 더 좁히고 출격 버튼의 DEPLOY 글자와 설명을 뺀다 */
