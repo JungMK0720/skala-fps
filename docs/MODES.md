@@ -473,7 +473,7 @@
 | 20라운드부터 원거리 좀비 (당시 요청) | 스피터 `from` 8 → 20. 이후 10라운드 이후부터 서서히 나오도록 `from` 11로 조정 | `rules.js` |
 | 칼 → 방패(앞 피해 감소) | 방패 칼 증강(`shieldKnife`). 칼(슬롯 3)을 들었을 때 바라보는 앞 70° 안의 공격만 −45%. 왼손에 방패 모형 | `director.js guarded`, `viewmodel.js setShield` |
 | 중력건 보조무기 | 중력건 증강(`sideGravity`) → GV-1(`gv_gun`). 쏘면 발사체가 닿은 곳에 반경 7 m 중력 구멍이 생겨 좀비가 한 점으로 끌려와 뭉친다(피해 없음, 보스는 짧게) | `defs.js`, `grenade.js` 'gravity', `director.js pullZombie` |
-| 점프 중 피해 +500% | 공중 강타(`airStrike`, 영웅). 총·칼 피해 ×6, 수류탄은 제외 | `director.js zombieHitDamage` |
+| 점프 중 피해 +500% | 공중 강타(`airStrike`, 영웅). 총 피해 ×6, 칼·수류탄은 제외 | `director.js zombieHitDamage` |
 | 상점에 샷건·양손 우지·미니건 | 샷건 3종(`sg_pump`·`sg_double`·`sg_auto`), 듀얼 우지 `sm_uzi_dual`, 미니건 `mg_minigun`. 상점 탭에 샷건·기관총 분리 | `defs.js`, `viewmodel.js`, `ui/shop.js`, `supabase/schema.sql` |
 
 - 방패·공중 강타는 방장이 사람의 바라보는 방향·든 무기 슬롯·점프 여부를 알아야 해서, 방장이 읽는 위치 정보(`getPositions`)에 `yaw`·`slot`·`air`를 더했다(`session.js positions`, `solo.js`). 다른 모드는 x·y·z만 읽는다.

@@ -2427,7 +2427,7 @@ export function zombieHitDamage(c = {}, k = {}, z = {}, o = {}) {
   if ((k.executioner || 0) > 0 && num(z.hpFrac, 1) <= 0.25) mul *= 1 + k.executioner;
   const nth = Math.max(0, num(o.nth, 0) | 0);
   if (nth > 0) mul *= Math.max(PIERCE_MIN, Math.pow(PIERCE_FALLOFF, nth));
-  if ((k.airDmg || 0) > 0 && o.air) mul *= 1 + k.airDmg;
+  if ((k.airDmg || 0) > 0 && o.air && !melee) mul *= 1 + k.airDmg;   // 공중 강타: 총만(칼·수류탄 제외)
   if ((k.sideMaster || 0) > 0 && def.slot === 2) mul *= 6;   // 보조무기 마스터: 보조무기 피해 +500%
   return { dmg: base * mul, head, melee, part };
 }

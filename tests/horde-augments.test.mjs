@@ -168,10 +168,12 @@ describe('QA 요청 증강 묶음', () => {
     assert.equal(cardById('shieldKnife').fx.guard, 0.45);
   });
 
-  test('공중 강타: 점프로 떠 있을 때만 피해 +500%(방장 판정과 피해 숫자가 같다)', () => {
+  test('공중 강타: 점프로 떠 있을 때만 총 피해 +500%, 칼은 그대로(방장 판정과 피해 숫자가 같다)', () => {
     const k = computePerks(['airStrike']);
     const hit = (air) => zombieHitDamage({ weaponId: 'ar_std', part: 'body', dist: 5, kind: 'shot' }, k, {}, { air }).dmg;
     assert.equal(hit(true), hit(false) * 6);
+    const knife = (air) => zombieHitDamage({ weaponId: 'ml_knife', part: 'body', dist: 1, kind: 'slash' }, k, {}, { air }).dmg;
+    assert.equal(knife(true), knife(false), '칼 피해는 공중 강타를 받지 않는다');
     assert.equal(zombieHitDamage({ weaponId: 'ar_std', part: 'body', dist: 5, kind: 'shot' }, computePerks([]), {}, { air: true }).dmg, hit(false), '증강이 없으면 그대로');
     const dmgOf = (air) => {
       const { d } = makeFlat({ p1: { x: 0, y: 0, z: 0, yaw: 0, slot: 1, air } }, ['airStrike']);
