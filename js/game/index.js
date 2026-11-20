@@ -17,6 +17,7 @@
 import { createUI } from '../ui/index.js';
 import { WEAPONS } from '../weapons/defs.js';
 import { createAvatarPortraits } from '../engine/avatars.js';
+import { createOperatorPreview } from '../engine/operator-preview.js';
 import { createWorld, setWorldContext } from './world.js';
 import { createPractice, createPracticeSetup } from './practice.js';
 
@@ -172,6 +173,10 @@ export async function install(ctx) {
     ui.setAvatarArt(art);
     portraits.ready.then(() => ui.setAvatarArt(art), () => { /* 모델 오류는 맵 불러오기가 화면에 알린다 */ });
   }
+  // 작전 지휘소 가운데 무대: 장착한 대원을 작은 전용 렌더러로 돌려 보인다(블루 팀 색). 대원은 메뉴 캡션과 같은 data-avatar를 따라간다
+  const stagePreview = ctx.renderer && typeof ui.operatorStage === 'function'
+    ? createOperatorPreview({ container: ui.operatorStage(), settings: ctx.settings, team: 'owner' })
+    : null;
   const world = await createWorld({ ctx, ui });
   const practice = createPractice({ ctx, world, ui });
   const toast = createToast(ui);
@@ -273,13 +278,14 @@ export async function install(ctx) {
 
   return {
     provides: ['weapons', 'menu', 'hud'],
-    ui, world, practice, notices,
+    ui, world, practice, notices, stagePreview,
     dispose() {
       offs.forEach((o) => { try { o(); } catch (err) { /* ignore */ } });
       offs.length = 0;
       notices.dispose();
       toast.dispose();
       setup.dispose();
+      if (stagePreview) stagePreview.dispose();
       if (portraits) portraits.dispose();
       if (practice.active) { try { practice.exit(); } catch (err) { /* ignore */ } }
       multi.close();

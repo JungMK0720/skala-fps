@@ -32,11 +32,10 @@
 | 이모트 음악 11종 | `js/fx/audio.js` `EMOTE_DEFS` | 직접 쓴 음표·리듬 표를 합성 루프로 렌더(docs/EMOTE_BGM.md) | 직접 만듦. 기존 곡의 선율·리듬을 옮기지 않음 |
 | 이모트 동작 11종 | `js/engine/emoteanim.js` `DEFS` | 직접 설계한 관절 키프레임과 작은 IK | 직접 만듦(2026-11-21에 8종을 새로 설계, 4절) |
 | 시각 효과(총구 섬광, 입자, 탄흔, 속도 줄기 등) | `js/fx/effects.js` | three.js 도형·셰이더·캔버스 텍스처 | 직접 만듦 |
-| 캐릭터·무기·소품 모델 | `js/engine/avatars.js`, `js/weapons/viewmodel.js`, `js/engine/decor.js` 등 | three.js 기본 도형을 코드로 조립 | 직접 만듦 |
+| 무기·소품 모델, 대원 장비(머리 장비·완장·조끼판 등) | `js/weapons/viewmodel.js`, `js/engine/decor.js`, `js/engine/operator-gear.js` 등 | three.js 기본 도형을 코드로 조립 | 직접 만듦. 대원 몸 자체는 파일 자산(3절 `operators.glb`) |
 | 맵 | `js/maps/*.js` | 데이터 표(상자·원통·경사로)와 캔버스 글자 표지판 | 직접 설계. 실제 시설·상용 게임 맵을 옮기지 않음 |
 | 연속 킬 그림 | `js/ui/multikill.js` | SVG 도형 | 직접 만듦 |
 | 화면 아이콘(무기·이모트·버프의 그림 글자) | `js/weapons/defs.js`, `js/core/consts.js` 등의 `icon` | 유니코드 이모지 글자. 그림은 플레이어 기기의 글꼴이 그린다 | 글자 코드만 씀. 그림 파일을 배포하지 않음 |
-| 글꼴 | `index.html` `--f-ui` 등 | 글꼴 파일을 넣지 않고 기기에 있는 글꼴 이름만 지정 | 배포하지 않음 |
 
 ## 3. 파일 자산과 외부 라이브러리
 
@@ -46,6 +45,9 @@
 | `audio/voice/quadra.mp3`, `penta.mp3`, `hexa.mp3` | 위와 같은 도구·음성. 문장을 "쿼드 킬!", "5연속 처치!", "6연속 처치!"로 바꿔 다시 만듦 | 위와 같음 | 2026-11-21 | **미확인** | 파일 이름(id)은 그대로 |
 | three.js 0.170.0(`three`, `three/addons/`) | https://cdn.jsdelivr.net/npm/three@0.170.0/ (원본 https://github.com/mrdoob/three.js) | MIT (https://github.com/mrdoob/three.js/blob/dev/LICENSE) | 2026-11-07 | 확인함 | index.html importmap, `integrity` 있음. 날짜는 처음 넣은 커밋(37f4109) |
 | cannon-es 0.20.0 | https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/ (원본 https://github.com/pmndrs/cannon-es) | MIT (https://github.com/pmndrs/cannon-es/blob/master/LICENSE) | 2026-11-07 | 확인함 | index.html importmap, `integrity` 있음. 날짜는 처음 넣은 커밋(37f4109) |
+| `assets/models/operators/operators.glb` (대원 몸·머리·모자·뼈대·동작 7개, 669,480바이트, sha256 `f57afbaa4bf480fe12624f3a21d5f2b4dea2675561c4b330d2047c877773317a`) | Quaternius **Ultimate Modular Men Pack**의 SWAT·Business Man·Worker·Farmer를 `tools/models/build-operators.mjs`로 합쳐 줄임. 원본: https://static.poly.pizza/713f6535-f4f3-4367-a4c6-ced126ae0936.glb (SWAT), https://static.poly.pizza/e599abbe-7d73-488c-9d7e-3ead281e705c.glb (Business Man), https://static.poly.pizza/3a5f3056-ffe6-42eb-bd52-122afcbd22b2.glb (Worker), https://static.poly.pizza/81f2f0cf-6f53-4b57-92ea-dba0928620f2.glb (Farmer). 원본 네 파일의 sha256은 `assets/models/operators/LICENSE.md`와 빌드 도구가 함께 적고, 다르면 도구가 멈춘다 | CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/). 근거: 제작자 팩 페이지 License 칸 CC0(https://quaternius.com/packs/ultimatemodularcharacters.html, 버전 기록 https://github.com/Quaternius/quaternius.github.io/blob/c219437bd230a5e66e1b523dbd8ee2bcf0dfb90b/packs/ultimatemodularcharacters.html 197행), poly.pizza 네 모델 페이지 "Public Domain (CC0)". 법률 문구 원문 `assets/models/operators/CC0-1.0.txt` | 2026-11-21 | 확인함 | 저작자 표시 필요 없음. 팩의 `License.txt`(Google Drive)는 받는 날 할당량 초과로 못 받아 페이지 표시로 대신함. 2026-08-28의 새 Quaternius 라이선스는 소급하지 않음(그 문서 7절). 같은 팩의 여성 인물은 poly.pizza가 CC-BY로 표시해 쓰지 않음 |
+| `fonts/pretendard/PretendardVariable.subset.0~91.woff2` (92개, 약 2.9 MB, 쓰는 글자 범위만 받는 동적 부분 집합) | npm `pretendard@1.3.9` `dist/web/variable/woff2-dynamic-subset/` (원본 https://github.com/orioncactus/pretendard). `css/fps.css`의 `@font-face`가 `unicode-range`로 나눠 부른다 | SIL Open Font License 1.1 — `fonts/pretendard/OFL.txt`(Copyright (c) 2021, Kil Hyung-jin, Reserved Font Name Pretendard), https://openfontlicense.org | 2026-11-21 | 확인함 | 파일을 고치지 않고 그대로 배포(OFL은 다른 소프트웨어와 함께 팔아도 됨. 글꼴만 따로 팔지 않음). 들여온 커밋 6b211c6·2d19fc1 |
+| `fonts/jetbrains-mono/JetBrainsMono-latin-wght.woff2` (40,404바이트, sha256 `18be452724bfdc236c074ca94a249a7f41a86752c7d04ab258ce9ed5651f6a7e`) | npm `@fontsource-variable/jetbrains-mono@5.3.0` `files/jetbrains-mono-latin-wght-normal.woff2` (원본 https://github.com/JetBrains/JetBrainsMono) | SIL Open Font License 1.1 — `fonts/jetbrains-mono/OFL.txt`(Copyright 2020 The JetBrains Mono Project Authors) | 2026-11-21 | 확인함 | 라틴 범위 가변 글꼴 하나. 파일 이름만 바꿈. 들여온 커밋 6b211c6 |
 
 안내 음성 6개는 판매 전에 바꿔야 한다. 고를 길(소유자 결정, PRODUCT_PLAN 11절 2번): 직접 녹음(성우와 저작권 양도 계약), 상업 이용이 명시된 음성 합성 서비스로 같은 도구를 다시 돌림, 또는 음성 없이 효과음만.
 
