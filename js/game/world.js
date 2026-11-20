@@ -1603,9 +1603,15 @@ function buildWorld(ctx, opts) {
     if (ui) ui.hud.callout('투척 도끼 회수 +1');
   }
 
-  /** 공중 도끼가 닿은 좀비마다 한 번씩 피해를 낸다. 땅에 놓인 도끼는 더 때리지 않는다. */
+  /** 도끼 크기 배율: 좀비 모드 '폭발 반경' 증강을 그 사람 도끼의 크기·판정에 그대로 건다(1~3배) */
+  function axeScale(owner) {
+    if (mode !== 'zombie' || !hordePerk.nadeRadiusOf) return 1;
+    try { return clamp(num(hordePerk.nadeRadiusOf(owner), 1), 1, 3); } catch (err) { return 1; }
+  }
+
+  /** 공중 도끼가 닿은 좀비마다 한 번씩 피해를 낸다. 땅에 놓인 도끼는 더 때리지 않는다. 판정 반경은 도끼 크기만큼 커진다 */
   function pierceZombies(g) {
-    const ids = horde.touchingIds(g.pos, 0.35);
+    const ids = horde.touchingIds(g.pos, 0.35 * axeScale(g.owner));
     if (!ids.length) return;
     let hit = axeHits.get(g.id);
     if (!hit) { hit = new Set(); axeHits.set(g.id, hit); }
@@ -1668,7 +1674,8 @@ function buildWorld(ctx, opts) {
       } else if (g.kind === 'axe') {
         // 공중에서는 회전하고, 지형에 닿으면 그 면에 박힌 채 회수를 기다린다
         m.material = projMats.axe;
-        m.scale.set(0.35, 1.6, 3.2);
+        const ak = axeScale(g.owner);
+        m.scale.set(0.35 * ak, 1.6 * ak, 3.2 * ak);
         if (g.landed) {
           tmpV.set(g.normal[0], g.normal[1], g.normal[2]).normalize();
           m.quaternion.setFromUnitVectors(UP_V, tmpV);

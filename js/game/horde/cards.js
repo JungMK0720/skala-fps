@@ -128,7 +128,7 @@ const FAMILIES = [
   { key: 'supply', name: '탄약 보급', icon: '🎒', stat: 'ammoDrop', vals: [0.04, 0.06, 0.09, 0.15], text: (v) => `내가 잡은 좀비가 탄창을 떨어뜨릴 확률 +${pc(v)} (기본 10%)` },
   // 탄창을 주우면 모든 총이 가득 차므로 더 받을 것이 없어 네 단계 모두 제안에서 뺀다(전송 번호는 그대로)
   { key: 'belt', name: '탄띠', icon: '🎗️', stat: 'ammoMags', vals: [1, 1.5, 2, 3], text: (v) => `주운 탄창이 장전 ${fx(v)}회분 더 (기본 1회분)`, retire: [1, 2, 3, 4] },
-  { key: 'blast', name: '폭발 반경', icon: '🌋', stat: 'nadeRadius', vals: [0.3, 0.45, 0.63, 0.88], text: (v) => `수류탄 폭발 반경 +${pc(v)} · ${NADE_UP}`, nade: true },
+  { key: 'blast', name: '폭발 반경', icon: '🌋', stat: 'nadeRadius', vals: [0.3, 0.45, 0.63, 0.88], text: (v) => `수류탄 폭발 반경 +${pc(v)} (TX-3 도끼는 크기·판정 +${pc(v)}) · ${NADE_UP}`, nade: true },
   // 무제한 관통(한 장). 예전 I~IV 중 I 자리를 이 카드로 바꾸고 II~IV는 제안에서만 뺀다
   { key: 'pierce', name: '관통탄', icon: '🗡️', stat: 'pierce', vals: [99, 99, 99, 99], text: () => '탄이 좀비를 모두 뚫는다(뚫을 때마다 피해 70%, 최소 30%)', minTier: 2, only: 1, max: 1, retire: [1, 2, 3] },
   { key: 'scav', name: '탄약 회수', icon: '♻️', stat: 'killAmmo', vals: [1, 1, 2, 3], text: (v) => `처치할 때마다 탄창에 탄 ${v}발 돌려받기` },
