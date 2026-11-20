@@ -408,7 +408,7 @@ export function createHordeClient(o) {
       ...perkSummary(perks).filter((row) => !['피해', '맞은 뒤 무적', '최대 체력', '방패'].includes(row.label))
     ];
     if (perks.guard > 0) stats.push({ label: '방패', value: `정면·칼을 든 동안 피해 −${Math.round(perks.guard * 100)}%` });
-    if (perks.lifesteal > 0) stats.push({ label: '광역 공격 흡혈', value: `${Math.round(perks.lifesteal * 20)}%` });
+    if (perks.lifesteal > 0) stats.push({ label: '광역 공격 흡혈', value: `${+(perks.lifesteal * 20).toFixed(2)}%` });
     return { cards, stats };
   }
 

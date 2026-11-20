@@ -1760,7 +1760,7 @@ export function createHorde(o = {}) {
     // 사람: 회복
     for (const P of players.values()) {
       if (!P.alive || S.phase !== 'wave') continue;
-      const regen = P.perks.regen + P.maxHp * P.perks.regenPct;
+      const regen = P.perks.regen;
       if (regen <= 0) continue;
       P.regenAcc += regen * dt;
       if (P.regenAcc >= 1 - 1e-9) { const n = Math.floor(P.regenAcc + 1e-9); P.regenAcc = Math.max(0, P.regenAcc - n); healPlayer(P, n); }
