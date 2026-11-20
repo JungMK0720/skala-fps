@@ -396,7 +396,7 @@ describe('좀비 물량 막기: C4 수류탄·검기 주장', () => {
 
   test('종류 번호 표는 앞 순서를 유지하고 유탄·로켓·손 수류탄은 예전과 같은 모양이다', () => {
     assert.deepEqual([...GRENADE_KIND_CODES], ['', 'gl', 'rocket', 'c4', 'gravity', 'stake', 'axe', 'bolt']);
-    assert.equal(decodeGrenade([3, 100, 0, 0, 0, 0, 0, 5, 4, 2000]).kind, 'gravity', '중력건 발사체');
+    assert.equal(decodeGrenade([3, 100, 0, 0, 0, 0, 0, 5, 4, 2000]).kind, 'gravity', '특이점포 발사체');
     assert.ok(Object.isFrozen(GRENADE_KIND_CODES));
     const base = { pos: [1, 2, 3], vel: [4, 5, 6], t: 9 };
     const gl = encodeGrenade(1, { ...base, kind: 'gl', fuse: 2.2 });
@@ -441,7 +441,7 @@ describe('좀비 물량 막기: C4 수류탄·검기 주장', () => {
     }
   });
 
-  test('검기·야스오 주장 종류: 뒤에만 더했고 앞 코드는 그대로다', () => {
+  test('검기·질풍검 주장 종류: 뒤에만 더했고 앞 코드는 그대로다', () => {
     assert.deepEqual(KIND_CODES.slice(0, 5), OLD_KINDS);
     assert.equal(KIND_CODES.indexOf('wave'), 5);
     assert.equal(KIND_CODES.indexOf('waveStab'), 6);

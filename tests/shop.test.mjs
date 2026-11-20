@@ -147,7 +147,7 @@ describe('상점 화면', () => {
     s.tab('보조무기').fire('click');
     assert.deepEqual(s.subs(), ['권총', '샷건', '좀비 전용']);
     s.sub('샷건').fire('click');
-    assert.ok(s.card(WEAPONS.sg_shorty.name), '쇼티는 보조무기 · 샷건');
+    assert.ok(s.card(WEAPONS.sg_shorty.name), '단축 산탄총은 보조무기 · 샷건');
     assert.equal(s.card(WEAPONS.sg_pump.name), undefined, '주무기 샷건은 보조무기 탭에 없다');
     s.tab('투척무기').fire('click');
     assert.deepEqual(s.subs(), ['수류탄', '좀비 전용']);
@@ -157,7 +157,7 @@ describe('상점 화면', () => {
     s.sub('좀비 전용').fire('click');
     assert.ok(s.card(WEAPONS.th_axe.name), '투척 도끼는 투척무기 · 좀비 전용');
     s.tab('근접무기').fire('click');
-    assert.ok(s.card(WEAPONS.ml_saw.name) && s.card(WEAPONS.ml_case.name), '근접무기에 전기톱·007 가방');
+    assert.ok(s.card(WEAPONS.ml_saw.name) && s.card(WEAPONS.ml_case.name), '근접무기에 전기톱·BC-7 서류 가방');
     s.shop.show({ tab: 'pistol' });
     assert.deepEqual([s.onTab(), s.onSub()], ['보조무기', '권총'], '예전 종류 이름으로 열어도 그 큰 탭·작은 탭');
   });

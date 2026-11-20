@@ -293,7 +293,7 @@ describe('WEAPON_RULES: defs에서 만든다', () => {
       assert.equal(normalizeWeaponId(id.toUpperCase()), id);
       assert.equal(normalizeWeaponId(WEAPONS[id].short), id);
     }
-    assert.equal(normalizeWeaponId('SK-7'), 'sr_bolt');
+    assert.equal(normalizeWeaponId('SR-7'), 'sr_bolt');
     assert.equal(normalizeWeaponId('br3'), 'ar_burst');
     assert.equal(normalizeWeaponId('katana'), 'ml_katana');
     for (const bad of ['rifle', 'sniper', 'pistol', 'cutter', '', null, undefined, 'toString', '__proto__', 7, {}]) {
@@ -396,7 +396,7 @@ describe('저격 반샷', () => {
         assert.equal(playerOf(m, 'a').kills, 1);
       });
     }
-    // 밸런스 패치(2026-11-12): SK-7·T-2의 다리는 85라 1발 킬이 아니다. H-50만 다리도 1발이다
+    // 밸런스 패치(2026-11-12): SR-7·T-2의 다리는 85라 1발 킬이 아니다. H-50만 다리도 1발이다
     for (const part of id === 'sr_heavy' ? ['head', 'body', 'legs'] : ['head', 'body']) {
       test(`${id}: ${part}는 1발에 죽고 반샷이 아니다`, () => {
         const m = liveDuel();

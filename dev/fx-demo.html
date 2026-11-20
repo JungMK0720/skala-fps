@@ -81,15 +81,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createAudio, SOUND_NAMES, EMOTE_SOUNDS, EMOTE_BPM, VOICE_IDS } from '../js/fx/audio.js';
 import { createEffects } from '../js/fx/effects.js';
+import { EMOTES } from '../js/core/consts.js';
 
 const PARAMS = new URLSearchParams(location.search);
 const SMOKE = PARAMS.has('smoke');
-// 테스트용: ?emoteManifest=<같은 출처 경로> 로 다른 manifest를 쓴다(기본은 audio/emotes/manifest.json)
-const EMOTE_MANIFEST = (() => {
-  const p = PARAMS.get('emoteManifest');
-  if (!p) return undefined;
-  try { const u = new URL(p, location.href); return u.origin === location.origin ? u.href : undefined; } catch { return undefined; }
-})();
 const canvas = document.getElementById('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(2, devicePixelRatio));
@@ -122,7 +117,7 @@ scene.add(water); solids.push(water);
 const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, 1.2, -3); controls.enableDamping = true; controls.update();
 
-const audio = createAudio({ volume: 0.8, emoteManifest: EMOTE_MANIFEST });
+const audio = createAudio({ volume: 0.8 });
 const fx = createEffects(scene, camera, { renderer });
 
 /* ── 유틸 ── */
@@ -175,7 +170,7 @@ for (const [title, names] of GROUPS) {
 }
 /* ── 연속 킬 안내 음성(audio/voice, TTS로 합성): 게임처럼 효과음 다음에 문장을 낸다 ── */
 {
-  const LABEL = { double: '더블 킬!', triple: '트리플 킬!', quadra: '쿼드라 킬!', penta: '펜타 킬!', hexa: '헥사 킬!', legend: '당신은 전설입니다' };
+  const LABEL = { double: '더블 킬!', triple: '트리플 킬!', quadra: '쿼드 킬!', penta: '5연속 처치!', hexa: '6연속 처치!', legend: '당신은 전설입니다' };
   const h = document.createElement('h2'); h.textContent = '연속 킬 안내 음성'; sbox.appendChild(h);
   const g = document.createElement('div'); g.className = 'grid'; sbox.appendChild(g);
   VOICE_IDS.forEach((id, i) => {
@@ -191,8 +186,7 @@ for (const [title, names] of GROUPS) {
 }
 
 /* ── 이모트 소리 ── */
-const EMOTE_LABEL = { takeL: 'L을 가져가', veggie: '야채', sideToSide: '사이드 스텝', crissCross: '크리스 크로스',
-  tango: '탱고', salute: '경례', wave: '손 흔들기', cheer: '환호 박수', creamCheese: '크림치즈 허니', fromYou: '당신에게서', selfie: '셀카' };
+const EMOTE_LABEL = Object.fromEntries(EMOTES.map((e) => [e.id, e.name]));
 const emoteOn = new Map(), emoteAll = new Set();
 const embox = document.getElementById('emotes');
 function track(h) { emoteAll.add(h); return h; }
@@ -379,7 +373,6 @@ function frame(now) {
       `dropped ${s.dropped}  quality ${s.quality}  rm ${s.reducedMotion}\n` +
       `audio ${a.state}  3D ${a.voices3d}/${a.pool3d}  2D ${a.voices2d}/${a.pool2d}  cached ${a.variants}/${a.variantsTotal}\n` +
       `emote ${a.emotes}  3D ${a.emoteVoices3d}/${a.emotePool3d}  2D ${a.emoteVoices2d}/${a.emotePool2d}  cached ${a.emoteCached}\n` +
-      `emote files ${a.emoteFiles.length ? a.emoteFiles.join(',') : '(없음 → 합성음)'}\n` +
       `draw calls ${renderer.info.render.calls}`;
     syncEmoteButtons();
   }
@@ -393,7 +386,7 @@ if (PARAMS.has('debug')) window.__fxDemo = { audio, fx, THREE, camera };   // ?d
 async function smoke() {
   const res = { ok: false, checks: [] };
   const check = (name, ok, info) => res.checks.push({ name, ok: !!ok, info });
-  const logged = [];                                        // manifest {} 처리까지 콘솔이 조용한지 본다
+  const logged = [];                                        // 스모크 동안 콘솔이 조용한지 본다
   for (const m of ['info', 'warn', 'error']) {
     const orig = console[m].bind(console);
     console[m] = (...a) => { logged.push(`${m}: ${a.join(' ')}`); orig(...a); };
@@ -582,24 +575,10 @@ async function smoke() {
       es.emoteSources === 0, es);
     audio.emote('cheer'); audio.stopAll(0.05); await wait(400);
     check('stopAll ends emotes', audio.getStats().emotes === 0 && audio.getStats().emoteSources === 0, audio.getStats());
-    if (!EMOTE_MANIFEST) {                                  // 기본 manifest(기본값 {}) → 목록에 있는 이모트만 파일, 나머지는 합성음
-      const files = await audio.emoteFilesReady();
-      let listed = [];
-      try { listed = Object.keys(await (await fetch('../audio/emotes/manifest.json', { cache: 'no-store' })).json()); } catch (e) { listed = []; }
-      const unlisted = ['takeL', 'veggie', 'sideToSide', 'crissCross', 'tango', 'cheer'].find((id) => !listed.includes(id));
-      const sameSet = Array.isArray(files) && files.length === listed.length && listed.every((id) => files.includes(id));
-      const hf = listed.length ? audio.emote(listed[0]) : null;
-      const hs = unlisted ? audio.emote(unlisted) : null;
-      check('manifest → listed emotes use files, others synth', sameSet && (!hf || hf.source === 'file') && (!hs || hs.source === 'synth'), { files, listed });
-      if (hf) hf.stop(20);
-      if (hs) hs.stop(20);
-    }
-    try {                                                   // 춤(core EMOTES.bpm)과 음악 템포·번호가 같은지(데모는 core 없이도 동작)
-      const { EMOTES } = await import('../js/core/consts.js');
-      const diff = (EMOTES || []).filter((e) => EMOTE_SOUNDS[e.code - 1] !== e.id || (e.loop && EMOTE_BPM[e.id] !== e.bpm))
-        .map((e) => `${e.code}:${e.id} anim ${e.bpm} / audio ${EMOTE_BPM[e.id]}`);
-      check('emote ids & tempo match core EMOTES', diff.length === 0 && EMOTES.length >= EMOTE_SOUNDS.length, diff);
-    } catch (err) { check('emote ids & tempo match core EMOTES (consts 불러오기)', false, String(err)); }
+    // 춤(core EMOTES.bpm)과 음악 템포·번호가 같은지
+    const diff = EMOTES.filter((e) => EMOTE_SOUNDS[e.code - 1] !== e.id || (e.loop && EMOTE_BPM[e.id] !== e.bpm))
+      .map((e) => `${e.code}:${e.id} anim ${e.bpm} / audio ${EMOTE_BPM[e.id]}`);
+    check('emote ids & tempo match core EMOTES', diff.length === 0 && EMOTES.length >= EMOTE_SOUNDS.length, diff);
 
     await wait(4200);                                      // 가장 긴 소리(폭발 3.6s)보다 길게
     const s4 = audio.getStats();
@@ -621,8 +600,7 @@ async function smoke() {
     check('fx disposed', !scene.getObjectByName('fx-root'), scene.children.length);
     check('audio disposed', audio.getStats().state === 'locked' && audio.play('rifle') === null && !audio.emote('takeL').playing,
       audio.getStats());
-    // 기본 manifest의 묶음을 모두 읽으면 안내 한 줄('[fx] 이모트 음원 — 파일: …')만 남는다. 대체(합성음)·경고·오류는 없어야 한다
-    if (!EMOTE_MANIFEST) check('console quiet (only the emote file line)', logged.filter((l) => !l.startsWith('info: [fx] 이모트 음원 — 파일: ') || l.includes('합성음 대체')).length === 0, logged);
+    check('console quiet', logged.length === 0, logged);
     res.ok = res.checks.every((c) => c.ok);
   } catch (err) {
     check('exception', false, String(err && err.stack || err));

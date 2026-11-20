@@ -407,7 +407,7 @@ describe('보스 · 스테이지 규칙', () => {
     assert.ok(zombieCount(10) > zombieCount(1));
     assert.ok(hpMul(20) > hpMul(10));
     assert.ok(zombieMix(1).every((m) => m.type.id === 'walker'));
-    assert.ok(!zombieMix(10).some((m) => m.type.id === 'spitter'), '10스테이지까지 스피터가 없다');
+    assert.ok(!zombieMix(10).some((m) => m.type.id === 'spitter'), '10스테이지까지 산성 좀비가 없다');
     const spit11 = zombieMix(11).find((m) => m.type.id === 'spitter');
     const spit15 = zombieMix(15).find((m) => m.type.id === 'spitter');
     assert.ok(spit11 && spit15 && spit11.weight > 0 && spit11.weight < spit15.weight, '11스테이지부터 원거리 좀비가 서서히 늘어난다');
@@ -485,7 +485,7 @@ describe('보스 · 스테이지 규칙', () => {
     assert.ok(Math.abs(Z.body.pos[2]) < 1, '옆으로 돌아가지 않았다');
   });
 
-  test('30스테이지 블리츠: 가끔 섞이고, 그랩에 맞으면 블리츠 앞으로 끌려가고(20초 쿨타임), 평타에 맞으면 기절하며 뜬다', () => {
+  test('30스테이지 사슬꾼: 가끔 섞이고, 그랩에 맞으면 사슬꾼 앞으로 끌려가고(20초 쿨타임), 평타에 맞으면 기절하며 뜬다', () => {
     assert.ok(!zombieMix(29).some((m) => m.type.id === 'grabber'));
     const g30 = zombieMix(30).find((m) => m.type.id === 'grabber');
     const walker30 = zombieMix(30).find((m) => m.type.id === 'walker');
@@ -507,10 +507,10 @@ describe('보스 · 스테이지 규칙', () => {
     for (let i = 0; i < 60 && !ev.some((e) => e.type === 'grabbed'); i++) ev = ev.concat(step(d));
     assert.ok(ev.some((e) => e.type === 'grabbed' && e.id === 'p1'), '그랩에 맞았다');
     assert.ok(ev.some((e) => e.type === 'stun' && e.id === 'p1' && e.ms === 2000), '그랩에 끌리면 2초 동안 기절한다');
-    assert.ok(p.knockV[0] > 5 && p.knockV[1] > 11, `블리츠 쪽(+x)으로 높게 끌려간다 ${p.knockV}`);
+    assert.ok(p.knockV[0] > 5 && p.knockV[1] > 11, `사슬꾼 쪽(+x)으로 높게 끌려간다 ${p.knockV}`);
     const flight = (2 * p.knockV[1]) / 16;
     const landX = pos.p1[0] + p.knockV[0] * flight;
-    assert.ok(Math.abs(landX - (Z.body.pos[0] - 1.4)) < 1.5, `블리츠 바로 앞에 떨어진다: ${landX} vs ${Z.body.pos[0]}`);
+    assert.ok(Math.abs(landX - (Z.body.pos[0] - 1.4)) < 1.5, `사슬꾼 바로 앞에 떨어진다: ${landX} vs ${Z.body.pos[0]}`);
     assert.ok(near(p.knockV[1] ** 2 / (2 * 16), 5 * (5 ** 2 / (2 * 16)), 0.02), '그랩의 최고 높이는 예전의 5배');
     assert.ok(Z.grabAt - S.clock > 18000, '그랩 쿨타임 20초');
     // 평타: 기절 + 띄우기
@@ -521,10 +521,10 @@ describe('보스 · 스테이지 규칙', () => {
     const stun = hit.find((e) => e.type === 'stun' && e.id === 'p1');
     assert.ok(stun && stun.ms === ZOMBIE_TYPES.grabber.stun.ms, '평타에 맞으면 기절');
     assert.equal(p.knockV[1], ZOMBIE_TYPES.grabber.stun.up, '공중에 뜬다');
-    assert.ok(near(p.knockV[1] ** 2 / (2 * 16), 5 * (7 ** 2 / (2 * 16)), 0.15), '블리츠 평타의 최고 높이도 예전의 약 5배');
+    assert.ok(near(p.knockV[1] ** 2 / (2 * 16), 5 * (7 ** 2 / (2 * 16)), 0.15), '사슬꾼 평타의 최고 높이도 예전의 약 5배');
   });
 
-  test('블리츠는 그랩 예고 때 겨눈 방향을 고정하고, 옆으로 비키면 갈고리가 빗나간다', () => {
+  test('사슬꾼은 그랩 예고 때 겨눈 방향을 고정하고, 옆으로 비키면 갈고리가 빗나간다', () => {
     const { d, pos, P } = makeFlat({ startStage: 30 });
     const S = d.internals.S;
     S.queue.length = 0; S.queue.push({ type: 'grabber' }); S.spawnAt = 0;

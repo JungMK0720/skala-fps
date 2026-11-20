@@ -81,7 +81,7 @@ const { stats, mvp } = standings(view);      // 점수판·결과 화면용 순�
 | `addPlayer({ id, name, team, bot })` | 항상 | `join`. 같은 id가 이미 접속 중이면 이름만 갱신하고 `[]`(멱등) |
 | `removePlayer(id)` | 항상 | `leave`, 전멸이면 `roundEnd`, 팀 전원 퇴장이면 `matchEnd`가 이어진다. 모르는 id는 `[]` |
 | `setTeam(id, team)` | warmup만 | `team`. 같은 팀이면 `[]` |
-| `setLoadout(id, weaponId)` | loadout만(FFA는 live도) | `pickableWeapons(ruleset)`에 있는 무기만 받는다. 그 밖은 `reject 'bad_weapon'`. 같은 값이면 `[]`. 표시 이름(`'SK-7'`)도 받는다 |
+| `setLoadout(id, weaponId)` | loadout만(FFA는 live도) | `pickableWeapons(ruleset)`에 있는 무기만 받는다. 그 밖은 `reject 'bad_weapon'`. 같은 값이면 `[]`. 표시 이름(`'SR-7'`)도 받는다 |
 | `claimHit(claim)` / `claimExplosion(claim)` | live만 | 5절 |
 | `bombIntent(id, action, opt)` | live만 | 폭파 미션 설치·해체 의도(13.2절). 다른 모드는 `reject 'not_bomb'` |
 | `respawnNow(id)` | 개인전 live만 | 즉시 부활(11.3절). 부활을 기다리는 사람을 지금 출격시키고 `spawn { ..., instant: true }`. 거절: `not_ffa` · `not_live` · `unknown_player` · `not_waiting`(살아 있음) · `too_late`(부활까지 `QUICK_RESPAWN_MIN_LEFT_MS` 500 ms 미만) |
@@ -133,7 +133,7 @@ warmup ──start()──▶ loadout(5s) ─▶ live(2:00) ─▶ roundEnd(4s) 
 - 입력의 무기는 `normalizeWeaponId`를 거친다. **이벤트에는 항상 정식 id**가 나간다.
 - 부위는 `head`/`body`/`legs`/`hand`/`foot`이고 `defs.normalizePart`로 정규화한다. 모르는 값은 `body`다. 칼과 수류탄은 부위를 무시한다(`part: null`).
 - 칼 `kind`: `'stab'`이면 찌르기·강타, 그 밖(생략·`'shot'` 포함)은 베기다.
-- 수치 예: 라이플은 머리에 거리 감쇠가 없어(`headIgnoresFalloff`) 사거리 안 어디서나 머리 1발이다. 저격총은 손·발이 반샷(`isHalfShot`)이다. SK-7·T-2는 50, H-50은 70, S-3은 40이고, 나머지 부위는 표대로다(S-3은 머리만 1발).
+- 수치 예: 라이플은 머리에 거리 감쇠가 없어(`headIgnoresFalloff`) 사거리 안 어디서나 머리 1발이다. 저격총은 손·발이 반샷(`isHalfShot`)이다. SR-7·T-2는 50, H-50은 70, S-3은 40이고, 나머지 부위는 표대로다(S-3은 머리만 1발).
 - **사거리 주의**: 라이플 머리 판정은 거리와 무관하지만 사거리 밖 주장은 `out_of_range`다. RX-4·BR-3은 250 m, RX-9는 220 m, LN-3은 300 m(각 ×1.05)까지다.
 - **연사 간격 판정(GCRA)**: 사수·무기마다 "다음 발이 가능한 가장 이른 시각 `due`"를 둔다.
   - `t < due − 허용오차`면 `too_fast`로 거절한다. 통과하면 `due = max(due, t) + 간격`이다.

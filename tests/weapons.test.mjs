@@ -33,29 +33,29 @@ const TABLE = {
   sg_bx12: { name: 'BX-12 브리처', kind: 'shotgun', fire: 'semi', interval: 0.85, head: 20, body: 14, legs: 10, limb: 7, falloff: [8, 22, 0.35], mag: 6, reserve: 12, move: 0.98, price: 700 },
   sg_pump: { name: 'PM-9 펌프', kind: 'shotgun', fire: 'semi', interval: 1.0, head: 18, body: 13, legs: 9, limb: 6, falloff: [10, 28, 0.4], mag: 7, reserve: 14, move: 0.97, price: 900 },
   sg_double: { name: 'DB-2 쌍발', kind: 'shotgun', fire: 'semi', interval: 0.35, head: 22, body: 16, legs: 11, limb: 8, falloff: [6, 18, 0.3], mag: 2, reserve: 4, move: 1.0, price: 1000 },
-  sg_auto: { name: 'AS-12 스톰브레이커', kind: 'shotgun', fire: 'auto', rpm: 200, head: 14, body: 9, legs: 6, limb: 4, falloff: [7, 20, 0.35], mag: 12, reserve: 60, move: 0.93, price: 1500 },
-  sm_uzi_dual: { name: 'UZ-2 듀얼 우지', kind: 'smg', fire: 'auto', rpm: 1000, head: 56, body: 15, legs: 11, limb: 7, falloff: [10, 32, 0.45], mag: 50, reserve: 100, move: 1.05, price: 1100 },
+  sg_auto: { name: 'AS-12 템페스트', kind: 'shotgun', fire: 'auto', rpm: 200, head: 14, body: 9, legs: 6, limb: 4, falloff: [7, 20, 0.35], mag: 12, reserve: 60, move: 0.93, price: 1500 },
+  sm_uzi_dual: { name: 'TW-2 쌍발 기관단총', kind: 'smg', fire: 'auto', rpm: 1000, head: 56, body: 15, legs: 11, limb: 7, falloff: [10, 32, 0.45], mag: 50, reserve: 100, move: 1.05, price: 1100 },
   mg_minigun: { name: 'MN-6 미니건', kind: 'lmg', fire: 'auto', rpm: 1200, head: 44, body: 12, legs: 9, limb: 5, falloff: [20, 60, 0.6], mag: 200, reserve: 200, move: 0.58, price: 2800 },
-  sr_bolt: { name: 'SK-7 볼트', kind: 'sniper', fire: 'bolt', interval: 1.2, head: 200, body: 120, legs: 85, limb: 50, falloff: null, mag: 5, reserve: 10, move: 0.85, price: 0 },
+  sr_bolt: { name: 'SR-7 볼트', kind: 'sniper', fire: 'bolt', interval: 1.2, head: 200, body: 120, legs: 85, limb: 50, falloff: null, mag: 5, reserve: 10, move: 0.85, price: 0 },
   sr_twin: { name: 'T-2 트윈옵틱', kind: 'sniper', fire: 'bolt', interval: 1.35, head: 200, body: 120, legs: 85, limb: 50, falloff: null, mag: 5, reserve: 20, move: 0.82, price: 1500 },
   sr_swift: { name: 'S-3 스위프트', kind: 'sniper', fire: 'bolt', interval: 0.85, head: 150, body: 85, legs: 60, limb: 40, falloff: null, mag: 7, reserve: 14, move: 0.95, price: 1000 },
   sr_heavy: { name: 'H-50 타이탄', kind: 'sniper', fire: 'bolt', interval: 1.9, head: 300, body: 200, legs: 150, limb: 70, falloff: null, mag: 4, reserve: 20, move: 0.75, price: 2500 },
   pt_std: { name: 'P-9 권총', kind: 'pistol', fire: 'semi', interval: 0.16, head: 70, body: 28, legs: 20, limb: 14, falloff: [15, 45, 0.6], mag: 12, reserve: 24, move: 1.0, price: 0 },
   pt_magnum: { name: 'M-44 매그넘', kind: 'pistol', fire: 'semi', interval: 0.55, head: 110, body: 55, legs: 38, limb: 25, falloff: [25, 60, 0.7], mag: 6, reserve: 12, move: 0.97, price: 500 },
-  sg_shorty: { name: 'SH-2 쇼티', kind: 'shotgun', fire: 'semi', interval: 0.25, head: 10, body: 7, legs: 5, limb: 3, falloff: [5, 15, 0.3], mag: 2, reserve: 4, move: 1.0, price: 400 },
+  sg_shorty: { name: 'SH-2 단축 산탄총', kind: 'shotgun', fire: 'semi', interval: 0.25, head: 10, body: 7, legs: 5, limb: 3, falloff: [5, 15, 0.3], mag: 2, reserve: 4, move: 1.0, price: 400 },
 };
 const MELEE_TABLE = {
   ml_knife: { name: '호크빌 나이프', slash: [50, 0.45, 1.8, 35], stab: [100, 1.0, 1.8, 12], move: 1.1, price: 0 },
   ml_tanto: { name: '탄토', slash: [40, 0.42, 1.8, 30], stab: [100, 0.85, 2.1, 12], move: 1.12, price: 500 },
   ml_gurkha: { name: '구르카 나이프', slash: [55, 0.52, 2.1, 42], stab: [110, 1.05, 2.1, 16], move: 1.07, price: 800 },
   ml_katana: { name: '카게 카타나', slash: [65, 0.62, 2.7, 48], stab: [120, 1.25, 2.9, 14], move: 1.05, price: 1200 },
-  ml_case: { name: '007 가방', slash: [35, 0.5, 2.0, 40], stab: [70, 1.0, 2.1, 22], move: 1.08, price: 700 },
+  ml_case: { name: 'BC-7 서류 가방', slash: [35, 0.5, 2.0, 40], stab: [70, 1.0, 2.1, 22], move: 1.08, price: 700 },
   ml_saw: { name: '전기톱', slash: [10, 0.04, 1.8, 30], stab: [90, 0.44, 1.8, 40], move: 0.98, price: 1300 },
 };
 const GUN_IDS = Object.keys(TABLE);
 const SNIPER_IDS = ['sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy'];
 const RIFLE_IDS = ['ar_std', 'ar_rapid', 'ar_line', 'ar_burst'];
-/** 상점에 새로 들어온 주무기: 샷건 3종, 듀얼 우지, 미니건 */
+/** 상점에 새로 들어온 주무기: 샷건 3종, 쌍발 기관단총, 미니건 */
 const SHOTGUN_IDS = ['sg_bx12', 'sg_pump', 'sg_double', 'sg_auto'];
 const SHOP_NEW_PRIMARY = ['sg_pump', 'sg_double', 'sg_auto', 'sm_uzi_dual', 'mg_minigun'];
 const ALL_IDS = [...new Set([...GUN_IDS, ...SHOP_NEW_PRIMARY, ...Object.keys(MELEE_TABLE), 'gr_frag'])];
@@ -116,7 +116,7 @@ describe('무기 표(DESIGN 3.2)', () => {
 
   test('좀비 전용 보조무기는 폭발로만 피해를 주는 발사기이고 상점 값이 없으며 고르는 목록에 없다', () => {
     for (const id of ALL_IDS) assert.ok(!WEAPONS[id].zombieOnly, id);
-    const projectile = { gl_m32: 'gl', rl_b9: 'rocket', gv_gun: 'gravity' };   // 중력건은 피해 대신 좀비를 끌어당긴다(explosion은 끌어당길 범위)
+    const projectile = { gl_m32: 'gl', rl_b9: 'rocket', gv_gun: 'gravity' };   // 특이점포는 피해 대신 좀비를 끌어당긴다(explosion은 끌어당길 범위)
     for (const id of ZOMBIE_LAUNCHER_IDS) {
       const d = WEAPONS[id];
       assert.equal(d.zombieOnly, true, id);

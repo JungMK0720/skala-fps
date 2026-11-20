@@ -72,7 +72,7 @@ describe('열어 둔 이모트 휠 누르기', () => {
     const up = wheelTapAt(300, 250 - 140, rect);
     assert.equal(up.kind, 'pick');
     assert.equal(slotOf(up), 0, '12시 칸(1번 이모트)');
-    assert.equal(DEFAULT_EMOTE_WHEEL[slotOf(up)], 'takeL', '기본 휠의 12시는 L을 가져가다');
+    assert.equal(DEFAULT_EMOTE_WHEEL[slotOf(up)], 'takeL', '기본 휠의 12시는 작전 성공이다');
     assert.equal(slotOf(wheelTapAt(300 + 140, 250, rect)), 2, '3시 칸');
     assert.equal(slotOf(wheelTapAt(300, 250 + 140, rect)), 4, '6시 칸');
     assert.equal(slotOf(wheelTapAt(300 - 100, 250 - 100, rect)), 7, '10시 반 칸');

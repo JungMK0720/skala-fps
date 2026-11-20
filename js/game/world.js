@@ -193,7 +193,7 @@ function buildWorld(ctx, opts) {
   const PROJ_DEF = { gl: WEAPONS.gl_m32, rocket: WEAPONS.rl_b9, gravity: WEAPONS.gv_gun, stake: WEAPONS.sk_stake, axe: WEAPONS.th_axe, bolt: WEAPONS.zs_bolt };
   // 투척 도끼가 이미 뚫고 지나간 좀비(도끼 id → 좀비 id 묶음). 한 좀비는 한 도끼에 한 번만 맞는다
   const axeHits = new Map();
-  // 중력건 블랙홀: 좀비가 끌려가는 동안(방장 director.js GRAVITY_PULL_MS와 같은 2.6초) 검은 핵으로 진한 보라 줄기가 소용돌이치며 빨려 든다.
+  // 특이점포 블랙홀: 좀비가 끌려가는 동안(방장 director.js GRAVITY_PULL_MS와 같은 2.6초) 검은 핵으로 진한 보라 줄기가 소용돌이치며 빨려 든다.
   // 줄기는 얇은 상자 InstancedMesh(블랙홀 하나에 그리기 호출 하나)라 선(1픽셀)보다 굵게 보인다
   const WELL_MS = 2600, WELL_R = 7, WELL_LINES = 56, MAX_WELLS = 6;
   const wellCoreGeo = new THREE.SphereGeometry(1, 16, 12);
@@ -738,7 +738,6 @@ function buildWorld(ctx, opts) {
   /** 라운드 전환: 투사체·이펙트·예약 소리·관전 정리(액터는 유지) */
   function reset() {
     closeSwap();
-    swordHold = null;
     if (nades) nades.clear();
     c4Stuck.clear(); axeHits.clear(); clearWells();
     for (const m of nadeMeshes) { m.visible = false; m.userData.pillar.visible = false; }
@@ -759,7 +758,6 @@ function buildWorld(ctx, opts) {
   function spawnLocal(o = {}) {
     if (!map) throw new Error('spawnLocal: 먼저 loadMap()을 부르세요');
     cancelLocalEmote('spawn');
-    swordHold = null;
     if (o.id != null && String(o.id)) { local.id = String(o.id); player.state.id = local.id; }
     if (o.name) { local.name = String(o.name); player.state.name = local.name; }
     // 팀전: owner/charterer. 개인전: 팀 없음(null) — 아군 이름표 없음, 뷰모델 소매는 남색
@@ -998,25 +996,18 @@ function buildWorld(ctx, opts) {
     if (!h || typeof h.stop !== 'function') return;
     try { h.stop(150); } catch (err) { /* ignore */ }            // fadeMs
   }
-  /* 상점 미리 듣기: 내 소리(2D)로 잠깐 재생한다. 음원 묶음을 읽는 중이면 조금(최대 3초) 기다렸다가 파일로 들려주고,
-   * 그래도 늦으면 합성음으로 시작했다가 파일이 준비되는 즉시 파일로 바뀐다(fx/audio.js) */
+  /* 상점 미리 듣기: 내 소리(2D)로 잠깐 재생한다(합성음 루프, fx/audio.js) */
   const PREVIEW_MS = 4000;
-  let previewSnd = null, previewTimer = 0, previewSeq = 0;
+  let previewSnd = null, previewTimer = 0;
   function stopEmotePreview() {
-    previewSeq++;
     clearTimeout(previewTimer);
     stopSound(previewSnd);
     previewSnd = null;
   }
-  async function previewEmote(id) {
+  function previewEmote(id) {
     stopEmotePreview();
     const e = emoteInfo(id);
     if (!e || typeof audio.emote !== 'function') return false;
-    const seq = previewSeq;
-    if (typeof audio.emoteFilesReady === 'function') {
-      try { await Promise.race([audio.emoteFilesReady(), new Promise((r) => setTimeout(r, 3000))]); } catch (err) { /* 합성음으로 */ }
-    }
-    if (seq !== previewSeq) return false;
     previewSnd = emoteSound(e.code, null);
     previewTimer = setTimeout(stopEmotePreview, PREVIEW_MS);
     return !!previewSnd;
@@ -1524,7 +1515,7 @@ function buildWorld(ctx, opts) {
       emit('explosion', { ownerId: e.owner, local: e.owner === local.id, grenadeId: e.id, center: { x: c[0], y: c[1], z: c[2] }, pos: r3(c), victims, kind: 'bolt' });
       return;
     }
-    // 중력건은 터지지 않는다: 작은 불빛만 남기고(피해 없이 끌어당기는 구멍), 소리도 작게. 말뚝은 박히므로 작은 불빛과 박히는 소리
+    // 특이점포는 터지지 않는다: 작은 불빛만 남기고(피해 없이 끌어당기는 구멍), 소리도 작게. 말뚝은 박히므로 작은 불빛과 박히는 소리
     const pull = e.kind === 'gravity', stake = e.kind === 'stake';
     fx.explosion(c, { radius: pull ? 1.4 : stake ? 0.6 : ex.radius * rk });
     if (!pull && !stake) props.explode(c, ex.radius * rk);
@@ -1980,8 +1971,7 @@ function buildWorld(ctx, opts) {
   }
 
   /* ---------- 루프 ---------- */
-  let swordHold = null;
-  const localCanMove = () => !swordHold && controls && rnd.phase !== 'loadout' && rnd.phase !== 'matchEnd' && local.spawned && local.alive && !(stunUntil > performance.now());
+  const localCanMove = () => controls && rnd.phase !== 'loadout' && rnd.phase !== 'matchEnd' && local.spawned && local.alive && !(stunUntil > performance.now());
   /** 무기 입력을 받을 수 있는가: 움직일 수 있고, 입력이 켜져 있고, 커서가 필요한 화면·이모트·휠이 없을 때 */
   const localCanAct = () => localCanMove() && input.enabled && !(ui && ui.needsCursor()) && !emoteLocal && !wheel.open;
   /**
@@ -2004,7 +1994,6 @@ function buildWorld(ctx, opts) {
     clock += dt;
     runScheduled();
     const st = player.state;
-    if (swordHold) player.teleport({ x: swordHold[0], y: swordHold[1], z: swordHold[2] });
     syncFrozen();
     syncLocalEmote();
     const canAct = localCanAct();
@@ -2310,13 +2299,6 @@ function buildWorld(ctx, opts) {
       if (ok) { settleArsenal(); play('switch', { gain: 0.8 }); }
       return ok;
     },
-    /** 방장이 확인한 2초 공중 연타: 입력을 묶고 위치를 고정한다. 착지 이벤트에서 해제한다. */
-    hordeSwordPosition(pos, hold = false) {
-      if (mode !== 'zombie' || !local.spawned || !local.alive || !Array.isArray(pos) || !pos.every(Number.isFinite)) return;
-      swordHold = hold ? pos : null;
-      player.teleport({ x: pos[0], y: pos[1], z: pos[2] });
-      syncFrozen();
-    },
     /** (좀비 물량 막기 증강) 보조무기 칸을 이 무기로 바꾼다(새 탄 가득). 살아 있을 때만 → 바꿨으면 true */
     equipSidearm(id) {
       const def = getDef(id);
@@ -2332,7 +2314,7 @@ function buildWorld(ctx, opts) {
       slowUntil = Math.max(slowUntil, performance.now() + clamp(num(ms, 0), 0, 10000));
       slowMul = Math.min(slowUntil > performance.now() ? slowMul : 1, m);
     },
-    /** 블리츠 평타: ms 동안 기절(움직이지도 쏘지도 못한다). 띄우는 힘은 방장의 밀려남으로 따로 온다 */
+    /** 사슬꾼 평타: ms 동안 기절(움직이지도 쏘지도 못한다). 띄우는 힘은 방장의 밀려남으로 따로 온다 */
     stunLocal(ms) {
       stunUntil = Math.max(stunUntil, performance.now() + clamp(num(ms, 0), 0, 5000));
       syncFrozen();

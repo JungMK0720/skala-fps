@@ -346,7 +346,7 @@ export function createHud(ctx) {
     h('div', { class: 'sk-rsp-line' }, rspNum, rspTxt),
     rspQuick);
   const protectEl = h('div', { class: 'sk-protect', hidden: true, role: 'status', text: '🛡 보호 중' });
-  // 이모트 중 하단 안내 "🕺 탱고 · 움직이면 취소"(MODES.md 4.3)
+  // 이모트 중 하단 안내 "🥁 제자리 행진 · 움직이면 취소"(MODES.md 4.3)
   const emoteEl = h('div', { class: 'sk-emote-banner', hidden: true, role: 'status' });
 
   // 순서: 설치/해체 막대 → 폭탄 안내 → 이모트 안내. css가 형제 선택자로 겹침을 푼다(안내가 뜨면 이모트 안내를 올리고, 터치 화면은 막대가 뜨면 안내를 가린다)

@@ -84,7 +84,7 @@ describe('swapPromptSpec: 라운드 시작 전 무기 교체 안내', () => {
     assert.equal(swapPromptSpec({ seconds: 0, weaponName: ' ' }).sub, '');
   });
   test('목록이 열려 있으면 고르라는 안내로 바뀌고 키 표시는 없다', () => {
-    const s = swapPromptSpec({ seconds: 2, weaponName: 'SK-7', open: true });
+    const s = swapPromptSpec({ seconds: 2, weaponName: 'SR-7', open: true });
     assert.equal(s.key, '');
     assert.match(s.main, /바꿀 무기를 누르세요/);
     assert.match(s.main, /N으로 닫기/);

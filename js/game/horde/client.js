@@ -60,7 +60,7 @@ export const noAutoRevive = (stage) => (Number(stage) || 0) + 1 >= HORDE.noAutoR
  * @param {number[]} [o.frenzy] 광란 겹마다 끝나는 시각(o.now와 같은 시계)
  * @param {number} [o.now]
  * @param {{ slowMs, slowMul, stunMs, grabbed }} [o.local]  World.hordeLocalStatus(): 내 화면의 느려짐·기절·좀비 몸에 붙잡힘
- * @param {boolean} [o.grabStun]    지금 기절이 블리츠 그랩에 끌려온 것인가('grabbed' 이벤트와 같이 온 기절)
+ * @param {boolean} [o.grabStun]    지금 기절이 사슬꾼 그랩에 끌려온 것인가('grabbed' 이벤트와 같이 온 기절)
  * @param {boolean} [o.secondReady] 두 번째 기회를 이번 스테이지에 아직 쓰지 않았는가
  * @param {{ kind, leftMs }} [o.field] 발밑 장판(그 장판의 남은 시간)
  * @returns {{ id, kind: 'buff'|'debuff', icon, name, desc, stacks?, value?, leftMs?, totalMs? }[]} 버프 먼저, 그다음 디버프.
@@ -110,7 +110,7 @@ export function hordeStatusList(o) {
   const L = o.local;
   if (L && L.stunMs > 0) {
     out.push(o.grabStun
-      ? { id: 'stun', kind: 'debuff', icon: '🪝', name: '그랩 기절', desc: '블리츠 갈고리에 끌려와 기절했어요. 움직이지도 쏘지도 못해요.', leftMs: L.stunMs }
+      ? { id: 'stun', kind: 'debuff', icon: '🪝', name: '사슬 기절', desc: '사슬꾼의 사슬에 끌려와 기절했어요. 움직이지도 쏘지도 못해요.', leftMs: L.stunMs }
       : { id: 'stun', kind: 'debuff', icon: '💫', name: '기절', desc: '움직이지도 쏘지도 못해요.', leftMs: L.stunMs });
   }
   if (L && L.slowMs > 0) out.push({ id: 'slow', kind: 'debuff', icon: '❄️', name: '느려짐', desc: `비명·얼음 공격에 맞아 이동 속도 −${Math.round((1 - (Number(L.slowMul) || 1)) * 100)}%`, leftMs: L.slowMs });
@@ -147,7 +147,6 @@ export function createHordeClient(o) {
   let phase = null, stage = 0, ammoStage = 0, overAt = 0, overShown = false;
   let cardsSig = '', appliedCards = 0, perks = computePerks([]), maxHp = HORDE.baseHp;
   let myKills = 0, myHp = null, myAlive = false, spawnedOnce = false;
-  let swordUlt = false;
   let frenzy = [];                 // 끝나는 시각들
   let ammoAcc = 0, hudAt = 0, timeBase = null, timeAt = 0;
   const killSeen = new Set();
@@ -327,11 +326,7 @@ export function createHordeClient(o) {
       case 'crit': onCrit(ev); break;
       case 'yasuo':
         W('hordeEvent', ev);
-        if (String(ev.by) === meId) {
-          if (ev.kind === 'ult') { swordUlt = true; W('hordeSwordPosition', ev.pos, true); if (H) H.callout('보스 공중 연타 · 2초 무적'); }
-          else if (ev.kind === 'land') { swordUlt = false; W('hordeSwordPosition', ev.pos, false); }
-          else if (ev.kind === 'tornado' && H) H.callout('회오리!');
-        }
+        if (String(ev.by) === meId && ev.kind === 'shockwave' && H) H.callout('질풍 충격파!');
         break;
       case 'skill': case 'enrage': case 'bossSpawn': W('hordeEvent', ev); break;
       case 'over': overAt = performance.now(); break;
@@ -661,12 +656,6 @@ export function createHordeClient(o) {
     W('hordePush', lootPending.size ? { ...v, loot: (v.loot || []).filter((L) => { const s = lootPending.get(L.id); return !(s && t - s < LOOT_HIDE_MS); }) } : v, t);
     const me = v.players.find((p) => p.id === meId);
     if (me) {
-      if (me.yasuoUlt && Array.isArray(me.yasuoUlt.pos)) {
-        if (!swordUlt) { swordUlt = true; W('hordeSwordPosition', me.yasuoUlt.pos, true); }
-      } else if (swordUlt) {
-        swordUlt = false;
-        W('hordeSwordPosition', Array.isArray(me.pos) ? me.pos : [0, 0, 0], false);
-      }
       // 카드 → 능력치(바뀔 때만)
       const sig = me.cards.join(',');
       if (sig !== cardsSig || me.maxHp !== maxHp) {
@@ -807,7 +796,7 @@ export function createHordeClient(o) {
   }) : null;
   // 내 수류탄 피해 숫자(내 화면이 잰 폭발)
   const offBlast = typeof world.on === 'function' ? world.on('explosion', (x) => {
-    if (!x || !x.local || x.kind === 'gravity') return;   // 중력건은 피해가 없다(끌어당기기만)
+    if (!x || !x.local || x.kind === 'gravity') return;   // 특이점포는 피해가 없다(끌어당기기만)
     for (const v of Array.isArray(x.victims) ? x.victims : []) {
       if (String(v.id)[0] !== 'z') continue;
       const z = zombieOf(v.id);

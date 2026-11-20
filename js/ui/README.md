@@ -10,7 +10,7 @@
 | `settings.js` `controls.js` | 설정 저장과 설정 시트, 조작법 시트(메뉴와 일시정지가 같이 씀) |
 | `dom.js` `parts.js` `icons.js` | DOM 헬퍼, 공통 부품(무기 카드 조각, 포인트 표시, 선택 버튼 묶음 포함), 도형 아이콘(맵 평면도, 메뉴 아이콘, 헤드샷, 메뉴 배경) |
 | `status.js` | 버프·디버프 칩 줄(`createStatusRow`, `statusSpec`·`statusTotal`·`statusFrac`·`statusTimeText`). 좀비 모드 HUD 체력 칸 위 줄과 일시정지의 버프·디버프 목록이 같이 쓴다 |
-| `multikill.js` | 연속 킬 그림(SVG 도형). 더블~헥사 킬은 육각 방패 + 킬 수만큼 탄환 + 단계마다 색·빛살·날개, 전설은 월계관 메달·별·왕관 |
+| `multikill.js` | 연속 킬 그림(SVG 도형). 더블 킬~6연속 처치는 육각 방패 + 킬 수만큼 탄환 + 단계마다 색·빛살·날개, 전설은 월계관 메달·별·왕관 |
 | `online.js` | 로그인 연결·코인 화면 도우미(`account.online.state` 읽기, 결과 문구 색, 제공자 버튼 줄). 게이트의 "구글로 불러오기", 마이페이지 계정 연결 칸, 상점 코인 탭이 쓴다(server/api/README.md) |
 | `demo.js` + `dev/ui-demo.html` | QA용 데모(목 데이터). 게임 본편에서는 로드하지 않습니다 |
 
@@ -256,7 +256,7 @@ props에 `title`(레벨 업·보물 상자), `sub`(덧붙일 안내), `seconds`(
 | `hint` / `spectate` | 하단 안내 문구 / "👁️ 관전 중 · 이름". 빈 값이면 숨김 |
 | `swap` | `{ seconds, weaponName?, open?, note? } \| null` — 라운드 시작 전 무기 교체 안내 "N 을 눌러 무기 교체!" + "지금 RX-4 · 4초 뒤 시작"(`seconds`가 0이면 시간 줄 없이 `note`를 붙인다: 좀비 모드 "모든 무기 · 언제든"). 휴대폰은 "눌러서 무기 교체!"이고 누르면 engine/touch.js가 `input:loadout`을 낸다 |
 | `crosshair: false` | 크로스헤어 숨김 |
-| `emote` | `{ name, icon } \| null` → 하단에 "💃 탱고 · 움직이면 취소"(아이콘이 없으면 🕺). 켜져 있는 동안(3인칭) 크로스헤어·히트마커를 숨김 |
+| `emote` | `{ name, icon } \| null` → 하단에 "🥁 제자리 행진 · 움직이면 취소"(아이콘이 없으면 🕺). 켜져 있는 동안(3인칭) 크로스헤어·히트마커를 숨김 |
 | `bomb` | 폭파 미션 표시(아래 표). `null`이면 모두 지움 |
 | `status` | 버프·디버프 칩 줄(좀비 모드). 체력 칸 바로 위(휴대폰은 체력 칸 오른쪽). 배열 `[{ id, kind: 'buff'\|'debuff', icon, name, desc?, stacks?, value?, leftMs?, totalMs? }]`, `null`·빈 배열이면 숨김. 아래 설명 |
 
@@ -429,7 +429,7 @@ ui.chat.open() / close() / isOpen() / clear() / scope() / setScope('all' | 'team
 `dev/ui-demo.html`은 HTTP로 열어야 합니다(`file://`에서는 ES 모듈이 막힘). 예: 저장소 루트에서 `npm run serve`.
 - 왼쪽 QA 패널에서 모든 화면과 HUD 동작(히트, 헤드샷, 피격, 킬피드, 중앙 메시지)을 띄울 수 있고, 전체 투어를 자동으로 돌릴 수 있습니다. 발생한 이벤트는 로그로 보여 줍니다.
 - 메뉴부터 실제 흐름을 따라갈 수 있습니다: 멀티플레이 → 방 만들기 → 시작 → 로드아웃 → HUD → Esc 일시정지.
-- HUD 조작: 좌클릭 사격, 우클릭 줌(SK-7), 1~4 슬롯, R 재장전, H 피격, K 킬피드, Tab 점수판.
+- HUD 조작: 좌클릭 사격, 우클릭 줌(SR-7), 1~4 슬롯, R 재장전, H 피격, K 킬피드, Tab 점수판.
   - 개인전 장면에서는 H로 죽으면 부활 패널과 compact 로드아웃이 뜨고, 3초 뒤 부활하면서 🛡 보호가 1.5초 동안 붙습니다.
 - URL로 바로 열기: `&bare=1`이면 QA 패널을 숨깁니다(스크린샷용).
   - 팀전: `?screen=menu|settings|controls|lobby|lobby-empty|lobby-loading|lobby-error|create|room|room-guest|loadout|hud|hud-low|scope|scoreboard|results|pause`
