@@ -259,13 +259,14 @@ export function createRoom(ctx) {
     for (const r of gearRows) {
       const owned = fixed || a.isOwned(r.id);
       const on = r.id === now;
-      const short = owned ? 0 : Math.max(0, r.w.price - a.profile.points);
+      const closed = !owned && typeof a.canSell === 'function' && !a.canSell(r.id);   // 서버 가격표에 아직 없다
+      const short = owned || closed ? 0 : Math.max(0, r.w.price - a.profile.points);
       r.el.classList.toggle('is-on', on);
       r.el.classList.toggle('is-owned', owned);
       setText(r.state, on ? '장착 중' : owned ? '보유' : fmtPoints(r.w.price));
-      setText(r.action, on ? '장착 중' : owned ? '장착' : short ? `${fmtPoints(short)} 부족` : '구매 후 장착');
-      r.action.disabled = on || fixed || short > 0 || !!p.starting;
-      r.action.classList.toggle('sk-btn--primary', !owned && !short);
+      setText(r.action, on ? '장착 중' : owned ? '장착' : closed ? '구매 준비 중' : short ? `${fmtPoints(short)} 부족` : '구매 후 장착');
+      r.action.disabled = on || fixed || closed || short > 0 || !!p.starting;
+      r.action.classList.toggle('sk-btn--primary', !owned && !closed && !short);
       r.action.classList.toggle('sk-btn--ghost', on);
     }
   }
@@ -277,7 +278,8 @@ export function createRoom(ctx) {
     if (!a.isOwned(w.id)) {
       const r = a.buy(w.id);
       if (!r.ok) {
-        setText(gearSheetNote, r.reason === 'points' ? `포인트가 모자라요. ${fmtPoints(w.price - r.points)} 더 필요해요.` : '이 무기는 살 수 없어요.');
+        setText(gearSheetNote, r.reason === 'points' ? `포인트가 모자라요. ${fmtPoints(w.price - r.points)} 더 필요해요.`
+          : r.reason === 'closed' ? '이 무기는 서버 업데이트 뒤에 살 수 있어요. 포인트는 그대로예요.' : '이 무기는 살 수 없어요.');
         paintGearRows();
         return;
       }

@@ -30,6 +30,10 @@ const count = (n) => Number(n || 0).toLocaleString('ko-KR');
 /** 캐릭터 구매가 닫혀 있을 때 안내(account.avatarShop) */
 const CLOSED_NOTE = '캐릭터 구매는 서버 업데이트 뒤에 열려요. 기본 캐릭터와 이미 가진 캐릭터는 지금도 입을 수 있어요.';
 const CHECKING_NOTE = '캐릭터 구매를 열 수 있는지 서버에 확인하고 있어요.';
+/** 서버 가격표에 아직 없는 물건(account.canSell이 false)을 사려 할 때 */
+export const NOT_READY_NOTE = '이 물건은 서버 업데이트 뒤에 살 수 있어요. 포인트는 그대로예요.';
+/** 계정이 지금 팔 수 있는 물건인가. canSell이 없는 옛 계정 대역은 판다고 본다 */
+const sellable = (a, id) => typeof a.canSell !== 'function' || a.canSell(id);
 /** 상점에서 다루는 슬롯과 계정 장비 칸. 슬롯 4(수류탄)는 모두에게 기본으로 주므로 카드만 보이고 사거나 장착하지 않는다. */
 const SLOT_KEYS = { 1: 'primary', 2: 'secondary', 3: 'melee' };
 const groupOf = (d) => (d.slot === 4 || d.throwing ? 'throw' : SLOT_KEYS[d.slot]);
@@ -219,14 +223,15 @@ export function createShop(ctx) {
     if (!card.slotKey) { setText(card.state, '기본 지급'); setText(card.need, ''); card.el.classList.add('is-owned'); return; }
     const owned = a.isOwned(card.id);
     const equipped = owned && a.loadout[card.slotKey] === card.id;
-    const short = owned ? 0 : Math.max(0, card.w.price - a.profile.points);
+    const closed = !owned && !sellable(a, card.id);   // 서버 가격표에 아직 없다
+    const short = owned || closed ? 0 : Math.max(0, card.w.price - a.profile.points);
     card.el.classList.toggle('is-owned', owned);
     card.el.classList.toggle('is-equipped', equipped);
     setText(card.state, equipped ? '장착 중' : owned ? '보유' : fmtPoints(card.w.price));
     setText(card.need, short ? `${fmtPoints(short)} 더 필요해요` : '');
-    setText(card.action, equipped ? '장착 중' : owned ? '장착' : `구매 ${fmtPoints(card.w.price)}`);
-    card.action.disabled = equipped || short > 0;
-    card.action.classList.toggle('sk-btn--primary', !owned && !short);
+    setText(card.action, equipped ? '장착 중' : owned ? '장착' : closed ? '구매 준비 중' : `구매 ${fmtPoints(card.w.price)}`);
+    card.action.disabled = equipped || closed || short > 0;
+    card.action.classList.toggle('sk-btn--primary', !owned && !closed && !short);
     card.action.classList.toggle('sk-btn--ghost', equipped);
   }
 
@@ -239,6 +244,8 @@ export function createShop(ctx) {
       say(`포인트가 모자라요. ${fmtPoints(card.w.price - r.points)} 더 필요해요.`);
     } else if (r.reason === 'owned') {
       say(`${card.w.name}은(는) 이미 가지고 있어요.`);
+    } else if (r.reason === 'closed') {
+      say(NOT_READY_NOTE);
     } else {
       say('이 무기는 살 수 없어요.');
     }
@@ -301,15 +308,16 @@ export function createShop(ctx) {
     const owned = a.isOwned(card.id);
     const at = wheel.indexOf(card.id);
     const here = owned && at === slot;
-    const short = owned ? 0 : Math.max(0, (card.e.price || 0) - a.profile.points);
+    const closed = !owned && !sellable(a, card.id);
+    const short = owned || closed ? 0 : Math.max(0, (card.e.price || 0) - a.profile.points);
     const n = slot + 1;
     card.el.classList.toggle('is-owned', owned);
     card.el.classList.toggle('is-equipped', at >= 0);
     setText(card.state, at >= 0 ? `휠 ${at + 1}번` : owned ? '보유' : fmtPoints(card.e.price));
     setText(card.need, short ? `${fmtPoints(short)} 더 필요해요` : '');
-    setText(card.action, !owned ? `구매 ${fmtPoints(card.e.price)}` : here ? `${n}번 칸에 있음` : at >= 0 ? `${n}번 칸과 바꾸기` : `${n}번 칸에 넣기`);
-    card.action.disabled = here || short > 0;
-    card.action.classList.toggle('sk-btn--primary', !here && !short);
+    setText(card.action, !owned ? (closed ? '구매 준비 중' : `구매 ${fmtPoints(card.e.price)}`) : here ? `${n}번 칸에 있음` : at >= 0 ? `${n}번 칸과 바꾸기` : `${n}번 칸에 넣기`);
+    card.action.disabled = here || closed || short > 0;
+    card.action.classList.toggle('sk-btn--primary', !here && !closed && !short);
     card.action.classList.toggle('sk-btn--ghost', here);
     paintCoinButton(card, owned);
   }
@@ -336,6 +344,8 @@ export function createShop(ctx) {
         say(`${card.e.name}을(를) 샀어요. 남은 포인트 ${fmtPoints(r.points)}. 넣을 칸을 고르고 한 번 더 누르세요.`);
       } else if (r.reason === 'points') {
         say(`포인트가 모자라요. ${fmtPoints((card.e.price || 0) - r.points)} 더 필요해요.`);
+      } else if (r.reason === 'closed') {
+        say(NOT_READY_NOTE);
       } else {
         say('이 이모트는 살 수 없어요.');
       }
@@ -395,7 +405,7 @@ export function createShop(ctx) {
     const a = ctx.account;
     const owned = a.isOwned(card.id);
     const equipped = owned && now === card.id;
-    const closed = !owned && !open;   // 서버가 캐릭터를 알기 전에는 사지 못한다(장착은 된다)
+    const closed = !owned && (!open || !sellable(a, card.id));   // 서버가 캐릭터를 알기 전에는 사지 못한다(장착은 된다)
     const short = owned || closed ? 0 : Math.max(0, (card.a.price || 0) - a.profile.points);
     card.el.classList.toggle('is-owned', owned);
     card.el.classList.toggle('is-equipped', equipped);

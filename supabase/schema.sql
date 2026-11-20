@@ -43,6 +43,39 @@ alter table public.fps_players add column if not exists bucket_at timestamptz no
 alter table public.fps_players add column if not exists day_key date not null default current_date;           -- 하루 한도의 날짜
 alter table public.fps_players add column if not exists day_gain int not null default 0;                      -- 그날 번 포인트
 
+-- 운영자 포인트 조정(2026-11-20). 클라이언트는 '서버에 있는 줄 아는 포인트'를 기준으로 번 만큼·쓴 만큼을 계산해 보낸다.
+-- 소유자가 Table Editor·SQL로 points를 바꾸면 그 기준이 어긋나, 다음 저장이 조정을 되돌렸다(넣어 준 포인트가 사라지고 0으로 만든 포인트가 돌아왔다).
+-- 그래서 저장(fps_save_profile) 밖에서 points가 바뀌면 바뀐 양을 points_adjust에 쌓아 두고, 다음 저장이 그만큼을 기준에서 빼고 0으로 비운다.
+alter table public.fps_players add column if not exists points_adjust int not null default 0;                 -- 클라이언트가 아직 모르는 운영자 조정량
+
+-- 2026-11-20 둘째 고침: 새 클라이언트는 포인트 합계 대신 '변화량'(p_delta)을 보내고 서버는 '저장된 포인트 + 변화량'으로 계산한다.
+-- 그래서 운영자가 바꾼 값은 늘 그대로 남고 그 위에 더해질 뿐이다. points_adjust는 변화량을 보내지 않는 옛 클라이언트(새로고침하지 않은 탭)용이다.
+-- 운영자 조정은 fps_points_log에 한 줄씩 남는다(언제, 누가, 얼마에서 얼마로). API로는 읽을 수 없고 SQL Editor·Table Editor로만 본다.
+create table if not exists public.fps_points_log (
+  id bigint generated always as identity primary key,
+  player_id bigint not null references public.fps_players (id) on delete cascade,
+  before_points int not null,
+  after_points int not null,
+  actor text not null default current_user,
+  created_at timestamptz not null default now()
+);
+alter table public.fps_points_log enable row level security;
+revoke all on public.fps_points_log from public, anon, authenticated;
+create index if not exists fps_points_log_player_idx on public.fps_points_log (player_id, created_at desc);
+
+create or replace function public.fps_points_adjust_track() returns trigger
+language plpgsql set search_path = public, extensions as $$
+begin
+  if new.points is distinct from old.points and coalesce(current_setting('fps.saving', true), '') <> 'on' then
+    new.points_adjust := old.points_adjust + (new.points - old.points);
+    insert into public.fps_points_log (player_id, before_points, after_points) values (old.id, old.points, new.points);
+  end if;
+  return new;
+end $$;
+
+create or replace trigger fps_points_adjust_track before update of points on public.fps_players
+  for each row execute function public.fps_points_adjust_track();
+
 -- 같은 IP에서 온 요청 수. IP 원문은 저장하지 않고 해시만 쓴다. 줄은 지우지 않고 창이 지나면 다시 센다.
 create table if not exists public.fps_rate (
   bucket text primary key,
@@ -112,25 +145,32 @@ end $$;
 
 -- 서버 가격표. js/weapons/defs.js(무기), js/core/consts.js EMOTES(이모트), js/core/avatar-defs.js AVATARS(캐릭터)의 price와 같아야 한다
 -- (tests/account.test.mjs가 대조한다). 모르는 id는 null이라 살 수 없다.
+-- 표 하나(fps_price_table)를 fps_item_price(저장할 때 값 매기기)와 fps_features(클라이언트가 팔아도 되는지 묻기)가 같이 쓴다.
+-- 새 물건을 defs.js에 넣으면 여기에도 넣고, 소유자가 이 파일을 실서버에서 다시 실행해야 상점이 그 물건을 판다.
+create or replace function public.fps_price_table() returns jsonb
+language sql immutable set search_path = public, extensions as $$
+  select '{
+    "ar_std": 0, "ar_rapid": 800, "ar_line": 1200, "ar_burst": 1000, "dm_mark": 1500,
+    "sm_vx3": 600, "sg_bx12": 700,
+    "sg_pump": 900, "sg_double": 1000, "sg_auto": 1500,
+    "sm_uzi_dual": 1100, "mg_minigun": 2800,
+    "sr_bolt": 0, "sr_twin": 1500, "sr_swift": 1000, "sr_heavy": 2500,
+    "pt_std": 0, "pt_magnum": 500, "sg_shorty": 400,
+    "pn_air": 900, "sk_stake": 1000, "th_axe": 800,
+    "ml_knife": 0, "ml_tanto": 500, "ml_gurkha": 800, "ml_katana": 1200,
+    "ml_case": 700, "ml_saw": 1300,
+    "gr_frag": 0,
+    "takeL": 0, "veggie": 0, "sideToSide": 0, "crissCross": 0, "tango": 0,
+    "salute": 0, "wave": 0, "cheer": 0, "creamCheese": 0,
+    "fromYou": 600, "selfie": 400,
+    "av_trooper": 0, "av_scout": 300, "av_sapper": 600, "av_signal": 800,
+    "av_ranger": 1000, "av_night": 1400, "av_heavy": 2000
+  }'::jsonb
+$$;
+
 create or replace function public.fps_item_price(p_id text) returns int
 language sql immutable set search_path = public, extensions as $$
-  select case p_id
-    when 'ar_std' then 0 when 'ar_rapid' then 800 when 'ar_line' then 1200 when 'ar_burst' then 1000 when 'dm_mark' then 1500
-    when 'sm_vx3' then 600 when 'sg_bx12' then 700
-    when 'sg_pump' then 900 when 'sg_double' then 1000 when 'sg_auto' then 1500
-    when 'sm_uzi_dual' then 1100 when 'mg_minigun' then 2800
-    when 'sr_bolt' then 0 when 'sr_twin' then 1500 when 'sr_swift' then 1000 when 'sr_heavy' then 2500
-    when 'pt_std' then 0 when 'pt_magnum' then 500 when 'sg_shorty' then 400
-    when 'pn_air' then 900 when 'sk_stake' then 1000 when 'th_axe' then 800
-    when 'ml_knife' then 0 when 'ml_tanto' then 500 when 'ml_gurkha' then 800 when 'ml_katana' then 1200
-    when 'ml_case' then 700 when 'ml_saw' then 1300
-    when 'gr_frag' then 0
-    when 'takeL' then 0 when 'veggie' then 0 when 'sideToSide' then 0 when 'crissCross' then 0 when 'tango' then 0
-    when 'salute' then 0 when 'wave' then 0 when 'cheer' then 0 when 'creamCheese' then 0
-    when 'fromYou' then 600 when 'selfie' then 400
-    when 'av_trooper' then 0 when 'av_scout' then 300 when 'av_sapper' then 600 when 'av_signal' then 800
-    when 'av_ranger' then 1000 when 'av_night' then 1400 when 'av_heavy' then 2000
-  end
+  select (public.fps_price_table() ->> p_id)::int
 $$;
 
 -- 요청을 보낸 IP의 해시. Supabase API 게이트웨이가 넣는 헤더를 읽고 원문은 남기지 않는다. SQL Editor처럼 헤더가 없으면 'unknown'.
@@ -235,8 +275,11 @@ end $$;
 --   stats는 숫자 항목만 남기고 0~10억으로 자른다. fps_top_players가 숫자로 읽으므로 잘못된 값이 순위표를 깨뜨리지 못한다.
 --   장착한 캐릭터(loadout.avatar)는 가격표에 있는 'av_' 캐릭터이고 기본(가격 0)이거나 가진 것이어야 한다. 아니면 기본 캐릭터 av_trooper로 저장한다.
 --   결과에 서버가 저장한 포인트·무기·전적을 돌려준다(clamped면 깎였다). 클라이언트는 이 값을 따른다.
+--   p_delta(2026-11-20): 클라이언트가 지난번 서버에서 받은 포인트 뒤로 바꾼 양(번 것 +, 산 것·쓴 것 -). 있으면 p_points는 보지 않는다.
+--     서버는 '저장된 포인트 + 변화량'으로 계산하므로 운영자가 바꾼 포인트를 덮어쓰지 않는다. 없으면(옛 클라이언트) 예전처럼 합계로 계산한다.
+drop function if exists public.fps_save_profile(text, int, jsonb, jsonb, jsonb, jsonb);
 create or replace function public.fps_save_profile(
-  p_token text, p_points int, p_owned jsonb, p_loadout jsonb, p_stats jsonb, p_secrets jsonb)
+  p_token text, p_points int, p_owned jsonb, p_loadout jsonb, p_stats jsonb, p_secrets jsonb, p_delta int default null)
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
 declare
   v_hash text := public.fps_token_hash(p_token);
@@ -294,9 +337,15 @@ begin
     v_spent := v_spent + v_price;
   end loop;
 
-  -- 포인트: 클라이언트가 주장하는 순수익 = 보낸 포인트 - 저장된 포인트 + 산 값
+  -- 포인트: 클라이언트가 주장하는 순수익 = 변화량 + 산 값(변화량에 산 값이 빠져 있으므로 되돌려 순수익만 본다)
+  --   옛 클라이언트(p_delta 없음): 보낸 포인트 - 클라이언트가 아는 포인트 + 산 값.
+  --   클라이언트가 아는 포인트는 저장된 포인트에서 아직 알리지 않은 운영자 조정(points_adjust)을 뺀 값이다
   v_allow := greatest(0, least(floor(v_earn_bucket), 50000 - v_day))::int;
-  v_want := coalesce(p_points, v.points)::bigint - v.points + v_spent;
+  if p_delta is not null then
+    v_want := p_delta::bigint + v_spent;
+  else
+    v_want := coalesce(p_points, v.points - v.points_adjust)::bigint - (v.points - v.points_adjust) + v_spent;
+  end if;
   v_earn := least(v_want, v_allow)::int;
   if v_want > v_allow then v_clamped := true; end if;
   v_points := v.points::bigint + v_earn - v_spent;
@@ -334,8 +383,10 @@ begin
     v_stats := v_stats || jsonb_build_object(v_key, v_val);
   end loop;
 
+  perform set_config('fps.saving', 'on', true);   -- 이 저장은 운영자 조정이 아니다(fps_points_adjust_track)
   update public.fps_players
      set points = v_points,
+         points_adjust = 0,
          owned = v.owned || v_new,
          loadout = v_loadout,
          stats = v_stats,
@@ -348,6 +399,7 @@ begin
          day_gain = v_day + greatest(v_earn, 0),
          updated_at = now()
    where id = v.id;
+  perform set_config('fps.saving', '', true);
   return jsonb_build_object('ok', true, 'clamped', v_clamped,
     'profile', jsonb_build_object('points', v_points, 'owned', v.owned || v_new, 'stats', v_stats));
 end $$;
@@ -355,9 +407,12 @@ end $$;
 -- 이 서버가 아는 기능. 클라이언트는 시작할 때 한 번 묻고, 캐릭터 구매는 avatars가 true일 때만 연다.
 -- 이 파일을 다시 실행하기 전의 서버에는 이 함수가 없어(404) 구매가 닫힌 채로 남으므로, 서버가 모르는 캐릭터를 사서 포인트를 잃지 않는다.
 -- feedback: 건의함(fps_send_feedback·fps_my_feedback)이 있다. 없으면 화면이 글을 쓰기 전에 '아직 열리지 않았어요'라고 알린다.
+-- prices: 서버 가격표. 클라이언트는 여기에 같은 값으로 있는 물건만 판다. 서버가 모르는 무기를 사면 저장이 물건은 버리고
+--   줄어든 포인트만 받아들이므로(2026-11-20 팀원이 새 무기를 사다 4,000P를 잃었다), 이 표가 없는 옛 서버에서는 값 있는 물건을 모두 닫는다.
+-- delta: fps_save_profile이 p_delta(포인트 변화량)를 받는다. 클라이언트는 이때만 p_delta를 보낸다.
 create or replace function public.fps_features() returns jsonb
 language sql stable security definer set search_path = public, extensions as $$
-  select jsonb_build_object('ok', true, 'avatars', true, 'feedback', true)
+  select jsonb_build_object('ok', true, 'avatars', true, 'feedback', true, 'prices', public.fps_price_table(), 'delta', true)
 $$;
 
 -- ───────────── 건의함 (2026-11-12) ─────────────
@@ -970,6 +1025,8 @@ revoke all on function public.fps_name_error(text) from public, anon, authentica
 revoke all on function public.fps_token_hash(text) from public, anon, authenticated;
 revoke all on function public.fps_owned_ok(jsonb) from public, anon, authenticated;
 revoke all on function public.fps_item_price(text) from public, anon, authenticated;
+revoke all on function public.fps_price_table() from public, anon, authenticated;
+revoke all on function public.fps_points_adjust_track() from public, anon, authenticated;
 revoke all on function public.fps_client_key() from public, anon, authenticated;
 revoke all on function public.fps_rate_ok(text, int, interval) from public, anon, authenticated;
 revoke all on function public.fps_feedback_clean(text) from public, anon, authenticated;
@@ -981,7 +1038,7 @@ revoke all on function public.fps_ticket_once(text) from public, anon, authentic
 revoke all on function public.fps_check_nickname(text) from public;
 revoke all on function public.fps_claim_nickname(text, text) from public;
 revoke all on function public.fps_get_profile(text) from public;
-revoke all on function public.fps_save_profile(text, int, jsonb, jsonb, jsonb, jsonb) from public;
+revoke all on function public.fps_save_profile(text, int, jsonb, jsonb, jsonb, jsonb, int) from public;
 revoke all on function public.fps_top_players(int) from public;
 revoke all on function public.fps_features() from public;
 revoke all on function public.fps_send_feedback(text, text, text, jsonb) from public;
@@ -990,7 +1047,7 @@ revoke all on function public.fps_my_feedback(text) from public;
 grant execute on function public.fps_check_nickname(text) to anon, authenticated;
 grant execute on function public.fps_claim_nickname(text, text) to anon, authenticated;
 grant execute on function public.fps_get_profile(text) to anon, authenticated;
-grant execute on function public.fps_save_profile(text, int, jsonb, jsonb, jsonb, jsonb) to anon, authenticated;
+grant execute on function public.fps_save_profile(text, int, jsonb, jsonb, jsonb, jsonb, int) to anon, authenticated;
 grant execute on function public.fps_top_players(int) to anon, authenticated;
 grant execute on function public.fps_features() to anon, authenticated;
 grant execute on function public.fps_send_feedback(text, text, text, jsonb) to anon, authenticated;

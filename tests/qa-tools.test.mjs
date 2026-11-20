@@ -102,8 +102,11 @@ describe('가짜 Supabase', () => {
     assert.deepEqual(await rpc('fps_get_profile', { p_token: 'a' }), { ok: false, error: 'NOT_FOUND' });
     assert.deepEqual(await rpc('fps_claim_nickname', { p_token: 'a', p_name: '새이름' }), { ok: true, name: '새이름' });
     assert.deepEqual(await rpc('fps_claim_nickname', { p_token: 'b', p_name: '새이름' }), { ok: false, error: 'NAME_TAKEN' });
-    assert.deepEqual(await rpc('fps_save_profile', { p_token: 'a', p_points: 7, p_owned: [], p_loadout: {}, p_stats: {}, p_secrets: {} }), { ok: true });
+    assert.equal((await rpc('fps_save_profile', { p_token: 'a', p_points: 7, p_owned: [], p_loadout: {}, p_stats: {}, p_secrets: {} })).profile.points, 7, '변화량이 없으면 보낸 합계');
     assert.equal((await rpc('fps_get_profile', { p_token: 'a' })).profile.points, 7);
+    // 변화량을 보내면 진짜 서버처럼 '저장된 값 + 변화량'(보낸 합계는 보지 않는다)
+    assert.equal((await rpc('fps_save_profile', { p_token: 'a', p_points: 999, p_delta: 5, p_owned: [], p_loadout: {}, p_stats: {}, p_secrets: {} })).profile.points, 12);
+    assert.equal((await rpc('fps_features', {})).delta, true);
   });
 
   test('Realtime: 참가, presence, broadcast', { skip: typeof WebSocket === 'undefined' ? 'Node에 WebSocket이 없다' : false }, async () => {

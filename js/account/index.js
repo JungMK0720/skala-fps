@@ -25,6 +25,9 @@
  *   account.avatarShop            캐릭터 구매: 'open' | 'checking'(서버에 묻는 중) | 'closed'(서버가 아직 캐릭터를 모름)
  *                                 서버를 쓰면 시작할 때 fps_features를 한 번 묻고 avatars:true일 때만 연다. 오프라인·로컬은 늘 열려 있다.
  *                                 열리기 전 buy(캐릭터)는 { ok:false, reason:'closed' }다. 기본 캐릭터와 이미 가진 캐릭터 장착은 그대로 된다
+ *   await account.refreshFromServer({ force? })  서버 프로필을 다시 읽어 따른다(탭 복귀·1분마다 저절로). 포인트는 늘 '서버 값 + 못 올린 변화량'
+ *   account.canSell(id)           지금 살 수 있는 물건인가. 서버를 쓰면 fps_features의 prices(서버 가격표)에 같은 값으로 있어야 한다.
+ *                                 아니면 buy는 { ok:false, reason:'closed' }다(서버가 모르는 물건을 사면 포인트만 잃으므로)
  *   recordMatch의 summary에 knifeKills를 넣으면 전적에 쌓인다(선택).
  *   account.spendPoints(n)        물건이 아닌 곳에 n 포인트를 쓴다(개인전 즉시 부활). → { ok, spent, points, reason? }, 모자라면 reason 'points'
  *   account.feedbackBox           건의함: 'open' | 'checking'(묻는 중·네트워크 실패, 보내 보면 안다) | 'closed'(서버 없음·서버가 건의함을 모름)
@@ -44,7 +47,7 @@
  */
 import { getDef } from '../weapons/defs.js';
 import { EMOTE_WHEEL } from '../core/consts.js';
-import { clampPoints, isAvatarId, isEmoteId, matchReward, priceOf, readSummary, secretReward, readZombieSummary, zombieReward } from './economy.js';
+import { START_POINTS, clampPoints, isAvatarId, isEmoteId, matchReward, priceOf, readSummary, secretReward, readZombieSummary, zombieReward } from './economy.js';
 import { nicknameKey, validateNickname } from './nickname.js';
 import { createRemote } from './remote.js';
 import { FEEDBACK_MESSAGES, feedbackInfo, feedbackResult, normalizeFeedbackItems, validateFeedback } from './feedback.js';
@@ -60,6 +63,10 @@ export { cleanNickname, nicknameKey, validateNickname } from './nickname.js';
 export const SAVE_DEBOUNCE_MS = 2000;
 export const RETRY_MIN_MS = 15000;
 export const RETRY_MAX_MS = 300000;
+/** 탭이 보이는 동안 서버 프로필을 다시 읽는 간격. 운영자가 DB에서 바꾼 포인트가 새로고침 없이 화면에 온다 */
+export const REFRESH_INTERVAL_MS = 60000;
+/** 탭으로 돌아올 때(focus·visibilitychange) 다시 읽는 최소 간격 */
+export const REFRESH_MIN_MS = 10000;
 
 const MESSAGE = Object.freeze({
   offline: '오프라인이라 중복 확인을 못 했어요.',
@@ -107,6 +114,10 @@ export function createAccount({
   let profile = restored ? restored.profile : defaultProfile();
   let dirty = restored ? restored.dirty : false;              // 서버가 아직 받았다고 확인하지 않은 변경이 있다
   let pendingClaim = restored ? restored.pendingClaim : null; // 서버에 등록하지 못한 닉네임
+  // 마지막으로 서버에서 받은(서버가 확인한) 포인트. 서버에 보내는 것은 합계가 아니라 '포인트 - base'(변화량)라서
+  // 운영자가 DB에서 바꾼 포인트를 덮어쓰지 않는다. 처음 켠 기기는 시작 포인트(서버가 새 행에 주는 값과 같다).
+  // 옛 저장 형식(base 없음)에 못 올린 변경이 있으면 기준을 몰라 null
+  let base = restored ? (restored.base ?? (restored.dirty ? null : restored.profile.points)) : START_POINTS;
   let conflictName = null;                                    // 등록을 거절당한 닉네임
   let snapshot = null;
   let revision = 0;                                           // 저장 요청 중에 또 바뀌었는지 알아채는 번호
@@ -120,6 +131,9 @@ export function createAccount({
   let avatarShop = remote.enabled ? 'checking' : 'open';      // 캐릭터 구매를 열었는가(서버 기능 확인)
   let feedbackBox = remote.enabled ? 'checking' : 'closed';   // 건의함을 쓸 수 있는가(서버 기능 확인)
   let featureCheck = null;
+  let serverPrices = null;                                    // 서버 가격표(fps_features의 prices). 받기 전·옛 서버는 null
+  let serverDelta = false;                                    // 서버가 포인트 변화량(p_delta)을 받는가(fps_features의 delta)
+  let lastRefresh = 0;                                        // 마지막으로 서버 프로필을 다시 읽은 때(refreshFromServer)
   let online = null;                                          // 로그인 연결·코인(./online.js). 아래에서 만든다
   let awaitingProfile = false;                                // 다른 탭이 토큰을 바꿨고 새 토큰의 서버 프로필을 아직 받지 못했다
 
@@ -139,7 +153,17 @@ export function createAccount({
   }
 
   function persist() {
-    store.save({ profile, dirty, pendingClaim });
+    store.save({ profile, dirty, pendingClaim, base });
+  }
+
+  /**
+   * 아직 서버에 올리지 못한 포인트 변화량. 서버 값에 이것만 더해 화면에 보인다.
+   * 기준(base)을 모르는 옛 저장이면 번 것은 버리고, 서버가 모르는 물건(이 기기에서만 산 것) 값만 뺀다(공짜가 되지 않게)
+   */
+  function pendingPoints(serverOwned = []) {
+    if (!dirty) return 0;
+    if (base !== null) return profile.points - base;
+    return -profile.owned.filter((id) => !serverOwned.includes(id)).reduce((sum, id) => sum + (priceOf(id) || 0), 0);
   }
 
   function announce() {
@@ -180,14 +204,22 @@ export function createAccount({
   async function sendSave(options) {
     if (!canSave()) return;
     const sent = revision;
-    const r = await remote.saveProfile(store.token(), profile, options);
+    const sentPoints = profile.points;
+    const delta = serverDelta && base !== null ? profile.points - base : null;
+    const r = await remote.saveProfile(store.token(), profile, options, delta);
     if (r.ok) {
       retryDelay = RETRY_MIN_MS;
+      const srvPoints = r.profile && Number.isFinite(r.profile.points) ? clampPoints(r.profile.points) : null;
       if (sent === revision) {
         dirty = false;
         if (r.profile) adoptSaved(r.profile);
-        persist();
+      } else if (srvPoints !== null) {
+        // 저장하는 사이에 또 바뀌었다: 서버 값 위에 그 뒤의 변화만 얹는다
+        profile.points = clampPoints(srvPoints + (profile.points - sentPoints));
+        announce();
       }
+      if (srvPoints !== null) base = srvPoints;
+      persist();
     } else if (r.reason === 'network') {
       armRetry();
     } else if (r.error === 'NOT_FOUND' && profile.nickname && !pendingClaim) {
@@ -218,7 +250,7 @@ export function createAccount({
 
   /** 네트워크가 돌아왔을 수 있을 때 못 끝낸 일을 이어서 한다 */
   function resumeRemote() {
-    if (avatarShop !== 'open' || feedbackBox !== 'open') checkFeatures();
+    if (avatarShop !== 'open' || feedbackBox !== 'open' || !serverPrices) checkFeatures({ fresh: true });
     if (!synced) return syncFromRemote();
     if (pendingClaim && !conflictName) retryNickname();
     return flush();
@@ -315,14 +347,19 @@ export function createAccount({
   function adoptServerProfile(raw) {
     const src = raw && typeof raw === 'object' ? raw : {};
     const server = normalizeProfile({ ...src, nickname: src.name });
-    const merged = mergeProfiles(profile, server, { dirty, keepNickname: !!pendingClaim });
+    const serverPoints = Number.isFinite(src.points);
+    const merged = mergeProfiles(profile, server, {
+      dirty, keepNickname: !!pendingClaim, serverPoints, pendingPoints: pendingPoints(server.owned)
+    });
     const changed = !sameProfile(merged, profile);
     const ahead = !sameProgress(merged, server);
     const wasDirty = dirty;
+    const baseBefore = base;
     profile = merged;
     dirty = ahead;
+    if (serverPoints) base = server.points;
     if (changed) revision += 1;
-    if (changed || dirty !== wasDirty) persist();
+    if (changed || dirty !== wasDirty || base !== baseBefore) persist();
     if (changed) announce();
     if (dirty) scheduleSave();
   }
@@ -354,6 +391,7 @@ export function createAccount({
     }
     if (r.error === 'NOT_FOUND') {
       synced = true;
+      if (base === null) base = START_POINTS;   // fps_claim_nickname이 만드는 새 행의 포인트
       if (profile.nickname && !pendingClaim) {
         pendingClaim = profile.nickname; // 서버 설정 전에 정한 이름 등: 지금 등록한다
         persist();
@@ -365,6 +403,25 @@ export function createAccount({
     return { ok: false, offline: true };
   }
 
+  /**
+   * 서버 프로필을 다시 읽어 따른다(서버 값 + 아직 못 올린 변화량). 운영자가 DB에서 바꾼 포인트가 열린 탭에도 온다.
+   * 탭으로 돌아올 때와 탭이 보이는 동안 REFRESH_INTERVAL_MS마다 부른다. 저장·등록과 같은 줄(serial)에 서서 섞이지 않는다.
+   * → Promise<boolean> 읽었으면 true
+   */
+  function refreshFromServer({ force = false } = {}) {
+    if (!remote.enabled || disposed || !synced || awaitingProfile || pendingClaim) return Promise.resolve(false);
+    const now = Date.now();
+    if (!force && now - lastRefresh < REFRESH_MIN_MS) return Promise.resolve(false);
+    lastRefresh = now;
+    return serial(async () => {
+      if (disposed || awaitingProfile) return false;
+      const res = await remote.getProfile(store.token());
+      if (!res.ok || disposed || awaitingProfile) return false;
+      adoptServerProfile(res.profile);
+      return true;
+    });
+  }
+
   // ───────────── 서버 기능 확인 ─────────────
   /**
    * 캐릭터는 서버 가격표가 캐릭터를 알 때만 판다. schema.sql을 다시 실행하기 전의 서버(fps_save_profile)는 모르는 물건을 버리지만
@@ -372,18 +429,24 @@ export function createAccount({
    * 404(함수 없음), 어떤 오류, 값 없음은 모두 닫힘이다. 네트워크가 돌아오면(resumeRemote) 다시 묻는다.
    * 건의함(feedbackBox)은 답이 오면 feedback:true일 때만 열고, 404면 닫고, 네트워크 실패면 그대로 둔다(보내 보면 안다).
    */
-  function checkFeatures() {
-    if (!remote.enabled || disposed || (avatarShop === 'open' && feedbackBox === 'open')) return Promise.resolve(avatarShop === 'open');
+  function checkFeatures({ fresh = false } = {}) {
+    // fresh: 네트워크가 막 돌아왔다. 그 전에 보낸(실패할) 질문을 기다렸다가 한 번 더 묻는다
+    if (fresh && featureCheck) return featureCheck.then(() => checkFeatures());
+    if (!remote.enabled || disposed || (avatarShop === 'open' && feedbackBox === 'open' && serverPrices)) return Promise.resolve(avatarShop === 'open');
     if (!featureCheck) {
       featureCheck = remote.features()
         .then((r) => {
           const shop = avatarShop === 'open' || (r && r.ok === true && r.avatars === true) ? 'open' : 'closed';
           const box = r && r.ok === true ? (r.feedback === true ? 'open' : 'closed') : (r && r.status === 404 ? 'closed' : feedbackBox);
-          if (!disposed && (shop !== avatarShop || box !== feedbackBox)) {
+          const prices = r && r.ok === true && r.prices && typeof r.prices === 'object' && !Array.isArray(r.prices) ? r.prices : null;
+          const pricesChanged = !!prices && JSON.stringify(prices) !== JSON.stringify(serverPrices);
+          if (!disposed && (shop !== avatarShop || box !== feedbackBox || pricesChanged)) {
             avatarShop = shop;
             feedbackBox = box;
+            if (pricesChanged) serverPrices = { ...prices };
             announce();
           }
+          if (r && r.ok === true && r.delta === true) serverDelta = true;
           return shop === 'open';
         })
         .finally(() => { featureCheck = null; });
@@ -434,11 +497,27 @@ export function createAccount({
     return profile.owned.includes(id);
   }
 
+  /**
+   * 지금 이 물건을 팔아도 되는가. 서버를 쓰면 서버 가격표(fps_features의 prices)에 같은 값으로 있을 때만 판다.
+   * 서버(fps_save_profile)는 모르는 물건을 버리면서 줄어든 포인트는 받아들이므로, defs.js에만 새 무기를 넣고
+   * schema.sql을 다시 실행하지 않은 사이에 사면 포인트만 사라진다(2026-11-20 팀원 4,000P). 가격표를 못 받았으면 값 있는 물건은 모두 닫는다.
+   */
+  function canSell(id) {
+    const price = priceOf(id);
+    if (price === null) return false;
+    if (!remote.enabled || price === 0) return true;
+    if (isAvatarId(id) && avatarShop !== 'open') return false;
+    return !!serverPrices && Number(serverPrices[id]) === price;
+  }
+
   function buy(id) {
     const price = priceOf(id);
     if (price === null) return { ok: false, reason: 'unknown', points: profile.points };
     if (isOwned(id)) return { ok: false, reason: 'owned', points: profile.points };
-    if (isAvatarId(id) && avatarShop !== 'open') return { ok: false, reason: 'closed', points: profile.points };
+    if (!canSell(id)) {
+      checkFeatures();   // 그 사이 소유자가 schema.sql을 실행했을 수 있다
+      return { ok: false, reason: 'closed', points: profile.points };
+    }
     if (profile.points < price) return { ok: false, reason: 'points', points: profile.points };
     profile.points -= price;
     profile.owned = normalizeOwned([...profile.owned, id]);
@@ -568,6 +647,7 @@ export function createAccount({
     store.clear();
     profile = defaultProfile();
     dirty = false;
+    base = profile.points;
     pendingClaim = null;
     conflictName = null;
     revision += 1;
@@ -589,6 +669,7 @@ export function createAccount({
       retryDelay = RETRY_MIN_MS;
       profile = defaultProfile();
       dirty = false;
+      base = profile.points;
       pendingClaim = null;
       conflictName = null;
       synced = false;
@@ -645,6 +726,7 @@ export function createAccount({
       saveTimer = null;
       profile = defaultProfile();
       dirty = false;
+      base = profile.points;
       pendingClaim = null;
       conflictName = null;
       synced = false;
@@ -657,11 +739,12 @@ export function createAccount({
     if (e.key !== PROFILE_KEY && e.key !== null) return;
     const next = store.load();
     if (next) {
-      ({ profile, dirty, pendingClaim } = next);
+      ({ profile, dirty, pendingClaim, base } = next);
       awaitingProfile = false;
     } else if (e.newValue == null) {
       profile = defaultProfile();
       dirty = false;
+      base = profile.points;
       pendingClaim = null;
     } else {
       return;
@@ -671,14 +754,23 @@ export function createAccount({
     announce();
   }
 
-  const listeners = [['pagehide', onPageHide], ['online', onOnline], ['storage', onStorage]];
+  // 탭으로 돌아오면 서버 값을 다시 읽는다. 보이는 동안에는 REFRESH_INTERVAL_MS마다(브라우저 창일 때만)
+  const doc = target && target.document && typeof target.document.addEventListener === 'function' ? target.document : null;
+  const visible = () => !doc || doc.visibilityState !== 'hidden';
+  function onFocus() { refreshFromServer(); }
+  function onVisibility() { if (visible()) refreshFromServer(); }
+  const listeners = [['pagehide', onPageHide], ['online', onOnline], ['storage', onStorage], ['focus', onFocus]];
   const canListen = !!target && typeof target.addEventListener === 'function';
   if (canListen) for (const [name, fn] of listeners) target.addEventListener(name, fn);
+  if (doc) doc.addEventListener('visibilitychange', onVisibility);
+  const refreshTimer = doc && remote.enabled ? setInterval(() => { if (visible()) refreshFromServer({ force: true }); }, REFRESH_INTERVAL_MS) : null;
 
   function dispose() {
     if (disposed) return;
     disposed = true;
     if (canListen) for (const [name, fn] of listeners) target.removeEventListener(name, fn);
+    if (doc) doc.removeEventListener('visibilitychange', onVisibility);
+    if (refreshTimer) clearInterval(refreshTimer);
     clearTimeout(retryTimer);
     retryTimer = null;
     if (online) online.dispose();
@@ -711,6 +803,8 @@ export function createAccount({
     get emoteWheel() { return readProfile().loadout.emotes; },
     get avatar() { return readProfile().loadout.avatar; },
     get avatarShop() { return avatarShop; },
+    canSell,
+    refreshFromServer,
     get feedbackBox() { return feedbackBox; },
     get remoteEnabled() { return remote.enabled; },
     get nicknamePending() { return !!pendingClaim; },

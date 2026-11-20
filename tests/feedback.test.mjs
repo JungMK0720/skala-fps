@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
 
 import { createAccount } from '../js/account/index.js';
+import { priceTable } from '../js/account/economy.js';
 import {
   FEEDBACK_ERROR_CODES, FEEDBACK_INFO_KEYS, FEEDBACK_KINDS, FEEDBACK_KIND_NAMES, FEEDBACK_LIST_MAX, FEEDBACK_MAX, FEEDBACK_MESSAGES,
   FEEDBACK_MIN, FEEDBACK_REPLY_MAX, FEEDBACK_STATUS_NAMES, cleanFeedback, feedbackInfo, feedbackLength, feedbackResult,
@@ -51,7 +52,7 @@ function fakeServer({ feedback = true, features = 'feedback' } = {}) {
       switch (fn) {
         case 'fps_features':
           if (features === 'missing') return missing;
-          return json({ ok: true, avatars: true, ...(features === 'feedback' ? { feedback: true } : {}) });
+          return json({ ok: true, avatars: true, prices: priceTable(), ...(features === 'feedback' ? { feedback: true } : {}) });
         case 'fps_send_feedback': {
           if (!feedback) return missing;
           if (server.nextError) { const error = server.nextError; server.nextError = null; return json({ ok: false, error }); }
@@ -431,7 +432,7 @@ describe('supabase/schema.sql 건의함', () => {
   });
 
   test('fps_features가 건의함을 알리고, 클라이언트가 같은 함수 이름을 부른다', () => {
-    assert.ok(fn('fps_features').includes("jsonb_build_object('ok', true, 'avatars', true, 'feedback', true)"));
+    assert.ok(fn('fps_features').includes("jsonb_build_object('ok', true, 'avatars', true, 'feedback', true,"));
     const remoteSrc = readFileSync(new URL('../js/account/remote.js', import.meta.url), 'utf8');
     assert.ok(remoteSrc.includes("call('fps_send_feedback'"));
     assert.ok(remoteSrc.includes("call('fps_my_feedback'"));

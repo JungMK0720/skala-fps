@@ -171,6 +171,11 @@ export function priceOf(id) {
   return e ? Math.max(0, Number(e.price) || 0) : null;
 }
 
+/** 상점 물건 id → 가격. supabase/schema.sql의 fps_price_table(fps_features의 prices)과 같아야 한다 */
+export function priceTable() {
+  return Object.fromEntries(ITEM_IDS.map((id) => [id, priceOf(id)]));
+}
+
 /** 포인트 가격 몇 분의 1이 코인 가격인가(올림). supabase/schema.sql fps_coin_price와 같다 */
 export const COIN_DIVISOR = 10;
 

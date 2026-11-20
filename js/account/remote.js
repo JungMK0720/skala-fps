@@ -66,13 +66,15 @@ export function createRemote({ fetch: fetchImpl, config, timeoutMs = RPC_TIMEOUT
     checkNickname: (name) => call('fps_check_nickname', { p_name: name }),
     claimNickname: (token, name) => call('fps_claim_nickname', { p_token: token, p_name: name }),
     getProfile: (token) => call('fps_get_profile', { p_token: token }),
-    saveProfile: (token, profile, opts) => call('fps_save_profile', {
+    /** delta: 지난번 서버 값 뒤로 바뀐 포인트. 정수면 p_delta로 보내고 서버는 '저장된 포인트 + 변화량'으로 계산한다(fps_features delta:true인 서버만) */
+    saveProfile: (token, profile, opts, delta = null) => call('fps_save_profile', {
       p_token: token,
       p_points: profile.points,
       p_owned: profile.owned,
       p_loadout: profile.loadout,
       p_stats: profile.stats,
-      p_secrets: profile.secrets
+      p_secrets: profile.secrets,
+      ...(Number.isInteger(delta) ? { p_delta: delta } : {})
     }, opts),
     topPlayers: (limit) => call('fps_top_players', { p_limit: limit }),
     /** 서버가 아는 기능 { ok:true, avatars:true, feedback:true }. schema.sql을 다시 실행하기 전의 서버는 404(PGRST202)라 { ok:false, status:404 } */
