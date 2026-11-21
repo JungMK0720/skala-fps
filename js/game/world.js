@@ -527,8 +527,10 @@ function buildWorld(ctx, opts) {
   // 개인전 부활 대기 중 E(휴대폰은 '부활' 버튼, 같은 input:use) → 즉시 부활 요청. 폭파 미션의 설치·해체는 bombView가 따로 듣는다.
   // 배틀로얄은 살아 있을 때 E = 구급상자 사용(다시 누르면 취소)
   offs.push(bus.on('input:use', (e) => { if (!e || !e.down) return; if (kit) useLocalMedkit(); else requestQuick(); }));
-  // 배틀로얄: 점프하면 구급상자 사용이 취소된다
-  offs.push(bus.on('input:jump', () => { if (kit && kit.cancelHeal() && ui) ui.hud.callout(t('game.br.healCancel')); }));
+  // 배틀로얄: 점프(누르거나 Space를 누른 채 다시 뛰기)·턱 오르기·낙하 피해는 구급상자 사용을 취소한다(구급상자는 남는다)
+  const cancelHealMove = () => { if (kit && kit.cancelHeal() && ui) ui.hud.callout(t('game.br.healCancel')); };
+  offs.push(bus.on('input:jump', cancelHealMove));
+  offs.push(bus.on('player:jump', cancelHealMove));
   offs.push(bus.on('input:drop', () => { dropHeldGun(); }));
   offs.push(bus.on('input:slot', (e) => { latch.slot = e && e.slot; }));
   offs.push(bus.on('input:cycle', (e) => { latch.wheel = (e && e.dir) || 0; }));
@@ -558,10 +560,12 @@ function buildWorld(ctx, opts) {
   // 낙하 피해(배틀로얄): core player가 잰 피해를 연습장(경기)에 넘긴다. 경기가 claimHazard(…, 'fall')로 넣는다
   offs.push(bus.on('player:fall', (e) => {
     if (!active || !local.alive || !royale || !e || !(e.damage > 0)) return;
+    cancelHealMove();
     emit('fallDamage', { amount: e.damage, height: e.height, pos: e.pos });
   }));
   offs.push(bus.on('player:mantle', (e) => {
     if (!active || !local.alive || !e) return;
+    cancelHealMove();
     play(stepSound(null), { gain: 0.45 });
   }));
   // 발판·포털·비밀 스팟 판정과 재발동 대기는 core player(engine/triggers.js)가 한다. 스폰할 때 상태도 거기서 비운다. World는 연출과 보상만 맡는다
