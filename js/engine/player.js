@@ -516,15 +516,19 @@ export function createLocalPlayer({ bus, input, camera, getWorld, state: initSta
     setFrozen(v) { state.frozen = !!v; },
     setSpeedScale(s) { state.speedScale = Number.isFinite(s) && s > 0 ? s : 1; },
     /**
-     * 이동 상한·점프 배율(좀비 물량 막기 카드). maxSpeed = 수평 속도 상한(MOVE.MAX_SPEED) 배율, jump = 점프 높이 배율.
-     * null이면 기본값으로 돌아간다. 점프 높이는 초속의 제곱에 비례하므로 초속에는 제곱근을 곱한다
+     * 이동 튜닝. move = 모드별 이동 값(MOVE 일부를 덮어쓴다, 배틀로얄 BR_MOVE: 버니합 끔), maxSpeed = 수평 속도 상한 배율(좀비 물량 막기 카드),
+     * jump = 점프 높이 배율. null이면 기본값으로 돌아간다. 점프 높이는 초속의 제곱에 비례하므로 초속에는 제곱근을 곱한다
      */
     setMoveTuning(t) {
+      const base = t && t.move && typeof t.move === 'object' ? { ...MOVE, ...t.move } : null;
       const ms = t && Number.isFinite(t.maxSpeed) && t.maxSpeed > 0 ? t.maxSpeed : 1;
       const jh = t && Number.isFinite(t.jump) && t.jump > 0 ? t.jump : 1;
-      moveOpt.move = ms !== 1 ? { ...MOVE, MAX_SPEED: MOVE.MAX_SPEED * ms } : undefined;
+      const M = base || MOVE;
+      moveOpt.move = base || ms !== 1 ? { ...M, MAX_SPEED: M.MAX_SPEED * ms } : undefined;
       moveOpt.jumpV = jh !== 1 ? PLAYER.JUMP_V * Math.sqrt(jh) : undefined;
     },
+    /** 지금 쓰는 이동 값(MOVE 또는 setMoveTuning이 정한 값). 부정행위 속도 검사가 같은 값을 본다 */
+    get moveTuning() { return moveOpt.move || MOVE; },
     /** 밖에서 미는 힘(보스 돌진·내려찍기). v = [vx, vy, vz] m/s를 지금 속도에 더한다 */
     push(v) {
       if (!Array.isArray(v) || !state.alive) return;

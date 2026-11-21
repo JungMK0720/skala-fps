@@ -800,6 +800,22 @@ export function createArsenal(opts = {}) {
     return allowed.includes(slot) && emptied.has(slot);
   }
 
+  /**
+   * 칸 slot(주무기 1·보조 2)을 이번 목숨 동안 비운다(배틀로얄: 권총·칼만 들고 출발). 버린 것과 같아서 바닥의 총을 주울 수 있다.
+   * 그 칸을 들고 있었으면 다른 무기를 바로 꺼낸다. → 비웠으면 true
+   */
+  function emptySlot(slot) {
+    if ((slot !== 1 && slot !== 2) || emptied.has(slot)) return false;
+    const id = loadout[slot];
+    emptied.add(slot);
+    if (cur === id) {
+      const next = otherWeapon(cur, [1, 2, 3, 4].filter((s) => s !== slot));
+      if (next) drawWeapon(next);
+    }
+    if (prev === id || !prev || !carried(prev)) prev = otherWeapon(cur, [2, 1, 3, 4]);
+    return true;
+  }
+
   /** 칸 slot에 총 id를 넣고 바로 꺼낸다. 탄약은 남은 만큼 이어받되 정의의 최대를 넘지 못한다(프리미엄 예비는 무제한 그대로) */
   function putInSlot(slot, id, ammo, draw = true) {
     const left = (v, max) => (Number.isFinite(v) ? clamp(Math.floor(v), 0, max) : max);
@@ -1071,6 +1087,7 @@ export function createArsenal(opts = {}) {
     takeWeapon,
     dropHeld,
     isSlotEmpty,
+    emptySlot,
     getWeapon,
     getSlots,
     getMoveMul,

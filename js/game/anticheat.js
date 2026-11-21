@@ -81,9 +81,12 @@ export function checkHitClaim({ dist, melee = false, shooter = [], victim = [], 
   return seen ? { ok: true, dist: out, checked: true } : { ok: false, dist: out, checked: true, reason: 'no_los' };
 }
 
-/** 맵에서 낼 수 있는 가장 빠른 수평·상승 속도(발판 포함)와 순간이동이 허용되는 지점(포털 출구·스폰) */
-export function moveLimits(map) {
-  let h = MOVE.MAX_SPEED;
+/**
+ * 맵에서 낼 수 있는 가장 빠른 수평·상승 속도(발판 포함)와 순간이동이 허용되는 지점(포털 출구·스폰).
+ * move = 그 경기의 이동 값(기본 MOVE, 배틀로얄은 BR_MOVE). 수평 상한은 move.MAX_SPEED에서 시작한다
+ */
+export function moveLimits(map, move = MOVE) {
+  let h = (move && Number.isFinite(move.MAX_SPEED) ? move : MOVE).MAX_SPEED;
   let v = PLAYER.JUMP_V;
   for (const p of (map && Array.isArray(map.pads)) ? map.pads : []) {
     if (!p) continue;
@@ -112,14 +115,15 @@ export function moveLimits(map) {
  * feed(id, { t, pos, alive }) → null | { reason: 'teleport'|'speed'|'rise', moved, dt }
  *   t는 보낸 사람 시계(ms)다. 같은 사람의 연속 메시지 간격만 쓰므로 시계 차이와 상관없다.
  * reset(id)는 스폰·부활처럼 정상적으로 옮겨질 때 부른다.
- * @param {{ getMap?: () => object }} [o]
+ * @param {{ getMap?: () => object, getMove?: () => object }} [o] getMove = 지금 경기의 이동 값(player.moveTuning 등). 바뀌면 한도를 다시 잰다
  */
-export function createMoveGuard({ getMap = () => null } = {}) {
+export function createMoveGuard({ getMap = () => null, getMove = () => MOVE } = {}) {
   const last = new Map();
-  let mapRef, limits = moveLimits(null);
+  let mapRef, moveRef, limits = moveLimits(null);
   function currentLimits() {
     const m = getMap();
-    if (m !== mapRef) { mapRef = m; limits = moveLimits(m); }
+    const mv = getMove() || MOVE;
+    if (m !== mapRef || mv !== moveRef) { mapRef = m; moveRef = mv; limits = moveLimits(m, mv); }
     return limits;
   }
   const nearExit = (pos, L) => L.exits.some((e) => Math.hypot(pos[0] - e[0], pos[2] - e[2]) <= GUARD.EXIT_R && Math.abs(pos[1] - e[1]) <= 4);

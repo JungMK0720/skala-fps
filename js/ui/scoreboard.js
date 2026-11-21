@@ -49,6 +49,7 @@ export function rankPlayers(list) {
 
 export function createScoreboard(ctx) {
   let sig = '';
+  let royaleBoard = false;   // 지금 그리는 표가 배틀로얄인가(상태 칸 글자)
   const title = h('h2', { class: 'sk-sb-title sk-stencil', text: '점수판' });
   const meta = h('p', { class: 'sk-sb-meta' });
   const ownerScore = h('b');
@@ -90,6 +91,7 @@ export function createScoreboard(ctx) {
 
   function ffaState(x) {
     if (x.alive) return x.protect ? '🛡 보호' : '생존';
+    if (royaleBoard) return '☠ 탈락';
     return x.respawnIn != null ? `☠ ${Math.ceil(x.respawnIn / 1000)}초` : '☠ 부활 대기';
   }
   function ffaTable(rows) {
@@ -144,7 +146,9 @@ export function createScoreboard(ctx) {
       cols.replaceChildren(zombieTable(rows));
       return;
     }
-    const ffa = mode === 'ffa';
+    // 배틀로얄(MODES.md 15절)도 개인전 표를 쓴다. 순위 = 탈락 순서(살아 있는 사람은 공동 1위), 상태 = 생존 · 탈락
+    royaleBoard = mode === 'br';
+    const ffa = mode === 'ffa' || royaleBoard;
     el.classList.toggle('is-ffa', ffa);
     scoreLine.hidden = ffa;
     // 16인방: 줄이 많으면(개인전 10명 넘게, 팀전 한 팀 6명 넘게) 줄 높이를 줄여 Tab을 누른 채로 한눈에 들어오게 한다(스크롤할 수 없다)
@@ -156,8 +160,9 @@ export function createScoreboard(ctx) {
       const target = Math.max(1, Math.floor(num(p.target != null ? p.target : p.killTarget != null ? p.killTarget : p.score && p.score.target, FFA_TARGET)));
       const me = rows.find((x) => x.me);
       const m = p.mapName ? { name: p.mapName } : mapInfo(ctx.maps, p.maps, p.mapId);
-      setText(title, `개인전 · 목표 ${target}킬`);
-      setText(meta, [m && m.name, me ? `내 순위 ${me.rank}위 / ${rows.length}명` : `${rows.length}명`].filter(Boolean).join(' · '));
+      const left = rows.filter((x) => x.alive).length;
+      setText(title, royaleBoard ? `배틀로얄 · 생존 ${left} / ${rows.length}명` : `개인전 · 목표 ${target}킬`);
+      setText(meta, [m && m.name, royaleBoard ? (me && !me.alive ? `내 순위 #${me.rank}` : '최후의 1인까지') : me ? `내 순위 ${me.rank}위 / ${rows.length}명` : `${rows.length}명`].filter(Boolean).join(' · '));
       // 사람이 많으면(16인방) 순위를 두 칸으로 나눠 나란히 둔다. 세로 화면은 css가 다시 한 줄로 쌓는다
       const half = Math.ceil(rows.length / 2);
       cols.replaceChildren(...(rows.length > 10 ? [ffaTable(rows.slice(0, half)), ffaTable(rows.slice(half))] : [ffaTable(rows)]));

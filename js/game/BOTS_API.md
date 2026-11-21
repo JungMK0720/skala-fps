@@ -97,6 +97,7 @@ brain 메서드:
 - `reset()` — 라운드 시작 때 기억·계획 초기화(안 불러도 부활·순간이동을 감지해 스스로 초기화).
 - `respawn({ spawn:{x,y,z,rotY}, loadout, protectMs })` — 개인전 부활(아래 6절). `{x,y,z,rotY,loadout}`처럼 평평하게 줘도 된다. `loadout`은 규칙에서 쓸 수 있는 무기 id면 무엇이든, 아니면 그대로 둔다.
 - `setLoadout(id)` — 다음 `respawn`부터 쓸 무기만 예약(지금 목숨은 그대로). 규칙에서 쓸 수 없으면 예약을 지우고 `false`.
+- `setCarried({ primary, secondary, melee, grenade })` — 지금 실제로 가진 무기(배틀로얄 MODES.md 15절: 권총·칼로 출발해 줍는다). `null`인 슬롯은 없는 것으로 보고 쓰지 않는다. 주무기가 있으면 평소 슬롯은 1, 없으면 권총. 무기를 줍거나 출발할 때마다 부른다(`respawn` 뒤).
 - `onLaunch()` — 발판에 실려 날기 시작했다. 들고 있던 경로를 버리고, 착지하면 새로 계획한다.
 - `mode`(`'team'|'ffa'`), `ruleset`, `primary`(고른 무기 id), `role`(그 무기의 `def.kind`) — 읽기용 (respawn으로 무기가 바뀌면 같이 바뀜)
 - `debug()` — `{ mode, ruleset, primary, weapon, homeSlot, target, lane, slot, goal, path, memory, stuckLevel, holding, ... }` (HUD·오버레이용)

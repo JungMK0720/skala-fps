@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 결과 = 작전 결과 보고서(AFTER ACTION REPORT). 맨 위에 내 처치·전사·K/D·헤드샷 비율 요약 줄을 두고, 팀전은 승리 팀·라운드 기록·MVP, 개인전은 시상대와 순위표를 보여 주고, reward 값이 있으면 획득 포인트를 올라가는 숫자로 보여 준다.
+ * Purpose: 결과 = 작전 결과 보고서(AFTER ACTION REPORT). 맨 위에 내 처치·전사·K/D·헤드샷 비율 요약 줄을 두고, 팀전은 승리 팀·라운드 기록·MVP, 개인전은 시상대와 순위표, 배틀로얄은 내 순위(#n/총인원)·생존 시간과 탈락 순위표를 보여 주고, reward 값이 있으면 획득 포인트를 올라가는 숫자로 보여 준다.
  *          폭파 미션은 팀전 화면에 라운드마다 끝난 방식(폭파 · 해체 · 전멸 · 시간, 선 아이콘)과 이긴 진영(공격/수비)을 더한다.
  */
 import { h, btn, setText, num, fmtPoints, fmtDelta, TEAMS, teamKey, modeKey, FFA_TARGET, SIDE_NAME, bombSide } from './dom.js';
@@ -233,18 +233,61 @@ export function createResults(ctx) {
         : h('tr', {}, h('td', { colspan: 7, class: 'sk-sb-empty', text: '기록 없음' })))));
   }
 
+  // ---------- 배틀로얄 (MODES.md 15절) ----------
+  /**
+   * p = { mode:'br', ranking:[{ id, name, bot, place, kills, head, survivedMs, alive }], total, winnerId, winnerName, meId, mapId, reward }
+   * 순위(place)는 탈락 순서로 정한다: 마지막까지 남은 사람이 1위. 아직 살아 있는 사람(내가 먼저 결과를 본 경우)은 '생존 중'
+   */
+  function renderRoyale(p) {
+    const total = Math.max(1, Math.floor(num(p.total, Array.isArray(p.ranking) ? p.ranking.length : 1)));
+    const rows = (Array.isArray(p.ranking) ? p.ranking : []).map((x) => ({
+      id: x.id, name: x.name || '플레이어', bot: !!x.bot, me: x.id != null && x.id === p.meId,
+      place: Math.max(1, Math.floor(num(x.place, total))), kills: Math.max(0, Math.floor(num(x.kills, 0))), head: Math.max(0, Math.floor(num(x.head, 0))),
+      survivedMs: Math.max(0, num(x.survivedMs, 0)), alive: !!x.alive
+    })).sort((a, b) => a.place - b.place || b.kills - a.kills);
+    const me = rows.find((x) => x.me) || null;
+    const won = !!me && p.winnerId != null && p.winnerId === me.id;
+    el.dataset.winner = won ? 'ffa' : 'draw';
+    setText(kicker, 'BATTLE ROYALE');
+    setText(titleEl, won ? '최후의 1인!' : me ? `#${me.place} / ${total}` : '배틀로얄 종료');
+    setText(scoreEl, me ? `${me.kills}킬 · 생존 ${fmtMs(me.survivedMs)}` : '');
+    const m = p.mapName ? { name: p.mapName } : mapInfo(ctx.maps, p.maps, p.mapId);
+    const wn = p.winnerName || '';
+    setText(verdict, [won ? '모든 상대를 이겨 냈어요!' : wn ? `우승 ${wn}` : '아직 승부가 나지 않았어요', m && m.name].filter(Boolean).join(' · '));
+    summary.hidden = !me;
+    if (me) {
+      summary.replaceChildren(...[['순위', `#${me.place} / ${total}`], ['처치', me.kills], ['생존 시간', fmtMs(me.survivedMs)], ['헤드샷', me.head]]
+        .map(([k, v]) => h('div', { class: 'sk-res-sum' }, h('dt', { text: k }), h('dd', { text: v }))));
+    }
+    const going = (x) => x.alive && !(p.winnerId != null && x.id === p.winnerId);   // 아직 싸우는 중(결과를 먼저 본 경우)
+    const top3 = rows.filter((x) => !going(x)).slice(0, 3).map((x) => ({ ...x, rank: x.place, deaths: x.alive ? 0 : 1 }));
+    const order = [[top3[1], 2], [top3[0], 1], [top3[2], 3]].filter(([x]) => x);
+    podium.replaceChildren(...(order.length ? order.map(([x, place]) => pod(x, place)) : [h('p', { class: 'sk-set-hint', text: '기록이 없어요.' })]));
+    setText(tableTitle, '순위표');
+    table.replaceChildren(h('table', { class: 'sk-sb-table' },
+      h('thead', {}, h('tr', {}, ['순위', '이름', '킬', '헤드샷', '생존 시간'].map((t, i) => h('th', { scope: 'col', class: i === 1 ? '' : 'num', text: t })))),
+      h('tbody', {}, rows.length ? rows.map((x) => h('tr', { class: x.me ? 'is-me' : '' },
+        h('td', { class: 'num sk-sb-rank' + (x.place <= 3 && !going(x) ? ' is-top' : ''), text: going(x) ? '생존 중' : `#${x.place}` }),
+        h('th', { scope: 'row', class: 'sk-sb-name' }, botName(x), x.me ? h('span', { class: 'sk-tag', text: '나' }) : null),
+        h('td', { class: 'num', text: x.kills }),
+        h('td', { class: 'num', text: x.head }),
+        h('td', { class: 'num', text: going(x) ? '—' : fmtMs(x.survivedMs) })))
+        : h('tr', {}, h('td', { colspan: 5, class: 'sk-sb-empty', text: '기록 없음' })))));
+  }
+
   function render(p) {
     renderReward(p.reward);
     const mode0 = modeKey(p.mode);
-    renderSummary(mode0 === 'zombie' ? null : normStatPlayers({ players: Array.isArray(p.ranking) && p.ranking.length && mode0 === 'ffa' ? p.ranking : p.players, meId: p.meId }).find((x) => x.me) || null);
+    renderSummary(mode0 === 'zombie' || mode0 === 'br' ? null : normStatPlayers({ players: Array.isArray(p.ranking) && p.ranking.length && mode0 === 'ffa' ? p.ranking : p.players, meId: p.meId }).find((x) => x.me) || null);
     const mode = modeKey(p.mode);
-    const ffa = mode === 'ffa';
+    const ffa = mode === 'ffa' || mode === 'br';
     el.dataset.mode = mode;
     teamGrid.hidden = ffa;
     podium.hidden = !ffa;
     setText(backBtn, p.backLabel || '방으로 돌아가기');
     setText(lobbyBtn, p.lobbyLabel || '로비로');
     lobbyBtn.hidden = p.lobbyLabel === false;
+    if (mode === 'br') { renderRoyale(p); return; }
     if (ffa) { renderFfa(p); return; }
     if (mode === 'zombie') {
       const head = teamGrid.querySelector('.sk-panel-title');

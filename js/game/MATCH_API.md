@@ -193,6 +193,11 @@ warmup ──start()──▶ loadout(5s) ─▶ live(2:00) ─▶ roundEnd(4s) 
 - 거절 사유: `not_live`, `unknown_attacker`, `bad_weapon`, `ruleset`(칼전·스나전에는 수류탄이 없다), `not_playing`(관전자·퇴장), `bad_victims`(배열 아님), `grenade_limit`(라운드당 1개 초과).
 - 자폭 사망은 데스만 1 늘고 킬은 없다. 자해 피해는 데미지 통계에 넣지 않는다.
 
+### `claimHazard(id, amount, cause?)` · `heal(id, amount)` (배틀로얄, MODES.md 15절)
+- `claimHazard`: 공격자 없는 환경 피해(봉쇄 구역). 살아 있는 `id`가 `amount`(반올림)만큼 잃는다. 공격자 = 피해자라 킬은 누구에게도 가지 않고 데스만 1 늘어난다. `damage`·`kill`에 `self: true`와 `cause`(기본 `'hazard'`, 배틀로얄은 `'zone'`)가 실린다. `weaponId`는 `null`이다.
+- `heal`: 살아 있는 `id`의 체력을 `amount`만큼(최대 `rules.hp`) 채운다 → `{ type: 'heal', id, amount, hp }`. 다 차 있거나 죽었으면 빈 배열.
+- 둘 다 live가 아니면 `not_live`로 거절한다. 방장(연습장) 안에서만 부른다 — 네트워크 의도로는 받지 않는다.
+
 ## 6. 이벤트
 - 모든 이벤트는 JSON으로 그대로 보낼 수 있다(Infinity·undefined 없음). id 필드는 플레이어 id다.
 - 필드 이름과 순서는 `protocol.MATCH_EVENT_FIELDS`에 맞췄다: `damage.amount`, `kill.part`.

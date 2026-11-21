@@ -29,7 +29,7 @@ import { relativeAngle } from '../ui/dom.js';
 import { droppedGunMesh } from '../engine/avatars.js';
 import { avatarIdOf } from '../core/avatar-defs.js';
 import { DEFAULT_RULESET, normalizeRuleset, rulesetOf, pickableWeapons, isWeaponAllowed, shotTargets } from './modes.js';
-import { createDrops, DROP_RADIUS } from './drops.js';
+import { createDrops, DROP_RADIUS, DROP_MAX } from './drops.js';
 import { normalizeMission, placeMission } from './mission.js';
 import { missionCrowd } from '../maps/collision.js';
 import { createBombView } from './bombview.js';
@@ -37,6 +37,8 @@ import { createMultiKill, multiKillTier } from './multikill.js';
 import { createHordeView } from './horde/view.js';
 import { c4Offset, c4WorldPos } from './horde/contact.js';
 import { HORDE } from './horde/rules.js';
+import { createRoyaleView } from './br/view.js';
+import { BR, BR_MOVE } from './br/rules.js';
 
 const STEEL_MATS = new Set(['steel', 'rust', 'deck', 'tank', 'pipe', 'container_red', 'yellow', 'white', 'glass', 'metal_dark']);
 const SPECTATE_DELAY_MS = 1600;
@@ -44,10 +46,15 @@ const SPECTATE_DELAY_MS = 1600;
 const QUICK_HIDE_MS = 700;
 const QUICK_RETRY_MS = 1500;                     // 요청한 뒤 방장 답(내 spawn)을 기다리는 동안 다시 보내지 않는 시간
 const LOCK_HINT = '🖱️ 화면을 클릭하면 조작을 시작해요';
+// 배틀로얄: 맵의 보급품(100곳 넘게)과 탈락자가 떨어뜨린 총을 모두 둔다 · 쓸 수 있는 칸(투척 없음)
+const ROYALE_DROP_MAX = 320;
+const ROYALE_SLOTS = Object.freeze([1, 2, 3]);
+// 보급품 바닥 이름표 글자
+const SUPPLY_LABEL = Object.freeze({ ammo: '탄약', medkit: '구급상자' });
 const TOUCH_LOCK_HINT = '👆 화면을 누르면 조작을 시작해요';
 const BODY_R = 0.3;
 const CROUCH_H = PLAYER.CROUCH_HEIGHT || 1.25;   // 앉은 키(core consts)
-const FFA_KEYS = Object.freeze(['kills', 'rank', 'total', 'leaderName', 'leaderKills', 'target', 'killTarget']);
+const FFA_KEYS = Object.freeze(['kills', 'rank', 'total', 'leaderName', 'leaderKills', 'target', 'killTarget', 'royale', 'survivors']);
 /** 부위 순위(작을수록 좋다). 산탄 한 발이 같은 사람의 여러 부위를 맞히면 가장 좋은 부위 하나로 주장한다 */
 const PART_RANK = Object.freeze({ head: 0, body: 1, legs: 2, hand: 3, foot: 4 });
 /** 움직이는 지형에 맞은 탄: 탄흔을 남기지 않는다(fx.impact) */
@@ -340,6 +347,41 @@ function buildWorld(ctx, opts) {
     floorAt: (x, fromY, z) => (map ? getGroundY(map.world, x, z, fromY) : fromY),
     onCarrier: (prev, next) => { for (const id of [prev, next]) { const a = id ? actors.get(String(id)) : null; if (a) refreshAvatar(a); } }
   });
+
+  // 배틀로얄(연습장 혼자, MODES.md 15절, br/solo.js가 켠다): 내 구급상자 수·관전 우선 대상·HUD 패널 값. 꺼져 있으면 null
+  let royale = null;
+  // 봉쇄 구역 연출(br/view.js): 예고·봉쇄 구역의 격자 벽·바닥 색·이름표
+  const royaleView = createRoyaleView({ THREE, scene: R.scene });
+  /**
+   * 배틀로얄을 켜고(처음 o) 값을 바꾼다. o = { medkits?, medkitMax?, watch?(죽은 뒤 먼저 볼 사람 id), hud?(HUD royale 패널 값) }. null이면 끈다.
+   * 켜져 있는 동안: 바닥 보급품은 사라지지 않고 많이 둘 수 있으며, 출발 무기는 권총·칼(주무기 칸은 비어 있고 투척 칸 없음),
+   * 무제한 예비 탄 총도 탄창 × BR.finiteMags, 이동은 BR_MOVE(버니합 없음), 죽으면 가진 총을 모두 떨어뜨리고 살아 있는 아무나 관전한다
+   */
+  function setRoyale(o) {
+    if (!o) {
+      if (!royale) return;
+      royale = null;
+      drops.setMax(DROP_MAX);
+      arsenal.setMods(null);
+      arsenal.setAllowedSlots(rulesetOf(ruleset).slots);
+      player.setMoveTuning(null);
+      setRoyaleZone(null);
+      return;
+    }
+    if (!royale) {
+      royale = { medkits: 0, medkitMax: BR.medkitMax, watch: null, hud: null };
+      drops.setMax(ROYALE_DROP_MAX);
+      arsenal.setMods({ finiteMags: BR.finiteMags });
+      arsenal.setAllowedSlots(ROYALE_SLOTS);
+      player.setMoveTuning({ move: BR_MOVE });
+    }
+    for (const k of ['medkits', 'medkitMax', 'watch', 'hud']) if (k in o) royale[k] = o[k];
+  }
+  /** 봉쇄 구역 그리기: z = { grid, closed, closing, floorY } | null. 3D 벽과 미니맵 격자가 같은 값을 본다 */
+  function setRoyaleZone(z) {
+    royaleView.set(z || null);
+    if (ui) ui.hud.setMinimapZone(z || null);
+  }
 
   // 좀비 물량 막기(game/horde): 좀비·보스 그리기와 내 사격 판정. 판정 결과는 다른 사격처럼 'hitClaim'(victimId 'z12')으로 나간다
   const horde = createHordeView({ THREE, scene: R.scene, camera: R.camera, fx, play: (name, o) => play(name, o) });
@@ -701,6 +743,7 @@ function buildWorld(ctx, opts) {
     bombView.unload();
     horde.setActive(false);
     setHordePerks(null);
+    setRoyale(null);
     if (nades) { nades.dispose(); nades = null; }
     c4Stuck.clear(); axeHits.clear(); clearWells();
     for (const m of nadeMeshes) { m.visible = false; m.userData.pillar.visible = false; }
@@ -774,7 +817,10 @@ function buildWorld(ctx, opts) {
     const keep = !!o.keepArsenal && local.spawned;
     if (!keep) {
       const lo = resolveLoadout(o.loadout);
+      // 배틀로얄: 모두 같은 권총·칼로 출발하고 주무기는 바닥에서 줍는다(주무기 칸을 비워 둔다)
+      if (royale) { lo.secondary = BR.startSecondary; lo.melee = BR.startMelee; }
       arsenal.resetRound({ ...lo, draw: true });
+      if (royale) arsenal.emptySlot(1);
       local.loadout = lo[SLOT_KEYS[rulesetOf(ruleset).pickSlot]];
     }
     local.alive = true;
@@ -1157,20 +1203,28 @@ function buildWorld(ctx, opts) {
     sprite.position.y = 0.72;
     return sprite;
   }
+  // 배틀로얄 보급품 바닥 모형(탄약 상자·구급상자): 모양 하나와 색 두 가지를 모든 상자가 같이 쓴다
+  const supplyGeo = new THREE.BoxGeometry(0.46, 0.3, 0.34);
+  const supplyMats = { ammo: new THREE.MeshLambertMaterial({ color: 0x6f7d3c }), medkit: new THREE.MeshLambertMaterial({ color: 0xf0efe8 }) };
+  const supplyRing = { ammo: new THREE.MeshBasicMaterial({ color: 0xc9d77a, transparent: true, opacity: 0.75, depthWrite: false }), medkit: new THREE.MeshBasicMaterial({ color: 0x6fe39a, transparent: true, opacity: 0.8, depthWrite: false }) };
   function addDropView(d) {
-    const def = getDef(d.weaponId);
+    const supply = SUPPLY_LABEL[d.kind] ? d.kind : null;
+    const def = supply ? null : getDef(d.weaponId);
     const group = new THREE.Group();
     group.name = 'world:drop';
     group.position.set(d.pos[0], d.pos[1], d.pos[2]);
-    const ring = new THREE.Mesh(dropRingGeo, def.premium ? dropRingPremium : dropRingMat);
+    const ring = new THREE.Mesh(dropRingGeo, supply ? supplyRing[supply] : def.premium ? dropRingPremium : dropRingMat);
     ring.position.y = 0.03;
     const spin = new THREE.Group();
     spin.position.y = 0.34;
-    const gun = droppedGunMesh();
-    gun.position.z = 0.18;                        // 모형의 가운데를 돌림축에 맞춘다
-    gun.rotation.z = 0.9;
-    spin.add(gun);
-    const label = dropLabel(def.short, !!def.premium);
+    if (supply) spin.add(new THREE.Mesh(supplyGeo, supplyMats[supply]));
+    else {
+      const gun = droppedGunMesh();
+      gun.position.z = 0.18;                        // 모형의 가운데를 돌림축에 맞춘다
+      gun.rotation.z = 0.9;
+      spin.add(gun);
+    }
+    const label = dropLabel(supply ? SUPPLY_LABEL[supply] : def.short, !!(def && def.premium));
     group.add(ring, spin, label);
     R.scene.add(group);
     dropViews.set(d.id, { group, spin, label });
@@ -1183,14 +1237,21 @@ function buildWorld(ctx, opts) {
     v.label.material.map.dispose();
     v.label.material.dispose();
   }
-  /** 항목 { id, weaponId, pos, mag, reserve }를 바닥에 놓는다. 이 규칙에서 못 쓰는 총이나 깨진 값이면 null */
+  /**
+   * 항목 { id, weaponId, pos, mag, reserve }를 바닥에 놓는다. 이 규칙에서 못 쓰는 총이나 깨진 값이면 null.
+   * 배틀로얄이면 보급품 { id, kind: 'ammo'|'medkit', pos }도 받고, 무엇이든 사라지지 않는다
+   */
   function addDrop(o) {
-    if (!active || !o || !isWeaponAllowed(ruleset, o.weaponId, mode === 'zombie')) return null;
-    const { drop, evicted } = drops.add(o);
+    if (!active || !o) return null;
+    const supply = !!royale && SUPPLY_LABEL[o.kind] != null;
+    if (!supply && !isWeaponAllowed(ruleset, o.weaponId, mode === 'zombie')) return null;
+    const { drop, evicted } = drops.add(o, royale ? { supply: true, ttl: Infinity } : undefined);
     for (const d of evicted) removeDropView(d.id);
     if (drop) addDropView(drop);
     return drop;
   }
+  /** 바닥의 총·보급품 목록(읽기 전용 사본이 아니라 항목 그대로 — 고치지 말 것). 배틀로얄 봇이 주울 것을 찾는다 */
+  function listDrops() { return drops.list(); }
   function removeDrop(id) {
     const d = drops.remove(String(id));
     if (d) removeDropView(d.id);
@@ -1230,19 +1291,41 @@ function buildWorld(ctx, opts) {
     if (ui) ui.hud.callout(`${getDef(gun.id).short} 버림`);
     return true;
   }
-  /** 총을 든 채 죽으면 그 총이 바닥에 떨어진다(남은 탄 그대로). killLocal이 상태를 바꾸기 전에 부른다 */
+  /** 총을 든 채 죽으면 그 총이 바닥에 떨어진다(남은 탄 그대로). 배틀로얄은 가진 총(주무기·보조)을 모두 떨어뜨린다. killLocal이 상태를 바꾸기 전에 부른다 */
   function dropOnDeath() {
     if (!active || !map || rnd.phase !== 'live') return;
-    const held = arsenal.getWeapon();
-    const def = getDef(held.id);
-    if (!def || (def.slot !== 1 && def.slot !== 2) || !isWeaponAllowed(ruleset, held.id, mode === 'zombie')) return;
-    const a = arsenal.getAmmo(held.id);
     const p = player.state.pos;
-    placeLocalDrop({ id: held.id, mag: a.mag, reserve: a.reserve }, [p[0], floorUnder(p), p[2]]);
+    const at = [p[0], floorUnder(p), p[2]];
+    const ids = royale ? [1, 2].filter((s) => !arsenal.isSlotEmpty(s)).map((s) => arsenal.getLoadout()[s === 1 ? 'primary' : 'secondary']) : [arsenal.getWeapon().id];
+    ids.forEach((id, i) => {
+      const def = getDef(id);
+      if (!def || (def.slot !== 1 && def.slot !== 2) || !isWeaponAllowed(ruleset, id, mode === 'zombie')) return;
+      const a = arsenal.getAmmo(id);
+      placeLocalDrop({ id, mag: a.mag, reserve: a.reserve }, i ? [at[0] + 0.5, at[1], at[2] + 0.3] : at);
+    });
   }
   /** 그 총의 칸이 비어 있어 주울 수 있는가 */
   const canTake = (d) => { const def = getDef(d.weaponId); return !!def && arsenal.isSlotEmpty(def.slot); };
-  /** 닿은 총을 줍는다: 그 총의 칸(주무기·보조)이 비어 있을 때만. 방금 내가 버린 총은 한 번 벗어난 뒤부터 */
+  /** 배틀로얄 보급품을 지금 주울 수 있는가: 탄약은 든 총 하나라도 예비가 덜 찼을 때, 구급상자는 상한보다 적을 때 */
+  function canTakeSupply(d) {
+    if (!royale) return false;
+    if (d.kind === 'medkit') return royale.medkits < royale.medkitMax;
+    return [1, 2].some((s) => {
+      if (arsenal.isSlotEmpty(s)) return false;
+      const a = arsenal.getAmmo(arsenal.getLoadout()[s === 1 ? 'primary' : 'secondary']);
+      return a.kind === 'mag' && Number.isFinite(a.reserveMax) && a.reserve < a.reserveMax;
+    });
+  }
+  /** 탄약 상자: 든 총마다 탄창 BR.ammoMags개 분량을 예비에 더한다 */
+  function takeAmmo() {
+    for (const s of [1, 2]) {
+      if (arsenal.isSlotEmpty(s)) continue;
+      const id = arsenal.getLoadout()[s === 1 ? 'primary' : 'secondary'];
+      const a = arsenal.getAmmo(id);
+      if (a.kind === 'mag' && a.magSize > 0) arsenal.addReserve(a.magSize * BR.ammoMags, id);
+    }
+  }
+  /** 닿은 총을 줍는다: 그 총의 칸(주무기·보조)이 비어 있을 때만. 방금 내가 버린 총은 한 번 벗어난 뒤부터. 배틀로얄은 보급품도 */
   function pickNearbyGun() {
     if (!drops.size) { local.ownDrops.clear(); return; }
     const p = player.state.pos;
@@ -1250,18 +1333,32 @@ function buildWorld(ctx, opts) {
       const own = drops.list().find((d) => d.id === id);
       if (!own || Math.hypot(own.pos[0] - p[0], own.pos[2] - p[2]) > DROP_RADIUS + 0.4) local.ownDrops.delete(id);
     }
-    const d = drops.nearest(p, (x) => !local.ownDrops.has(x.id) && canTake(x));
-    if (!d || !arsenal.takeWeapon(d.weaponId, { mag: d.mag, reserve: d.reserve })) return;
+    const d = drops.nearest(p, (x) => !local.ownDrops.has(x.id) && (x.kind ? canTakeSupply(x) : canTake(x)));
+    if (!d) return;
+    if (d.kind) {
+      removeDrop(d.id);
+      if (d.kind === 'ammo') takeAmmo();
+      play('switch', { gain: 0.6 });
+      if (ui) ui.hud.callout(`${SUPPLY_LABEL[d.kind]} 획득`);
+      emit('lootPick', { dropId: d.id, kind: d.kind });
+      return;
+    }
+    if (!arsenal.takeWeapon(d.weaponId, { mag: d.mag, reserve: d.reserve })) return;
     removeDrop(d.id);
     play('switch');
     if (ui) ui.hud.callout(`${getDef(d.weaponId).short} 획득`);
     emit('weaponPick', { dropId: d.id, weaponId: d.weaponId });
   }
-  /** 총 위에 섰는데 그 칸에 무기가 있어 줍지 못할 때의 안내 */
+  /** 총 위에 섰는데 그 칸에 무기가 있어 줍지 못할 때의 안내. 배틀로얄 보급품이 가득 찼을 때도 */
   function pickHint() {
     if (!local.spawned || !local.alive || !drops.size || rnd.phase !== 'live') return '';
     const d = drops.nearest(player.state.pos, (x) => !local.ownDrops.has(x.id));
-    if (!d || canTake(d)) return '';
+    if (!d) return '';
+    if (d.kind) {
+      if (canTakeSupply(d)) return '';
+      return d.kind === 'medkit' ? `구급상자는 ${royale ? royale.medkitMax : BR.medkitMax}개까지 들 수 있어요` : '탄약이 가득 찼어요';
+    }
+    if (canTake(d)) return '';
     const def = getDef(d.weaponId);
     const slotName = def.slot === 1 ? '주무기' : '보조무기';
     const how = input.touchMode ? '무기 칸을 길게 눌러' : '들고 G를 눌러';
@@ -1970,7 +2067,9 @@ function buildWorld(ctx, opts) {
         rnd.ffa = {
           mode: 'ffa', kills: pick('kills', int, 0), rank: pick('rank', int, undefined), total: pick('total', int, undefined),
           leaderName: pick('leaderName', (v) => String(v == null ? '' : v), ''), leaderKills: pick('leaderKills', int, 0),
-          target: src.target !== undefined || src.killTarget !== undefined ? int(src.target ?? src.killTarget) || 20 : f.target || 20
+          target: src.target !== undefined || src.killTarget !== undefined ? int(src.target ?? src.killTarget) || 20 : f.target || 20,
+          // 배틀로얄: 순위·목표 킬 대신 남은 인원(survivors)/전체(total)를 보인다
+          royale: pick('royale', (v) => !!v, false), survivors: pick('survivors', int, undefined)
         };
       }
     } else if (o.score) rnd.score = { owner: num(o.score.owner) | 0, charterer: num(o.score.charterer) | 0 };
@@ -2050,14 +2149,17 @@ function buildWorld(ctx, opts) {
 
   function updateSpectate(dt) {
     const cam = R.camera;
-    if (mode === 'ffa') { spec.name = ''; return; }   // 개인전: 아군이 없다 → 쓰러진 시점 그대로 부활 대기
+    // 개인전: 아군이 없다 → 쓰러진 시점 그대로 부활 대기. 배틀로얄은 부활이 없어 살아 있는 아무나(먼저 royale.watch) 따라가며 본다
+    if (mode === 'ffa' && !royale) { spec.name = ''; return; }
     if (performance.now() - local.deadAt < SPECTATE_DELAY_MS) { spec.name = ''; return; }
+    const mine = (x) => !!royale || x.team === local.team;
     const list = [];
-    for (const a of actors.values()) if (a.alive && a.state && a.team === local.team) list.push(a);
+    for (const a of actors.values()) if (a.alive && a.state && mine(a)) list.push(a);
     if (!list.length) { spec.id = null; spec.name = ''; return; }
     let a = spec.id ? actors.get(spec.id) : null;
-    if (!a || !a.alive || a.team !== local.team) {
-      a = list[((spec.idx % list.length) + list.length) % list.length];
+    if (!a || !a.alive || !mine(a)) {
+      const watched = royale && royale.watch && spec.idx === 0 ? actors.get(String(royale.watch)) : null;
+      a = watched && watched.alive && watched.state ? watched : list[((spec.idx % list.length) + list.length) % list.length];
       spec.id = a.id;
       const av0 = avatars.get(a.id);
       spec.yaw = av0 ? av0.yaw : a.state.yaw;
@@ -2167,6 +2269,7 @@ function buildWorld(ctx, opts) {
       p.protect = false;
     }
     p.bomb = mode === 'bomb' ? bombView.hud() : null;
+    p.royale = royale ? royale.hud : null;
     p.hint = lockHint() || hordeHint || pickHint() || customHint || '';
     // 살리기 안내는 읽기만 하는 줄이다: 휴대폰에서 이 줄을 눌러도 총 버리기(줍기 안내용 탭)가 되지 않게 ui/hud.js가 표시한다
     p.hintInfo = !lockHint() && !!hordeHint;
@@ -2216,6 +2319,7 @@ function buildWorld(ctx, opts) {
     removeUnlock();
     try { props.dispose(); } catch (e) { /* ignore */ }
     try { bombView.dispose(); } catch (e) { /* ignore */ }
+    try { royaleView.dispose(); } catch (e) { /* ignore */ }
     try { horde.dispose(); } catch (e) { /* ignore */ }
     try { vm.dispose(); } catch (e) { /* ignore */ }
     try { fx.dispose(); } catch (e) { /* ignore */ }
@@ -2227,6 +2331,7 @@ function buildWorld(ctx, opts) {
     c4Geo.dispose(); c4Mat.dispose(); ledGeo.dispose(); ledOn.dispose(); ledOff.dispose();
     clearDrops();
     dropRingGeo.dispose(); dropRingMat.dispose(); dropRingPremium.dispose();
+    supplyGeo.dispose(); for (const m of [...Object.values(supplyMats), ...Object.values(supplyRing)]) m.dispose();
     avatars.setDelay(prevDelay);
     if (loadingEl) loadingEl.remove();
     listeners.clear();
@@ -2263,6 +2368,9 @@ function buildWorld(ctx, opts) {
     actorDeath,
     addDrop,
     removeDrop,
+    listDrops,
+    setRoyale,
+    setRoyaleZone,
     feedbackDamage,
     noteKill,
     setRound,

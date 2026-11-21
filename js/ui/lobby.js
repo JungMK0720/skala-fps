@@ -68,8 +68,8 @@ export function ruleBadge(ruleset, mode, killTarget) {
 /** 맵 목록에서 이 규칙으로 고를 수 있는 맵만 남긴다. 하나도 없으면 그대로 둔다(고를 맵이 없어 막히지 않게) */
 export function mapsForRule(maps, ruleset) {
   const id = normalizeRuleset(ruleset);
-  // 좀비 물량 막기 전용 맵은 다른 모드에서 고르지 않는다
-  const pool = maps.filter((m) => !(m && m.zombie === true));
+  // 좀비 물량 막기 전용 맵 · 배틀로얄 전용 맵(brOnly, 연습장에서만 한다)은 다른 모드에서 고르지 않는다
+  const pool = maps.filter((m) => !(m && (m.zombie === true || m.brOnly === true)));
   const valid = pool.filter((m) => (Array.isArray(m.rulesets) ? m.rulesets : DEFAULT_MAP_RULESETS).includes(id));
   return valid.length ? valid : pool.length ? pool : maps;
 }
