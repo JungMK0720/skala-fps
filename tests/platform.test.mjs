@@ -174,3 +174,12 @@ describe('CrazyGames 제출본 만들기(tools/build-site.mjs --portal crazygame
     assert.deepEqual(inflateRawSync(zip.subarray(30 + nameLen, 30 + nameLen + size)), data);
   });
 });
+
+describe('결과 화면의 중간 광고 자리', () => {
+  test('계속 플레이하는 단추(다시 하기 · 방으로 돌아가기)에만 붙고 메뉴·로비 이동 단추에는 붙지 않는다', async () => {
+    const { midgameOnLeave } = await import('../js/ui/results.js');
+    assert.equal(midgameOnLeave('results:back'), true);
+    assert.equal(midgameOnLeave('results:lobby'), false);
+    assert.equal(midgameOnLeave('menu:open'), false);
+  });
+});

@@ -11,6 +11,12 @@ import { normStatPlayers, byPerformance, rankPlayers } from './scoreboard.js';
 import { t, fmtNum } from '../core/i18n.js';
 import { platform } from '../platform/index.js';
 
+/**
+ * 결과 화면 단추 중 중간 광고를 붙이는 것: 'results:back'(다시 하기 · 방으로 돌아가기 = 계속 플레이)만.
+ * 'results:lobby'(메뉴로 · 로비로)는 이동 단추라 광고를 붙이지 않는다(docs/PORTAL.md 2절)
+ */
+export const midgameOnLeave = (action) => action === 'results:back';
+
 const COUNT_UP_MS = 900;
 const COUNT_UP_STEP_MS = 30;
 const FFA_REASON = {
@@ -137,9 +143,12 @@ export function createResults(ctx) {
   }
 
   let leaving = false;
-  /** 결과 화면을 떠난다. 포털이면 판 사이 중간 광고를 먼저 요청한다(3분 간격, 게임 중에는 요청하지 않음) */
+  /**
+   * 결과 화면을 떠난다. 포털이면 계속 플레이하는 단추(다시 하기 · 방으로 돌아가기)에서만 판 사이 중간 광고를 먼저 요청한다
+   * (3분 간격, 게임 중에는 요청하지 않음). 메뉴·로비로 나가는 단추는 이동 단추라 광고를 붙이지 않는다(CrazyGames 광고 규칙)
+   */
   async function leave(action) {
-    if (!platform.isPortal) { ctx.emit(action, {}); return; }
+    if (!platform.isPortal || !midgameOnLeave(action)) { ctx.emit(action, {}); return; }
     if (leaving) return;
     leaving = true;
     backBtn.disabled = lobbyBtn.disabled = true;
