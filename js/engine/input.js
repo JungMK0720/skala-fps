@@ -69,7 +69,8 @@ const MOVE_KEYS = {
   KeyA: 'left', ArrowLeft: 'left',
   KeyD: 'right', ArrowRight: 'right'
 };
-const SLOT_KEYS = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4 };
+// 5는 배틀로얄 투척 칸(가방 인벤토리: 1·2 주무기, 3 권총, 4 근접, 5 투척). 다른 모드의 무기 모듈은 1~4만 받는다
+const SLOT_KEYS = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5, Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad5: 5 };
 const CROUCH_KEYS = new Set(['ControlLeft', 'ControlRight', 'KeyC']);
 /**
  * 전체 화면에서 Keyboard Lock으로 잡을 키. 게임 키와, 앉은 채(Ctrl) 누르면 브라우저가 가져가던 조합의 키

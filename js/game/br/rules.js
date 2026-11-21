@@ -7,6 +7,7 @@
  */
 import { MOVE, PLAYER } from '../../core/consts.js';
 import { getDef } from '../../weapons/defs.js';
+import { ATTACH_IDS, throwableIds } from './pack.js';
 
 /** 규칙 값(시간은 ms). 페이즈 k(1~5)가 끝나면 안전 구역은 한 변 SIZES[k-1]칸 정사각형이 된다 */
 export const BR = Object.freeze({
@@ -19,7 +20,7 @@ export const BR = Object.freeze({
   overtimeDps: 25,                       // 전면 봉쇄(모든 구역) 초당 피해
   tickMs: 1000,                          // 봉쇄 구역 피해를 주는 간격
   minBots: 3, maxBots: 15, defaultBots: 11,   // 나 + 봇 = 최대 16명
-  medkitHeal: 40, medkitMs: 3000, medkitMax: 3,
+  medkitHeal: 40, medkitMs: 4000,        // 구급상자: 4초 동안 쓰고(채널링) 다 쓰면 40 회복(br/medkit.js MEDKIT과 같은 값). 들 수 있는 수는 가방 등급(br/pack.js)
   ammoMags: 2,                           // 탄약 상자 하나 = 든 총마다 탄창 2개 분량의 예비 탄
   finiteMags: 3,                         // 예비 탄이 무제한인 총도 탄창 × 3발까지만(줍는 총에 끝없는 탄을 주지 않는다)
   startSecondary: 'pt_std', startMelee: 'ml_knife'
@@ -227,30 +228,50 @@ const realGuns = (ids) => Object.freeze(ids.filter((id) => { const d = getDef(id
 export const LOOT_COMMON_GUNS = realGuns(['pt_magnum', 'sg_shorty', 'sm_vx3', 'sm_uzi_dual', 'sg_bx12', 'sg_pump', 'sg_double']);
 /** 희귀 등급 총: 소총·지정사수·저격 */
 export const LOOT_RARE_GUNS = realGuns(['ar_std', 'ar_rapid', 'ar_burst', 'ar_line', 'dm_mark', 'sr_bolt', 'sr_swift', 'sr_twin', 'sr_heavy']);
-/** 등급별 굴림 표(가중치): 총 · 탄약 · 구급상자 */
+/** 등급별 굴림 표(가중치): 총 · 탄약 · 구급상자 · 가방 · 부착물 · 투척 */
 export const LOOT_TABLE = Object.freeze({
-  common: Object.freeze({ gun: 50, ammo: 30, medkit: 20 }),
-  rare: Object.freeze({ gun: 80, ammo: 5, medkit: 15 })
+  common: Object.freeze({ gun: 36, ammo: 22, medkit: 12, backpack: 8, attach: 14, throw: 8 }),
+  rare: Object.freeze({ gun: 56, ammo: 4, medkit: 8, backpack: 12, attach: 14, throw: 6 })
 });
+export const LOOT_KINDS = Object.freeze(Object.keys(LOOT_TABLE.common));
+/** 가방 등급 가중치(일반 지점은 소형·중형, 희귀 지점은 대형까지) */
+export const LOOT_PACKS = Object.freeze({ common: Object.freeze({ 1: 7, 2: 3 }), rare: Object.freeze({ 1: 3, 2: 4, 3: 3 }) });
+/** 부착물 가중치: 배율이 높을수록 드물다 */
+export const LOOT_ATTACH = Object.freeze({ op_red: 5, op_2x: 4, op_4x: 2.5, op_6x: 1.2, gp_vert: 3, gp_angle: 3, mg_ext: 3, mz_hider: 3 });
+/** 투척 가중치(정의가 있는 것만 굴린다: 연막·섬광은 다른 모듈이 무기 표에 더한다) */
+const LOOT_THROW = Object.freeze({ gr_frag: 5, gr_smoke: 3, gr_flash: 3 });
+
+/** 가중치 표 { 이름: 무게 }에서 하나 고르기 */
+function pickWeighted(rng, table, keys = Object.keys(table)) {
+  const total = keys.reduce((s, k) => s + table[k], 0);
+  let r = rng() * total;
+  for (const k of keys) if ((r -= table[k]) < 0) return k;
+  return keys[keys.length - 1];
+}
 
 /**
  * 시드 + 맵 보급 지점 → 놓을 보급품. 지점마다 하나씩, 등급 표대로 굴린다.
+ * ref = 종류 안의 이름(가방 등급 '1'~'3' · 부착물 id · 투척 id), n = 수량(투척)
  * @param {number} seed
  * @param {Array<{ pos:number[], tier:'common'|'rare' }>} points
- * @returns {Array<{ i, pos:number[], tier, kind:'gun'|'ammo'|'medkit', weaponId:string|null }>}
+ * @returns {Array<{ i, pos:number[], tier, kind:'gun'|'ammo'|'medkit'|'backpack'|'attach'|'throw', weaponId:string|null, ref:string, n:number }>}
  */
 export function rollLoot(seed, points) {
   const rng = mulberry32((seed ^ 0x5bd1e995) >>> 0);
+  const throws = throwableIds().filter((id) => LOOT_THROW[id]);
   const out = [];
   (Array.isArray(points) ? points : []).forEach((p, i) => {
     if (!p || !Array.isArray(p.pos) || p.pos.length < 3 || !p.pos.slice(0, 3).every(Number.isFinite)) return;
     const tier = p.tier === 'rare' ? 'rare' : 'common';
-    const t = LOOT_TABLE[tier];
-    let r = rng() * (t.gun + t.ammo + t.medkit);
-    const kind = (r -= t.gun) < 0 ? 'gun' : (r -= t.ammo) < 0 ? 'ammo' : 'medkit';
+    let kind = pickWeighted(rng, LOOT_TABLE[tier], LOOT_KINDS);
+    if (kind === 'throw' && !throws.length) kind = 'ammo';
     const guns = tier === 'rare' ? LOOT_RARE_GUNS : LOOT_COMMON_GUNS;
     const weaponId = kind === 'gun' ? guns[Math.floor(rng() * guns.length)] : null;
-    out.push({ i, pos: [p.pos[0], p.pos[1], p.pos[2]], tier, kind, weaponId });
+    let ref = '', n = 0;
+    if (kind === 'backpack') ref = pickWeighted(rng, LOOT_PACKS[tier]);
+    else if (kind === 'attach') ref = pickWeighted(rng, LOOT_ATTACH, ATTACH_IDS.filter((id) => LOOT_ATTACH[id]));
+    else if (kind === 'throw') { ref = pickWeighted(rng, LOOT_THROW, throws); n = rng() < (tier === 'rare' ? 0.5 : 0.25) ? 2 : 1; }
+    out.push({ i, pos: [p.pos[0], p.pos[1], p.pos[2]], tier, kind, weaponId, ref, n });
   });
   return out;
 }

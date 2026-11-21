@@ -3038,9 +3038,85 @@ export function createViewmodel(camera, opts = {}) {
       flash.t = 0.05;
       flash.g.visible = true;
       flash.g.rotation.z = Math.random() * Math.PI;
-      const s = cur.flash * (0.85 + Math.random() * 0.3);
+      const s = cur.flash * flashMul * (0.85 + Math.random() * 0.3);
       flash.g.scale.set(s, s, s);
     }
+  }
+
+  // ── 배틀로얄 부착물 모형(조준경·손잡이·소염기) ───────────────
+  // 들고 있는 총 모형에 간단한 모양을 붙인다. 위치는 모형의 총구(총열 높이·앞 끝)에서 어림한다
+  let attG = null, attSig = '', flashMul = 1;
+  function clearAttach() {
+    if (!attG) return;
+    attG.removeFromParent();
+    attG.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); owned.geos.delete(o.geometry); } });
+    attG = null;
+  }
+  /** 총 모형(m.g 좌표)에서 z ± w 단면의 가장 높은·낮은 y. 팔·부착물·숨은 부품은 뺀다(부착물을 바꿀 때만 부른다) */
+  function gunSpan(m, z, w) {
+    let top = -Infinity, bot = Infinity;
+    const v = new THREE.Vector3();
+    const skip = new Set([m.arms.R, m.arms.L, attG].filter(Boolean));
+    (function walk(o, mat) {
+      for (const c of o.children) {
+        if (skip.has(c) || !c.visible) continue;
+        c.updateMatrix();
+        const cm = new THREE.Matrix4().multiplyMatrices(mat, c.matrix);
+        const pos = c.isMesh && c.geometry.attributes.position;
+        if (pos) {
+          for (let i = 0; i < pos.count; i++) {
+            v.fromBufferAttribute(pos, i).applyMatrix4(cm);
+            if (Math.abs(v.z - z) > w) continue;
+            if (v.y > top) top = v.y;
+            if (v.y < bot) bot = v.y;
+          }
+        }
+        walk(c, cm);
+      }
+    })(m.g, new THREE.Matrix4());
+    return { top, bot };
+  }
+  /** att = { optic, grip, mag, muzzle }(부착물 id) | null. 값·총이 그대로면 아무것도 하지 않는다 */
+  function setAttachments(att) {
+    const sig = att && cur && cur.muzzle ? `${curId}|${att.optic || ''}|${att.grip || ''}|${att.muzzle || ''}` : '';
+    if (sig === attSig) return;
+    attSig = sig;
+    clearAttach();
+    if (!sig) return;
+    const g = new THREE.Group();
+    const mz = cur.muzzle.position;
+    const by = mz.y, len = Math.max(0.2, Math.abs(mz.z));
+    if (att.optic) {
+      // 조준경은 총 위(그 단면의 가장 높은 곳) 위에 받침을 두고 얹는다
+      const z0 = -len * 0.32;
+      const l = att.optic === 'op_red' ? 0.03 : att.optic === 'op_2x' ? 0.07 : att.optic === 'op_4x' ? 0.1 : 0.13;
+      const span = gunSpan(cur, z0, l / 2 + 0.01);
+      const top = Number.isFinite(span.top) ? span.top : by + 0.03;
+      if (att.optic === 'op_red') {
+        box(0.022, 0.024, l, M.black, g, 0, top + 0.012, z0);
+        box(0.016, 0.014, 0.002, M.lens, g, 0, top + 0.016, z0 - l / 2 - 0.001);
+      } else {
+        const r = att.optic === 'op_2x' ? 0.014 : att.optic === 'op_4x' ? 0.017 : 0.02;
+        box(0.012, 0.012, 0.03, M.gunmetal, g, 0, top + 0.006, z0);
+        cyl(r, r, l, M.black, g, 'z', 0, top + 0.012 + r, z0);
+        cyl(r * 0.8, r * 0.8, 0.003, M.lens, g, 'z', 0, top + 0.012 + r, z0 - l / 2);
+      }
+    }
+    if (att.grip) {
+      // 손잡이는 총열 아래(그 단면의 가장 낮은 곳)에 매단다
+      const z1 = -len * 0.6;
+      const span = gunSpan(cur, z1, 0.02);
+      const bot = Number.isFinite(span.bot) ? span.bot : by - 0.03;
+      if (att.grip === 'gp_vert') cyl(0.011, 0.012, 0.06, M.black, g, 'y', 0, bot - 0.028, z1);
+      else { const m = box(0.016, 0.026, 0.055, M.black, g, 0, bot - 0.01, z1); m.rotation.x = 0.45; }
+    }
+    if (att.muzzle) cyl(0.012, 0.012, 0.045, M.gunmetal, g, 'z', 0, by, mz.z - 0.018);
+    g.traverse((o) => {
+      o.layers.set(VIEWMODEL_LAYER);
+      if (o.isMesh) { o.renderOrder = RO + 2; o.frustumCulled = false; o.castShadow = false; }
+    });
+    cur.g.add(g);
+    attG = g;
   }
 
   /**
@@ -3727,6 +3803,10 @@ export function createViewmodel(camera, opts = {}) {
     isShieldShown: () => !!(shieldG && shieldG.visible),
     setClearDepth: (v) => { clearDepth = !!v; },
     getWeaponId: () => curId,
+    /** 배틀로얄 부착물 모형: { optic, grip, mag, muzzle } | null(떼기) */
+    setAttachments,
+    /** 총구 섬광 크기 배율(소염기 0.3, 기본 1) */
+    setFlashScale: (k) => { flashMul = Number.isFinite(k) && k >= 0 ? k : 1; },
     /** 점검 동작 중인가 */
     isInspecting: () => !!(act && act.inspect),
     /** 미리 만들어 두기(첫 교체 때 끊김 방지) */

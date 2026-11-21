@@ -2,12 +2,14 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 배틀로얄(연습장 혼자) 진행. 연습장 개인전 엔진(practice.js의 봇·match.js) 위에 격자 구역 봉쇄 일정, 봉쇄 구역 피해,
- *          보급품 놓기·줍기(봇), 구급상자, 탈락 기록·순위, 봇 목표(보급품 → 안전 구역), HUD·미니맵·3D 봉쇄 연출을 얹는다.
+ *          보급품 놓기·줍기(봇), 구급상자 회복(나는 World의 br/kit.js가 채널링, 봇은 여기서), 탈락 기록·순위, 봇 목표(보급품 → 안전 구역), HUD·미니맵·3D 봉쇄 연출을 얹는다.
  *          규칙 값과 결정적 계산은 br/rules.js, 그리기는 br/view.js(World)와 ui/hud.js. 계약: docs/MODES.md 15절
  */
 import { BR, brMapData, buildSchedule, createZone, rollLoot, placements, sectorAt, sectorName, mulberry32 } from './rules.js';
 import { getDef } from '../../weapons/defs.js';
 import { DROP_RADIUS, DROP_HEIGHT } from '../drops.js';
+import { createPack } from './pack.js';
+import { MEDKIT, createChannel, botMayStartHeal, botMustCancelHeal } from './medkit.js';
 import { t } from '../../core/i18n.js';
 
 const HUD_EVERY_MS = 150;            // HUD 패널을 다시 쓰는 간격(실제 시간)
@@ -24,6 +26,7 @@ const SPREAD_CAP = 60;               // 봇 자리 고르기: 다른 사람과 �
 const ENGAGE = Object.freeze([0, 0, 12, 25]);
 const PISTOL_RANGE = 15;
 const HURT_MS = 4000;
+const QUIET_HEAR = 20;               // 소염기를 단 총소리가 들리는 거리(m)
 
 /** 칸 목록 → 'B-2, C-3 외 4곳' */
 function sectorList(grid, list) {
@@ -62,20 +65,19 @@ export function createRoyaleRun(host) {
   const deaths = [];                     // [{ id, at }] 탈락 순서(봉쇄 시계 ms)
   const out = new Set();                 // 탈락한 id
   const claims = new Map();              // 보급품 id → 그것을 가지러 가는 봇 id
-  const heals = new Map();               // id → { left(남은 회복량), acc }
   const offs = [];
-  let liveAt = -1, dmgAcc = 0, pickAcc = 0, hudAt = 0, dropSeq = 0, myMedkits = 0;
+  let liveAt = -1, dmgAcc = 0, pickAcc = 0, hudAt = 0, dropSeq = 0;
   let over = false, winnerId = null, myResult = null;
 
   /* ---------- 시작: 보급품 ---------- */
-  world.setRoyale({ medkits: 0, medkitMax: BR.medkitMax, watch: null, hud: null });
+  world.setRoyale({ watch: null, hud: null });
   function placeLoot() {
     for (const it of rollLoot(seed, br.loot)) {
       const id = `loot#${it.i}`;
       if (it.kind === 'gun') {
         const def = getDef(it.weaponId);
         world.addDrop({ id, weaponId: it.weaponId, pos: it.pos, mag: def.mag, reserve: def.mag * (it.tier === 'rare' ? 1 : 2) });
-      } else world.addDrop({ id, kind: it.kind, pos: it.pos });
+      } else world.addDrop({ id, kind: it.kind, pos: it.pos, ref: it.ref, n: it.n });
     }
   }
 
@@ -94,33 +96,42 @@ export function createRoyaleRun(host) {
     return { primary: b.arsenal.isSlotEmpty(1) ? null : lo.primary, secondary: b.arsenal.isSlotEmpty(2) ? null : lo.secondary, melee: lo.melee, grenade: null };
   }
 
-  /** 출격(match 'spawn') 뒤: 봇은 권총·칼만 들고 주무기 칸을 비운다. 나는 World가 같은 일을 한다 */
+  /** 출격(match 'spawn') 뒤: 봇은 권총·칼만 들고 주무기 칸을 비운다. 가방은 없음(구급상자 상한). 나는 World가 같은 일을 한다 */
   function spawned(b) {
     b.arsenal.emptySlot(1);
-    b.medkits = 0;
+    b.pack = createPack();
+    b.royHeal = createChannel(MEDKIT.ms);
     b.royLoot = null; b.royRoam = null; b.royBad = new Set();
     b.brain.setCarried(carriedOf(b));
   }
 
   /* ---------- 줍기(봇) ---------- */
+  /** 봇이 주울 것: 빈 주무기 칸의 주무기, 반쯤 빈 예비 탄, 상한이 남은 구급상자, 더 좋은 가방. 부착물·투척은 사람 몫 */
   function botWants(b, d) {
-    if (d.kind === 'medkit') return (b.medkits || 0) < 2;
+    const pk = b.pack;
+    if (d.kind === 'medkit') return !!pk && pk.medkits + Math.max(1, d.n || 0) <= pk.medkitCap;
+    if (d.kind === 'backpack') return !!pk && Number(d.ref) > pk.tier;
     if (d.kind === 'ammo') {
       if (b.arsenal.isSlotEmpty(1)) return false;
       const a = b.arsenal.getAmmo(b.arsenal.getLoadout().primary);
       return a.kind === 'mag' && Number.isFinite(a.reserveMax) && a.reserve < a.reserveMax * 0.5;
     }
+    if (d.kind) return false;
     const def = getDef(d.weaponId);
     return !!def && def.slot === 1 && b.arsenal.isSlotEmpty(1);
   }
   function botTake(b, d) {
-    if (d.kind === 'medkit') b.medkits = (b.medkits || 0) + 1;
-    else if (d.kind === 'ammo') {
+    if (d.kind === 'medkit') b.pack.addMedkit(Math.max(1, d.n || 0));
+    else if (d.kind === 'backpack') {
+      const r = b.pack.offerBackpack(Number(d.ref));
+      if (r.dropTier > 0) world.addDrop({ id: `${b.id}#br${++dropSeq}`, kind: 'backpack', ref: String(r.dropTier), pos: [d.pos[0] + 0.4, d.pos[1], d.pos[2]] });
+    } else if (d.kind === 'ammo') {
       for (const s of [1, 2]) {
         if (b.arsenal.isSlotEmpty(s)) continue;
         const id = b.arsenal.getLoadout()[s === 1 ? 'primary' : 'secondary'];
         const a = b.arsenal.getAmmo(id);
-        if (a.kind === 'mag' && a.magSize > 0) b.arsenal.addReserve(a.magSize * BR.ammoMags, id);
+        // 계열 탄약(탈락자가 떨어뜨린 것)은 그 수만큼, 탄약 상자는 탄창 BR.ammoMags개 분량
+        if (a.kind === 'mag' && a.magSize > 0) b.arsenal.addReserve(d.ref && d.n ? d.n : a.magSize * BR.ammoMags, id);
       }
     } else if (!b.arsenal.takeWeapon(d.weaponId, { mag: d.mag, reserve: d.reserve })) return;
     world.removeDrop(d.id);
@@ -140,29 +151,22 @@ export function createRoyaleRun(host) {
     }
   }
 
-  /* ---------- 구급상자 ---------- */
-  function startHeal(id) {
-    if (heals.has(id)) return false;
-    heals.set(id, { left: BR.medkitHeal, acc: 0 });
-    return true;
-  }
-  function useMyMedkit() {
-    if (!host.meAlive() || myMedkits <= 0 || heals.has(me.id)) return;
-    if ((ctx.player && ctx.player.state && ctx.player.state.hp) >= 100) { if (ui) ui.hud.callout(t('game.br.hpFull')); return; }
-    myMedkits--;
-    startHeal(me.id);
-    world.setRoyale({ medkits: myMedkits });
-    world.sound('loot_pick');
-  }
-  function stepHeals(dtMs) {
-    const rate = BR.medkitHeal / BR.medkitMs;
-    for (const [id, h] of heals) {
-      h.acc += Math.min(h.left, rate * dtMs);
-      const n = Math.floor(h.acc);
-      if (n >= 1) { h.acc -= n; h.left -= n; apply(match.heal(id, n)); }
-      if (h.left <= 0.001 || out.has(id)) heals.delete(id);
+  /* ---------- 구급상자(봇) — 나는 World(br/kit.js)가 채널링하고 'medkitUse'로 알린다 ---------- */
+  const hurtRecently = (b) => !!(b.royHurtBy && host.simMs() - b.royHurtAt < HURT_MS);
+  /** 봇 구급상자: 보이는 적(두뇌의 표적)이 없고 맞지 않았을 때만 시작, 적이 보이거나 맞으면 취소(구급상자는 남는다), 4초가 차면 한 번 회복 */
+  function stepBotHeals(dtMs, check) {
+    for (const b of bots) {
+      const ch = b.royHeal;
+      if (!ch || !b.alive || out.has(b.id)) { if (ch) ch.cancel(); continue; }
+      const view = { targetId: b.brain.targetId, hurt: hurtRecently(b) };
+      if (ch.active) {
+        if (botMustCancelHeal(view)) { ch.cancel(); continue; }
+        if (ch.step(dtMs) && b.pack.useMedkit()) apply(match.heal(b.id, MEDKIT.heal));
+      } else if (check && botMayStartHeal({ alive: b.alive, hp: b.hp, medkits: b.pack.medkits, healHp: BOT_HEAL_HP, ...view })) ch.start();
     }
   }
+  /** 이 봇이 구급상자를 쓰는 중인가(practice.js가 사격·조준·교체를 막고 걷기를 늦춘다) */
+  const botBusy = (b) => !!(b.royHeal && b.royHeal.active);
 
   /* ---------- 봉쇄 ---------- */
   function onZoneEvent(ev) {
@@ -276,26 +280,20 @@ export function createRoyaleRun(host) {
       if (!(a.mag > 0 || a.reserve > 0)) continue;
       world.addDrop({ id: `${b.id}#br${++dropSeq}`, weaponId: id, pos: spot(), mag: a.mag, reserve: a.reserve });
     }
-    for (let i = 0; i < (b.medkits || 0); i++) world.addDrop({ id: `${b.id}#br${++dropSeq}`, kind: 'medkit', pos: spot() });
-    b.medkits = 0;
-  }
-  function dropMyMedkits() {
-    const p = host.myPos();
-    for (let i = 0; i < myMedkits; i++) world.addDrop({ id: `${me.id}#brm${++dropSeq}`, kind: 'medkit', pos: [p[0] + 0.4 * (i + 1), p[1], p[2] - 0.3] });
-    myMedkits = 0;
-    world.setRoyale({ medkits: 0 });
+    // 가방에 든 것: 구급상자(한 묶음) · 가방
+    const pk = b.pack ? b.pack.empty() : null;
+    if (pk && pk.medkits > 0) world.addDrop({ id: `${b.id}#br${++dropSeq}`, kind: 'medkit', n: pk.medkits, pos: spot() });
+    if (pk && pk.tier > 0) world.addDrop({ id: `${b.id}#br${++dropSeq}`, kind: 'backpack', ref: String(pk.tier), pos: spot() });
   }
   /** match 'kill' 뒤(practice가 화면·기록을 마친 다음). 탈락을 적고 경기에서 뺀다 → 한 명 남으면 match가 matchEnd(forfeit)를 낸다 */
   function onKill(ev) {
     const id = ev.victim;
     if (out.has(id)) return;
     out.add(id);
-    heals.delete(id);
     deaths.push({ id, at: zoneT(), cause: ev.cause === 'zone' ? 'zone' : 'fight' });
     const b = bots.find((x) => x.id === id);
     if (b) { dropBotLoot(b); if (b.royLoot) claims.delete(b.royLoot.id); }
     if (id === me.id) {
-      dropMyMedkits();
       const place = placeOf(me.id);
       myResult = { place, survivedMs: zoneT() };
       world.setRoyale({ watch: ev.killer !== ev.victim ? ev.killer : null, hud: null });
@@ -324,9 +322,15 @@ export function createRoyaleRun(host) {
     const p = b.body.pos;
     return list.filter((e) => e.id === hurt || (e.pos && Math.hypot(e.pos[0] - p[0], e.pos[2] - p[2]) <= range));
   }
-  /** 총소리를 따라갈 수 있는가: 싸움 거리 제한이 풀린 뒤(넷째 봉쇄 뒤)에만, 권총뿐이면 아니다. 그 전에는 소리를 쫓아 몰려들지 않는다 */
-  function canHear(b) {
-    return liveAt >= 0 && engageRange(zoneT()) === Infinity && !b.arsenal.isSlotEmpty(1);
+  /**
+   * 총소리를 따라갈 수 있는가: 싸움 거리 제한이 풀린 뒤(넷째 봉쇄 뒤)에만, 권총뿐이면 아니다. 그 전에는 소리를 쫓아 몰려들지 않는다.
+   * quiet(소염기를 단 총)면 QUIET_HEAR m 안에서만 들린다
+   */
+  function canHear(b, origin, quiet) {
+    if (!(liveAt >= 0 && engageRange(zoneT()) === Infinity && !b.arsenal.isSlotEmpty(1))) return false;
+    if (!quiet || !origin) return true;
+    const p = b.body.pos;
+    return Math.hypot(origin[0] - p[0], origin[2] - p[2]) <= QUIET_HEAR;
   }
   function noteHurt(b, attacker) {
     if (!attacker || attacker === b.id) return;
@@ -360,21 +364,21 @@ export function createRoyaleRun(host) {
     else if (nx && nx.type === 'announce') next = t('game.br.nextAnnounce', { time: secText(nx.at - now) });
     else if (nx && nx.type === 'overtime') next = t('game.br.nextOvertime', { time: secText(nx.at - now) });
     else if (zone.overtime) next = t('game.br.overtimeNow');
-    const h = heals.get(me.id);
-    world.setRoyale({ hud: { sector: i >= 0 ? sectorName(grid, i) : '', state, next, medkits: myMedkits, medkitMax: BR.medkitMax, heal: h ? 1 - h.left / BR.medkitHeal : null, dps: zone.dps } });
+    // 구급상자 수·사용 진행은 World가 내 장비(br/kit.js)에서 채운다
+    world.setRoyale({ hud: { sector: i >= 0 ? sectorName(grid, i) : '', state, next, dps: zone.dps } });
   }
 
   /* ---------- 입력 ---------- */
-  offs.push(world.on('lootPick', (e) => {
-    if (!e || e.kind !== 'medkit') return;
-    myMedkits = Math.min(BR.medkitMax, myMedkits + 1);
-    world.setRoyale({ medkits: myMedkits });
+  // 내 구급상자: World(br/kit.js)가 4초 채널링을 마치면 알린다 → 경기 회복
+  offs.push(world.on('medkitUse', (e) => {
+    if (!e || over || !host.meAlive() || out.has(me.id)) return;
+    apply(match.heal(me.id, Math.max(0, Math.floor(e.amount) || 0)));
   }));
   if (ctx.bus && typeof ctx.bus.on === 'function') {
+    // 탈락한 뒤 E(휴대폰 '결과' 버튼) → 결과 화면. 살아 있을 때의 E(구급상자)는 World가 받는다
     offs.push(ctx.bus.on('input:use', (e) => {
       if (!e || !e.down || liveAt < 0) return;
-      if (host.meAlive()) useMyMedkit();
-      else if (out.has(me.id) && host.showResults) host.showResults();
+      if (!host.meAlive() && out.has(me.id) && host.showResults) host.showResults();
     }));
   }
 
@@ -385,9 +389,9 @@ export function createRoyaleRun(host) {
     get winnerId() { return winnerId; },
     get myResult() { return myResult; },
     get aliveCount() { return aliveCount(); },
-    get myMedkits() { return myMedkits; },
     visibleEnemies,
     canHear,
+    botBusy,
     noteHurt,
     /** 탈락 기록 [{ id, at(봉쇄 시계 ms) }] 사본(시험용) */
     get deaths() { return deaths.map((d) => ({ ...d })); },
@@ -406,7 +410,7 @@ export function createRoyaleRun(host) {
     placeOf,
     ranking,
     /** 경기 끝(matchEnd): 마지막 남은 사람 */
-    finish(winner) { over = true; winnerId = winner || null; heals.clear(); world.setRoyale({ hud: null }); },
+    finish(winner) { over = true; winnerId = winner || null; for (const b of bots) if (b.royHeal) b.royHeal.cancel(); world.setRoyale({ hud: null }); },
     /** 시뮬레이션 한 틱(dt 초) */
     step(dt) {
       if (liveAt < 0 || over) return;
@@ -416,16 +420,12 @@ export function createRoyaleRun(host) {
       dmgAcc += dtMs;
       while (dmgAcc >= BR.tickMs && !over) { dmgAcc -= BR.tickMs; hurtZone(); }
       if (over) return;
-      stepHeals(dtMs);
+      stepBotHeals(dtMs, false);
       pickAcc += dtMs;
       if (pickAcc >= PICK_EVERY_MS) {
         pickAcc = 0;
         botPickups();
-        for (const b of bots) {
-          if (!b.alive || !(b.medkits > 0) || heals.has(b.id) || b.hp > BOT_HEAL_HP || b.brain.targetId != null) continue;
-          b.medkits--;
-          startHeal(b.id);
-        }
+        stepBotHeals(0, true);
       }
     },
     /** 화면 한 프레임(실제 시간): HUD 패널 */

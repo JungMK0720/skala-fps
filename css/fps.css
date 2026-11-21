@@ -1116,6 +1116,11 @@ html[lang="en"] .sk-ts.is-mine::before { content: "YOUR TEAM"; }
 .sk-ret-unit { font-size: 3px; }
 .sk-ret-dot { fill: var(--sk-accent); }
 .sk-scope-zoom { position: absolute; right: 17%; bottom: 15%; font: 900 14px/1 var(--sk-mono); color: rgba(255, 255, 255, .8); text-shadow: 0 1px 2px #000; }
+/* 배틀로얄 부착 조준경(4·6배율): 저격 레티클 대신 꺾쇠 레티클 */
+.sk-optic-svg { display: none; }
+.sk-scope[data-ret="optic"] .sk-scope-svg { display: none; }
+.sk-scope[data-ret="optic"] .sk-optic-svg { display: block; }
+.sk-scope[data-ret="optic"] .sk-ret-chevron { stroke: #ff5a2e; }
 
 /* ===================== 12. 점수판 ===================== */
 .sk-scoreboard { display: grid; place-items: center; padding: 16px; background: rgba(6, 9, 12, .35); }
@@ -1443,6 +1448,21 @@ html[lang="en"] .sk-ts.is-mine::before { content: "YOUR TEAM"; }
 .sk-roy-kit { color: var(--sk-muted); font-size: 12px; }
 .sk-roy-heal { display: inline-block; width: 80px; height: 5px; border-radius: 2px; background: rgba(255, 255, 255, .14); overflow: hidden; }
 .sk-roy-heal > i { display: block; height: 100%; background: #6fe39a; transform-origin: left center; }
+/* 배틀로얄 구급상자 사용 막대(폭탄 설치 막대와 같은 자리) */
+.sk-bomb-prog[data-kind="heal"] .sk-bomb-prog-bar i { background: #6fe39a; }
+/* 배틀로얄 인벤토리 패널(무기 칸 위): 가방 등급 · 주무기와 부착물 · 계열 탄약 · 투척 · 구급상자 */
+.sk-inv {
+  display: flex; flex-direction: column; gap: 3px; min-width: 204px; max-width: 320px; padding: 7px 10px; border-radius: 2px;
+  background: rgba(11, 15, 20, .7); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08); font-size: 11.5px; font-weight: 700; color: var(--sk-muted);
+}
+.sk-inv-head b { color: #e9c58f; font-size: 12px; }
+.sk-inv-head[data-tier="0"] b { color: var(--sk-muted); }
+.sk-inv-gun { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.sk-inv-gun kbd { font: 900 10px/1 var(--sk-font); padding: 2px 4px; border-radius: 2px; color: var(--sk-text); background: rgba(255, 255, 255, .1); }
+.sk-inv-gun.is-active kbd { color: var(--sk-on-accent); background: var(--sk-accent); }
+.sk-inv-name { color: var(--sk-text); font-weight: 900; }
+.sk-inv-att { color: #8fd3ff; overflow: hidden; text-overflow: ellipsis; }
+.sk-inv-row { line-height: 1.35; }
 /* 봉쇄 구역 안: 화면 가장자리를 붉은 호박색으로 */
 .sk-hud.is-zone::before {
   content: ""; position: absolute; inset: 0; pointer-events: none;

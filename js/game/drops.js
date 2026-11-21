@@ -20,9 +20,10 @@ const MAX_ID = 64;
 /**
  * 믿을 수 없는 입력을 온전한 항목으로 바꾼다. 총(주무기·보조무기)이 아니거나, 위치가 틀렸거나, 탄이 하나도 없으면 null.
  * 탄약은 그 무기의 최대를 넘지 못한다. 프리미엄 총의 예비는 보낸 값과 관계없이 무제한이다.
+ * allowEmpty면 탄이 없는 총도 받는다(배틀로얄: 예비 탄은 가방에 있어 버린 총에 탄창만 남는다)
  * @returns {{ id:string, weaponId:string, pos:number[], mag:number, reserve:number } | null}
  */
-export function normalizeDrop(raw) {
+export function normalizeDrop(raw, allowEmpty = false) {
   if (!raw || typeof raw !== 'object') return null;
   const id = typeof raw.id === 'string' ? raw.id : '';
   if (!id || id.length > MAX_ID) return null;
@@ -33,21 +34,26 @@ export function normalizeDrop(raw) {
   const left = (v, max) => (Number.isFinite(v) ? Math.min(max, Math.max(0, Math.floor(v))) : 0);
   const mag = left(raw.mag, def.mag);
   const reserve = def.reserve === Infinity ? Infinity : left(raw.reserve, def.reserve);
-  if (mag <= 0 && reserve <= 0) return null;
+  if (mag <= 0 && reserve <= 0 && !allowEmpty) return null;
   return { id, weaponId: def.id, pos: [p[0], p[1], p[2]], mag, reserve };
 }
 
-/** 배틀로얄 보급품 종류(총이 아닌 것): 탄약 상자 · 구급상자 */
-export const SUPPLY_KINDS = Object.freeze(['ammo', 'medkit']);
+/** 배틀로얄 보급품 종류(총이 아닌 것): 탄약 상자(계열 탄약) · 구급상자 · 가방 · 부착물 · 투척 */
+export const SUPPLY_KINDS = Object.freeze(['ammo', 'medkit', 'backpack', 'attach', 'throw']);
 
-/** 보급품(탄약 상자·구급상자) 항목 → { id, kind, weaponId: null, pos, mag: 0, reserve: 0 } | null. 배틀로얄에서 World가 직접 놓을 때만 받는다 */
+/**
+ * 보급품 항목 → { id, kind, weaponId: null, pos, mag: 0, reserve: 0, ref, n } | null. 배틀로얄에서 World가 직접 놓을 때만 받는다.
+ * ref = 종류 안의 이름(계열 탄약 'rifle' · 가방 등급 '2' · 부착물 'op_4x' · 투척 'gr_smoke', 없으면 ''), n = 수량(0 = 기본)
+ */
 export function normalizeSupply(raw) {
   if (!raw || typeof raw !== 'object' || !SUPPLY_KINDS.includes(raw.kind)) return null;
   const id = typeof raw.id === 'string' ? raw.id : '';
   if (!id || id.length > MAX_ID) return null;
   const p = raw.pos;
   if (!Array.isArray(p) || p.length < 3 || !p.slice(0, 3).every(Number.isFinite)) return null;
-  return { id, kind: raw.kind, weaponId: null, pos: [p[0], p[1], p[2]], mag: 0, reserve: 0 };
+  const ref = typeof raw.ref === 'string' || typeof raw.ref === 'number' ? String(raw.ref).slice(0, 24) : '';
+  const n = Number.isFinite(raw.n) ? Math.min(999, Math.max(0, Math.floor(raw.n))) : 0;
+  return { id, kind: raw.kind, weaponId: null, pos: [p[0], p[1], p[2]], mag: 0, reserve: 0, ref, n };
 }
 
 /**
@@ -64,11 +70,11 @@ export function createDrops({ now = () => performance.now(), max = DROP_MAX } = 
     setMax(n) { cap = Math.max(1, Math.floor(n) || DROP_MAX); },
     /**
      * 넣는다. 같은 id가 있거나 형식이 틀리면 drop이 null이다.
-     * opt.supply면 보급품(탄약 상자·구급상자)도 받는다. opt.ttl = 이 항목의 수명(ms, Infinity면 사라지지 않는다. 기본 DROP_TTL_MS)
+     * opt.supply면 보급품(탄약·구급상자·가방·부착물·투척)과 탄이 없는 총도 받는다. opt.ttl = 이 항목의 수명(ms, Infinity면 사라지지 않는다. 기본 DROP_TTL_MS)
      * @returns {{ drop: object|null, evicted: object[] }} evicted = 상한 때문에 밀려난 항목
      */
     add(raw, opt = {}) {
-      const d = (opt.supply && normalizeSupply(raw)) || normalizeDrop(raw);
+      const d = (opt.supply && normalizeSupply(raw)) || normalizeDrop(raw, !!opt.supply);
       if (!d || items.has(d.id)) return { drop: null, evicted: [] };
       const evicted = [];
       while (items.size >= cap) {
