@@ -298,7 +298,7 @@ export function createRoyaleRun(host) {
       const place = placeOf(me.id);
       myResult = { place, survivedMs: zoneT() };
       world.setRoyale({ watch: ev.killer !== ev.victim ? ev.killer : null, hud: null });
-      if (ui) ui.hud.center(`탈락 · #${place} / ${total}`, 0, { sub: ev.cause === 'zone' ? '봉쇄 구역에서 버티지 못했어요' : `${nameOf(ev.killer)}에게 당했어요`, tone: 'warn' });
+      if (ui) ui.hud.center(`탈락 · #${place} / ${total}`, 5000, { sub: ev.cause === 'zone' ? '봉쇄 구역에서 버티지 못했어요' : `${nameOf(ev.killer)}에게 당했어요`, tone: 'warn' });
       world.setHint('E 결과 보기 · 클릭하면 관전 대상을 바꿔요');
       if (host.onEliminated) host.onEliminated(myResult);
     }

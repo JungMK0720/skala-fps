@@ -1419,6 +1419,8 @@
 .sk-bomb-timer.is-urgent .sk-bomb-num { animation: sk-throb .5s ease-in-out infinite alternate; }
 /* 진영 패널이 있으면 상단 배너는 그 아래로 */
 .sk-hud.has-bomb .sk-hud-banner { top: 158px; }
+/* 배틀로얄 구역 패널(세 줄)이 있으면 그 아래로 */
+.sk-hud.has-royale .sk-hud-banner { top: 172px; }
 
 /* 배틀로얄 구역 패널(MODES.md 15절): 점수 아래 가운데. 지금 구역 · 상태 · 다음 봉쇄 · 구급상자. 상태 색은 안전(청록) · 예고(호박) · 봉쇄(붉은 호박) */
 .sk-roy {

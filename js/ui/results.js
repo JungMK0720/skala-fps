@@ -260,9 +260,11 @@ export function createResults(ctx) {
         .map(([k, v]) => h('div', { class: 'sk-res-sum' }, h('dt', { text: k }), h('dd', { text: v }))));
     }
     const going = (x) => x.alive && !(p.winnerId != null && x.id === p.winnerId);   // 아직 싸우는 중(결과를 먼저 본 경우)
-    const top3 = rows.filter((x) => !going(x)).slice(0, 3).map((x) => ({ ...x, rank: x.place, deaths: x.alive ? 0 : 1 }));
+    // 시상대는 승부가 난 뒤에만(1~3위). 내가 먼저 결과를 보면 아직 싸우는 인원을 적는다
+    const top3 = p.winnerId != null ? rows.filter((x) => x.place <= 3).slice(0, 3).map((x) => ({ ...x, rank: x.place, deaths: x.alive ? 0 : 1 })) : [];
     const order = [[top3[1], 2], [top3[0], 1], [top3[2], 3]].filter(([x]) => x);
-    podium.replaceChildren(...(order.length ? order.map(([x, place]) => pod(x, place)) : [h('p', { class: 'sk-set-hint', text: '기록이 없어요.' })]));
+    const left = rows.filter(going).length;
+    podium.replaceChildren(...(order.length ? order.map(([x, place]) => pod(x, place)) : [h('p', { class: 'sk-set-hint', text: left ? `아직 ${left}명이 싸우는 중이에요 · 경기가 끝나면 이 화면이 다시 그려져요` : '기록이 없어요.' })]));
     setText(tableTitle, '순위표');
     table.replaceChildren(h('table', { class: 'sk-sb-table' },
       h('thead', {}, h('tr', {}, ['순위', '이름', '킬', '헤드샷', '생존 시간'].map((t, i) => h('th', { scope: 'col', class: i === 1 ? '' : 'num', text: t })))),

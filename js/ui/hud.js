@@ -714,6 +714,7 @@ export function createHud(ctx) {
     st.royaleSig = sig;
     royalePanel.hidden = !on;
     el.classList.toggle('is-zone', on && state === 'closed');
+    el.classList.toggle('has-royale', on);   // 상단 배너를 패널 아래로(css)
     if (!on) return;
     royalePanel.dataset.state = state;
     setText(roySector, r.sector ? `구역 ${r.sector}` : '구역 밖');
