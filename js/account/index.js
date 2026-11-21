@@ -119,6 +119,13 @@ export function createAccount({
   // 옛 저장 형식(base 없음)에 못 올린 변경이 있으면 기준을 몰라 null
   let base = restored ? (restored.base ?? (restored.dirty ? null : restored.profile.points)) : START_POINTS;
   let conflictName = null;                                    // 등록을 거절당한 닉네임
+  let bonusOffer = null;                                      // 보상 광고로 한 번 더 받을 수 있는 마지막 판 { token, gained }
+  let bonusSeq = 0;
+  /** 이번 판 보너스 표를 만든다. 보상이 없으면 null */
+  const offerBonus = (gained) => {
+    bonusOffer = gained > 0 ? { token: ++bonusSeq, gained } : null;
+    return bonusOffer ? bonusOffer.token : null;
+  };
   let snapshot = null;
   let revision = 0;                                           // 저장 요청 중에 또 바뀌었는지 알아채는 번호
   let saveTimer = null;
@@ -582,7 +589,7 @@ export function createAccount({
     });
     profile.points = clampPoints(profile.points + gained);
     commit();
-    return { gained, breakdown, points: profile.points };
+    return { gained, breakdown, points: profile.points, bonusToken: offerBonus(gained) };
   }
 
   /**
@@ -604,7 +611,22 @@ export function createAccount({
     });
     profile.points = clampPoints(profile.points + gained);
     commit();
-    return { gained, breakdown, points: profile.points, best: profile.stats.zombieBest, newBest: s.stage > before };
+    return { gained, breakdown, points: profile.points, best: profile.stats.zombieBest, newBest: s.stage > before, bonusToken: offerBonus(gained) };
+  }
+
+  /**
+   * 보상 광고 보너스(포털 결과 화면의 '광고 보고 포인트 2배'). 마지막으로 기록한 판의 보상만큼 한 번 더 준다.
+   * 판마다 한 번이고 금액은 계정이 계산한 그 판의 보상이다(화면이 금액을 정하지 않는다).
+   * 서버(fps_save_profile)는 다른 적립과 같은 증가분 규칙(초당 적립 버킷·하루 상한)으로 받고, 넘치면 깎아 돌려준다.
+   * → { ok, gained, points, reason? }  reason: 'token'(다른 판이거나 이미 받음)
+   */
+  function grantAdBonus(token) {
+    if (!bonusOffer || token !== bonusOffer.token) return { ok: false, gained: 0, points: profile.points, reason: 'token' };
+    const gained = bonusOffer.gained;
+    bonusOffer = null;
+    profile.points = clampPoints(profile.points + gained);
+    commit();
+    return { ok: true, gained, points: profile.points };
   }
 
   /**
@@ -821,6 +843,7 @@ export function createAccount({
     isOwned,
     recordMatch,
     recordZombie,
+    grantAdBonus,
     spendPoints,
     findSecret,
     resetLocal,
