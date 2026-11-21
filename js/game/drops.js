@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 바닥에 떨어진 주무기 목록. 죽은 뒤 G로 버린 총을 모아 두고 형식 검사, 개수 상한, 수명, 줍는 거리 판정을 맡는다.
+ * Purpose: 바닥에 떨어진 주무기 목록. 죽은 뒤 G로 버린 총과 배틀로얄 보급품(총·탄약 상자·구급상자)을 모아 두고 형식 검사, 개수 상한, 수명, 줍는 거리 판정을 맡는다.
  *          three.js·엔진·DOM에 의존하지 않아 node 테스트에서 그대로 쓴다. 그리기와 입력은 world.js, 전달은 session.js가 한다.
  */
 import { getDef } from '../weapons/defs.js';
@@ -37,26 +37,47 @@ export function normalizeDrop(raw) {
   return { id, weaponId: def.id, pos: [p[0], p[1], p[2]], mag, reserve };
 }
 
-/** @param {{ now?: () => number }} [opts] now = 시계(ms) */
-export function createDrops({ now = () => performance.now() } = {}) {
-  const items = new Map();   // id → { ...항목, at }. 넣은 순서를 지킨다
+/** 배틀로얄 보급품 종류(총이 아닌 것): 탄약 상자 · 구급상자 */
+export const SUPPLY_KINDS = Object.freeze(['ammo', 'medkit']);
+
+/** 보급품(탄약 상자·구급상자) 항목 → { id, kind, weaponId: null, pos, mag: 0, reserve: 0 } | null. 배틀로얄에서 World가 직접 놓을 때만 받는다 */
+export function normalizeSupply(raw) {
+  if (!raw || typeof raw !== 'object' || !SUPPLY_KINDS.includes(raw.kind)) return null;
+  const id = typeof raw.id === 'string' ? raw.id : '';
+  if (!id || id.length > MAX_ID) return null;
+  const p = raw.pos;
+  if (!Array.isArray(p) || p.length < 3 || !p.slice(0, 3).every(Number.isFinite)) return null;
+  return { id, kind: raw.kind, weaponId: null, pos: [p[0], p[1], p[2]], mag: 0, reserve: 0 };
+}
+
+/**
+ * @param {{ now?: () => number, max?: number }} [opts] now = 시계(ms), max = 동시에 둘 상한(기본 DROP_MAX)
+ */
+export function createDrops({ now = () => performance.now(), max = DROP_MAX } = {}) {
+  const items = new Map();   // id → { ...항목, at, ttl? }. 넣은 순서를 지킨다
+  let cap = Math.max(1, Math.floor(max) || DROP_MAX);
 
   return {
     get size() { return items.size; },
+    get max() { return cap; },
+    /** 상한을 바꾼다(배틀로얄은 맵의 보급품을 모두 둔다). 줄이면 다음 add 때 오래된 것부터 밀려난다 */
+    setMax(n) { cap = Math.max(1, Math.floor(n) || DROP_MAX); },
     /**
      * 넣는다. 같은 id가 있거나 형식이 틀리면 drop이 null이다.
+     * opt.supply면 보급품(탄약 상자·구급상자)도 받는다. opt.ttl = 이 항목의 수명(ms, Infinity면 사라지지 않는다. 기본 DROP_TTL_MS)
      * @returns {{ drop: object|null, evicted: object[] }} evicted = 상한 때문에 밀려난 항목
      */
-    add(raw) {
-      const d = normalizeDrop(raw);
+    add(raw, opt = {}) {
+      const d = (opt.supply && normalizeSupply(raw)) || normalizeDrop(raw);
       if (!d || items.has(d.id)) return { drop: null, evicted: [] };
       const evicted = [];
-      while (items.size >= DROP_MAX) {
+      while (items.size >= cap) {
         const oldest = items.keys().next().value;
         evicted.push(items.get(oldest));
         items.delete(oldest);
       }
       const item = { ...d, at: now() };
+      if (opt.ttl === Infinity || opt.ttl > 0) item.ttl = opt.ttl;
       items.set(d.id, item);
       return { drop: item, evicted };
     },
@@ -77,7 +98,7 @@ export function createDrops({ now = () => performance.now() } = {}) {
     /** 수명이 다한 항목을 빼서 돌려준다 */
     expire(t = now()) {
       const gone = [];
-      for (const d of items.values()) if (t - d.at >= DROP_TTL_MS) gone.push(d);
+      for (const d of items.values()) if (t - d.at >= (d.ttl ?? DROP_TTL_MS)) gone.push(d);
       for (const d of gone) items.delete(d.id);
       return gone;
     },

@@ -1266,6 +1266,38 @@ export function createMatch(opts = {}) {
     return events;
   }
 
+  /**
+   * 공격자 없는 환경 피해(배틀로얄 봉쇄 구역, MODES.md 15절). 살아 있는 victim이 amount만큼 잃는다.
+   * 자해처럼 공격자 = 피해자라 킬은 누구에게도 가지 않는다. damage·kill 이벤트에 cause를 싣는다
+   */
+  function claimHazard(idRaw, amount, cause = 'hazard') {
+    if (disposed) return [];
+    const id = normId(idRaw);
+    if (phase !== 'live') return reject('claimHazard', 'not_live', id);
+    const v = players.get(id);
+    if (!v || !isActive(v)) return [];
+    const dmg = Math.round(toNum(amount));
+    if (!(dmg > 0)) return [];
+    const events = [];
+    hurt(events, v, v, null, dmg, { part: null, kind: null, head: false, self: true });
+    const why = text(cause).slice(0, 16) || 'hazard';
+    for (const ev of events) if (ev.type === 'damage' || ev.type === 'kill') ev.cause = why;
+    return events;
+  }
+
+  /** 살아 있는 id의 체력을 amount만큼 채운다(최대 rules.hp, 배틀로얄 구급상자). → [{ type:'heal', id, amount, hp }] 또는 [] */
+  function heal(idRaw, amount) {
+    if (disposed) return [];
+    const id = normId(idRaw);
+    if (phase !== 'live') return reject('heal', 'not_live', id);
+    const v = players.get(id);
+    if (!v || !isActive(v)) return [];
+    const add = Math.min(rules.hp - v.hp, Math.max(0, Math.round(toNum(amount))));
+    if (!(add > 0)) return [];
+    v.hp += add;
+    return [{ type: 'heal', id, amount: add, hp: v.hp }];
+  }
+
   /** 팀전·FFA 공통 앞 10칸 */
   function baseRow(x) {
     const flags = (x.connected ? 1 : 0) | (x.playing ? 2 : 0) | (x.alive ? 4 : 0) | (x.bot ? 8 : 0);
@@ -1560,7 +1592,7 @@ export function createMatch(opts = {}) {
   applyCarry(o.carry);
 
   return {
-    tick, addPlayer, removePlayer, setTeam, setLoadout, start, claimHit, claimExplosion, bombIntent, respawnNow, snapshot, dispose,
+    tick, addPlayer, removePlayer, setTeam, setLoadout, start, claimHit, claimExplosion, claimHazard, heal, bombIntent, respawnNow, snapshot, dispose,
     /** 읽기 전용 뷰. 접근할 때마다 새 복사본(= applySnapshot(snapshot())) */
     get state() { return applySnapshot(snapshot()); },
     get rules() { return rules; },

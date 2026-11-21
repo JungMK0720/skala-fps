@@ -38,6 +38,8 @@ export default {
   'shop.mode.zombie': ['좀비 물량 막기', 'Zombie Horde'],
   'shop.mode.ffaLabel': ['개인전 · {n}킬', 'Free-for-All · {n} kills'],
   'shop.mode.zombieLabel': ['좀비 물량 막기 · 최대 4명', 'Zombie Horde · up to 4 players'],
+  'shop.mode.br': ['배틀로얄', 'Battle Royale'],
+  'shop.mode.brLabel': ['배틀로얄 · 최후의 1인', 'Battle Royale · Last one standing'],
   'shop.mode.roundsLabel': ['{mode} · {bestOf}판 {target}선승', '{mode} · first to {target} (Bo{bestOf})'],
   'shop.side.attack': ['공격', 'Attack'],
   'shop.side.defense': ['수비', 'Defense'],

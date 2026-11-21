@@ -80,6 +80,8 @@ export default {
   'account.rwHeadshots': ['헤드샷 ×{n}', 'Headshots ×{n}'],
   'account.rwWinShort': ['승리({k}킬 판)', 'Win ({k}-kill match)'],
   'account.rwWin': ['승리', 'Win'],
+  'account.rwLastStanding': ['최후의 1인', 'Last one standing'],
+  'account.rwTopPlace': ['상위 {n}위', 'Placed #{n}'],
   'account.rwFinish': ['완주', 'Match complete'],
   'account.rwDifficulty': ['난이도 {label} ×{mul}', 'Difficulty {label} ×{mul}'],
   'account.rwStages': ['스테이지 클리어 ×{n}', 'Stages cleared ×{n}'],

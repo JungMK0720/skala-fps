@@ -115,16 +115,17 @@ export function fmtPlayTime(sec) {
   return minutes ? tr('shop.time.ms', { m: minutes, s: String(t % 60).padStart(2, '0') }) : tr('shop.time.s', { s: t });
 }
 
-// ---------- 모드 (MODES.md 3.3 · 5절) — mode를 생략하면 'team'. 폭파 미션('bomb')도 팀으로 나뉜다 ----------
-export const modeKey = (m) => (m === 'ffa' ? 'ffa' : m === 'bomb' ? 'bomb' : m === 'zombie' ? 'zombie' : 'team');
+// ---------- 모드 (MODES.md 3.3 · 5절 · 15절) — mode를 생략하면 'team'. 폭파 미션('bomb')도 팀으로 나뉜다. 배틀로얄('br')은 연습장 혼자 ----------
+export const modeKey = (m) => (m === 'ffa' ? 'ffa' : m === 'bomb' ? 'bomb' : m === 'zombie' ? 'zombie' : m === 'br' ? 'br' : 'team');
 export const FFA_TARGET = 20;
-export const MODE_ICON = Object.freeze({ team: '⚔️', ffa: '🎯', bomb: '💣', zombie: '🧟' });
-export const MODE_NAME = Object.freeze({ team: tr('shop.mode.team'), ffa: tr('shop.mode.ffa'), bomb: tr('shop.mode.bomb'), zombie: tr('shop.mode.zombie') });
-/** "팀전 · 5판 3선승" / "개인전 · 20킬" / "폭파 미션 · 5판 3선승" / "좀비 물량 막기 · 최대 4명" */
+export const MODE_ICON = Object.freeze({ team: '⚔️', ffa: '🎯', bomb: '💣', zombie: '🧟', br: '🧭' });
+export const MODE_NAME = Object.freeze({ team: tr('shop.mode.team'), ffa: tr('shop.mode.ffa'), bomb: tr('shop.mode.bomb'), zombie: tr('shop.mode.zombie'), br: tr('shop.mode.br') });
+/** "팀전 · 5판 3선승" / "개인전 · 20킬" / "폭파 미션 · 5판 3선승" / "좀비 물량 막기 · 최대 4명" / "배틀로얄 · 최후의 1인" */
 export function modeLabel(mode, opts = {}) {
   const key = modeKey(mode);
   if (key === 'ffa') return tr('shop.mode.ffaLabel', { n: Math.max(1, Math.floor(num(opts.killTarget, FFA_TARGET))) });
   if (key === 'zombie') return tr('shop.mode.zombieLabel');
+  if (key === 'br') return tr('shop.mode.brLabel');
   const target = Math.max(1, Math.floor(num(opts.target, 3)));
   const bestOf = Math.max(1, Math.floor(num(opts.bestOf, target * 2 - 1)));
   return tr('shop.mode.roundsLabel', { mode: MODE_NAME[key], bestOf, target });

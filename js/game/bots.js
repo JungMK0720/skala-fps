@@ -296,7 +296,8 @@ export function createBot(opts = {}) {
   const D = Object.assign({}, BOT_DIFFICULTY[difficulty], o.tuning || {});
   const rules = rulesetOf(o.ruleset);
   const allowed = new Set(rules.slots);
-  const canUse = (s) => allowed.has(s);
+  const missing = new Set();        // 지금 몸에 없는 슬롯(배틀로얄: 아직 줍지 못한 주무기 · 투척 없음). setCarried가 정한다
+  const canUse = (s) => allowed.has(s) && !missing.has(s);
   const W = {};
   for (const k of WEAPON_IDS) W[k] = o.weaponInfo && o.weaponInfo[k] ? Object.assign({}, BOT_WEAPON_INFO[k], o.weaponInfo[k]) : BOT_WEAPON_INFO[k];
   const slotDefault = (slot, key) => (rules.pickSlot === slot ? defaultPick(rules.id) : DEFAULT_LOADOUT[key]);
@@ -1811,6 +1812,29 @@ export function createBot(opts = {}) {
     setLoadout(p) {
       pendingPrimary = loadoutKey(p) && isWeaponAllowed(rules.id, p) ? p : null;
       return !!pendingPrimary;
+    },
+    /**
+     * 지금 실제로 가진 무기(배틀로얄: 권총·칼로 출발해 줍는다). g = { primary, secondary, melee, grenade } — null이면 그 슬롯이 비었다.
+     * 주무기가 있으면 평소 슬롯은 1, 없으면 보조무기(권총). 탄 추정도 새 무기에 맞춘다(엔진이 ammo를 주면 그 값이 이긴다)
+     */
+    setCarried(g) {
+      const s = g || {};
+      const keys = { 1: 'primary', 2: 'secondary', 3: 'melee', 4: 'grenade' };
+      for (const slot of [1, 2, 3, 4]) {
+        const id = s[keys[slot]];
+        const ok = slot === 4 ? !!id : !!(id && pickIn(id, slot));
+        if (ok) { missing.delete(slot); if (slot !== 4) gear[slot] = id; } else missing.add(slot);
+        if (slot === 1 || slot === 2) {
+          const info = ok ? W[id] : null;
+          wpn.estMag[slot] = info ? info.mag : 0;
+          wpn.estRes[slot] = info ? info.mag * 2 : 0;
+        }
+      }
+      homeSlot = canUse(1) ? 1 : canUse(2) ? 2 : 3;
+      if (!canUse(wpn.wantSlot)) wpn.wantSlot = homeSlot;
+      if (!canUse(4)) wpn.grenades = 0;
+      refreshRole();
+      brain.primary = gear[homeSlot]; brain.role = W[gear[homeSlot]].kind;
     },
     /** 발판에 실려 날아가기 시작했다(엔진이 알려 준다). 착지하면 경로를 새로 잡는다 */
     onLaunch() {

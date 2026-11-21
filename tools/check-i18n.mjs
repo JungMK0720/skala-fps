@@ -42,6 +42,7 @@ export const PAIRED_DATA = Object.freeze([
   'js/maps/dojo.js',
   'js/maps/glasshouse.js',
   'js/maps/hanok.js',
+  'js/maps/harbortown.js',
   'js/maps/index.js',
   'js/maps/jetty.js',
   'js/maps/karaoke.js',

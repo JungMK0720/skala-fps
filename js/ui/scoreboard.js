@@ -50,6 +50,7 @@ export function rankPlayers(list) {
 
 export function createScoreboard(ctx) {
   let sig = '';
+  let royaleBoard = false;   // 지금 그리는 표가 배틀로얄인가(상태 칸 글자)
   const title = h('h2', { class: 'sk-sb-title sk-stencil', text: t('menu.sbTitle') });
   const meta = h('p', { class: 'sk-sb-meta' });
   const ownerScore = h('b');
@@ -91,6 +92,7 @@ export function createScoreboard(ctx) {
 
   function ffaState(x) {
     if (x.alive) return x.protect ? t('menu.sbProtect') : t('menu.sbAlive');
+    if (royaleBoard) return t('menu.sbOut');
     return x.respawnIn != null ? t('menu.sbRespawnIn', { s: Math.ceil(x.respawnIn / 1000) }) : t('menu.sbRespawnWait');
   }
   function ffaTable(rows) {
@@ -145,7 +147,9 @@ export function createScoreboard(ctx) {
       cols.replaceChildren(zombieTable(rows));
       return;
     }
-    const ffa = mode === 'ffa';
+    // 배틀로얄(MODES.md 15절)도 개인전 표를 쓴다. 순위 = 탈락 순서(살아 있는 사람은 공동 1위), 상태 = 생존 · 탈락
+    royaleBoard = mode === 'br';
+    const ffa = mode === 'ffa' || royaleBoard;
     el.classList.toggle('is-ffa', ffa);
     scoreLine.hidden = ffa;
     // 16인방: 줄이 많으면(개인전 10명 넘게, 팀전 한 팀 6명 넘게) 줄 높이를 줄여 Tab을 누른 채로 한눈에 들어오게 한다(스크롤할 수 없다)
@@ -157,8 +161,9 @@ export function createScoreboard(ctx) {
       const target = Math.max(1, Math.floor(num(p.target != null ? p.target : p.killTarget != null ? p.killTarget : p.score && p.score.target, FFA_TARGET)));
       const me = rows.find((x) => x.me);
       const m = p.mapName ? { name: p.mapName } : mapInfo(ctx.maps, p.maps, p.mapId);
-      setText(title, t('menu.sbFfaTitle', { target }));
-      setText(meta, [m && loc(m, 'name'), me ? t('menu.sbMyRank', { rank: me.rank, n: rows.length }) : t('menu.players', { n: rows.length })].filter(Boolean).join(' · '));
+      const left = rows.filter((x) => x.alive).length;
+      setText(title, royaleBoard ? t('menu.sbBrTitle', { n: left, total: rows.length }) : t('menu.sbFfaTitle', { target }));
+      setText(meta, [m && loc(m, 'name'), royaleBoard ? (me && !me.alive ? t('menu.sbBrPlace', { rank: me.rank }) : t('menu.sbBrGoal')) : me ? t('menu.sbMyRank', { rank: me.rank, n: rows.length }) : t('menu.players', { n: rows.length })].filter(Boolean).join(' · '));
       // 사람이 많으면(16인방) 순위를 두 칸으로 나눠 나란히 둔다. 세로 화면은 css가 다시 한 줄로 쌓는다
       const half = Math.ceil(rows.length / 2);
       cols.replaceChildren(...(rows.length > 10 ? [ffaTable(rows.slice(0, half)), ffaTable(rows.slice(half))] : [ffaTable(rows)]));

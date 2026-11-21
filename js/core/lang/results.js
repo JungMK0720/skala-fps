@@ -66,5 +66,14 @@ export default {
   'results.noWinner': ['승부를 가리지 못했어요.', 'No winner this time.'],
   'results.noRounds': ['라운드 기록이 없어요.', 'No rounds recorded.'],
   'results.teamName': ['{team} 팀', '{team} Team'],
-  'results.noMvp': ['이번 매치엔 MVP가 없어요.', 'No MVP this match.']
+  'results.noMvp': ['이번 매치엔 MVP가 없어요.', 'No MVP this match.'],
+  'results.brWin': ['최후의 1인!', 'Last One Standing!'],
+  'results.brOver': ['배틀로얄 종료', 'Battle Royale Over'],
+  'results.brScore': ['{kills}킬 · 생존 {time}', '{kills} kills · survived {time}'],
+  'results.brBeatAll': ['모든 상대를 이겨 냈어요!', 'You outlasted everyone!'],
+  'results.brWinner': ['우승 {name}', 'Winner: {name}'],
+  'results.brUndecided': ['아직 승부가 나지 않았어요', 'The fight is still on'],
+  'results.brSurvived': ['생존 시간', 'Survived'],
+  'results.brStillFighting': ['아직 {n}명이 싸우는 중이에요 · 경기가 끝나면 이 화면이 다시 그려져요', '{n} players are still fighting · This screen updates when the match ends'],
+  'results.brAlive': ['생존 중', 'Alive']
 };

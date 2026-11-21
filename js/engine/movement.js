@@ -102,6 +102,8 @@ function steer(vel, wish, airborne, hopTick, mem, M, dt) {
   const dirX = wish.dirX || 0, dirZ = wish.dirZ || 0, wishSpeed = wish.speed || 0;
   const hasInput = dirX !== 0 || dirZ !== 0;
   const sign = Math.sign(wish.strafeSign || 0);
+  // HOP_FRICTION(배틀로얄): 뛰는 틱에도 지면 마찰을 먹는다. 착지하자마자 다시 뛰어도 속도가 이어지지 않아 버니합 사슬이 끊긴다
+  if (hopTick && M.HOP_FRICTION) applyFriction(vel, M.FRICTION, M.STOP_SPEED, hasInput, dt);
   const startSpeed = Math.hypot(vel[0], vel[2]);
   let bonus = 0;
 
