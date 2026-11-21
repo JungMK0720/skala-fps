@@ -36,13 +36,21 @@
  * 앉기: input.state.crouch(Ctrl·C 누르는 동안) → state.crouch. 키 1.25 m·눈 1.1 m·2.6 m/s, 발소리 작게.
  *   머리 위가 막혀 있으면 키를 떼도 앉은 채 유지. 앉은 채 Space = 일어설 수 있으면 일어서며 점프(착지 뒤 키가
  *   눌려 있으면 다시 앉음), 막혀 있으면 점프하지 않음. 바뀔 때 bus 'player:crouch' { crouch }.
+ *
+ * 턱 오르기·넘기(engine/mantle.js): 앞으로 가며(W) 점프를 누를 때 0.5~2.0 m 턱이 바로 앞에 있으면 점프 대신 짧은 동작으로 오르거나 넘는다.
+ *   공중에서는 Space를 누르고 있으면, 높이는 발밑 바닥 기준. 달리면 더 멀리(5.2 m/s에 약 1 m) 본다. 동작 중에는 물리 대신 정해진 길을 따라가고 카메라가 들린다.
+ *   bus: player:mantle { kind:'climb'|'vault', height, pos } · player.mantling(진행 중인지)
+ * 낙하 피해(engine/falldamage.js, 배틀로얄만): player.setFallDamage(true)면 착지 때 낙하 높이로 피해를 재서
+ *   bus 'player:fall' { height, damage, pos }를 낸다(피해는 받는 쪽이 경기에 넣는다). 발판·포털 뒤 착지는 면제, 턱 오르기는 끝난 자리부터 다시 잰다.
  */
 import { PLAYER, MOVE, EMOTE_BLEND, emoteById } from '../core/consts.js';
-import { raycastWorld, canStand } from './physics.js';
+import { raycastWorld, canStand, getGroundY } from './physics.js';
 import { moveQuake, resetMoveMemory } from './movement.js';
 import { stepTriggers } from './triggers.js';
 import { carryBody } from './movers.js';
 import { lerpAngle } from './interp.js';
+import { findMantle, mantlePose, MANTLE } from './mantle.js';
+import { createFallTracker } from './falldamage.js';
 
 /** 3인칭(이모트) 카메라: 시작 궤도각(+ = 캐릭터 왼쪽 앞), 높이각, 거리, 바라보는 높이 */
 const ORBIT = Object.freeze({ yaw: 0.6, pitch: 0.18, dist: 3.0, target: 1.15, minPitch: -0.35, maxPitch: 1.1 });
@@ -105,6 +113,10 @@ export function createLocalPlayer({ bus, input, camera, getWorld, state: initSta
   let crouchHold = false;   // 앉은 채 점프한 뒤 착지 전까지 다시 앉지 않음
   let trigState = {};       // stepTriggers가 채운다(발판·포털 대기 시간, 본 비밀). 스폰마다 새로
   const moveOpt = { height: PLAYER.HEIGHT };
+  // 턱 오르기 동작(engine/mantle.js의 plan + 경과 시간 + 들어갈 때 수평 속력) · 낙하 높이 추적(배틀로얄에서 켠다)
+  let mantle = null;
+  const fall = createFallTracker(0);
+  let fallOn = false;
   // 이모트 · 3인칭 카메라
   let emoteDef = null, emoteT = 0;
   let tpBlend = 0, tpTarget = 0, tpDist = ORBIT.dist, viewMode = 'first';
@@ -152,6 +164,8 @@ export function createLocalPlayer({ bus, input, camera, getWorld, state: initSta
     landDip = landVel = stepOffset = trauma = kickP = kickY = 0;
     deathT = 0;
     jumpBuffer = 0;
+    mantle = null;
+    fall.reset(state.pos[1]);
     resetMoveMemory(state);
     trigState = {};
     emit('player:spawn', { state, point: spawnPoint });
@@ -166,16 +180,19 @@ export function createLocalPlayer({ bus, input, camera, getWorld, state: initSta
     if (Number.isFinite(to.rotY)) state.yaw = to.rotY;
     state.onGround = false; // 도착지가 바닥이면 다음 틱에 바로 착지하고, 공중이면 그대로 떨어진다
     stepOffset = 0;
+    mantle = null;
+    fall.reset(to.y);
     resetMoveMemory(state);
   }
 
   /** 발판·비밀·포털 판정을 돌리고 알린다. 발판 속도는 stepTriggers가 이미 넣었다 */
   function applyTriggers(world, dt) {
     const hit = stepTriggers(world, state, moveOpt.height, trigState, dt);
-    if (hit.pad) emit('player:pad', { pad: hit.pad, pos: state.pos.slice() });
+    if (hit.pad) { fall.exempt('pad'); emit('player:pad', { pad: hit.pad, pos: state.pos.slice() }); }
     for (const secret of hit.secrets) emit('player:secret', { secret, pos: state.pos.slice() });
     if (hit.portal) {
       teleport(hit.portal.to);
+      fall.exempt('portal');
       emit('player:portal', { portal: hit.portal, pos: state.pos.slice() });
     }
   }
@@ -196,6 +213,33 @@ export function createLocalPlayer({ bus, input, camera, getWorld, state: initSta
     emit('player:crouch', { crouch: v });
   }
   const roomToStand = (world) => canStand(world, state.pos[0], state.pos[1], state.pos[2]);
+
+  /* ---------- 턱 오르기·넘기 ---------- */
+  const MANTLE_EV = { jumped: false, landed: false, impact: 0, ceiling: false, stepUp: 0, walls: 0, hopped: false, swapBonus: 0, speed: 0 };
+  function startMantle(plan) {
+    mantle = { plan, t: 0, speed: Math.hypot(state.vel[0], state.vel[2]) };
+    state.vel[0] = state.vel[1] = state.vel[2] = 0;
+    state.onGround = false;
+    jumpBuffer = 0;
+    endEmote('jump');
+    kick(-0.035, 0);   // 손으로 턱을 짚으며 살짝 내려다본다
+    emit('player:mantle', { kind: plan.kind, height: Math.round(plan.height * 100) / 100, pos: state.pos.slice() });
+  }
+  /** 동작 1틱: 정해진 길을 따라간다. 끝나면 오르기는 땅 위, 넘기는 앞으로 나아가는 공중 */
+  function stepMantle(dt) {
+    mantle.t += dt;
+    const p = mantle.plan;
+    if (!mantlePose(p, mantle.t, state.pos)) return MANTLE_EV;
+    // 끝: 오르기는 걷는 속도의 절반 아래로, 넘기는 들어온 속력을 걷기 속도 안에서 잇는다(최소 2.5 m/s로 난간을 벗어난다)
+    const exit = p.kind === 'vault' ? Math.max(2.5, Math.min(mantle.speed, PLAYER.WALK)) : Math.min(mantle.speed, PLAYER.WALK) * 0.45;
+    state.vel[0] = p.dirX * exit; state.vel[1] = 0; state.vel[2] = p.dirZ * exit;
+    state.onGround = p.kind === 'climb';
+    if (p.crouch) setCrouch(true);
+    if (p.kind === 'climb') landVel -= 0.35;
+    mantle = null;
+    fall.reset(state.pos[1], p.kind === 'vault' ? p.floor : undefined);
+    return MANTLE_EV;
+  }
 
   /* ---------- 이모트 ---------- */
   function denyEmote(v, reason) {
@@ -304,7 +348,16 @@ export function createLocalPlayer({ bus, input, camera, getWorld, state: initSta
     const wasGround = state.onGround;
     const y0 = state.pos[1];
     moveOpt.height = state.crouch ? PLAYER.CROUCH_HEIGHT : PLAYER.HEIGHT;
-    const ev = moveQuake(world, state, wish, dt, moveOpt);
+    // 턱 오르기: 앞으로 가며 뛰려는데(공중이면 Space를 누르고 있으면) 바로 앞에 0.5~2.0 m 턱이 있으면 점프 대신 오른다.
+    // 달려오면 그만큼 더 멀리 본다(5.2 m/s → 약 1 m): 난간 바로 앞이 아니라 한 걸음 앞에서 눌러도 넘는다
+    if (!mantle && f > 0 && (jump || (wantJump && !state.onGround))) {
+      const floor = state.onGround ? state.pos[1] : getGroundY(world, state.pos[0], state.pos[2], state.pos[1] + 0.01, PLAYER.RADIUS - 0.01);
+      const toward = Math.max(0, Math.min(6, state.vel[0] * wish.dirX + state.vel[2] * wish.dirZ));
+      const plan = findMantle(world, state.pos, wish.dirX, wish.dirZ, { floor, reach: MANTLE.REACH + toward * 0.08 });
+      if (plan) startMantle(plan);
+    }
+    if (mantle && !state.alive) mantle = null;
+    const ev = mantle ? stepMantle(dt) : moveQuake(world, state, wish, dt, moveOpt);
     if (ev.jumped) jumpBuffer = 0; // 챌판에 올라서느라 땅에 남은 점프는 버퍼를 남겨 다음 틱에 다시 뛴다
     if (state.onGround && !ev.jumped) crouchHold = false; // 착지(또는 턱에 올라섬) → 키가 눌려 있으면 다시 앉음
     // 턱에 올라선 만큼 카메라를 천천히 따라 올린다. 공중에서 턱 위로 내려앉을 때도 같다
@@ -314,6 +367,11 @@ export function createLocalPlayer({ bus, input, camera, getWorld, state: initSta
     if (ev.landed) {
       landVel -= Math.min(2.2, ev.impact * 0.13) * (ev.hopped ? HOP_LAND_DIP : 1);
       emit('player:land', { pos: state.pos.slice(), speed: ev.impact, mat: groundMat(world), hopped: ev.hopped });
+    }
+    // 낙하 높이: 턱 오르기 중에는 재지 않는다(끝날 때 그 자리에서 다시 잰다)
+    if (!mantle) {
+      const fr = fall.step(state.pos[1], state.onGround, wasGround);
+      if (fr && fallOn && fr.damage > 0 && state.alive) emit('player:fall', { height: fr.height, damage: fr.damage, pos: state.pos.slice() });
     }
     if (world.triggers && state.alive && !state.frozen) applyTriggers(world, dt);
     const hs = Math.hypot(state.vel[0], state.vel[2]);
@@ -515,6 +573,11 @@ export function createLocalPlayer({ bus, input, camera, getWorld, state: initSta
     snapshot,
     setFrozen(v) { state.frozen = !!v; },
     setSpeedScale(s) { state.speedScale = Number.isFinite(s) && s > 0 ? s : 1; },
+    /** 낙하 피해(배틀로얄): 켜면 착지 때 'player:fall'을 낸다 */
+    setFallDamage(on) { fallOn = !!on; fall.reset(state.pos[1]); },
+    get fallDamage() { return fallOn; },
+    /** 턱 오르기·넘기 중이면 그 동작({ kind, height, t, dur }), 아니면 null */
+    get mantling() { return mantle ? { kind: mantle.plan.kind, height: mantle.plan.height, t: mantle.t, dur: mantle.plan.dur } : null; },
     /**
      * 이동 튜닝. move = 모드별 이동 값(MOVE 일부를 덮어쓴다, 배틀로얄 BR_MOVE: 버니합 끔), maxSpeed = 수평 속도 상한 배율(좀비 물량 막기 카드),
      * jump = 점프 높이 배율. null이면 기본값으로 돌아간다. 점프 높이는 초속의 제곱에 비례하므로 초속에는 제곱근을 곱한다

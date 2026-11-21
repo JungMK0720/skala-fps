@@ -379,6 +379,7 @@ function buildWorld(ctx, opts) {
       arsenal.setMods(null);
       arsenal.setAllowedSlots(rulesetOf(ruleset).slots);
       player.setMoveTuning(null);
+      player.setFallDamage(false);
       setRoyaleZone(null);
       syncRoyaleTouch('');
       return;
@@ -390,6 +391,7 @@ function buildWorld(ctx, opts) {
       arsenal.setAllowedSlots(ROYALE_SLOTS);
       player.setMoveTuning({ move: BR_MOVE });
       kit = createRoyaleKit({ arsenal });
+      player.setFallDamage(true);   // 배틀로얄만 낙하 피해(4 m부터, MODES.md 15절)
     }
     for (const k of ['watch', 'hud']) if (k in o) royale[k] = o[k];
   }
@@ -545,6 +547,15 @@ function buildWorld(ctx, opts) {
     if (!active || !local.alive || !e) return;
     if (e.hopped) play('bhop_land', { gain: 0.6 });   // 버니합 사슬: 착지마다 쿵쿵거리지 않게 작게
     else if (e.speed > 3) play(stepSound(e.mat), { gain: Math.min(1, e.speed / 9) });
+  }));
+  // 낙하 피해(배틀로얄): core player가 잰 피해를 연습장(경기)에 넘긴다. 경기가 claimHazard(…, 'fall')로 넣는다
+  offs.push(bus.on('player:fall', (e) => {
+    if (!active || !local.alive || !royale || !e || !(e.damage > 0)) return;
+    emit('fallDamage', { amount: e.damage, height: e.height, pos: e.pos });
+  }));
+  offs.push(bus.on('player:mantle', (e) => {
+    if (!active || !local.alive || !e) return;
+    play(stepSound(null), { gain: 0.45 });
   }));
   // 발판·포털·비밀 스팟 판정과 재발동 대기는 core player(engine/triggers.js)가 한다. 스폰할 때 상태도 거기서 비운다. World는 연출과 보상만 맡는다
   offs.push(bus.on('player:pad', (e) => {
