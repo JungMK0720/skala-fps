@@ -11,7 +11,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { qaInit, richProfile, sleep } from '../kit.mjs';
 
-const MAP_IDS = ['rooftop', 'glasshouse', 'dojo', 'longshot', 'nexus', 'alley', 'relay', 'railyard', 'observatory', 'cqb', 'sorthub', 'lot', 'schoolyard', 'karaoke', 'hanok', 'restarea', 'subway'];
+const MAP_IDS = ['rooftop', 'glasshouse', 'dojo', 'longshot', 'nexus', 'alley', 'relay', 'railyard', 'observatory', 'cqb', 'sorthub', 'lot', 'schoolyard', 'karaoke', 'hanok', 'restarea', 'subway', 'harbortown'];
 const SHEET = { cols: 2, rows: 3, w: 480, h: 270 };
 const DOWN = -Math.PI / 2 + 0.002;
 
@@ -196,6 +196,17 @@ const HAND = {
     view('tunnel-ne', 22, 0, -3, 30.5, 0.4, -9),
     view('transfer-n', 0, 0, -11.5, 0, 1.6, -16),
     view('north-side', -6, 0, -12.5, -20, 1.6, -12.5)
+  ],
+  harbortown: [
+    view('port-cranes', 95.8, 0.03, -4, 112, 6, -70),
+    view('apartments', -42, 0, -90, -100, 6, -96),
+    view('roof-103', -90, 13.2, -76, -116, 13, -78),
+    view('market', -73, 0.03, 0.5, -12, 1.6, 0),
+    view('construction', -84, 0.03, 49, -108, 6, 80),
+    view('frame-top', -92, 12, 60, -116, 11, 60),
+    view('hall', 30, 0.03, 26, 30, 4, 0),
+    view('school-2f', -48, 3.9, 96, -20, 4.5, 96),
+    view('dike', -55, 3, 119.5, 60, 3, 119.5)
   ],
   hanok: [
     view('yard', 0, 0, 2.3, 0, 1.6, -4),

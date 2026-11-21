@@ -451,13 +451,18 @@ test('map index lists every map with rulesets and filters by ruleset', async () 
   const { MAP_IDS, MAPS, MAP_LIST, TEST_MAP, getMap, mapsForRuleset } = index;
   assert.deepEqual([...MAP_IDS], [
     'rooftop', 'glasshouse', 'alley', 'cqb', 'sorthub', 'lot', 'schoolyard', 'karaoke', 'hanok',
-    'longshot', 'dojo', 'nexus', 'jetty', 'tankfarm', 'vlcc', 'relay', 'railyard', 'observatory', 'restarea', 'subway'
+    'longshot', 'dojo', 'nexus', 'jetty', 'tankfarm', 'vlcc', 'relay', 'railyard', 'observatory', 'restarea', 'subway', 'harbortown'
   ]);
   assert.deepEqual(Object.keys(MAPS), [...MAP_IDS]);
   const entry = (id) => MAP_LIST.find((m) => m.id === id);
   // 좀비 물량 막기 전용 맵은 목록 끝에 있고 zombie 표시가 붙는다(다른 맵은 false)
   for (const id of ['restarea', 'subway']) { assert.equal(entry(id).zombie, true, id); assert.equal(entry(id).tag, '좀비 전용', id); }
   assert.equal(entry('alley').zombie, false);
+  // 배틀로얄 전용 맵은 맨 끝에 있고 brOnly 표시가 붙어 규칙별 목록에 나오지 않는다
+  assert.equal(entry('harbortown').brOnly, true);
+  assert.equal(entry('harbortown').tag, '배틀로얄 전용');
+  assert.equal(entry('alley').br, false);
+  for (const r of ['classic', 'knife', 'sniper']) assert.ok(!mapsForRuleset(r).some((m) => m.id === 'harbortown'), r);
   assert.deepEqual(entry('jetty').rulesets, ['classic', 'sniper']);
   assert.deepEqual(entry('dojo').rulesets, ['classic', 'knife', 'sniper']);
   assert.equal(entry('dojo').name, '벚꽃 도장');
