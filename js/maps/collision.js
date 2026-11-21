@@ -21,8 +21,8 @@ export const DECOR_TYPES = Object.freeze([
   'tree', 'bamboo', 'lantern', 'banner', 'rope', 'vent', 'crateStack'
 ]);
 export const PROP_TYPES = Object.freeze(['crate', 'barrel']);
-/** 맵의 modes 칸이 적을 수 있는 모드(ui/dom.js MODE_IDS와 같다). 안 적으면 좀비 물량 막기를 뺀 모든 모드 */
-export const MAP_MODE_NAMES = Object.freeze(['team', 'ffa', 'bomb', 'zombie']);
+/** 맵의 modes 칸이 적을 수 있는 모드(ui/dom.js MODE_IDS + 배틀로얄 'br'). 안 적으면 좀비 물량 막기·배틀로얄을 뺀 모든 모드 */
+export const MAP_MODE_NAMES = Object.freeze(['team', 'ffa', 'bomb', 'zombie', 'br']);
 /** 좀비 전용 맵이 가져야 하는 좀비 문 수(= spawns.charterer) */
 export const MIN_HORDE_GATES = 4;
 
@@ -33,6 +33,23 @@ export const MIN_HORDE_GATES = 4;
 export function isZombieMap(data) {
   return !!(data && !data.fallback && Array.isArray(data.modes) && data.modes.length === 1 && data.modes[0] === 'zombie'
     && data.horde && Array.isArray(data.horde.gates) && data.horde.gates.length > 0);
+}
+
+/**
+ * 배틀로얄 칸(docs/MAP_GUIDE.md 13절) 규칙. 격자는 GRID×GRID 칸(A~H × 1~8)이고, 전리품 자리와 시작 자리는 이보다 적으면 안 된다
+ */
+export const BR_RULES = Object.freeze({ GRID: 8, MIN_LOOT: 100, MIN_SPAWNS: 24, TIERS: Object.freeze(['common', 'rare']) });
+
+/** 배틀로얄 칸이 있는가: 대체 맵이 아니고 br.grid와 비지 않은 br.loot·br.spawns가 있다(자세한 형식 검사는 validateMap과 check-maps가 한다) */
+export function hasBrData(data) {
+  const b = data && !data.fallback ? data.br : null;
+  return !!(b && typeof b === 'object' && b.grid && typeof b.grid === 'object'
+    && Array.isArray(b.loot) && b.loot.length > 0 && Array.isArray(b.spawns) && b.spawns.length > 0);
+}
+
+/** 배틀로얄 전용 맵인가: modes가 'br' 하나뿐이고 br 칸이 있다. 이런 맵은 배틀로얄에서만 고를 수 있다 */
+export function isBrMap(data) {
+  return hasBrData(data) && Array.isArray(data.modes) && data.modes.length === 1 && data.modes[0] === 'br';
 }
 
 /** 보이지 않는 막이. 충돌만 있고 총알·시야는 통과한다 */
@@ -283,6 +300,50 @@ function checkHorde(data, size, warnings) {
   });
 }
 
+const vec2 = (v) => Array.isArray(v) && v.length === 2 && v.every(isNum);
+
+/**
+ * 배틀로얄 칸: 격자(origin = 가장 작은 x,z 모서리, cell m, cols×rows = BR_RULES.GRID)가 플레이 영역을 덮고(빈 띠 2 m까지, 직사각형 맵이면 한쪽 축은 한 칸 안에서 넘쳐도 된다),
+ * 전리품 자리({ pos:[x,y,z], tier })와 시작 자리([x,y,z])가 격자 안이며 수가 모자라지 않는다. 바닥·길 검사는 check-maps가 한다
+ */
+function checkBr(data, size, warnings) {
+  const b = data.br;
+  if (!b || typeof b !== 'object') { warnings.push('br must be an object { grid, loot, spawns }'); return; }
+  if (!(Array.isArray(data.modes) && data.modes.includes('br'))) warnings.push("br: a map with a br block needs 'br' in modes");
+  const g = b.grid;
+  let gx0 = -Infinity, gz0 = -Infinity, gx1 = Infinity, gz1 = Infinity;
+  if (!g || typeof g !== 'object' || !vec2(g.origin) || !isPos(g.cell)) warnings.push('br.grid needs origin [x, z] and cell > 0');
+  else if (+g.cols !== BR_RULES.GRID || +g.rows !== BR_RULES.GRID) warnings.push(`br.grid must be ${BR_RULES.GRID}x${BR_RULES.GRID} (got ${g.cols}x${g.rows})`);
+  else {
+    gx0 = +g.origin[0]; gz0 = +g.origin[1];
+    gx1 = gx0 + g.cell * g.cols; gz1 = gz0 + g.cell * g.rows;
+    if (size) {
+      const gap = 2;   // 격자가 덮지 않아도 되는 가장자리 띠(m)
+      const uncovered = Math.max(gx0 + size.x / 2, size.x / 2 - gx1, gz0 + size.z / 2, size.z / 2 - gz1);
+      const overhang = Math.max(-size.x / 2 - gx0, gx1 - size.x / 2, -size.z / 2 - gz0, gz1 - size.z / 2);
+      if (uncovered > gap) warnings.push(`br.grid (${gx0}..${gx1}, ${gz0}..${gz1}) leaves ${round(uncovered)} m of the map uncovered (max ${gap})`);
+      if (overhang > +g.cell) warnings.push(`br.grid (${gx0}..${gx1}, ${gz0}..${gz1}) reaches ${round(overhang)} m past the map edge (max one cell)`);
+    }
+  }
+  const inGrid = (x, z) => x >= gx0 && x <= gx1 && z >= gz0 && z <= gz1 && !outOfBounds(size, x, z);
+  const loot = Array.isArray(b.loot) ? b.loot : [];
+  if (!Array.isArray(b.loot)) warnings.push('br.loot must be an array');
+  else if (loot.length < BR_RULES.MIN_LOOT) warnings.push(`br.loot: ${loot.length} < ${BR_RULES.MIN_LOOT}`);
+  loot.forEach((l, i) => {
+    const tag = `br.loot[${i}]`;
+    if (!l || !vec3(l.pos)) { warnings.push(`${tag} needs pos [x, y, z]`); return; }
+    if (!BR_RULES.TIERS.includes(l.tier)) warnings.push(`${tag} tier "${l.tier}" must be ${BR_RULES.TIERS.join(' | ')}`);
+    if (!inGrid(+l.pos[0], +l.pos[2])) warnings.push(`${tag} is outside br.grid or the map size`);
+  });
+  const spawns = Array.isArray(b.spawns) ? b.spawns : [];
+  if (!Array.isArray(b.spawns)) warnings.push('br.spawns must be an array');
+  else if (spawns.length < BR_RULES.MIN_SPAWNS) warnings.push(`br.spawns: ${spawns.length} < ${BR_RULES.MIN_SPAWNS}`);
+  spawns.forEach((p, i) => {
+    if (!vec3(p)) warnings.push(`br.spawns[${i}] must be [x, y, z]`);
+    else if (!inGrid(+p[0], +p[2])) warnings.push(`br.spawns[${i}] is outside br.grid or the map size`);
+  });
+}
+
 /**
  * 맵 데이터 검사. 치명적이면 errors(한도 초과 포함), 고칠 수 있으면 warnings.
  * @returns {{ ok:boolean, errors:string[], warnings:string[] }}
@@ -323,6 +384,7 @@ export function validateMap(data) {
     else for (const m of data.modes) if (!MAP_MODE_NAMES.includes(m)) warnings.push(`modes: unknown "${m}"`);
   }
   if (data.horde !== undefined) checkHorde(data, size, warnings);
+  if (data.br !== undefined || (Array.isArray(data.modes) && data.modes.includes('br'))) checkBr(data, size, warnings);
   const ground = data.theme && (data.theme.ground ?? data.theme.floor);
   if (ground !== undefined && ground !== null && ground !== 'none' && !MATS.includes(ground)) warnings.push(`theme.ground unknown "${ground}" → asphalt`);
 

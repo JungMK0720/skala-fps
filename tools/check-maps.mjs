@@ -2,7 +2,7 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 맵 데이터 검사기(npm run check:maps). 게임과 같은 물리 코드로 스폰, 발판 궤적, 포털, 비밀 스팟, 길 찾기, 폭파 미션 구역,
- *          움직이는 지형, 좀비 전용 맵의 좀비 문을 시뮬레이션해 맵 제작 실수를 찾는다. 오류가 있으면 종료 코드 1. 사용법: node tools/check-maps.mjs [맵 id] [--json] [--file 경로]
+ *          움직이는 지형, 좀비 전용 맵의 좀비 문, 배틀로얄 칸(시작 자리·전리품 자리)을 시뮬레이션해 맵 제작 실수를 찾는다. 오류가 있으면 종료 코드 1. 사용법: node tools/check-maps.mjs [맵 id] [--json] [--file 경로]
  */
 import { existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
@@ -13,7 +13,7 @@ import { PAD_HEIGHT_TOL, stepTriggers } from '../js/engine/triggers.js';
 import { moverBox, moverSweep, moverPeakSpeed } from '../js/engine/movers.js';
 import { SITE_IDS, normalizeMission, placeMission, siteAt, siteContains } from '../js/game/mission.js';
 import { NAV_EDGE, buildNavGrid } from '../js/game/navgrid.js';
-import { CROWD, MIN_HORDE_GATES, buildCollision, isZombieMap, missionCrowd, validateMap } from '../js/maps/collision.js';
+import { CROWD, MIN_HORDE_GATES, buildCollision, hasBrData, isBrMap, isZombieMap, missionCrowd, validateMap } from '../js/maps/collision.js';
 import { HORDE } from '../js/game/horde/rules.js';
 
 /** 새 맵 전용 요구 사항(팀 스폰 수, 개인전 스폰 수, 경고를 오류로 취급)을 적용할 id. rulesets가 있는 맵도 같다(테스트 맵 제외) */
@@ -26,6 +26,8 @@ const MIN_SITE_NODES = 16;       // 구역 안 걷기 칸(내비 1 m 칸) 수
 const MISSION_LEAD = 10;         // 수비가 공격보다 이만큼(m) 먼저 구역에 닿아야 한다
 const MISSION_SIDES = ['attack', 'defense'];
 const GATE_MIN_DIST = HORDE.spawnSafeM;   // 좀비 문은 모든 사람 스폰에서 이만큼(m) 떨어진다(방장이 좀비를 세우는 최소 거리와 같다)
+const BR_FLOOR_TOL = 0.35;       // 전리품 자리 y와 실제 바닥의 높이 차 한도(m)
+const BR_SPAWN_GAP = 10;         // 배틀로얄 시작 자리끼리 이보다 가까우면 경고(m)
 
 const PAD_XZ_TOLERANCE = 2;      // 착지와 target의 수평 거리(m)
 const PAD_Y_TOLERANCE = 0.6;     // 착지 바닥과 target의 높이 차(m)
@@ -313,7 +315,7 @@ function isNarrowPerch(world, x, y, z) {
   return drops >= 6;
 }
 
-function checkSpawns(data, col, strict, out, zombie = false) {
+function checkSpawns(data, col, strict, out, zombie = false, brOnly = false) {
   const { world, spawns } = col;
   const severe = strict ? out.errors : out.warnings;
   for (const team of [...TEAM_IDS, 'ffa']) {
@@ -331,8 +333,11 @@ function checkSpawns(data, col, strict, out, zombie = false) {
       }
     });
     if (strict && team !== 'ffa' && list.length < MIN_TEAM_SPAWNS) out.errors.push(`spawns.${team}: ${list.length} < ${MIN_TEAM_SPAWNS}`);
-    if (strict && team === 'ffa' && !zombie && list.length < MIN_FFA_SPAWNS) out.errors.push(`spawns.ffa: ${list.length} < ${MIN_FFA_SPAWNS}`);
+    // 좀비 전용 맵은 개인전이 없고, 배틀로얄 전용 맵의 시작 자리는 br.spawns(팀 스폰 칸에 반씩 나눠 담는다)라 개인전 스폰 수를 보지 않는다
+    if (strict && team === 'ffa' && !zombie && !brOnly && list.length < MIN_FFA_SPAWNS) out.errors.push(`spawns.ffa: ${list.length} < ${MIN_FFA_SPAWNS}`);
   }
+  // 배틀로얄 전용 맵은 팀이 없어서 팀 스폰끼리 보이는지 보지 않는다
+  if (brOnly) return 0;
   const far = col.theme.fog[1];
   const seen = [];
   (spawns[TEAM_IDS[0]] || []).forEach((a, i) => (spawns[TEAM_IDS[1]] || []).forEach((b, j) => {
@@ -397,6 +402,58 @@ export function checkHordeMap(data, col, nav, out) {
     if (!people.some((p) => nav.findPath(g, p, { smooth: false }))) out.errors.push(`horde gate ${i} ${fmt(g.x, g.y, g.z)} cannot reach any player spawn on the navgrid`);
   });
   return { people: people.length, gates: gates.length, nearest: Number.isFinite(nearest) ? r2(nearest) : null, farthest: r2(farthest) };
+}
+
+/**
+ * 배틀로얄 칸(docs/MAP_GUIDE.md 13절, 형식은 maps/collision.js validateMap): 시작 자리마다 사람이 설 수 있고 서로 BR_SPAWN_GAP m 넘게 떨어지며,
+ * 첫 시작 자리에서 내비 길로 다른 시작 자리에 모두 닿는다. 전리품 자리마다 그 높이(BR_FLOOR_TOL 안)에 물이 아닌 바닥이 있고 몸이 들어가며,
+ * 시작 자리에서 내비 길로 닿는다. → { grid, cell, loot, rare, spawns, minGap }
+ */
+export function checkBrMap(data, col, nav, out) {
+  const b = data.br;
+  const { world } = col;
+  const g = b.grid;
+  const starts = b.spawns.filter((p) => Array.isArray(p) && p.length === 3).map(([x, y, z], i) => {
+    const label = `br.spawns[${i}]`;
+    const rest = checkStanding(world, label, +x, +y, +z, out);
+    if (isNarrowPerch(world, rest.x, rest.y, rest.z)) out.errors.push(`${label} ${fmt(x, y, z)}: stands on a narrow top`);
+    if (Math.abs(rest.y - y) > PAD_Y_TOLERANCE) out.errors.push(`${label}: y ${y} was asked for but the floor is at y ${r2(rest.y)}`);
+    return rest;
+  });
+  let minGap = Infinity;
+  starts.forEach((p, i) => {
+    for (let j = 0; j < i; j++) {
+      const q = starts[j];
+      const d = Math.hypot(p.x - q.x, p.z - q.z);
+      minGap = Math.min(minGap, d);
+      if (d < BR_SPAWN_GAP && Math.abs(p.y - q.y) < H) out.warnings.push(`br.spawns[${i}] is ${r2(d)} m from br.spawns[${j}]; keep starts at least ${BR_SPAWN_GAP} m apart`);
+    }
+  });
+  // 길: 첫 시작 자리에서 다른 시작 자리로, 모든 시작 자리에서 전리품 자리로
+  const seedOf = (p) => nav.nodeAt(p, false);
+  const fromFirst = starts.length ? explore(nav, [seedOf(starts[0])], []).seen : new Uint8Array(0);
+  starts.forEach((p, i) => {
+    const n = nodeNear(nav, p.x, p.y, p.z, 1.6);
+    if (n < 0) out.errors.push(`br.spawns[${i}] ${fmt(p.x, p.y, p.z)} has no navgrid node nearby`);
+    else if (!fromFirst[n]) out.errors.push(`br.spawns[${i}] ${fmt(p.x, p.y, p.z)} cannot be reached from br.spawns[0] on the navgrid`);
+  });
+  const reach = explore(nav, starts.map(seedOf), []).seen;
+  let rare = 0;
+  b.loot.forEach((l, i) => {
+    if (!l || !Array.isArray(l.pos)) return;
+    if (l.tier === 'rare') rare++;
+    const [x, y, z] = l.pos.map(Number);
+    const at = `br.loot[${i}] ${fmt(x, y, z)}`;
+    const floor = getGroundY(world, x, z, y + 0.5, 0.05);
+    if (!Number.isFinite(floor) || Math.abs(floor - y) > BR_FLOOR_TOL) { out.errors.push(`${at}: no floor at that height (floor below is at y ${Number.isFinite(floor) ? r2(floor) : 'none'})`); return; }
+    const hit = raycastWorld(world, [x, floor + 0.3, z], [0, -1, 0], 0.8);
+    if (hit && hit.mat === 'water') { out.errors.push(`${at}: lies on water`); return; }
+    if (overlapsCapsule(world, x, floor + STEP, z, R - 0.02, H - STEP)) { out.errors.push(`${at}: a body does not fit there (wall or low ceiling)`); return; }
+    const n = nodeNear(nav, x, floor, z, 1.2);
+    if (n < 0) out.errors.push(`${at}: no navgrid node within 1.2 m`);
+    else if (!reach[n]) out.errors.push(`${at}: cannot be reached from any br spawn on the navgrid`);
+  });
+  return { grid: `${g.cols}x${g.rows}`, cell: +g.cell, loot: b.loot.length, rare, spawns: starts.length, minGap: Number.isFinite(minGap) ? r2(minGap) : null };
 }
 
 function checkProps(data, world, out) {
@@ -644,11 +701,11 @@ export function checkMission(data, nav, out = { errors: [], warnings: [] }, col 
 
 /**
  * 맵 데이터 하나를 검사한다.
- * @returns {{id, strict, ok, errors, warnings, counts, nav, pads, secrets, los, mission}} mission은 checkMission 결과(없으면 null)
+ * @returns {{id, strict, ok, errors, warnings, counts, nav, pads, secrets, los, mission, br}} mission은 checkMission 결과, br은 checkBrMap 결과(없으면 null)
  */
 export function checkMap(id, data) {
   const strict = !EXEMPT_MAPS.has(id) && (NEW_MAPS.has(id) || Array.isArray(data && data.rulesets));
-  const out = { id, strict, ok: false, errors: [], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null, movers: [], horde: null };
+  const out = { id, strict, ok: false, errors: [], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null, movers: [], horde: null, br: null };
   const zombie = isZombieMap(data);
   const v = validateMap(data);
   out.errors.push(...v.errors);
@@ -664,13 +721,14 @@ export function checkMap(id, data) {
     owner: col.spawns.owner.length, charterer: col.spawns.charterer.length, ffa: col.spawns.ffa.length
   };
 
-  out.los = checkSpawns(data, col, strict, out, zombie);
+  out.los = checkSpawns(data, col, strict, out, zombie, isBrMap(data));
   // 좀비 방은 4명까지라 16인방 보조 자리가 필요 없다
   out.counts.crowd = EXEMPT_MAPS.has(id) || zombie ? null : checkCrowd(col, out);
   const nav = checkWalkability(data, col, out);
   out.nav = { nodes: nav.info.nodes, good: nav.info.good, ms: Math.round(nav.info.buildMs) };
   out.mission = checkMission(data, nav, out, col);
   if (zombie) out.horde = checkHordeMap(data, col, nav, out);
+  if (hasBrData(data)) out.br = checkBrMap(data, col, nav, out);
   out.movers = checkMovers(data, col, out);
   checkProps(data, world, out);
 
@@ -757,7 +815,7 @@ function printMission(m) {
 
 function printDetails(reports) {
   for (const r of reports) {
-    if (!r.errors.length && !r.warnings.length && !r.pads.length && !r.secrets.length && !r.mission && !r.movers.length && !r.horde) continue;
+    if (!r.errors.length && !r.warnings.length && !r.pads.length && !r.secrets.length && !r.mission && !r.movers.length && !r.horde && !r.br) continue;
     console.log(`\n[${r.id}]${r.strict ? ' (new-map rules)' : ''}`);
     for (const p of r.pads) {
       console.log(p.landing
@@ -767,6 +825,7 @@ function printDetails(reports) {
     for (const s of r.secrets) console.log(`  secret ${s.id}: ${s.via ? `via ${s.via}` : 'unreachable'}`);
     if (r.mission) printMission(r.mission);
     if (r.horde) console.log(`  horde: 사람 스폰 ${r.horde.people} · 좀비 문 ${r.horde.gates} · 사람에서 가장 가까운 문 ${r.horde.nearest} m, 가장 먼 문 ${r.horde.farthest} m`);
+    if (r.br) console.log(`  br: 격자 ${r.br.grid} · 칸 ${r.br.cell} m · 전리품 ${r.br.loot}(희귀 ${r.br.rare}, ${Math.round((r.br.rare / Math.max(1, r.br.loot)) * 100)}%) · 시작 ${r.br.spawns}, 가장 가까운 두 시작 자리 ${r.br.minGap} m · 내비 ${r.nav ? `${r.nav.nodes}칸 ${r.nav.ms} ms` : '-'}`);
     for (const m of r.movers) {
       console.log(m.door
         ? `  door ${m.id}: ${m.axis} ${m.dist > 0 ? '+' : ''}${m.dist} m, opens within ${m.door.range} m in ${m.door.open} s, closes in ${m.door.close} s once nobody has been near for ${m.door.linger} s`
@@ -810,11 +869,11 @@ async function main() {
   const args = process.argv.slice(2);
   const targets = await loadTargets(args);
   const reports = targets.map((t) => {
-    if (t.error) return { id: t.id, strict: true, ok: false, errors: [t.error], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null, movers: [], horde: null };
+    if (t.error) return { id: t.id, strict: true, ok: false, errors: [t.error], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null, movers: [], horde: null, br: null };
     try {
       return checkMap(t.id, t.data);
     } catch (err) {
-      return { id: t.id, strict: true, ok: false, errors: [`checker crashed: ${err && err.stack ? err.stack : err}`], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null, movers: [], horde: null };
+      return { id: t.id, strict: true, ok: false, errors: [`checker crashed: ${err && err.stack ? err.stack : err}`], warnings: [], counts: null, nav: null, pads: [], secrets: [], los: 0, mission: null, movers: [], horde: null, br: null };
     }
   });
   const ok = reports.length > 0 && reports.every((r) => !r.errors.length);
