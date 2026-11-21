@@ -171,6 +171,7 @@ import {
 - `category`는 상점 탭이다: `'rifle'|'sniper'|'smg'|'pistol'|'melee'|'grenade'`. 지정사수(`dm_mark`)는 `rifle`, 샷건(`sg_bx12`)은 `smg`.
 - 점사 무기의 `fireInterval`은 점사가 끝난 뒤 쉬는 시간이고, `rpm`은 쉬는 시간까지 넣은 실효 연사다.
 - `PRIMARY_IDS`는 슬롯 1 무기 전부다(표 순서). `SECONDARY_IDS`는 슬롯 2, `MELEE_IDS`는 슬롯 3, `GRENADE_IDS`는 슬롯 4.
+- 투척 칸 4에는 기본 수류탄 `gr_frag`(무료) 말고 상점 물건 `gr_smoke`(M-7 연막탄)·`gr_flash`(FL-9 섬광탄)가 있다. 두 정의의 `throwable`(`'smoke'`·`'flash'`)이 효과 종류이고 피해는 없다(`explosion.max` 0). 던지기·물리는 수류탄과 같고, 신관이 다 되면 World가 `grenade.js PROJECTILES`의 `smoke`·`flash` 종류로 터뜨린다. 판정(연기 시선 차단 `createSmokeField`, 섬광 세기 `flashIntensity`)은 `weapons/tactical.js`(순수 모듈, `tests/tactical.test.mjs`).
 - `DEFAULT_LOADOUT = { primary: 'ar_std', secondary: 'pt_std', melee: 'ml_knife' }`
 - `PREMIUM_PRICE`, `isPremium(id)`: 프리미엄 기준과 판정. 표의 `premium`은 `gun()`이 가격으로 정한다(정의에 `premium: false`를 적으면 가격과 관계없이 아니다)
 

@@ -71,6 +71,8 @@ const world = await createWorld({ root, ui, settings, ctx });
 | `weaponPick` | `{ dropId, weaponId }` | 주무기 탄약이 다 떨어져 닿은 총을 주웠다. 총은 이미 슬롯 1에 들어갔다 |
 | `grenade` | `{ id, grenadeId, pos:[x,y,z], vel:[x,y,z], fuse, t, kind }` | 로컬 투척 직후 — 원격은 `actorGrenade(payload)`로 같은 궤적 재생 |
 | `explosion` | `{ ownerId, local, grenadeId, center:{x,y,z}, victims:[{ id, dmg, dist }] }` | **모든** 수류탄 폭발(엄폐·거리 감쇠 끝난 값, 로컬 플레이어 포함). 멀티는 `local:true`만 `match.claimExplosion({ attackerId: ownerId, center, victims })`, 연습장은 전부 |
+| `smoke` | `{ ownerId, id, pos:[x,y,z] }` | 연막탄(`gr_smoke`, 종류 `smoke`) 신관이 다 됐다 — 그 자리에 연기 구름(14초). 피해 없음(`explosion`을 내지 않는다). 시선 판정은 `smokeBlocks` |
+| `flash` | `{ ownerId, id, pos:[x,y,z] }` | 섬광탄(`gr_flash`, 종류 `flash`)이 터졌다 — 내 눈은 World가 이미 판정했다(하얀 화면·귀울림). 연습장은 봇마다 `weapons/tactical.js flashIntensity`로 눈을 멀게 한다 |
 | `localDeath` | `{ id, info }` | `killLocal` 직후 |
 | `multiKill` | `{ count, id }` | `noteKill`이 연속 킬(2킬 이상)을 띄웠을 때. `id`는 `double`~`hexa`, 7킬부터 `legend` |
 | `loadoutPick` | `{ id, auto }` | UI 로드아웃에서 골랐을 때(World가 arsenal에 먼저 반영하고, `auto:false`면 같은 클릭 안에서 포인터 잠금) |
@@ -137,6 +139,8 @@ await world.loadMap(mapId, { mode, ruleset });
 | `setQuickRespawn({ cost, ok } \| null)` | 개인전 즉시 부활(MODES.md 10절). 부활 대기 패널에 "[E] 즉시 부활 · cost P"(`hud.respawn.quick = { cost, ok, touch }`)를 띄우고 E(`input:use`)를 받는다. 휴대폰은 `touch:use { on, label: '부활' }`로 버튼을 보인다(죽은 동안 아래 가운데, 발사 버튼 자리는 피한다). `ok:false`(포인트 부족)면 안내만 바뀌고 E는 알림만. 부활까지 0.7초 넘게 남았을 때만 받는다. 이벤트 `quickRespawn { cost }`로 요청을 내보내고(1.5초 안에 다시 누른 것은 무시), 확정·결제는 부르는 쪽이 한다. `spawnLocal`·`loadMap`·`unloadMap`이 지운다 |
 | `setProtect(ms \| true \| false)` | 내 보호 표시를 직접 켜고 끈다(스냅샷 `protect`를 따를 때) |
 | `setActorProtect(id, ms \| true \| false)` | 다른 사람 보호 표시 — 이름표에 🛡(적은 이름 없이 🛡만, MODES.md 11절), 시간이 지나면 저절로 꺼짐. `setActorState(id, { protect: bool })`로 줘도 된다 |
+| `setActorBlind(id, ms)` | 연습장 봇이 섬광에 눈이 멀었다 — 이름표에 💫(적도 보인다), ms 뒤 저절로 꺼짐. 0이면 끈다 |
+| `smokeBlocks(a, b)` | a→b 시선이 지금 연막탄 연기에 막히는가(벽은 보지 않는다). 연습장 봇 시야(`view.sight`)가 쓴다 |
 | `setRound({ mode:'ffa', phase, timeLeftMs, kills, rank, total, leaderName, leaderKills, target })` | FFA HUD 점수(평평한 필드 또는 `score:{...}`, 일부만 줘도 이전 값 유지) → `hud.score = { mode:'ffa', ... }`, `roundTime` = 경기 남은 시간. FFA에선 `alive`·`teamSize`를 쓰지 않는다 |
 | `setActorState(id, { crouch })` | 앉은 자세(core 아바타) + **앉은 히트박스**로 판정(`getTargets()`의 대상에 `crouch:true` — core가 안 실으면 World가 채움) + 원격 발소리 작게(1.6 m마다, Shift 걷기는 무음) |
 | `getLocalState().crouch` | 내 앉기 상태(sync → `FLAG.crouch`) |

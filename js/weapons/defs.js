@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 무기 17종과 수류탄(+ 좀비 모드 전용 3종)의 수치·표시 정보, 데미지 계산의 유일한 구현(computeDamage)을 둔다.
+ * Purpose: 무기 17종과 수류탄·연막탄·섬광탄(+ 좀비 모드 전용 3종)의 수치·표시 정보, 데미지 계산의 유일한 구현(computeDamage)을 둔다.
  *          three.js·엔진·DOM에 의존하지 않아 node 테스트와 방장 판정에서 그대로 import한다.
  */
 
@@ -1180,6 +1180,61 @@ const WEAPON_TABLE = {
     projectile: { kind: 'bolt', speed: 40, pitchUp: 0.03, fuse: 3.0 },
     explosion: { radius: 8, inner: 8, max: 100 },   // radius는 튀는 거리 표기용. 피해는 맞은 좀비마다 max(폭발 반경 피해는 없다)
   }),
+
+  // ───────────── 전술 투척(모든 모드, 상점 판매). 피해는 없고 throwable 종류로 효과가 갈린다(weapons/tactical.js) ─────────────
+  // 물리·투척·굴리기는 수류탄과 같다. 신관이 다 되면 연막은 구름을 펼치고, 섬광은 시선·거리만큼 눈을 멀게 한다.
+  gr_smoke: {
+    id: 'gr_smoke', slot: 4, kind: 'grenade', category: 'grenade', fire: 'throw', price: 300, throwable: 'smoke',
+    name: 'M-7 연막탄', nameEn: 'M-7 Smoke', short: 'M-7', role: '시야 차단', roleEn: 'Vision Block',
+    icon: '🌫️', color: '#8f9a8a', sound: 'grenade_pin', fxKind: null,
+    tagline: '두꺼운 연기 벽으로 길을 가린다.', taglineEn: 'Wall off a lane with thick smoke.',
+    desc: '떨어진 자리에서 1.5초 뒤 반경 6 m 연기 구름이 14초 동안 피어오른다. 사람도 봇도 연기 너머를 볼 수 없다. 피해는 없다.', descEn: 'After 1.5s it spreads a 6 m smoke cloud that lasts 14s. Neither players nor bots can see through it. Deals no damage.',
+    stats: [
+      { label: '투척', labelEn: 'Throw', value: '누르고 떼기 · 16 m/s', valueEn: 'Hold & release · 16 m/s' }, { label: '굴리기', labelEn: 'Roll', value: '우클릭', valueEn: 'Right-click' },
+      { label: '연기', labelEn: 'Cloud', value: '1.5초 뒤 · 반경 6 m · 14초', valueEn: '1.5s fuse · 6 m radius · 14s' }, { label: '효과', labelEn: 'Effect', value: '시야 차단 · 피해 없음', valueEn: 'Blocks sight · no damage' }, { label: '수량', labelEn: 'Count', value: '1개', valueEn: '1' },
+    ],
+    bars: { power: 5, rate: 5, accuracy: 40, mobility: 85 },
+    damage: null, falloff: null,
+    explosion: { radius: 0, inner: 0, max: 0 },   // 폭발 피해 없음(방장 표의 explosive 칸 모양만 맞춘다)
+    count: 1,
+    fuse: 1.5,
+    throw: { speed: 16, pitchUp: 6 },
+    lob: { speed: 8, pitchUp: 4 },
+    physics: { gravity: -12 },
+    primeTime: 0.25,
+    throwRecover: 0.35,
+    maxRange: 6,
+    rpm: 100, fireInterval: 0.6,
+    mag: null, reserve: null, reload: null,
+    drawTime: 0.5, moveMul: 1.0,
+    spread: null, recoil: null, zoom: null,
+  },
+  gr_flash: {
+    id: 'gr_flash', slot: 4, kind: 'grenade', category: 'grenade', fire: 'throw', price: 400, throwable: 'flash',
+    name: 'FL-9 섬광탄', nameEn: 'FL-9 Flashbang', short: 'FL-9', role: '눈부심', roleEn: 'Blinding',
+    icon: '✨', color: '#e8edf2', sound: 'grenade_pin', fxKind: null,
+    tagline: '터지는 쪽을 본 적은 잠시 아무것도 못 본다.', taglineEn: 'Anyone looking at the blast sees nothing for a moment.',
+    desc: '1.6초 뒤 강한 빛과 소리로 터진다. 바라본 채 가까이 있으면 최대 3초 동안 화면이 하얗게 되고 귀가 울린다. 등을 돌리거나 멀면 짧아지고, 벽 뒤는 안전하다. 봇도 눈이 먼다.', descEn: 'Bursts with blinding light and sound after 1.6s. Up close and facing it, you are whited out with ringing ears for up to 3s. Turning away or distance shortens it, and walls block it. Bots are blinded too.',
+    stats: [
+      { label: '투척', labelEn: 'Throw', value: '누르고 떼기 · 16 m/s', valueEn: 'Hold & release · 16 m/s' }, { label: '굴리기', labelEn: 'Roll', value: '우클릭', valueEn: 'Right-click' },
+      { label: '섬광', labelEn: 'Flash', value: '1.6초 뒤 · 최대 3초 실명', valueEn: '1.6s fuse · up to 3s blind' }, { label: '피하기', labelEn: 'Avoid', value: '등 돌리기 · 거리 · 벽', valueEn: 'Look away · distance · walls' }, { label: '수량', labelEn: 'Count', value: '1개', valueEn: '1' },
+    ],
+    bars: { power: 10, rate: 5, accuracy: 40, mobility: 85 },
+    damage: null, falloff: null,
+    explosion: { radius: 0, inner: 0, max: 0 },
+    count: 1,
+    fuse: 1.6,
+    throw: { speed: 16, pitchUp: 6 },
+    lob: { speed: 8, pitchUp: 4 },
+    physics: { gravity: -12 },
+    primeTime: 0.25,
+    throwRecover: 0.35,
+    maxRange: 6,
+    rpm: 100, fireInterval: 0.6,
+    mag: null, reserve: null, reload: null,
+    drawTime: 0.5, moveMul: 1.0,
+    spread: null, recoil: null, zoom: null,
+  },
 };
 
 function deepFreeze(o) {

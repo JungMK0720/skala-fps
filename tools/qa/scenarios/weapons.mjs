@@ -243,6 +243,131 @@ async function grenadeCheck(t, page) {
   await page.waitFor('__qa.arsenal.getWeapon().id !== "gr_frag"', 5000, { label: '던진 뒤 무기로 돌아옴' });
 }
 
+/** 페이지에서: 서로 보이는 두 자리(나 · 봇) 중 minDist 이상에서 가장 가까운 쌍. 바닥이 이어진 곳만 */
+function openLane(minDist) {
+  const c = window.__qa.ctx, w = c.world, P = c.physics, size = c.map.data.size;
+  const spots = [];
+  for (let x = -size.x / 2 + 3; x < size.x / 2 - 2; x += 3) {
+    for (let z = -size.z / 2 + 3; z < size.z / 2 - 2; z += 3) {
+      const y = P.getGroundY(w, x, z, Infinity, 0.4);
+      if (!Number.isFinite(y) || y < -5 || y > 25 || !window.__qa.clearOfTriggers(x, z) || P.overlapsCapsule(w, x, y + 0.02, z, 0.4, 1.9)) continue;
+      spots.push({ x, y, z });
+    }
+  }
+  let best = null;
+  for (const a of spots) {
+    for (const b of spots) {
+      const dist = Math.hypot(a.x - b.x, a.z - b.z);
+      if (dist < minDist || Math.abs(a.y - b.y) > 0.3 || (best && dist >= best.dist)) continue;
+      let flat = true;   // 가운데 바닥도 같은 높이(굴린 투척이 길에 멈춘다)
+      for (const k of [0.25, 0.5, 0.75]) {
+        const gy = P.getGroundY(w, a.x + (b.x - a.x) * k, a.z + (b.z - a.z) * k, a.y + 1, 0.4);
+        if (!Number.isFinite(gy) || Math.abs(gy - a.y) > 0.3) flat = false;
+      }
+      if (flat && P.lineOfSight(w, [a.x, a.y + 1.6, a.z], [b.x, b.y + 1.62, b.z]) && P.lineOfSight(w, [a.x, a.y + 0.3, a.z], [b.x, b.y + 0.3, b.z])) best = { a, b, dist };
+    }
+  }
+  return best;
+}
+/** 페이지에서: 나를 a에, 봇을 b에 세우고 서로 마주 보게 한다 */
+function stageLane({ a, b }) {
+  const qa = window.__qa;
+  qa.teleport(a.x, a.y, a.z, Math.atan2(-(b.x - a.x), -(b.z - a.z)));
+  qa.placeBot(0, b.x, b.y, b.z, Math.atan2(-(a.x - b.x), -(a.z - b.z)));
+  return true;
+}
+/** 페이지에서: 봇 쪽으로 d m 앞 바닥을 본다(back이면 반대쪽) */
+function aimGround({ d, back }) {
+  const qa = window.__qa, p = qa.ctx.player.state.pos, b = qa.run.bots[0].body.pos;
+  const dx = b[0] - p[0], dz = b[2] - p[2], L = Math.hypot(dx, dz) || 1, s = back ? -1 : 1;
+  qa.aimAt([p[0] + (dx / L) * d * s, p[1] + (back ? 1.6 : 0), p[2] + (dz / L) * d * s]);
+  return true;
+}
+const EYES = `(() => { const qa = __qa, b = qa.run.bots[0].body.pos; return { me: qa.ctx.player.getEye(), bot: [b[0], b[1] + 1.6, b[2]] }; })()`;
+
+/** 연막탄·섬광탄: 진짜 로드아웃 줄로 쥐고 굴려 던져, 연기가 나와 봇 사이를 막았다 걷히고 섬광이 내 화면과 봇의 눈을 멀게 하는지 본다 */
+async function tacticalCheck(t, page) {
+  t.setSection('연막탄');
+  const lane = await page.fn(openLane, 14);
+  t.check(!!lane, '연막탄 시험 자리(서로 보이는 14 m 이상 평지)', lane);
+  if (!lane) return;
+  await page.fn(stageLane, lane);
+  await waitTicks(page, 6);
+  await pickThroughLoadout(t, page, 'gr_smoke');
+  await t.shot('smoke-held');
+  const clearBefore = await page.eval(`(() => { const e = ${EYES}; return !__qa.world.smokeBlocks(e.me, e.bot); })()`);
+  t.check(clearBefore, '던지기 전에는 봇이 보인다');
+  await page.fn(aimGround, { d: 3 });
+  await page.eval('__qa.clearLogs()');
+  await clickFire(page, 2, 2);
+  await page.waitFor(`__qa.worldEvents.some((e) => e.evt === 'grenade' && e.kind === 'smoke')`, 3000, { label: '연막탄 던짐' });
+  await page.waitFor(`__qa.worldEvents.some((e) => e.evt === 'smoke')`, 6000, { intervalMs: 50, label: '연기 구름' });
+  t.check((await page.eval(`__qa.worldEvents.filter((e) => e.evt === 'explosion').length`)) === 0, '연막탄은 폭발 피해를 내지 않는다');
+  await sleep(2600);
+  const blocked = await page.eval(`(() => { const e = ${EYES}; return __qa.world.smokeBlocks(e.me, e.bot); })()`);
+  t.check(blocked, '연기가 나와 봇 사이의 시선을 막는다');
+  t.check((await page.eval('__qa.world.internals.tfx.cloudCount')) === 1, '연기 구름이 하나 그려진다');
+  await page.fn(() => { const qa = window.__qa; return qa.aimAt(qa.partPoint(qa.run.bots[0].id, 'head')); });
+  await waitTicks(page, 3);
+  await t.shot('smoke-blocks-bot');
+  // 봇을 풀어도 연기 너머의 나를 쏘지 못한다
+  await page.eval('__qa.clearLogs(); __qa.unfreezeBots()');
+  await sleep(2500);
+  const hits = await page.eval(`__qa.match.filter((e) => e.type === 'damage' && e.victim === __qa.world.localId).length`);
+  const botFire = await page.eval(`__qa.run.bots[0].brain.stats.shots`);
+  await page.eval('__qa.freezeBots()');
+  t.check(hits === 0, '봇은 연기 너머의 나를 맞히지 못한다', { hits, botFire });
+  await page.waitFor('__qa.world.internals.smoke.count === 0', 16000, { intervalMs: 200, label: '연기가 걷힘' });
+  await page.fn(stageLane, lane);
+  await waitTicks(page, 6);
+  const clearAfter = await page.eval(`(() => { const e = ${EYES}; return !__qa.world.smokeBlocks(e.me, e.bot); })()`);
+  t.check(clearAfter, '연기가 걷히면 다시 보인다');
+  t.errorsOk('연막탄');
+
+  t.setSection('섬광탄');
+  await pickThroughLoadout(t, page, 'gr_flash');
+  await t.shot('flash-held');
+  await page.fn(aimGround, { d: 3 });
+  await page.eval('__qa.clearLogs()');
+  await clickFire(page, 2, 2);
+  await page.waitFor(`__qa.worldEvents.some((e) => e.evt === 'grenade' && e.kind === 'flash')`, 3000, { label: '섬광탄 던짐' });
+  await page.fn(aimGround, { d: 3 });   // 터지는 쪽을 본다
+  await page.waitFor(`__qa.worldEvents.some((e) => e.evt === 'flash')`, 6000, { intervalMs: 20, label: '섬광' });
+  await waitTicks(page, 3);
+  const white = await page.eval('__qa.world.internals.tfx.blindAmount()');
+  t.check(white >= 0.6, '바라본 섬광은 화면을 하얗게 만든다', { white });
+  await t.shot('flash-whiteout');
+  const botBlind = await page.eval(`(() => { const b = __qa.run.bots[0], a = __qa.world.internals.actors.get(b.id); return { until: b.blindUntil, badge: !!a && a.blindUntil > performance.now() }; })()`);
+  t.check(botBlind.until > 0 && botBlind.badge, '마주 본 봇도 눈이 먼다(💫)', botBlind);
+  t.check((await page.eval(`__qa.worldEvents.filter((e) => e.evt === 'explosion').length`)) === 0, '섬광탄은 폭발 피해를 내지 않는다');
+  await page.waitFor('__qa.world.internals.tfx.blindAmount() === 0', 5000, { intervalMs: 50, label: '하얀 화면이 걷힘' });
+
+  // 등을 돌린 채 터지면 나는 거의 멀쩡하고, 봇은 눈이 먼다
+  await page.fn(stageLane, lane);
+  await waitTicks(page, 6);
+  await page.eval('__qa.arsenal.giveGrenade(1)');
+  await page.press('Digit4');
+  await page.waitFor('__qa.arsenal.getWeapon().id === "gr_flash"', 3000, { label: '섬광탄 다시 들기' });
+  await waitIdle(page);
+  await page.fn(aimGround, { d: 3 });
+  await page.eval('__qa.clearLogs()');
+  await clickFire(page, 2, 2);
+  await page.waitFor(`__qa.worldEvents.some((e) => e.evt === 'grenade' && e.kind === 'flash')`, 3000, { label: '섬광탄 던짐(2)' });
+  await page.fn(aimGround, { d: 6, back: true });
+  await page.waitFor(`__qa.worldEvents.some((e) => e.evt === 'flash')`, 6000, { intervalMs: 20, label: '섬광(2)' });
+  await waitTicks(page, 3);
+  const away = await page.eval('__qa.world.internals.tfx.blindAmount()');
+  t.check(away < 0.6, '등을 돌리면 덜 하얗다', { away, facing: white });
+  await sleep(450);
+  await page.fn(() => { const qa = window.__qa; return qa.aimAt(qa.partPoint(qa.run.bots[0].id, 'head')); });
+  await waitTicks(page, 3);
+  const still = await page.eval(`(() => { const b = __qa.run.bots[0], a = __qa.world.internals.actors.get(b.id); return !!a && a.blindUntil > performance.now(); })()`);
+  t.check(still, '돌아보면 봇은 아직 눈이 멀어 있다(💫)');
+  await t.shot('bot-blinded');
+  await page.eval(`__qa.world.setLocalLoadout('gr_frag')`);
+  t.errorsOk('섬광탄');
+}
+
 async function switchCheck(t, page) {
   t.setSection('무기 교체');
   await page.eval('__qa.arsenal.giveGrenade(1)');
@@ -270,6 +395,15 @@ export default {
   timeoutMs: 15 * 60 * 1000,
   async run(t) {
     // 좀비 전용 무기(유탄 발사기·바주카포, defs zombieOnly)는 장비 화면에 없고 좀비 모드 증강으로만 얻는다(zombie 시나리오가 본다)
+    // --filter throwables: 투척(수류탄·연막탄·섬광탄)만 본다
+    if (t.filter === 'throwables') {
+      const page = await startMatch(t, 'sandbox=alley&mode=ffa&ruleset=classic&bots=1&killtarget=50');
+      await pickThroughLoadout(t, page, 'ar_std');
+      await grenadeCheck(t, page);
+      await tacticalCheck(t, page);
+      t.errorsOk('투척');
+      return;
+    }
     const guns = [...PRIMARY_IDS, ...SECONDARY_IDS].filter((id) => !WEAPONS[id].zombieOnly && (!t.filter || id.includes(t.filter)));
     let page = await startMatch(t, 'sandbox=alley&mode=ffa&ruleset=classic&bots=1&killtarget=50');
     let count = 0;
@@ -298,6 +432,7 @@ export default {
     await grenadeCheck(t, page);
     await switchCheck(t, page);
     t.errorsOk('수류탄과 교체');
+    await tacticalCheck(t, page);
 
     t.setSection('칼전은 다른 슬롯을 막는다');
     page = await startMatch(t, 'sandbox=dojo&mode=ffa&ruleset=knife&bots=1&killtarget=50');

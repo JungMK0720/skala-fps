@@ -293,6 +293,30 @@ export default {
     await page.waitFor('!document.querySelector(".sk-sheet")', 2000, { label: '시트 닫힘' });
     t.errorsOk('연습장 시트');
 
+    t.setSection('상점: 투척무기(연막탄·섬광탄)');
+    page = await openGame(t, '', { profile: { nickname: NICK, points: 1000, createdAt: 1 }, settings: LOW_QUALITY, screen: 'menu' });
+    await page.waitFor('__qa.ui.isVisible("menu")', 5000, { label: '메뉴' });
+    await page.clickText('.sk-menu-btn--sub', '무기고');
+    await page.waitFor('__qa.ui.isVisible("shop")', 3000, { label: '상점' });
+    await page.clickText('.sk-shop .sk-tab', '투척무기');
+    const throwCard = (name) => `.sk-shop-card[aria-label="${name}"]`;
+    const throwNames = await page.eval(`[...document.querySelectorAll('.sk-shop-grid .sk-shop-card')].map((c) => c.getAttribute('aria-label'))`);
+    t.check(throwNames.join() === '수류탄,M-7 연막탄,FL-9 섬광탄', '투척무기 · 수류탄 탭에 수류탄·연막탄·섬광탄', throwNames);
+    t.check((await textOf(page, `${throwCard('M-7 연막탄')} .sk-shop-action`)) === '구매 300 P', '연막탄 300 P');
+    t.check((await textOf(page, `${throwCard('FL-9 섬광탄')} .sk-shop-action`)) === '구매 400 P', '섬광탄 400 P');
+    t.check(await page.eval(`document.querySelector('${throwCard('수류탄')} .sk-shop-action').hidden`), '기본 수류탄은 장착 중이라 버튼이 없다');
+    await t.shot('shop-throwables');
+    await page.click(`${throwCard('M-7 연막탄')} .sk-shop-action`);
+    await page.waitFor(`document.querySelector('.sk-shop .sk-points-val').textContent === '700 P'`, 2000, { label: '연막탄 구매' });
+    t.check((await textOf(page, `${throwCard('M-7 연막탄')} .sk-shop-action`)) === '장착', '산 연막탄은 장착 버튼');
+    await page.click(`${throwCard('M-7 연막탄')} .sk-shop-action`);
+    await page.waitFor(`__qa.ctx.account.loadout.grenade === 'gr_smoke'`, 2000, { label: '연막탄 장착' });
+    t.check((await textOf(page, `${throwCard('수류탄')} .sk-shop-action`)) === '장착', '기본 수류탄으로 되돌리는 장착 버튼이 보인다');
+    await t.shot('shop-throwables-equipped');
+    await page.click(`${throwCard('수류탄')} .sk-shop-action`);
+    await page.waitFor(`__qa.ctx.account.loadout.grenade === 'gr_frag'`, 2000, { label: '수류탄으로 되돌림' });
+    await page.click('.sk-shop .sk-btn--ghost');
+
     t.setSection('상점: 이모트 휠');
     page = await openGame(t, '', { profile: { nickname: NICK, points: 1000, createdAt: 1 }, settings: LOW_QUALITY, screen: 'menu' });
     await page.waitFor('__qa.ui.isVisible("menu")', 5000, { label: '메뉴' });

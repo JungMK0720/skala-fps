@@ -417,6 +417,13 @@ export function createBot(opts = {}) {
     if (nav && typeof nav.raycast === 'function') return nav.raycast(LA, LB);
     return true;
   }
+  /** '보기' 시선: view.sight(벽 + 연막탄 연기)가 있으면 그것, 없으면 los. 걷기·엄폐 찾기는 los(벽만)를 쓴다 */
+  function sees(ax, ay, az, bx, by, bz) {
+    if (!view || typeof view.sight !== 'function') return los(ax, ay, az, bx, by, bz);
+    losCalls++;
+    setDual(LA, ax, ay, az); setDual(LB, bx, by, bz);
+    try { return losClear(view.sight(LA, LB)); } catch (e) { return false; }
+  }
   /** 적 하나가 지금 보이는가 (시야각 + 시선) */
   function sightRange() {
     let r = D.sightRange * sightMul;
@@ -424,8 +431,9 @@ export function createBot(opts = {}) {
     if (fog && isNum(fog[1]) && fog[1] > 10) r = Math.min(r, fog[1] * 0.8);
     return r;
   }
-  /** 적이 보이는가: 0 = 안 보임, 1 = 몸통 보임, 2 = 머리만 보임. ck = 상대 앉은 정도(0..1) */
+  /** 적이 보이는가: 0 = 안 보임, 1 = 몸통 보임, 2 = 머리만 보임. ck = 상대 앉은 정도(0..1). 섬광에 눈이 멀었으면(view.self.blind) 아무도 안 보인다 */
   function canSee(ep, ck) {
+    if (view && view.self && view.self.blind) return 0;
     const dx = ep.x - eye.x, dz = ep.z - eye.z, dXZ = hyp2(dx, dz);
     if (dXZ > sightRange()) return 0;
     if (dXZ > 0.8) {
@@ -434,8 +442,8 @@ export function createBot(opts = {}) {
       const elev = Math.atan2(ep.y + crouchY(BODY_Y, ck) - eye.y, dXZ);
       if (Math.abs(elev - pitch) > FOV_V / 2 + 0.25) return 0;
     }
-    if (los(eye.x, eye.y, eye.z, ep.x, ep.y + crouchY(BODY_Y, ck), ep.z)) return 1;
-    return los(eye.x, eye.y, eye.z, ep.x, ep.y + crouchY(HEAD_Y, ck), ep.z) ? 2 : 0;
+    if (sees(eye.x, eye.y, eye.z, ep.x, ep.y + crouchY(BODY_Y, ck), ep.z)) return 1;
+    return sees(eye.x, eye.y, eye.z, ep.x, ep.y + crouchY(HEAD_Y, ck), ep.z) ? 2 : 0;
   }
   const _ep = { x: 0, y: 0, z: 0 };
   function perceive(enemies, full) {

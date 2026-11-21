@@ -36,7 +36,8 @@ const inp = brain.think(dt, {
     recoil: arsenal.getRecoilKick(),                      // { yaw, pitch } 카메라에 더해지는 반동 (반동 보정용)
     grenades: arsenal.getAmmo('gr_frag').mag,              // 남은 수류탄
     vel: body.vel,
-    crouch: player.state.crouch                           // 봇이 지금 앉아 있나(bool|0..1) → 눈높이 1.1. 주면 '앉아서 숨는 낮은 엄폐'도 쓴다
+    crouch: player.state.crouch,                          // 봇이 지금 앉아 있나(bool|0..1) → 눈높이 1.1. 주면 '앉아서 숨는 낮은 엄폐'도 쓴다
+    blind: false                                          // 섬광에 눈이 멀었나(true면 아무 적도 보지 못한다 → 쏘지 않는다, MODES.md 연막탄·섬광탄)
   },
   enemies: [{ id, pos, alive, crouch?, protect? }],       // 적 '전원'을 넘긴다 — 봇이 시야각·시야선으로 직접 거른다
                                                           // crouch: 앉은 상대(true|0..1) → 머리 1.12·몸통 0.6~1.05로 낮춰 겨눔
@@ -44,6 +45,7 @@ const inp = brain.think(dt, {
   allies:  [{ id, pos, alive }],                          // 자기 자신은 빼도 되고 넣어도 된다
   nav,
   los: (a, b) => world.lineOfSight(a, b),                 // a,b = 배열이면서 .x/.y/.z도 있는 점 → physics 함수에 그대로 넘김
+  sight: (a, b) => los(a, b) && !world.smokeBlocks(a, b), // (선택) '보기'만 쓰는 시선 — 연막탄 연기도 막는다. 없으면 los. 걷기·엄폐 찾기는 los만 쓴다
   time                                                    // (참고용, 봇은 dt를 누적해 자체 시계를 쓴다)
 });
 
