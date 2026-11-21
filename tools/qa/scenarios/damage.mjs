@@ -135,7 +135,7 @@ function corpseView() {
 
 /**
  * 쓰러진 몸은 바닥에 누워 있다가(쓰러짐 동작이 끝난 뒤에도 서 있으면 안 된다) 3초 안에 가라앉아 숨는다.
- * 히트 대상·이름표에서는 바로 빠진다. 끝에서 멈춘 쓰러짐 동작이 T자로 서 있던 버그(engine/operator-model.js forceMixerWrite)를 본다
+ * 히트 대상·이름표에서는 바로 빠진다. 끝에서 멈춘 쓰러짐 동작이 T자로 서 있던 버그(engine/operator-model.js restorePose)를 본다
  */
 async function checkCorpse(t, page) {
   await page.waitFor('(() => { const a = __qa.ctx.avatars.get(__qa.run.bots[0].id); return !a.death || a.death.t >= 1.5; })()', 5000, { intervalMs: 30, label: '쓰러짐 동작 끝' });

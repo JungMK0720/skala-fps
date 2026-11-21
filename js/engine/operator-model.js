@@ -38,22 +38,8 @@ export const MODEL_SHIFT_Z = 0.065;
 /** 모델 안의 동작 이름(tools/models/build-operators.mjs KEEP_CLIPS) */
 const CLIPS = Object.freeze({ idle: 'Idle', walk: 'Walk', run: 'Run', back: 'Run_Back', left: 'Run_Left', right: 'Run_Right', death: 'Death' });
 
-/** forceMixerWrite가 비교 칸에 넣는 값. 섞기에서 0을 곱해도 유한하게 남도록 Infinity·NaN이 아닌 큰 수 */
-const MIXER_STALE = 1e30;
-/**
- * AnimationMixer는 이번에 섞은 값이 지난 갱신과 같으면 뼈에 쓰지 않는다(three r170 PropertyMixer.apply가 accu0·accu1을 비교).
- * 몸은 매 갱신 resetPose로 뼈를 쉬는 자세(T자)로 되돌린 뒤 클립을 얹으므로, 값이 멈춘 클립 — 끝에서 멈춘 쓰러짐 동작(clampWhenFinished) —
- * 은 뼈에 쓰이지 않고 T자로 선 채 남는다(쓰러진 몸이 서 있던 버그). 비교하는 두 칸의 첫 값을 어긋나게 해 언제나 쓰게 한다.
- * 버퍼 배치 [incoming | accu0 | accu1 | orig | …](valueSize 칸씩). 이번 갱신의 칸은 섞기가 덮어쓰고, 다른 칸이 어긋난 값으로 남는다.
- */
-function forceMixerWrite(mixer) {
-  const list = mixer._bindings;
-  for (let i = 0, n = mixer._nActiveBindings; i < n; i++) {
-    const pm = list[i], s = pm.valueSize;
-    pm.buffer[s] = MIXER_STALE;
-    pm.buffer[2 * s] = MIXER_STALE;
-  }
-}
+/** animPose에서 뼈 하나가 차지하는 칸(위치 3 · 회전 4 · 크기 3) */
+const POSE_STRIDE = 10;
 
 /* ---------------- 총 든 자세(아바타 공간, 서 있고 조준 0) ----------------
  * 오른손은 총 손잡이, 왼손은 총몸 아래를 받친다. 이 모델은 팔이 짧아(어깨~손목 0.40 m) 예전 상자 인물보다 손이 몸에 가깝다.
@@ -195,9 +181,12 @@ function buildTemplate(gltf) {
     if (!clip) throw new Error('동작이 없어요: ' + name);
     clips[k] = clip;
   }
+  // 클립이 움직이는 뼈 이름(트랙 이름 '뼈.quaternion' 등의 앞부분)
+  const driven = new Set();
+  for (const clip of Object.values(clips)) for (const tr of clip.tracks) driven.add(THREE.PropertyBinding.parseTrackName(tr.name).nodeName);
 
   const tpl = {
-    rigRoot, material, rest, boneIndex, parts, align, limbs, clips, M,
+    rigRoot, material, rest, boneIndex, parts, align, limbs, clips, driven, M,
     geometry: null, speeds: null, deathAngle: 0, sockets: null,
     cullSphere,
     shapes: new Map(), geos: new Map()
@@ -379,6 +368,18 @@ export class OperatorBody {
     this.mesh.castShadow = true;
     this.bones = {};
     this.model.traverse((o) => { if (o.isBone) this.bones[o.name] = o; });
+    // 뼈 되돌리기 목록. 클립이 움직이는 뼈는 지난 갱신의 '클립 자세'(덮어쓰기 전)로, 나머지는 쉬는 자세로 되돌린다(restorePose)
+    this.restBones = [];
+    this.animBones = [];
+    for (const name in this.bones) {
+      const b = this.bones[name], r = tpl.rest.get(name);
+      if (tpl.driven.has(name)) this.animBones.push(b); else this.restBones.push({ b, r });
+    }
+    this.animPose = new Float32Array(this.animBones.length * POSE_STRIDE);   // 뼈마다 위치 3 · 회전 4 · 크기 3
+    this.animBones.forEach((b, i) => {
+      const r = tpl.rest.get(b.name), o = i * POSE_STRIDE;
+      r.lpos.toArray(this.animPose, o); r.lq.toArray(this.animPose, o + 3); r.lscale.toArray(this.animPose, o + 7);
+    });
     this.avatarId = null; this.team = null;
     this.setLook(avatarId, team);
 
@@ -553,9 +554,9 @@ export class OperatorBody {
       a.setEffectiveWeight(W[key] * live);
     }
     this.act.death.setEffectiveWeight(this.deathW);
-    this.resetPose();
-    forceMixerWrite(this.mixer);
+    this.restorePose();
     this.mixer.update(this.dead ? dt : 0);
+    this.saveAnimPose();
 
     if (live > 0.001) {
       const ow = live * (1 - we);
@@ -570,12 +571,26 @@ export class OperatorBody {
     this.placeHeld();
   }
 
-  /** 모든 뼈를 쉬는(바인드) 로컬 값으로. 클립이 건드리지 않는 뼈에 지난 프레임의 덮어쓰기가 쌓이지 않게 한다 */
-  resetPose() {
-    const rest = this.tpl.rest;
-    for (const name in this.bones) {
-      const b = this.bones[name], r = rest.get(name);
-      b.position.copy(r.lpos); b.quaternion.copy(r.lq); b.scale.copy(r.lscale);
+  /**
+   * 덮어쓰기(조준·앉기·이모트) 전의 자세로 뼈를 되돌린다. 클립이 움직이는 뼈는 지난 갱신의 클립 자세(saveAnimPose), 나머지는 쉬는 자세.
+   * AnimationMixer는 섞은 값이 지난 갱신과 같으면 뼈에 쓰지 않는다. 그래서 쉬는 자세(T자)로 되돌리면 값이 멈춘 클립 —
+   * 끝에서 멈춘 쓰러짐 동작(clampWhenFinished) — 은 다시 쓰이지 않고 T자로 서 있게 된다(쓰러진 몸이 서 있던 버그).
+   * 지난 클립 자세로 되돌리면 믹서가 건너뛴 값도 이미 뼈에 있다.
+   */
+  restorePose() {
+    for (const { b, r } of this.restBones) { b.position.copy(r.lpos); b.quaternion.copy(r.lq); b.scale.copy(r.lscale); }
+    const P = this.animPose, list = this.animBones;
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i], o = i * POSE_STRIDE;
+      b.position.fromArray(P, o); b.quaternion.fromArray(P, o + 3); b.scale.fromArray(P, o + 7);
+    }
+  }
+  /** mixer.update 직후, 덮어쓰기 전의 클립 자세를 적어 둔다(다음 갱신의 restorePose가 쓴다) */
+  saveAnimPose() {
+    const P = this.animPose, list = this.animBones;
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i], o = i * POSE_STRIDE;
+      b.position.toArray(P, o); b.quaternion.toArray(P, o + 3); b.scale.toArray(P, o + 7);
     }
   }
 
