@@ -595,7 +595,7 @@ export function createProps(opts = {}) {
 
   /** 시뮬레이션 오류는 게임으로 던지지 않고, 소품을 지금 자리에 세운 채 멈춘다 */
   function fail(err) {
-    warnOnce('시뮬레이션을 멈추고 고정 소품으로 표시합니다', err);
+    warnOnce('시뮬레이션을 멈추고 고정 소품으로 표시합니다', err); // i18n-ok: 개발용 로그
     sim = null;
     if (mode !== 'idle') mode = 'static';
   }
@@ -603,10 +603,10 @@ export function createProps(opts = {}) {
   function getCannon() {
     if (!cannon) {
       cannon = Promise.resolve().then(loadCannon).then((C) => {
-        if (!C || !C.World) throw new Error('cannon-es 모듈이 비어 있어요');
+        if (!C || !C.World) throw new Error('cannon-es 모듈이 비어 있어요'); // i18n-ok: 로그로만 간다
         return C;
       }).catch((err) => {
-        warnOnce('cannon-es를 불러오지 못해 고정 소품으로 표시합니다', err);
+        warnOnce('cannon-es를 불러오지 못해 고정 소품으로 표시합니다', err); // i18n-ok: 개발용 로그
         return null;
       });
     }
@@ -1014,7 +1014,7 @@ export function createProps(opts = {}) {
         }
       });
     } catch (err) {
-      warnOnce('소품을 올리지 못했습니다', err);
+      warnOnce('소품을 올리지 못했습니다', err); // i18n-ok: 개발용 로그
       return Promise.resolve();
     }
   }

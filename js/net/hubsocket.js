@@ -18,6 +18,7 @@
  */
 import { NET } from '../core/consts.js';
 import { Emitter, RealtimeSocket, netError } from './realtime.js';
+import { t } from '../core/i18n.js';
 
 export const HUB_HEARTBEAT_REF = 'hb';
 export const HUB_PRESENCE_LIMIT = Object.freeze({ max: 10, windowMs: 10500, minGapMs: 100 });
@@ -45,10 +46,10 @@ export class HubSocket extends Emitter {
   constructor(opts = {}) {
     super();
     const url = String(opts.url || '').trim().replace(/\/+$/, '');
-    if (!/^(https?|wss?):\/\/[^/\s]+/i.test(url)) throw netError('NO_CONFIG', '중계 서버 주소(http(s)://…)가 필요합니다');
+    if (!/^(https?|wss?):\/\/[^/\s]+/i.test(url)) throw netError('NO_CONFIG', t('net.relayUrlNeeded'));
     this.url = url;
     this.WS = opts.WebSocket || globalThis.WebSocket;
-    if (!this.WS) throw netError('NO_WEBSOCKET', '이 환경에는 WebSocket이 없습니다');
+    if (!this.WS) throw netError('NO_WEBSOCKET', t('net.noWebSocket'));
     this.linkOpts = {
       WebSocket: this.WS,
       logger: opts.logger,
@@ -101,16 +102,16 @@ export class HubSocket extends Emitter {
   /** 처음 연결. 로비 허브가 timeoutMs 안에 열리지 않으면 reject하고 닫는다 */
   open(timeoutMs = 15000) {
     if (this.state === 'open') return Promise.resolve();
-    if (this._closedByUser) return Promise.reject(netError('CLOSED', '이미 닫힌 연결입니다'));
+    if (this._closedByUser) return Promise.reject(netError('CLOSED', t('net.alreadyClosed')));
     this._setState('connecting');
     const L = this._link(NET.LOBBY_CHANNEL, false);
     return L.sock.open(timeoutMs).then(() => {
-      if (this._closedByUser) throw netError('CLOSED', '연결이 닫혔습니다');
+      if (this._closedByUser) throw netError('CLOSED', t('net.closed'));
       this._setState('open');
       this._idle(L, this.warmIdleMs);   // 곧 로비를 구독하지 않으면 닫는다
     }, (err) => {
       this.close();
-      throw err && err.code === 'CONNECT_TIMEOUT' ? netError('CONNECT_TIMEOUT', '중계 서버에 연결하지 못했습니다') : err;
+      throw err && err.code === 'CONNECT_TIMEOUT' ? netError('CONNECT_TIMEOUT', t('net.relayConnectFail')) : err;
     });
   }
 

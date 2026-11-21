@@ -6,10 +6,12 @@
  *          어떤 함수도 예외를 던지지 않는다. 설계와 이유는 docs/FEEDBACK.md.
  */
 
+import { t } from '../core/i18n.js';
+
 export const FEEDBACK_KINDS = Object.freeze(['bug', 'idea', 'balance', 'other']);
-export const FEEDBACK_KIND_NAMES = Object.freeze({ bug: '버그', idea: '제안', balance: '밸런스', other: '기타' });
+export const FEEDBACK_KIND_NAMES = Object.freeze({ bug: t('menu.fbKindBug'), idea: t('menu.fbKindIdea'), balance: t('menu.fbKindBalance'), other: t('menu.fbKindOther') });
 /** 소유자가 Table Editor에서 바꾸는 status 값 → 보낸 사람에게 보이는 말 */
-export const FEEDBACK_STATUS_NAMES = Object.freeze({ new: '접수', read: '확인함', done: '반영', hold: '보류' });
+export const FEEDBACK_STATUS_NAMES = Object.freeze({ new: t('menu.fbStNew'), read: t('menu.fbStRead'), done: t('menu.fbStDone'), hold: t('menu.fbStHold') });
 export const FEEDBACK_MIN = 5;
 export const FEEDBACK_MAX = 1000;
 export const FEEDBACK_REPLY_MAX = 500;
@@ -22,18 +24,18 @@ export const FEEDBACK_INFO_VALUE_MAX = 80;
 const INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
 
 export const FEEDBACK_MESSAGES = Object.freeze({
-  sent: '보냈어요. 운영자가 읽고 답을 달면 여기에서 볼 수 있어요.',
-  short: `건의 내용을 ${FEEDBACK_MIN}자 이상 적어 주세요.`,
-  long: `건의는 ${FEEDBACK_MAX}자까지 보낼 수 있어요.`,
-  kind: '건의 종류를 골라 주세요.',
-  invalid: '건의 내용을 다시 확인해 주세요.',
-  offline: '온라인 서버가 설정되지 않아 건의를 보낼 수 없어요.',
-  closed: '건의함이 아직 열리지 않았어요. 운영자가 서버를 준비하면 보낼 수 있어요.',
-  nickname: '닉네임이 서버에 등록된 뒤에 보낼 수 있어요. 잠시 뒤 다시 시도해 주세요.',
-  duplicate: '같은 내용을 이미 보냈어요.',
-  rate: '너무 자주 보냈어요. 조금 뒤에 다시 보내 주세요.',
-  blocked: '지금은 건의를 보낼 수 없어요.',
-  network: '서버에 닿지 못했어요. 적은 글은 그대로 있으니 잠시 뒤 다시 보내 주세요.'
+  sent: t('menu.fbMsgSent'),
+  short: t('menu.fbMsgShort', { n: FEEDBACK_MIN }),
+  long: t('menu.fbMsgLong', { n: FEEDBACK_MAX }),
+  kind: t('menu.fbMsgKind'),
+  invalid: t('menu.fbMsgInvalid'),
+  offline: t('menu.fbMsgOffline'),
+  closed: t('menu.fbMsgClosed'),
+  nickname: t('menu.fbMsgNickname'),
+  duplicate: t('menu.fbMsgDuplicate'),
+  rate: t('menu.fbMsgRate'),
+  blocked: t('menu.fbMsgBlocked'),
+  network: t('menu.fbMsgNetwork')
 });
 
 /** 서버 오류 코드 → { reason, message } */

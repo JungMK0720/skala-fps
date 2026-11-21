@@ -175,8 +175,8 @@ export default {
       const solo = await host.eval(`!document.querySelector('.sk-room-foot .sk-btn--primary').disabled`);
       t.check(solo, '좀비 방은 혼자서도 시작할 수 있다');
       await guest.waitFor(`document.querySelectorAll('.sk-room-row').length === 1`, 10000, { label: '목록에 좀비 방' });
-      const row = await guest.eval(`document.querySelector('.sk-room-row').textContent`);
-      t.check(/좀비 물량 막기/.test(row) && /방장의 좀비 방/.test(row) && !/🔒/.test(row), '로비 목록에 공개 좀비 방(이름 · 좀비 배지 · 자물쇠 없음)', row);
+      const row = await guest.eval(`({ text: document.querySelector('.sk-room-row').textContent, lock: !!document.querySelector('.sk-room-row .sk-room-lock') })`);
+      t.check(/좀비 물량 막기/.test(row.text) && /방장의 좀비 방/.test(row.text) && !row.lock, '로비 목록에 공개 좀비 방(이름 · 좀비 배지 · 자물쇠 없음)', row);
       await guest.click('.sk-room-join');
       await guest.waitFor('__qa.ctx.screen === "room" && __qa.ui.isVisible("room")', 10000, { label: '손님 대기실' });
       t.check(!(await guest.eval(`!!document.querySelector('.sk-pw-sheet')`)), '공개 방이라 비밀번호를 묻지 않는다');

@@ -321,6 +321,10 @@ describe('부품: PKCE·로그인 표·HTTP 도우미', () => {
     assert.ok(originAllowed('http://localhost:8080', ENV.ALLOWED_ORIGINS));
     assert.ok(!originAllowed('https://evil.test', ENV.ALLOWED_ORIGINS));
     assert.ok(!originAllowed('http://localhost:80a', ENV.ALLOWED_ORIGINS));
+    const portal = 'https://*.game-files.crazygames.com';
+    assert.ok(originAllowed('https://skala-ops.game-files.crazygames.com', portal), 'CrazyGames 게임 파일 하위 도메인');
+    assert.ok(!originAllowed('https://game-files.crazygames.com.evil.test', portal));
+    assert.ok(!originAllowed('http://skala-ops.game-files.crazygames.com', portal));
     assert.equal(cleanReturnUrl(`${RETURN}#old`, ENV.ALLOWED_ORIGINS), RETURN, '해시는 뗀다');
     assert.equal(cleanReturnUrl('https://evil.test/', ENV.ALLOWED_ORIGINS), null);
     assert.equal(cleanReturnUrl('http://game.test/', 'http://game.test'), null, 'http는 로컬만');

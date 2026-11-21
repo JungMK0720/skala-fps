@@ -8,26 +8,29 @@
  *
  *   const { MAPS, MAP_LIST, getMap, mapsForRuleset, mapsForMode } = await import('./maps/index.js');
  *   MAPS[id]                → 맵 데이터 (불러오기 실패 시 TEST_MAP 복제본, fallback:true)
- *   MAP_LIST                → [{ id, name, nameEn, desc, ok, fallback, rulesets, tag, mission, zombie, test? }] 메뉴용. 마지막이 테스트 맵
- *   mapsForRuleset('knife') → 그 규칙을 고를 수 있는 MAP_LIST 항목(테스트 맵·좀비 전용 맵 제외)
+ *   MAP_LIST                → [{ id, name, nameEn, desc, ok, fallback, rulesets, tag, mission, zombie, br, brOnly, test? }] 메뉴용. 마지막이 테스트 맵
+ *   mapsForRuleset('knife') → 그 규칙을 고를 수 있는 MAP_LIST 항목(테스트 맵·좀비 전용 맵·배틀로얄 전용 맵 제외)
  *   mapsForMode('bomb', r)  → 그 모드로 고를 수 있는 MAP_LIST 항목. 폭파 미션은 mission이 있는 클래식 맵, 좀비 물량 막기는 좀비 전용 맵,
- *                             그 밖은 mapsForRuleset(r)
+ *                             배틀로얄('br')은 br 칸이 있는 맵, 그 밖은 mapsForRuleset(r)
  *
  * 각 맵 파일은 동적 import로 불러온다. 파일이 없거나 문법·데이터 오류가 있으면 콘솔에 경고하고
  * 빌트인 테스트 맵(작은 창고 마당)으로 대신한다 — 한 맵이 깨져도 게임 전체가 멈추지 않는다.
  * (이 모듈은 top-level await를 쓰므로 import 하는 쪽은 맵 로딩을 기다린다.)
  */
-import { DEFAULT_RULESETS, RULESET_NAMES, isZombieMap } from './collision.js';
+import { DEFAULT_RULESETS, RULESET_NAMES, isZombieMap, hasBrData, isBrMap } from './collision.js';
+import { t, loc } from '../core/i18n.js';
 
 // 순서가 메뉴 순서이고, 규칙마다 처음 나오는 맵이 그 규칙의 기본 맵이다(칼전 rooftop, 클래식 alley, 스나전 longshot)
 // 좁은 맵(cqb·sorthub, 개활지 lot·schoolyard, 문이 열리는 karaoke·hanok)은 alley 뒤에 둔다.
 // 폭파 미션 맵은 맨 끝에 두어 규칙별 기본 맵을 바꾸지 않고, 그중 처음인 relay가 폭파 미션의 기본 맵이다
 // 좀비 물량 막기 전용 맵(restarea·subway)은 그 뒤다. 다른 모드의 목록에는 나오지 않고, 처음인 restarea가 좀비 모드의 기본 맵이다
+// 배틀로얄 전용 맵(harbortown)은 맨 끝이다. 배틀로얄 목록에만 나온다
 export const MAP_IDS = Object.freeze([
   'rooftop', 'glasshouse', 'alley', 'cqb', 'sorthub', 'lot', 'schoolyard', 'karaoke', 'hanok',
   'longshot', 'dojo', 'nexus', 'jetty', 'tankfarm', 'vlcc',
   'relay', 'railyard', 'observatory',
-  'restarea', 'subway'
+  'restarea', 'subway',
+  'harbortown'
 ]);
 
 const R90 = Math.PI / 2;
@@ -37,9 +40,9 @@ export const TEST_MAP = Object.freeze({
   id: 'testyard',
   name: '연습 창고 마당',
   nameEn: 'Practice Yard',
-  desc: '코어 점검용 작은 창고 마당 — 수로·컨테이너·탱크·창고 2층(메자닌)',
+  desc: '코어 점검용 작은 창고 마당 — 수로·컨테이너·탱크·창고 2층(메자닌)', descEn: 'A small warehouse yard for core testing — canal, containers, tanks and a mezzanine.',
   rulesets: RULESET_NAMES,
-  tag: '테스트',
+  tag: '테스트', tagEn: 'Test',
   size: { x: 64, z: 52 },
   theme: {
     sky: '#f3c99a', skyTop: '#3b6ea8', fog: [55, 210], sunDir: [-0.5, 0.75, -0.4],
@@ -121,10 +124,10 @@ export const TEST_MAP = Object.freeze({
     { type: 'box', x: -2, y: 0, z: 21.5, w: 2.6, h: 2.7, d: 2.6, mat: 'white' }
   ],
   decor: [
-    { type: 'sign', x: 16, y: 5, z: 4.05, rotY: 0, w: 5.2, h: 1, text: '창고 A · WAREHOUSE A', bg: '#0b2545', fg: '#ffffff' },
-    { type: 'sign', x: -6, y: 0.62, z: -18.47, rotY: 0, w: 3.4, h: 0.9, text: '구역 1\nZONE 1', bg: '#14325c', fg: '#ffd166' },
-    { type: 'sign', x: -17.5, y: 0.4, z: 12.02, rotY: Math.PI, w: 4.6, h: 0.72, text: '위험물 저장소 DANGEROUS GOODS', bg: '#b3261e', fg: '#ffffff' },
-    { type: 'sign', x: -2, y: 2.25, z: 20.15, rotY: Math.PI, w: 2.6, h: 0.6, text: '경비실 GATE', bg: '#1b4332', fg: '#ffffff' },
+    { type: 'sign', x: 16, y: 5, z: 4.05, rotY: 0, w: 5.2, h: 1, text: '창고 A · WAREHOUSE A', textEn: 'WAREHOUSE A', bg: '#0b2545', fg: '#ffffff' },
+    { type: 'sign', x: -6, y: 0.62, z: -18.47, rotY: 0, w: 3.4, h: 0.9, text: '구역 1\nZONE 1', textEn: 'ZONE 1', bg: '#14325c', fg: '#ffd166' },
+    { type: 'sign', x: -17.5, y: 0.4, z: 12.02, rotY: Math.PI, w: 4.6, h: 0.72, text: '위험물 저장소 DANGEROUS GOODS', textEn: 'DANGEROUS GOODS', bg: '#b3261e', fg: '#ffffff' },
+    { type: 'sign', x: -2, y: 2.25, z: 20.15, rotY: Math.PI, w: 2.6, h: 0.6, text: '경비실 GATE', textEn: 'GATE', bg: '#1b4332', fg: '#ffffff' },
     { type: 'light', x: -10, y: 6.1, z: -16, color: '#ffe6b0', intensity: 1.2, dist: 14 },
     { type: 'light', x: 4, y: 6.1, z: -16, color: '#ffe6b0', intensity: 1.2, dist: 14 },
     { type: 'light', x: -20, y: 6.1, z: 6, color: '#ffe6b0', intensity: 1.2, dist: 14 },
@@ -154,27 +157,28 @@ function isValid(data) {
 
 /** 맵 파일이 없을 때 메뉴에 보일 이름·규칙·배지 (DESIGN 5절 기준) */
 const KNOWN = {
-  rooftop: { name: '빨랫줄 옥상', nameEn: 'Clothesline Roof', rulesets: ['knife'], tag: '칼전 전용' },
-  glasshouse: { name: '선인장 온실', nameEn: 'Cactus Glasshouse', rulesets: ['knife'], tag: '칼전 전용' },
+  rooftop: { name: '빨랫줄 옥상', nameEn: 'Clothesline Roof', rulesets: ['knife'], tag: '칼전 전용', tagEn: 'Knife Only' },
+  glasshouse: { name: '선인장 온실', nameEn: 'Cactus Glasshouse', rulesets: ['knife'], tag: '칼전 전용', tagEn: 'Knife Only' },
   alley: { name: '항구 골목', nameEn: 'Harbor Alley', rulesets: ['classic', 'knife'] },
-  cqb: { name: '근접전 훈련장', nameEn: 'CQB Yard', rulesets: ['classic', 'knife'], tag: '좁은 맵' },
-  sorthub: { name: '택배 분류 센터', nameEn: 'Parcel Hub', rulesets: ['classic', 'knife'], tag: '좁은 맵' },
-  lot: { name: '재개발 공터', nameEn: 'Vacant Lot', rulesets: ['classic', 'knife'], tag: '좁은 맵' },
-  schoolyard: { name: '초등학교 운동장', nameEn: 'Schoolyard', rulesets: ['classic', 'knife'], tag: '좁은 맵' },
-  karaoke: { name: '코인 노래방', nameEn: 'Coin Karaoke', rulesets: ['classic', 'knife'], tag: '좁은 맵' },
-  hanok: { name: '한옥 민박', nameEn: 'Hanok Stay', rulesets: ['classic', 'knife'], tag: '좁은 맵' },
-  dojo: { name: '벚꽃 도장', nameEn: 'Blossom Dojo', rulesets: ['classic', 'knife', 'sniper'], tag: '통합' },
-  longshot: { name: '협곡 저격장', nameEn: 'Canyon Range', rulesets: ['sniper'], tag: '스나 전용' },
-  nexus: { name: '넥서스', nameEn: 'Nexus', rulesets: ['classic', 'knife', 'sniper'], tag: '통합' },
+  cqb: { name: '근접전 훈련장', nameEn: 'CQB Yard', rulesets: ['classic', 'knife'], tag: '좁은 맵', tagEn: 'Close Quarters' },
+  sorthub: { name: '택배 분류 센터', nameEn: 'Parcel Hub', rulesets: ['classic', 'knife'], tag: '좁은 맵', tagEn: 'Close Quarters' },
+  lot: { name: '재개발 공터', nameEn: 'Vacant Lot', rulesets: ['classic', 'knife'], tag: '좁은 맵', tagEn: 'Close Quarters' },
+  schoolyard: { name: '초등학교 운동장', nameEn: 'Schoolyard', rulesets: ['classic', 'knife'], tag: '좁은 맵', tagEn: 'Close Quarters' },
+  karaoke: { name: '코인 노래방', nameEn: 'Coin Karaoke', rulesets: ['classic', 'knife'], tag: '좁은 맵', tagEn: 'Close Quarters' },
+  hanok: { name: '한옥 민박', nameEn: 'Hanok Stay', rulesets: ['classic', 'knife'], tag: '좁은 맵', tagEn: 'Close Quarters' },
+  dojo: { name: '벚꽃 도장', nameEn: 'Blossom Dojo', rulesets: ['classic', 'knife', 'sniper'], tag: '통합', tagEn: 'All Modes' },
+  longshot: { name: '협곡 저격장', nameEn: 'Canyon Range', rulesets: ['sniper'], tag: '스나 전용', tagEn: 'Sniper Only' },
+  nexus: { name: '넥서스', nameEn: 'Nexus', rulesets: ['classic', 'knife', 'sniper'], tag: '통합', tagEn: 'All Modes' },
   jetty: { name: '원유 부두', nameEn: 'Crude Jetty' },
   // 탱크 사이가 막혀 저격 시야가 짧다. 스나전 봇끼리 만나지 못해 무승부만 나와서 클래식 전용으로 둔다
   tankfarm: { name: '탱크 팜', nameEn: 'Tank Farm', rulesets: ['classic'] },
   vlcc: { name: 'VLCC 갑판', nameEn: 'Tanker Deck' },
-  relay: { name: '중계 기지', nameEn: 'Relay Station', rulesets: ['classic'], tag: '폭파 미션' },
-  railyard: { name: '화물 조차장', nameEn: 'Freight Yard', rulesets: ['classic'], tag: '폭파 미션' },
-  observatory: { name: '사막 관측소', nameEn: 'Desert Observatory', rulesets: ['classic'], tag: '폭파 미션' },
-  restarea: { name: '고속도로 휴게소', nameEn: 'Highway Rest Stop', rulesets: ['classic'], tag: '좀비 전용' },
-  subway: { name: '지하철 환승역', nameEn: 'Transfer Station', rulesets: ['classic'], tag: '좀비 전용' }
+  relay: { name: '중계 기지', nameEn: 'Relay Station', rulesets: ['classic'], tag: '폭파 미션', tagEn: 'Bomb Defusal' },
+  railyard: { name: '화물 조차장', nameEn: 'Freight Yard', rulesets: ['classic'], tag: '폭파 미션', tagEn: 'Bomb Defusal' },
+  observatory: { name: '사막 관측소', nameEn: 'Desert Observatory', rulesets: ['classic'], tag: '폭파 미션', tagEn: 'Bomb Defusal' },
+  restarea: { name: '고속도로 휴게소', nameEn: 'Highway Rest Stop', rulesets: ['classic'], tag: '좀비 전용', tagEn: 'Zombies Only' },
+  subway: { name: '지하철 환승역', nameEn: 'Transfer Station', rulesets: ['classic'], tag: '좀비 전용', tagEn: 'Zombies Only' },
+  harbortown: { name: '서해 항만 신도시', nameEn: 'West Sea Harbor Town', rulesets: ['classic'], tag: '배틀로얄 전용', tagEn: 'Battle Royale Only' }
 };
 
 function fallbackFor(id, reason) {
@@ -184,9 +188,11 @@ function fallbackFor(id, reason) {
     id,
     name,
     nameEn: known.nameEn || id,
-    desc: `'${name}' 맵 파일을 아직 불러올 수 없어 연습 창고 마당으로 대신해요.`,
+    desc: t('maps.fallbackDesc', { name: loc({ name, nameEn: known.nameEn }, 'name') }),
+    descEn: '',
     rulesets: known.rulesets || DEFAULT_RULESETS,
     tag: known.tag || '',
+    tagEn: known.tagEn || '',
     fallback: true,
     fallbackReason: reason || ''
   });
@@ -197,10 +203,10 @@ const IMPORT_TIMEOUT_MS = 8000;
 async function tryLoad(id) {
   try {
     let timer = 0;
-    const timeout = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`불러오기 시간 초과(${IMPORT_TIMEOUT_MS / 1000}s)`)), IMPORT_TIMEOUT_MS); });
+    const timeout = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`불러오기 시간 초과(${IMPORT_TIMEOUT_MS / 1000}s)`)), IMPORT_TIMEOUT_MS); });   // i18n-ok: 콘솔·MAP_STATUS용 개발자 메시지
     const mod = await Promise.race([import(`./${id}.js`), timeout]).finally(() => clearTimeout(timer));
     const data = mod && (mod.default || mod.MAP || mod[id]);
-    if (!isValid(data)) throw new Error('맵 데이터 형식이 올바르지 않아요 (export default { solids:[...] } 필요)');
+    if (!isValid(data)) throw new Error('맵 데이터 형식이 올바르지 않아요 (export default { solids:[...] } 필요)');   // i18n-ok: 콘솔·MAP_STATUS용 개발자 메시지
     return { data: data.id === id ? data : Object.assign({}, data, { id }), ok: true, error: null };
   } catch (err) {
     console.warn(`[maps] ${id}.js 불러오기 실패 → 테스트 맵으로 대체:`, err);
@@ -231,35 +237,42 @@ function listEntry(id, data, ok) {
     name: data.name || id,
     nameEn: data.nameEn || '',
     desc: data.desc || '',
+    descEn: data.descEn || '',
     ok,
     fallback: !ok,
     rulesets: Array.isArray(data.rulesets) && data.rulesets.length ? data.rulesets.slice() : (known.rulesets || DEFAULT_RULESETS).slice(),
     tag: typeof data.tag === 'string' ? data.tag : (known.tag || ''),
+    tagEn: typeof data.tag === 'string' ? (data.tagEn || '') : (known.tagEn || ''),
     mission: ok && hasMissionData(data),
     // 좀비 물량 막기 전용(maps/collision.js isZombieMap). 대체 맵은 늘 false
-    zombie: ok && isZombieMap(data)
+    zombie: ok && isZombieMap(data),
+    // 배틀로얄 칸이 있는가(hasBrData)와 배틀로얄 전용인가(isBrMap). 대체 맵은 늘 false
+    br: ok && hasBrData(data),
+    brOnly: ok && isBrMap(data)
   };
 }
 
 /** 메뉴용 목록 (+ 테스트 맵) */
 export const MAP_LIST = Object.freeze([
   ...MAP_IDS.map((id, i) => listEntry(id, loaded[i].data, loaded[i].ok)),
-  Object.assign(listEntry(TEST_MAP.id, TEST_MAP, true), { test: true, mission: false, zombie: false })
+  Object.assign(listEntry(TEST_MAP.id, TEST_MAP, true), { test: true, mission: false, zombie: false, br: false, brOnly: false })
 ]);
 
-/** 이 규칙을 고를 수 있는 맵(MAP_LIST 항목, 테스트 맵·좀비 전용 맵 제외). 모르는 규칙이면 클래식 기준 */
+/** 이 규칙을 고를 수 있는 맵(MAP_LIST 항목, 테스트 맵·좀비 전용 맵·배틀로얄 전용 맵 제외). 모르는 규칙이면 클래식 기준 */
 export function mapsForRuleset(id) {
   const ruleset = RULESET_NAMES.includes(id) ? id : 'classic';
-  return MAP_LIST.filter((m) => !m.test && !m.zombie && m.rulesets.includes(ruleset));
+  return MAP_LIST.filter((m) => !m.test && !m.zombie && !m.brOnly && m.rulesets.includes(ruleset));
 }
 
 /**
  * 이 모드·규칙으로 고를 수 있는 맵(MAP_LIST 항목, 테스트 맵 제외).
- * 폭파 미션('bomb')은 늘 클래식 규칙으로 하므로 ruleset과 상관없이 mission이 있고 클래식을 고를 수 있는 맵만, 좀비 물량 막기('zombie')는 좀비 전용 맵만 준다
+ * 폭파 미션('bomb')은 늘 클래식 규칙으로 하므로 ruleset과 상관없이 mission이 있고 클래식을 고를 수 있는 맵만, 좀비 물량 막기('zombie')는 좀비 전용 맵만,
+ * 배틀로얄('br')은 br 칸이 있는 맵만 준다
  */
 export function mapsForMode(mode, ruleset) {
   if (mode === 'bomb') return MAP_LIST.filter((m) => !m.test && m.mission && m.rulesets.includes('classic'));
   if (mode === 'zombie') return MAP_LIST.filter((m) => !m.test && m.zombie);
+  if (mode === 'br') return MAP_LIST.filter((m) => !m.test && m.br);
   return mapsForRuleset(ruleset);
 }
 

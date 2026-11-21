@@ -17,6 +17,7 @@
  *  - 서버의 강제 종료(system error + phx_close)도 백오프 후 재참가
  */
 import { SlidingWindowLimiter } from './limits.js';
+import { t } from '../core/i18n.js';
 
 export const VSN = '1.0.0';
 const PHX_JOIN = 'phx_join';
@@ -179,7 +180,7 @@ export class RealtimeSocket extends Emitter {
       this.key = '';
       this.endpoint = String(endpoint);
     } else {
-      if (!url || !key) throw netError('NO_CONFIG', 'Supabase url/key가 필요합니다');
+      if (!url || !key) throw netError('NO_CONFIG', t('net.supabaseNeeded'));
       this.url = String(url).replace(/\/+$/, '');
       this.key = String(key);
       this.endpoint = this.url.replace(/^http/i, 'ws') + '/realtime/v1/websocket?apikey=' +
@@ -188,7 +189,7 @@ export class RealtimeSocket extends Emitter {
     this.heartbeatRef = opts.heartbeatRef ? String(opts.heartbeatRef) : null;
     this.presenceLimit = { max: 4, windowMs: 31000, minGapMs: 250, ...(opts.presenceLimit || {}) };
     this.WS = opts.WebSocket || globalThis.WebSocket;
-    if (!this.WS) throw netError('NO_WEBSOCKET', '이 환경에는 WebSocket이 없습니다');
+    if (!this.WS) throw netError('NO_WEBSOCKET', t('net.noWebSocket'));
     this.heartbeatMs = opts.heartbeatMs || 25000;
     this.heartbeatTimeoutMs = opts.heartbeatTimeoutMs || 10000;
     this.timeoutMs = opts.timeoutMs || 10000;
@@ -222,15 +223,15 @@ export class RealtimeSocket extends Emitter {
   /** 처음 연결. timeoutMs 안에 못 열면 reject하고 소켓을 닫는다 */
   open(timeoutMs = 15000) {
     if (this.isOpen()) return Promise.resolve();
-    if (this._closedByUser) return Promise.reject(netError('CLOSED', '이미 닫힌 연결입니다'));
+    if (this._closedByUser) return Promise.reject(netError('CLOSED', t('net.alreadyClosed')));
     return new Promise((resolve, reject) => {
       const done = (fn, v) => { clearTimeout(timer); offOpen(); offClosed(); fn(v); };
       const timer = setTimeout(() => {
-        done(reject, netError('CONNECT_TIMEOUT', 'Realtime 서버에 연결하지 못했습니다'));
+        done(reject, netError('CONNECT_TIMEOUT', t('net.realtimeConnectFail')));
         this.close();
       }, timeoutMs);
       const offOpen = this.on('open', () => done(resolve));
-      const offClosed = this.on('closed', () => done(reject, netError('CLOSED', '연결이 닫혔습니다')));
+      const offClosed = this.on('closed', () => done(reject, netError('CLOSED', t('net.closed'))));
       this._connect();
     });
   }
@@ -510,7 +511,7 @@ export class Channel extends Emitter {
     if (this.state === 'joined') return Promise.resolve();
     const p = new Promise((resolve, reject) => {
       const w = { resolve, reject, timer: null };
-      w.timer = setTimeout(() => this._settleJoin(w, netError('JOIN_TIMEOUT', '채널 참가 시간 초과: ' + this.topic)), timeoutMs);
+      w.timer = setTimeout(() => this._settleJoin(w, netError('JOIN_TIMEOUT', t('net.joinTimeout', { topic: this.topic }))), timeoutMs);
       this._joinWaiters.add(w);
     });
     if (this.socket.isOpen() && this.state !== 'joining') this._sendJoin();
@@ -563,7 +564,7 @@ export class Channel extends Emitter {
       this.state = 'errored';
       const reason = (res.response && (res.response.reason || res.response.message)) || res.status;
       this.lastError = reason;
-      this._settleJoin(null, netError('JOIN_ERROR', '채널 참가 실패: ' + reason, { reason }));
+      this._settleJoin(null, netError('JOIN_ERROR', t('net.joinError', { reason }), { reason }));
       this.emit('join_error', reason);
       this._scheduleRejoin();
     }
@@ -593,7 +594,7 @@ export class Channel extends Emitter {
       this.want = false;
       this.state = 'closed';
       this._flushWaiters('disconnected');
-      this._settleJoin(null, netError('CLOSED', '연결이 닫혔습니다'));
+      this._settleJoin(null, netError('CLOSED', t('net.closed')));
       return;
     }
     if (this.want) {
@@ -760,7 +761,7 @@ export class Channel extends Emitter {
     this.presence.clear();
     this.presenceSynced = false;
     this._flushWaiters('disconnected');
-    this._settleJoin(null, netError('CLOSED', '채널에서 나갔습니다'));
+    this._settleJoin(null, netError('CLOSED', t('net.leftChannel')));
     this.socket._unregister(this);
     this.emit('left');
     this.removeAll();

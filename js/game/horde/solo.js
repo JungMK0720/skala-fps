@@ -10,6 +10,7 @@ import { cardById, TIERS } from './cards.js';
 import { getDef, DEFAULT_LOADOUT } from '../../weapons/defs.js';
 import { isWeaponAllowed } from '../modes.js';
 import { isZombieMap } from '../../maps/collision.js';
+import { t } from '../../core/i18n.js';
 
 const PUSH_MS = 50;                       // 혼자일 때 화면에 스냅샷을 넘기는 간격(20 Hz)
 // 혼자일 때는 증강을 고르는 동안 좀비·스테이지 시간이 멈추고, 시간 제한을 사실상 두지 않는다(10분 지나면 무작위)
@@ -43,7 +44,7 @@ export function cardRows(ids) {
 export function startHordeSolo(o) {
   const { ctx, world, ui, opts, info, nav } = o;
   const map = info.map;
-  const me = { id: world.localId, name: (ctx.session && ctx.session.name) || '나' };
+  const me = { id: world.localId, name: (ctx.session && ctx.session.name) || t('horde.solo.me') };
   const offs = [];
   let disposed = false, paused = false, pushAt = 0, pending = [], over = null, recorded = null;
   const timeScale = Math.max(1, opts.timeScale | 0 || 1);
@@ -106,10 +107,10 @@ export function startHordeSolo(o) {
     ui.show('results', {
       mode: 'zombie', stage: sum.stage, cleared: sum.cleared, ms: sum.ms / timeScale, mapId: opts.mapId, meId: me.id,
       best: recorded ? recorded.best : 0, newBest: !!(recorded && recorded.newBest),
-      reward: recorded ? { gained: recorded.gained, breakdown: recorded.breakdown, points: recorded.points } : null,
+      reward: recorded ? { gained: recorded.gained, breakdown: recorded.breakdown, points: recorded.points, ...(recorded.bonusToken != null ? { bonusToken: recorded.bonusToken } : {}) } : null,
       cards: cardRows(mine ? mine.cards : []),
       players: view.players.map((p) => ({ id: p.id, name: p.name, kills: p.kills, head: p.heads, boss: p.bossKills, damage: p.damage, downs: p.downs, cards: p.cards.length, me: p.id === me.id })),
-      backLabel: '다시 하기', lobbyLabel: '메뉴로'
+      backLabel: t('horde.solo.again'), lobbyLabel: t('horde.solo.menu')
     });
   }
 
@@ -133,7 +134,7 @@ export function startHordeSolo(o) {
     offs.push(ui.on('results:back', () => { if (!disposed && o.onRestart) o.onRestart(); }));
     offs.push(ui.on('results:lobby', () => { if (!disposed) ctx.setScreen('menu'); }));
   }
-  world.setPauseOptions({ leaveLabel: '연습장 나가기', note: '혼자 하는 좀비 물량 막기는 일시정지하면 좀비도 멈춰요.' });
+  world.setPauseOptions({ leaveLabel: t('horde.solo.leave'), note: t('horde.solo.pauseNote') });
   world.setControlsEnabled(true);
   world.setHint('');
   world.setScoreboard(() => hordeScoreboard(client.view, me.id, { meta: { mapId: opts.mapId } }));

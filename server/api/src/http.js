@@ -7,7 +7,7 @@
 
 export const BODY_LIMIT = 8192;   // 요청 본문 상한(바이트). 인가 코드·티켓을 넣어도 2 KB를 넘지 않는다
 
-/** Origin이 허용 목록에 있는가. 없으면(서버 간 호출, curl) true */
+/** Origin이 허용 목록에 있는가. 없으면(서버 간 호출, curl) true. '://*.'은 하위 도메인 전체(중계 서버와 같은 규칙) */
 export function originAllowed(origin, list) {
   if (!origin) return true;
   for (const raw of String(list || '').split(',')) {
@@ -17,6 +17,13 @@ export function originAllowed(origin, list) {
     if (entry.endsWith(':*')) {
       const base = entry.slice(0, -1);
       if (origin.startsWith(base) && /^\d{1,5}$/.test(origin.slice(base.length))) return true;
+    }
+    if (entry.includes('://*.')) {
+      // 'https://*.game-files.crazygames.com': 그 도메인의 하위 도메인(깊이 상관없음), 같은 scheme, 기본 포트만
+      const [scheme, suffix] = entry.split('://*.');
+      let u = null;
+      try { u = new URL(origin); } catch (e) { u = null; }
+      if (u && u.protocol === scheme + ':' && !u.port && u.origin === origin && u.hostname.endsWith('.' + suffix.toLowerCase())) return true;
     }
   }
   return false;

@@ -181,7 +181,7 @@ function makeRate(windowMs = 5000) {
 export function createSync(opts = {}) {
   const o = { ...SYNC_DEFAULTS, ...opts };
   const room = o.room;
-  if (!room || typeof room.send !== 'function' || typeof room.on !== 'function') throw new TypeError('createSync: room이 필요합니다');
+  if (!room || typeof room.send !== 'function' || typeof room.on !== 'function') throw new TypeError('createSync: room이 필요합니다');   // i18n-ok: 개발자용 오류
   const now = typeof o.now === 'function' ? o.now : defaultNow;
   const getLocalState = typeof o.getLocalState === 'function' ? o.getLocalState : () => null;
   const clock = createClock();

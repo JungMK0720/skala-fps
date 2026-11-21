@@ -1,17 +1,17 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 로비 화면. 방 목록(규칙·모드·목표 킬 배지)과 방 만들기 시트(규칙·모드·개인전 목표 킬·맵·인원)를 그린다.
- *          폭파 미션은 클래식 규칙과 미션 맵만 고른다.
+ * Purpose: 로비 = 작전 구역(THEATER). 방 목록 표(방 이름·모드·지도·인원·상태, 머리글을 눌러 정렬)와 방 만들기 시트(규칙·모드·개인전 목표 킬·맵·인원)를 그린다.
+ *          폭파 미션은 클래식 규칙과 미션 맵만 고른다. 방 목록에는 지연 시간 값이 없어 그 열은 두지 않는다(대기실 명단에는 있다).
  */
-// SKALA 작전 UI — 로비(방 목록 + 방 만들기)
-import { h, btn, setText, clamp, num, modeKey, modeLabel, MODE_ICON, MODE_NAME } from './dom.js';
+import { h, btn, setText, clamp, num, modeKey, modeLabel, MODE_NAME } from './dom.js';
 import { PASSWORD_MAX } from '../net/secret.js';
 import { makeScreen, createModal, sheet, mapCard, createChoiceRow, createStepper } from './parts.js';
-import { mapIcon, mapList, mapInfo } from './icons.js';
+import { mapIcon, mapList, mapInfo, uiIcon, MODE_GLYPH, RULE_GLYPH } from './icons.js';
 import {
   RULESETS, RULESET_IDS, DEFAULT_RULESET, normalizeRuleset, FFA_KILLS, FFA_KILL_PRESETS, normalizeKillTarget
 } from '../game/modes.js';
+import { t, loc } from '../core/i18n.js';
 
 const ROOM_NAME_MAX = 24;
 // 방 인원 상한은 세션이 props.maxPlayers로 정한다: Cloudflare 중계는 16명(8:8), Supabase Realtime은 무료 한도 때문에 6명(3:3).
@@ -29,7 +29,7 @@ const DEFAULT_MAP_RULESETS = Object.freeze(['classic', 'sniper']);
 
 /** 규칙 고르는 버튼 묶음의 항목(방 만들기 시트와 대기실이 같이 쓴다) */
 export const RULE_CHOICES = Object.freeze(RULESET_IDS.map((id) => Object.freeze({
-  id, label: RULESETS[id].name, icon: RULESETS[id].icon, title: RULESETS[id].desc,
+  id, label: loc(RULESETS[id], 'name'), icon: RULESETS[id].icon, glyph: RULE_GLYPH[id] || '', title: loc(RULESETS[id], 'desc'),
 })));
 
 /** 고를 수 있는 모드(방 만들기 시트와 대기실이 같이 쓴다) */
@@ -39,16 +39,16 @@ export const ZOMBIE_MAX = 4;
 /** 폭파 미션은 클래식 규칙만 쓴다 */
 export const BOMB_RULESET = 'classic';
 /** 모드 칸의 작은 글자. 개인전 칸은 고른 목표 킬을 넣어 ffaSubText로 쓴다 */
-const MODE_SUB = Object.freeze({ team: '블루 vs 레드 · 5판 3선승', bomb: '공격·수비 · A/B 구역에 폭탄', zombie: '함께 버티기 · 최대 4명' });
-const ffaSubText = (kills) => `모두가 적 · ${kills}킬`;
+const MODE_SUB = Object.freeze({ team: t('menu.modeSubTeam'), bomb: t('menu.modeSubBomb'), zombie: t('menu.modeSubZombie') });
+const ffaSubText = (kills) => t('menu.modeSubFfa', { kills });
 const MODE_HINT = Object.freeze({
-  team: '블루 vs 레드 섬멸전이에요. 라운드 중 부활 없이 5판 3선승으로 겨뤄요.',
-  bomb: '공격 팀은 A나 B 구역에 폭탄을 설치하고, 수비 팀은 막거나 해체해요. 5판 3선승이고 2라운드 뒤 공수를 바꿔요.',
-  zombie: '최대 4명이 40초 스테이지마다 몰려오는 좀비를 함께 막아요. 팀 레벨이 오르면 저마다 증강을 골라요(고르는 동안 무적). 탄은 스테이지 사이에 채워지지 않으니(예비 탄 3배) 좀비가 떨어뜨린 탄창을 주워 쓰세요. 3스테이지마다 보스가 나오고, 쓰러진 동료는 옆에서 F(휴대폰은 살리기 버튼)를 3초 눌러 살려요.',
+  team: t('menu.modeHintTeam'),
+  bomb: t('menu.modeHintBomb'),
+  zombie: t('menu.modeHintZombie'),
 });
 /** 모드 안내 글. 개인전은 고른 목표 킬을 넣는다 */
 const modeHintText = (mode, kills) => (mode === 'ffa'
-  ? `모두가 적이에요. 먼저 ${kills}킬을 채우면 우승하고, 죽으면 3초 뒤 부활해요.` : MODE_HINT[mode]);
+  ? t('menu.modeHintFfa', { kills }) : MODE_HINT[mode]);
 
 /** 이 모드에서 쓰는 규칙. 폭파 미션과 좀비 물량 막기는 언제나 클래식 */
 export function ruleForMode(mode, ruleset) {
@@ -61,16 +61,16 @@ export function ruleForMode(mode, ruleset) {
  * killTarget을 넘기면 개인전 배지에 목표 킬을 붙인다('칼전 · 개인전 · 10킬'). 팀전·폭파 미션에는 붙이지 않는다
  */
 export function ruleBadge(ruleset, mode, killTarget) {
-  if (modeKey(mode) === 'zombie') return `🧟 ${MODE_NAME.zombie}`;
-  const base = `${RULESETS[ruleForMode(mode, ruleset)].name} · ${MODE_NAME[modeKey(mode)]}`;
-  return modeKey(mode) === 'ffa' && killTarget !== undefined ? `${base} · ${normalizeKillTarget(killTarget)}킬` : base;
+  if (modeKey(mode) === 'zombie') return MODE_NAME.zombie;
+  const base = `${loc(RULESETS[ruleForMode(mode, ruleset)], 'name')} · ${MODE_NAME[modeKey(mode)]}`;
+  return modeKey(mode) === 'ffa' && killTarget !== undefined ? `${base} · ${t('menu.kills', { n: normalizeKillTarget(killTarget) })}` : base;
 }
 
 /** 맵 목록에서 이 규칙으로 고를 수 있는 맵만 남긴다. 하나도 없으면 그대로 둔다(고를 맵이 없어 막히지 않게) */
 export function mapsForRule(maps, ruleset) {
   const id = normalizeRuleset(ruleset);
-  // 좀비 물량 막기 전용 맵은 다른 모드에서 고르지 않는다
-  const pool = maps.filter((m) => !(m && m.zombie === true));
+  // 좀비 물량 막기 전용 맵 · 배틀로얄 전용 맵(brOnly, 연습장에서만 한다)은 다른 모드에서 고르지 않는다
+  const pool = maps.filter((m) => !(m && (m.zombie === true || m.brOnly === true)));
   const valid = pool.filter((m) => (Array.isArray(m.rulesets) ? m.rulesets : DEFAULT_MAP_RULESETS).includes(id));
   return valid.length ? valid : pool.length ? pool : maps;
 }
@@ -101,27 +101,28 @@ export function createLobby(ctx) {
   let formRule = DEFAULT_RULESET;
   let formKills = FFA_KILLS.def;
   const modal = createModal();
-  const myName = () => p.name || ctx.playerName || '플레이어';
+  const myName = () => p.name || ctx.playerName || t('menu.player');
 
   // ---------- 헤더 ----------
-  const meChip = h('span', { class: 'sk-chip sk-chip--me' });
+  const meName = h('span');
+  const meChip = h('span', { class: 'sk-chip sk-chip--me' }, uiIcon('user'), meName);
   const countText = h('span', { class: 'sk-lobby-count' });
-  const refreshBtn = btn('⟳ 새로고침', () => ctx.emit('lobby:refresh', {}), '', { 'aria-label': '방 목록 새로고침' });
+  const refreshBtn = btn([uiIcon('refresh'), h('span', { text: t('menu.refresh') })], () => ctx.emit('lobby:refresh', {}), '', { 'aria-label': t('menu.refreshAria') });
 
   // ---------- 방 만들기 폼 ----------
   const nameIn = h('input', {
-    class: 'sk-input', type: 'text', maxlength: ROOM_NAME_MAX, placeholder: '예: 오늘 밤 3:3',
-    autocomplete: 'off', spellcheck: 'false', 'aria-label': '방 이름', 'data-autofocus': '',
+    class: 'sk-input', type: 'text', maxlength: ROOM_NAME_MAX, placeholder: t('menu.roomNamePh'),
+    autocomplete: 'off', spellcheck: 'false', 'aria-label': t('menu.roomName'), 'data-autofocus': '',
   });
   // 비밀번호는 친구에게 알려 주는 값이라 가리지 않는다(type=text). 브라우저 비밀번호 저장도 뜨지 않는다
   const pwIn = h('input', {
-    class: 'sk-input', type: 'text', maxlength: PASSWORD_MAX, placeholder: '비워 두면 누구나 들어와요',
-    autocomplete: 'off', spellcheck: 'false', 'aria-label': '비밀번호(선택)',
+    class: 'sk-input', type: 'text', maxlength: PASSWORD_MAX, placeholder: t('menu.passwordPh'),
+    autocomplete: 'off', spellcheck: 'false', 'aria-label': t('menu.passwordOptAria'),
   });
-  const mapBox = h('div', { class: 'sk-mapcards', role: 'radiogroup', 'aria-label': '맵 선택' });
+  const mapBox = h('div', { class: 'sk-mapcards', role: 'radiogroup', 'aria-label': t('menu.pickMap') });
   const ffaSub = h('small');
   const modeBtns = MODE_IDS.map((m) => btn([
-    h('span', { class: 'sk-mode-ico', text: MODE_ICON[m], 'aria-hidden': 'true' }),
+    h('span', { class: 'sk-mode-ico', 'aria-hidden': 'true' }, uiIcon(MODE_GLYPH[m])),
     h('span', { class: 'sk-mode-txt' },
       h('b', { text: MODE_NAME[m] }),
       m === 'ffa' ? ffaSub : h('small', { text: MODE_SUB[m] })),
@@ -129,51 +130,51 @@ export function createLobby(ctx) {
   const modeHint = h('p', { class: 'sk-set-hint' });
   // 개인전 목표 킬: 개인전을 고를 때만 보인다(대기실에서도 방장이 다시 바꿀 수 있다)
   const killPick = createStepper({
-    label: '목표 킬', min: FFA_KILLS.min, max: FFA_KILLS.max, presets: FFA_KILL_PRESETS, fmt: (n) => `${n}킬`, onPick: (n) => setKills(n), cls: 'sk-kill-pick',
+    label: t('menu.killTarget'), min: FFA_KILLS.min, max: FFA_KILLS.max, presets: FFA_KILL_PRESETS, fmt: (n) => t('menu.kills', { n }), onPick: (n) => setKills(n), cls: 'sk-kill-pick',
   });
-  const killField = h('div', { class: 'sk-field', hidden: true }, h('span', { class: 'sk-field-label', text: '목표 킬' }), killPick.el);
+  const killField = h('div', { class: 'sk-field', hidden: true }, h('span', { class: 'sk-field-label', text: t('menu.killTarget') }), killPick.el);
   // 폭파 미션이면 클래식으로 고정하고 버튼을 끈다(고른 규칙은 다른 모드로 돌아가면 다시 쓴다)
-  const ruleRow = createChoiceRow({ label: '규칙 선택', onPick: (id) => { if (formMode !== 'bomb' && formMode !== 'zombie') setRule(id); } });
+  const ruleRow = createChoiceRow({ label: t('menu.pickRule'), onPick: (id) => { if (formMode !== 'bomb' && formMode !== 'zombie') setRule(id); } });
   const ruleHint = h('p', { class: 'sk-set-hint' });
   const maxOut = h('output', { class: 'sk-stepper-val', 'aria-live': 'polite' });
   const maxNote = h('span', { class: 'sk-set-hint' });
-  const minus = btn('−', () => setMax(formMax - 1), 'sk-btn--icon', { 'aria-label': '최대 인원 줄이기' });
-  const plus = btn('＋', () => setMax(formMax + 1), 'sk-btn--icon', { 'aria-label': '최대 인원 늘리기' });
-  const maxQuick = createChoiceRow({ label: '최대 인원 빠른 선택', onPick: (id) => setMax(Number(id)), cls: 'sk-stepper-quick' });
+  const minus = btn('−', () => setMax(formMax - 1), 'sk-btn--icon', { 'aria-label': t('menu.maxDown') });
+  const plus = btn('＋', () => setMax(formMax + 1), 'sk-btn--icon', { 'aria-label': t('menu.maxUp') });
+  const maxQuick = createChoiceRow({ label: t('menu.maxQuick'), onPick: (id) => setMax(Number(id)), cls: 'sk-stepper-quick' });
   const formErr = h('p', { class: 'sk-field-err', role: 'alert' });
   const form = h('form', { class: 'sk-create', novalidate: true, onsubmit: (e) => { e.preventDefault(); doCreate(); } },
-    h('label', { class: 'sk-field' }, h('span', { class: 'sk-field-label', text: '방 이름' }), nameIn),
-    h('label', { class: 'sk-field' }, h('span', { class: 'sk-field-label', text: '비밀번호 (선택)' }), pwIn),
+    h('label', { class: 'sk-field' }, h('span', { class: 'sk-field-label', text: t('menu.roomName') }), nameIn),
+    h('label', { class: 'sk-field' }, h('span', { class: 'sk-field-label', text: t('menu.passwordOpt') }), pwIn),
     h('div', { class: 'sk-field' },
-      h('span', { class: 'sk-field-label', text: '규칙' }),
+      h('span', { class: 'sk-field-label', text: t('menu.rule') }),
       ruleRow.el,
       ruleHint),
     h('div', { class: 'sk-field' },
-      h('span', { class: 'sk-field-label', text: '모드' }),
-      h('div', { class: 'sk-modepick', role: 'radiogroup', 'aria-label': '모드 선택' }, modeBtns),
+      h('span', { class: 'sk-field-label', text: t('menu.mode') }),
+      h('div', { class: 'sk-modepick', role: 'radiogroup', 'aria-label': t('menu.pickMode') }, modeBtns),
       modeHint),
     killField,
-    h('div', { class: 'sk-field' }, h('span', { class: 'sk-field-label', text: '맵 선택' }), mapBox),
+    h('div', { class: 'sk-field' }, h('span', { class: 'sk-field-label', text: t('menu.pickMap') }), mapBox),
     h('div', { class: 'sk-field' },
-      h('span', { class: 'sk-field-label', text: '최대 인원' }),
-      h('div', { class: 'sk-stepper', role: 'group', 'aria-label': '최대 인원' }, minus, maxOut, plus, maxQuick.el),
+      h('span', { class: 'sk-field-label', text: t('menu.maxPlayers') }),
+      h('div', { class: 'sk-stepper', role: 'group', 'aria-label': t('menu.maxPlayers') }, minus, maxOut, plus, maxQuick.el),
       maxNote),
     formErr,
     h('div', { class: 'sk-form-actions' },
-      btn('취소', () => modal.close(), 'sk-btn--ghost'),
-      h('button', { type: 'submit', class: 'sk-btn sk-btn--primary' }, '＋ 방 만들기')));
-  const createSheet = sheet({ title: '＋ 방 만들기', onClose: () => modal.close(), body: form, cls: 'sk-create-sheet' });
+      btn(t('menu.cancel'), () => modal.close(), 'sk-btn--ghost'),
+      h('button', { type: 'submit', class: 'sk-btn sk-btn--primary' }, uiIcon('plus'), t('menu.createRoom'))));
+  const createSheet = sheet({ title: t('menu.createRoom'), kicker: 'NEW OPERATION', onClose: () => modal.close(), body: form, cls: 'sk-create-sheet' });
 
   const roomMax = () => (formMode === 'zombie' ? Math.min(ZOMBIE_MAX, clamp(Math.round(num(p.maxPlayers, ROOM_MAX)), 2, ROOM_CAP)) : clamp(Math.round(num(p.maxPlayers, ROOM_MAX)), 2, ROOM_CAP));
   function setMax(n) {
     const top = roomMax();
     formMax = clamp(Math.round(num(n, ROOM_DEFAULT)), 2, top);
-    setText(maxOut, `${formMax}명`);
-    setText(maxNote, formMode === 'ffa' ? `최대 ${formMax}명 · 모두가 적` : formMode === 'zombie' ? `최대 ${formMax}명이 함께 막아요` : `팀당 최대 ${Math.ceil(formMax / 2)}명`);
+    setText(maxOut, t('menu.players', { n: formMax }));
+    setText(maxNote, formMode === 'ffa' ? t('menu.maxNoteFfa', { n: formMax }) : formMode === 'zombie' ? t('menu.maxNoteZombie', { n: formMax }) : t('menu.maxNoteTeam', { n: Math.ceil(formMax / 2) }));
     minus.disabled = formMax <= 2;
     plus.disabled = formMax >= top;
     const quick = formMode === 'zombie' ? [2, 3, 4].filter((v) => v <= top) : [...new Set([...ROOM_PRESETS.filter((v) => v < top), top])];
-    maxQuick.set(quick.map((v) => ({ id: String(v), label: `${v}명` })), String(formMax));
+    maxQuick.set(quick.map((v) => ({ id: String(v), label: t('menu.players', { n: v }) })), String(formMax));
   }
   const allMaps = () => mapList(ctx.maps, p.maps);
   /** 모드를 바꾼다. 미션 맵이 하나도 없으면 폭파 미션 대신 팀전 */
@@ -187,7 +188,7 @@ export function createLobby(ctx) {
       b.setAttribute('aria-checked', on ? 'true' : 'false');
       if (id === 'bomb') {
         b.disabled = !ready;
-        b.title = ready ? '' : '폭파 미션을 할 수 있는 맵이 아직 없어요';
+        b.title = ready ? '' : t('menu.noMissionMap');
       }
     }
     killField.hidden = formMode !== 'ffa';
@@ -215,7 +216,7 @@ export function createLobby(ctx) {
     const rs = ruleForMode(formMode, formRule);
     ruleRow.set(RULE_CHOICES, rs);
     for (const b of ruleRow.el.children) b.disabled = fixed;
-    setText(ruleHint, fixed ? `${MODE_NAME[formMode]}은 클래식 규칙만 써요` : RULESETS[rs].desc);
+    setText(ruleHint, fixed ? t('menu.classicOnly', { mode: MODE_NAME[formMode] }) : loc(RULESETS[rs], 'desc'));
   }
   function renderMapCards() {
     const maps = mapsForMode(allMaps(), formMode, formRule);
@@ -227,7 +228,7 @@ export function createLobby(ctx) {
   }
   function openCreate() {
     setText(formErr, '');
-    if (!nameIn.value) nameIn.value = cleanRoomName(`${myName()}의 방`);
+    if (!nameIn.value) nameIn.value = cleanRoomName(t('menu.defaultRoomName', { name: myName() }));
     setMode(formMode); // 규칙 · 맵 카드 · 인원도 다시 그린다
     // 터치 기기에서 입력칸에 바로 포커스를 주면 가상 키보드가 시트를 덮는다. 이름은 이미 채워 두었으니 손으로 누를 때만 연다
     const touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
@@ -236,8 +237,8 @@ export function createLobby(ctx) {
     if (!touch) nameIn.select();
   }
   function doCreate() {
-    const name = cleanRoomName(nameIn.value) || cleanRoomName(`${myName()}의 방`);
-    if (!formMap) { setText(formErr, '맵을 골라 주세요.'); return; }
+    const name = cleanRoomName(nameIn.value) || cleanRoomName(t('menu.defaultRoomName', { name: myName() }));
+    if (!formMap) { setText(formErr, t('menu.pickMapErr')); return; }
     const password = pwIn.value.trim().slice(0, PASSWORD_MAX);
     modal.close();
     ctx.emit('lobby:create', {
@@ -249,8 +250,8 @@ export function createLobby(ctx) {
   // ---------- 비밀번호 입력 ----------
   function askPassword(r) {
     const input = h('input', {
-      class: 'sk-input', type: 'text', maxlength: PASSWORD_MAX, placeholder: '방장에게 받은 비밀번호',
-      autocomplete: 'off', spellcheck: 'false', 'aria-label': '비밀번호', 'data-autofocus': '',
+      class: 'sk-input', type: 'text', maxlength: PASSWORD_MAX, placeholder: t('menu.passwordAskPh'),
+      autocomplete: 'off', spellcheck: 'false', 'aria-label': t('menu.password'), 'data-autofocus': '',
     });
     const err = h('p', { class: 'sk-field-err', role: 'alert' });
     const form = h('form', {
@@ -258,22 +259,56 @@ export function createLobby(ctx) {
       onsubmit: (e) => {
         e.preventDefault();
         const password = input.value.trim().slice(0, PASSWORD_MAX);
-        if (!password) { setText(err, '비밀번호를 입력해 주세요.'); return; }
+        if (!password) { setText(err, t('menu.passwordErr')); return; }
         modal.close();
         ctx.emit('lobby:join', { roomId: r.roomId, password });
       },
     },
-    h('label', { class: 'sk-field' }, h('span', { class: 'sk-field-label', text: r.name || '이름 없는 방' }), input),
+    h('label', { class: 'sk-field' }, h('span', { class: 'sk-field-label', text: r.name || t('menu.unnamedRoom') }), input),
     err,
     h('div', { class: 'sk-form-actions' },
-      btn('취소', () => modal.close(), 'sk-btn--ghost'),
-      h('button', { type: 'submit', class: 'sk-btn sk-btn--primary' }, '들어가기')));
-    modal.open(sheet({ title: '🔒 비밀번호 방', onClose: () => modal.close(), body: form, cls: 'sk-pw-sheet' }));
+      btn(t('menu.cancel'), () => modal.close(), 'sk-btn--ghost'),
+      h('button', { type: 'submit', class: 'sk-btn sk-btn--primary' }, t('menu.enter'))));
+    modal.open(sheet({ title: t('menu.passwordRoom'), kicker: 'CLEARANCE', onClose: () => modal.close(), body: form, cls: 'sk-pw-sheet' }));
   }
 
-  // ---------- 방 목록 ----------
-  const list = h('div', { class: 'sk-rooms', role: 'list', 'aria-label': '방 목록' });
+  // ---------- 방 목록(표) ----------
+  const list = h('div', { class: 'sk-rooms', role: 'list', 'aria-label': t('menu.roomList') });
   const statusEl = h('div', { class: 'sk-lobby-status', role: 'status' });
+
+  // 정렬: 머리글을 누르면 그 열로, 같은 열을 다시 누르면 반대로. 처음은 상태(대기 중인 방 먼저)
+  const SORTS = Object.freeze({
+    name: (r) => String(r.name || ''),
+    mode: (r) => ruleBadge(r.ruleset, r.mode, r.killTarget ?? FFA_KILLS.def),
+    map: (r) => { const m = mapInfo(ctx.maps, p.maps, r.mapId); return m ? loc(m, 'name') : ''; },
+    count: (r) => countOf(r.players),
+    status: (r) => (r.status === 'playing' ? 1 : 0),
+  });
+  let sortKey = 'status';
+  let sortDir = 1;
+  const COLS = [['name', t('menu.roomName'), 'OPERATION'], ['mode', t('menu.mode'), 'MODE'], ['map', t('menu.colMap'), 'MAP'], ['count', t('menu.colCount'), 'SLOTS'], ['status', t('menu.colStatus'), 'STATUS']];
+  const sortBtns = COLS.map(([key, label, en]) => h('button', {
+    type: 'button', class: `sk-th sk-th--${key}`, 'data-sort': key,
+    onclick: () => { if (sortKey === key) sortDir = -sortDir; else { sortKey = key; sortDir = 1; } listSig = ''; render(p); },
+  }, h('span', { class: 'sk-th-en', text: en, 'aria-hidden': 'true' }), h('span', { text: label }), uiIcon('sort', 'sk-th-ico')));
+  const head = h('div', { class: 'sk-theater-head', 'aria-label': t('menu.sortAria') }, sortBtns, h('span', { class: 'sk-th sk-th--join', 'aria-hidden': 'true' }));
+  function paintSort() {
+    for (const b of sortBtns) {
+      const on = b.getAttribute('data-sort') === sortKey;
+      b.classList.toggle('is-on', on);
+      b.classList.toggle('is-desc', on && sortDir < 0);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  }
+  function sorted(rooms) {
+    const key = SORTS[sortKey];
+    return rooms.slice().sort((a, b) => {
+      const x = key(a);
+      const y = key(b);
+      const c = typeof x === 'number' ? x - y : String(x).localeCompare(String(y), 'ko');
+      return c * sortDir;
+    });
+  }
 
   function roomRow(r) {
     const n = countOf(r.players);
@@ -284,57 +319,60 @@ export function createLobby(ctx) {
     const full = n >= max;
     const joining = p.joining != null && p.joining === r.roomId;
     const m = mapInfo(ctx.maps, p.maps, r.mapId);
-    const label = locked ? '진행 중' : full ? '만원' : joining ? '참가 중…' : playing ? '중간 참가' : '참가';
-    return h('div', { class: 'sk-room-row sk-steel' + (locked || full ? ' is-locked' : ''), role: 'listitem' },
-      h('div', { class: 'sk-room-ico' }, mapIcon(r.mapId)),
+    const label = locked ? t('menu.joinLocked') : full ? t('menu.joinFull') : joining ? t('menu.joining') : playing ? t('menu.joinMid') : t('menu.join');
+    const mk = modeKey(r.mode);
+    return h('div', { class: 'sk-room-row' + (locked || full ? ' is-locked' : ''), role: 'listitem' },
       h('div', { class: 'sk-room-main' },
-        h('div', { class: 'sk-room-name', text: (r.locked ? '🔒 ' : '') + (r.name || '이름 없는 방'), title: r.locked ? '비밀번호가 있는 방' : null }),
-        h('div', { class: 'sk-room-meta' },
-          h('span', {
-            class: `sk-mode-badge sk-mode-badge--${modeKey(r.mode)}`,
-            text: ruleBadge(r.ruleset, r.mode, r.killTarget ?? FFA_KILLS.def), title: modeLabel(r.mode, { killTarget: normalizeKillTarget(r.killTarget) }),
-          }),
-          h('span', { class: 'sk-room-map', text: m ? [m.name, m.tag].filter(Boolean).join(' · ') : '맵 미정' }),
-          h('span', { class: 'sk-room-host' }, h('span', { text: '👑', 'aria-label': '방장' }), h('span', { text: r.hostName || '?' })))),
-      h('div', { class: 'sk-room-count', title: `${n}/${max}명` },
+        h('div', { class: 'sk-room-name', title: r.locked ? t('menu.lockedRoom') : null },
+          r.locked ? uiIcon('lock', 'sk-room-lock') : null,
+          h('span', { text: r.name || t('menu.unnamedRoom') })),
+        h('div', { class: 'sk-room-host' }, uiIcon('crown', 'sk-uico--inline'), h('span', { class: 'sk-vh', text: t('menu.hostVh') }), h('span', { text: r.hostName || '?' }))),
+      h('span', {
+        class: `sk-mode-badge sk-mode-badge--${mk}`,
+        text: ruleBadge(r.ruleset, r.mode, r.killTarget ?? FFA_KILLS.def), title: modeLabel(r.mode, { killTarget: normalizeKillTarget(r.killTarget) }),
+      }),
+      h('div', { class: 'sk-room-mapcell' },
+        h('span', { class: 'sk-room-ico' }, mapIcon(r.mapId)),
+        h('span', { class: 'sk-room-map', text: m ? [loc(m, 'name'), loc(m, 'tag')].filter(Boolean).join(' · ') : t('menu.noMap') })),
+      h('div', { class: 'sk-room-count', title: t('menu.countTitle', { n, max }) },
         h('b', { text: `${n}/${max}` }),
         h('span', { class: 'sk-meter' }, h('i', { style: { transform: `scaleX(${clamp(n / max, 0, 1)})` } }))),
-      h('span', { class: 'sk-badge ' + (playing ? 'sk-badge--live' : 'sk-badge--wait'), text: playing ? '게임 중' : '대기' }),
+      h('span', { class: 'sk-badge ' + (playing ? 'sk-badge--live' : 'sk-badge--wait'), text: playing ? t('menu.statusPlaying') : t('menu.statusWaiting') }),
       btn(label, () => (r.locked ? askPassword(r) : ctx.emit('lobby:join', { roomId: r.roomId })), 'sk-btn--primary sk-room-join', {
         disabled: locked || full || joining,
-        'aria-label': `${r.name || '방'} ${label}`,
-        title: locked ? `${MODE_NAME[modeKey(r.mode)]}은 경기가 끝나면 들어갈 수 있어요` : playing && !full ? (r.mode === 'zombie' ? '진행 중인 좀비 방에 들어가 다음 스테이지부터 함께해요' : '진행 중인 개인전에 들어가 곧 출격해요') : null,
+        'aria-label': `${r.name || t('menu.room')} ${label}`,
+        title: locked ? t('menu.lockedTitle', { mode: MODE_NAME[mk] }) : playing && !full ? (r.mode === 'zombie' ? t('menu.joinMidZombie') : t('menu.joinMidFfa')) : null,
       }));
   }
 
   function emptyState() {
     return h('div', { class: 'sk-empty' },
       h('div', { class: 'sk-empty-art', 'aria-hidden': 'true' }, mapIcon('_')),
-      h('p', { class: 'sk-empty-title', text: '열려 있는 방이 없어요' }),
-      h('p', { class: 'sk-empty-sub', text: '첫 방을 열고 동료를 기다려 보세요.' }),
-      btn('＋ 방 만들기', openCreate, 'sk-btn--primary'));
+      h('p', { class: 'sk-empty-title', text: t('menu.emptyTitle') }),
+      h('p', { class: 'sk-empty-sub', text: t('menu.emptySub') }),
+      btn([uiIcon('plus'), h('span', { text: t('menu.createRoom') })], openCreate, 'sk-btn--primary'));
   }
 
-  const el = h('section', { class: 'sk-screen sk-page sk-lobby', hidden: true, 'aria-label': '로비' },
+  const el = h('section', { class: 'sk-screen sk-page sk-lobby', hidden: true, 'aria-label': t('menu.theater') },
     h('div', { class: 'sk-page-inner' },
       h('header', { class: 'sk-bar' },
-        btn('← 메뉴', () => ctx.emit('lobby:back', {}), 'sk-btn--ghost'),
+        btn([uiIcon('back'), h('span', { text: t('menu.menu') })], () => ctx.emit('lobby:back', {}), 'sk-btn--ghost', { 'aria-label': t('menu.toMenu') }),
         h('div', { class: 'sk-bar-title' },
-          h('h1', { class: 'sk-h1 sk-stencil', text: '🌐 로비' }),
-          h('p', { class: 'sk-bar-sub' }, h('span', { text: '방 목록 · ' }), countText)),
-        h('div', { class: 'sk-bar-actions' }, meChip, refreshBtn, btn('＋ 방 만들기', openCreate, 'sk-btn--primary'))),
-      h('div', { class: 'sk-hazard sk-hazard--thin', 'aria-hidden': 'true' }),
+          h('p', { class: 'sk-kicker', text: 'THEATER // MULTIPLAYER', 'aria-hidden': 'true' }),
+          h('h1', { class: 'sk-h1 sk-stencil', text: t('menu.theater') }),
+          h('p', { class: 'sk-bar-sub' }, h('span', { text: t('menu.roomListSep') }), countText)),
+        h('div', { class: 'sk-bar-actions' }, meChip, refreshBtn, btn([uiIcon('plus'), h('span', { text: t('menu.createRoom') })], openCreate, 'sk-btn--primary'))),
       statusEl,
-      list),
+      h('div', { class: 'sk-theater sk-steel' }, head, list)),
     modal.el);
 
   let listSig = '';
   function render(props) {
     p = props;
-    const rooms = (Array.isArray(p.rooms) ? p.rooms : []).slice()
-      .sort((a, b) => (a.status === 'playing') - (b.status === 'playing'));
-    setText(meChip, `👤 ${p.name || ctx.playerName || '플레이어'}`);
-    setText(countText, p.loading && !rooms.length ? '불러오는 중' : `방 ${rooms.length}개`);
+    const rooms = sorted(Array.isArray(p.rooms) ? p.rooms : []);
+    paintSort();
+    setText(meName, p.name || ctx.playerName || t('menu.player'));
+    setText(countText, p.loading && !rooms.length ? t('menu.loading') : t('menu.roomCount', { n: rooms.length }));
     refreshBtn.disabled = !!p.loading;
 
     // 같은 데이터면 다시 그리지 않는다(누르는 중인 참가 버튼이 바뀌지 않게)
@@ -344,14 +382,14 @@ export function createLobby(ctx) {
     statusEl.replaceChildren();
     if (p.error) {
       statusEl.append(h('div', { class: 'sk-alert sk-alert--bad' },
-        h('span', { text: `⚠️ ${p.error}` }),
-        btn('다시 시도', () => ctx.emit('lobby:refresh', {}), 'sk-btn--sm')));
+        h('span', { class: 'sk-alert-text' }, uiIcon('alert', 'sk-uico--inline sk-alert-ico'), h('span', { text: p.error })),
+        btn(t('menu.retry'), () => ctx.emit('lobby:refresh', {}), 'sk-btn--sm')));
     } else if (p.notice) {
       // 알림(자리 비움으로 방이 닫힘 등): 실패가 아니라서 다시 시도 버튼이 없다
-      statusEl.append(h('div', { class: 'sk-alert sk-alert--info', role: 'status' }, h('span', { text: `ℹ️ ${p.notice}` })));
+      statusEl.append(h('div', { class: 'sk-alert sk-alert--info', role: 'status' }, h('span', { text: p.notice })));
     }
     if (p.loading && !rooms.length) {
-      list.replaceChildren(h('div', { class: 'sk-loading' }, h('span', { class: 'sk-spinner', 'aria-hidden': 'true' }), h('span', { text: '방 목록을 불러오는 중…' })));
+      list.replaceChildren(h('div', { class: 'sk-loading' }, h('span', { class: 'sk-spinner', 'aria-hidden': 'true' }), h('span', { text: t('menu.roomListLoading') })));
     } else if (!rooms.length) {
       list.replaceChildren(p.error ? h('div') : emptyState());
     } else {

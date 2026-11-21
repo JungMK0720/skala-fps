@@ -1,4 +1,4 @@
-# 이모트 원본 음원은 올리지 않는다. 저장소에는 tools/pack-emote-audio.mjs로 묶은 audio/emotes/*.bin만 둔다
+# 이모트 음악은 코드 합성음만 쓴다. 외부 음원 파일은 출처·라이선스를 docs/ASSETS.md에 적기 전에는 올리지 않는다
 audio/emotes/*.mp3
 audio/emotes/*.wav
 audio/emotes/*.m4a
@@ -18,3 +18,13 @@ supabase/.env
 supabase/functions/.env
 # 운영자 열쇠(전체 공지 서명용, tools/make-notice-key.mjs) 보관 폴더. 비밀 열쇠는 저장소에 올리지 않는다
 .secrets/
+# Pages 빌드 산출물과 Terraform 로컬 상태·공급자 캐시
+dist/
+.terraform/
+*.tfstate*
+*.tfplan
+infra/aws/terraform.tfvars
+# 대원 모델 빌드 도구(tools/models)의 설치 폴더. 게임 실행에는 필요 없다
+tools/models/node_modules/
+dist-crazygames/
+dist-crazygames.zip

@@ -441,12 +441,12 @@ const scenery = [
 
 const decor = [
   // 간판과 표지
-  { type: 'sign', x: 0, y: ROOF + 0.4, z: STORE.z1 + 0.06, rotY: 0, w: 7.5, h: 0.9, text: '행복 휴게소 · 편의점 24시', bg: '#1d3b6b', fg: '#f4f1e8' },
-  { type: 'sign', x: -19.5, y: CANOPY_Y + 0.2, z: 13.06, rotY: 0, w: 5.2, h: 0.5, text: '셀프 주유소', bg: '#c8352c', fg: '#ffffff' },
-  { type: 'sign', x: -25.35, y: 2.75, z: -11.8, rotY: Math.PI / 2, w: 1.6, h: 0.45, text: '화장실', bg: '#2b4c7e', fg: '#ffffff' },
-  { type: 'banner', x: 0, y: 2.4, z: NOISE_Z + 0.2, rotY: 0, w: 6, h: 1.1, text: '대피 완료 · 출입 통제', bg: '#a3201b', fg: '#fff3e6' },
-  { type: 'banner', x: 26.1 - 0.17, y: 1.7, z: 4.3, rotY: -Math.PI / 2, w: 2.2, h: 0.9, text: '정비 구역', bg: '#e2b21a', fg: '#1d1d1b' },
-  { type: 'sign', x: 0, y: 7.1, z: -29.62, rotY: 0, w: 8.4, h: 1.6, text: '서울 42 km · 대전 98 km', bg: '#1e6a3a', fg: '#ffffff' },
+  { type: 'sign', x: 0, y: ROOF + 0.4, z: STORE.z1 + 0.06, rotY: 0, w: 7.5, h: 0.9, text: '행복 휴게소 · 편의점 24시', textEn: 'Happy Rest Stop · 24/7 Store', bg: '#1d3b6b', fg: '#f4f1e8' },
+  { type: 'sign', x: -19.5, y: CANOPY_Y + 0.2, z: 13.06, rotY: 0, w: 5.2, h: 0.5, text: '셀프 주유소', textEn: 'Self-Serve Gas', bg: '#c8352c', fg: '#ffffff' },
+  { type: 'sign', x: -25.35, y: 2.75, z: -11.8, rotY: Math.PI / 2, w: 1.6, h: 0.45, text: '화장실', textEn: 'Restrooms', bg: '#2b4c7e', fg: '#ffffff' },
+  { type: 'banner', x: 0, y: 2.4, z: NOISE_Z + 0.2, rotY: 0, w: 6, h: 1.1, text: '대피 완료 · 출입 통제', textEn: 'Evacuated · No Entry', bg: '#a3201b', fg: '#fff3e6' },
+  { type: 'banner', x: 26.1 - 0.17, y: 1.7, z: 4.3, rotY: -Math.PI / 2, w: 2.2, h: 0.9, text: '정비 구역', textEn: 'Service Area', bg: '#e2b21a', fg: '#1d1d1b' },
+  { type: 'sign', x: 0, y: 7.1, z: -29.62, rotY: 0, w: 8.4, h: 1.6, text: '서울 42 km · 대전 98 km', textEn: 'Seoul 42 km · Daejeon 98 km', bg: '#1e6a3a', fg: '#ffffff' },
   // 조명(실제 조명 넷: 출입문, 주유소 캐노피, 주차장, 뒷골목)
   { type: 'light', x: 0, y: 3.05, z: -3.9, color: '#fff1d6', intensity: 1.6, dist: 16 },
   { type: 'light', x: -19.5, y: 4.9, z: 8, color: '#e8f4ff', intensity: 2.2, dist: 22 },
@@ -485,12 +485,12 @@ const people = [-6.25, -3.75, -1.25, 1.25, 3.75, 6.25].map((x) => ({ x, z: -2.2,
 
 // 좀비 문: 벽·울타리 뒤의 여섯 자리. 문에서 가장 가까운 열린 쪽을 본다
 const GATES = [
-  { id: 'shoulder_w', name: '고속도로 서쪽 갓길', x: -29.5, z: -21.7, rotY: look(-29.5, -21.7, -25.5, -17) },
-  { id: 'shoulder_e', name: '고속도로 동쪽 갓길', x: 29.5, z: -21.7, rotY: look(29.5, -21.7, 25.5, -17) },
-  { id: 'restroom', name: '화장실', x: -28.5, z: -7, rotY: look(-28.5, -7, -24, -9) },
-  { id: 'yard', name: '정비 마당', x: 29.5, z: 4.5, rotY: look(29.5, 4.5, 26, 0) },
-  { id: 'forest_w', name: '서쪽 숲길', x: -26, z: 22.6, rotY: look(-26, 22.6, -21, 20) },
-  { id: 'forest_e', name: '동쪽 숲길', x: 26, z: 22.6, rotY: look(26, 22.6, 21, 20) }
+  { id: 'shoulder_w', name: '고속도로 서쪽 갓길', nameEn: 'West Highway Shoulder', x: -29.5, z: -21.7, rotY: look(-29.5, -21.7, -25.5, -17) },
+  { id: 'shoulder_e', name: '고속도로 동쪽 갓길', nameEn: 'East Highway Shoulder', x: 29.5, z: -21.7, rotY: look(29.5, -21.7, 25.5, -17) },
+  { id: 'restroom', name: '화장실', nameEn: 'Restrooms', x: -28.5, z: -7, rotY: look(-28.5, -7, -24, -9) },
+  { id: 'yard', name: '정비 마당', nameEn: 'Service Yard', x: 29.5, z: 4.5, rotY: look(29.5, 4.5, 26, 0) },
+  { id: 'forest_w', name: '서쪽 숲길', nameEn: 'West Forest Trail', x: -26, z: 22.6, rotY: look(-26, 22.6, -21, 20) },
+  { id: 'forest_e', name: '동쪽 숲길', nameEn: 'East Forest Trail', x: 26, z: 22.6, rotY: look(26, 22.6, 21, 20) }
 ];
 
 /* ---------------- 소품 ---------------- */
@@ -506,8 +506,8 @@ export default {
   id: 'restarea',
   name: '고속도로 휴게소',
   nameEn: 'Highway Rest Stop',
-  desc: '문 닫은 밤 휴게소. 편의점 앞에서 시작해 갓길·화장실·정비 마당·숲길로 몰려오는 좀비를 막는다. 편의점 옥상은 바깥 계단, 화장실과 관광버스 지붕은 사다리로 오른다.',
-  tag: '좀비 전용',
+  desc: '문 닫은 밤 휴게소. 편의점 앞에서 시작해 갓길·화장실·정비 마당·숲길로 몰려오는 좀비를 막는다. 편의점 옥상은 바깥 계단, 화장실과 관광버스 지붕은 사다리로 오른다.', descEn: 'A highway rest stop, closed for the night. Start outside the store and hold off zombies pouring in from the shoulders, restrooms, service yard and forest trails. Take the outside stairs to the store roof; ladders lead onto the restrooms and the tour bus.',
+  tag: '좀비 전용', tagEn: 'Zombies Only',
   size: { x: HALF_X * 2, z: HALF_Z * 2 },
   rulesets: ['classic'],
   modes: ['zombie'],

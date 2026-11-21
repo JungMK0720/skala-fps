@@ -147,12 +147,15 @@ describe('raycastPlayers: 다섯 부위', () => {
       }
     });
 
-    test(`${name}: 손과 몸통 사이의 빈 공간은 빗나간다`, () => {
+    test(`${name}: 손과 몸통 사이의 빈 공간은 빗나간다(앉으면 손이 몸통에 닿아 틈이 없다)`, (tc) => {
+      const hand = V.hands.reduce((best, h) => (h.z + h.r > best.z + best.r ? h : best));
+      const gap = hand.z + hand.r < -V.body.hd;
+      // 손 구는 대원 모델이 총을 든 손바닥 위치다. 서 있으면 손이 가슴 앞에 떠 있고, 앉으면 몸통에 붙는다
+      assert.equal(gap, !crouch, '서 있을 때만 손과 몸통 사이에 틈이 있다');
+      if (!gap) { tc.skip('이 자세는 손이 몸통에 닿아 있다'); return; }
       for (const yaw of YAWS) {
         const t = place(yaw, crouch);
-        const hand = V.hands.reduce((best, h) => (h.z + h.r > best.z + best.r ? h : best));
         const gapZ = (-V.body.hd + (hand.z + hand.r)) / 2;   // 몸통 앞면과 가까운 손 뒷면의 가운데
-        assert.ok(gapZ > hand.z + hand.r && gapZ < -V.body.hd, '시험 전제: 손과 몸통 사이에 틈이 있다');
         for (const from of [FROM_LEFT, FROM_RIGHT]) {
           assert.equal(shootLocal(t, [0, hand.y, gapZ], from), null, `yaw ${yaw}`);
         }
@@ -293,7 +296,7 @@ describe('WEAPON_RULES: defs에서 만든다', () => {
       assert.equal(normalizeWeaponId(id.toUpperCase()), id);
       assert.equal(normalizeWeaponId(WEAPONS[id].short), id);
     }
-    assert.equal(normalizeWeaponId('SK-7'), 'sr_bolt');
+    assert.equal(normalizeWeaponId('SR-7'), 'sr_bolt');
     assert.equal(normalizeWeaponId('br3'), 'ar_burst');
     assert.equal(normalizeWeaponId('katana'), 'ml_katana');
     for (const bad of ['rifle', 'sniper', 'pistol', 'cutter', '', null, undefined, 'toString', '__proto__', 7, {}]) {
@@ -396,7 +399,7 @@ describe('저격 반샷', () => {
         assert.equal(playerOf(m, 'a').kills, 1);
       });
     }
-    // 밸런스 패치(2026-11-12): SK-7·T-2의 다리는 85라 1발 킬이 아니다. H-50만 다리도 1발이다
+    // 밸런스 패치(2026-11-12): SR-7·T-2의 다리는 85라 1발 킬이 아니다. H-50만 다리도 1발이다
     for (const part of id === 'sr_heavy' ? ['head', 'body', 'legs'] : ['head', 'body']) {
       test(`${id}: ${part}는 1발에 죽고 반샷이 아니다`, () => {
         const m = liveDuel();

@@ -5,13 +5,15 @@
  */
 // SKALA 작전 UI 데모(QA 전용) — dev/ui-demo.html 에서 로드
 // 목 데이터로 모든 화면을 띄우고, HUD는 가짜 게임 루프로 움직인다.
-// URL: ?screen=menu|menu-account|settings|controls|lobby|lobby-empty|lobby-loading|lobby-error|create|
+// URL: ?screen=menu|menu-account|settings|controls|feedback|lobby|lobby-empty|lobby-loading|lobby-error|create|
+//              무기고·요원 기록부(이 기기에만 있는 오프라인 목 계정): shop|shop-secondary|shop-melee|shop-throw|shop-emote|shop-avatar|mypage|nickname|
 //              room|room-guest|loadout|hud|hud-low|scope|scoreboard|results|pause
 //              개인전: create-ffa|room-ffa|room-ffa-guest|loadout-ffa|hud-ffa|respawn|scoreboard-ffa|results-ffa
 //              이모트: emotes-idle|emotes|emote-active
 //              폭파 미션: create-bomb|room-bomb|hud-bomb|hud-bomb-plant|scoreboard-bomb|results-bomb
 //      &bare=1(QA 패널 숨김) &mock=1(목 데이터만)
 import { createUI, relativeAngle, emoteIndexAt } from './index.js';
+import { createAccount } from '../account/index.js';
 import { h, MODE_NAME } from './dom.js';
 import { multiKillTier } from '../game/multikill.js';
 
@@ -23,7 +25,7 @@ const MAPS = [
 ];
 const WEAPONS = [
   {
-    id: 'sr_bolt', slot: 1, name: 'SK-7 저격소총', short: 'SK-7', icon: '🎯', tagline: '한 발로 끝내는 볼트 액션.',
+    id: 'sr_bolt', slot: 1, name: 'SR-7 저격소총', short: 'SR-7', icon: '🎯', tagline: '한 발로 끝내는 볼트 액션.',
     stats: [{ label: '피해', value: '어느 부위든 1발' }, { label: '탄약', value: '5 / 20' }, { label: '볼트', value: '1.2초' }, { label: '반샷', value: '줌 50% 이상' }],
     bars: { power: 100, rate: 12, accuracy: 95, mobility: 55 },
   },
@@ -39,11 +41,11 @@ const WEAPONS = [
 const MAG = { sr_bolt: [5, 20], ar_std: [30, 90], pt_std: [12, 36], ml_knife: [null, null], gr_frag: [1, 0] };
 // 이모트 목록(MODES.md 4.1) — core/consts.js의 EMOTES가 있으면 그것을 쓴다
 const EMOTES_MOCK = [
-  { id: 'takeL', n: 1, name: 'L을 가져가', icon: '🫵' },
-  { id: 'veggie', n: 2, name: '야채', icon: '🥬' },
-  { id: 'sideToSide', n: 3, name: '사이드 스텝', icon: '↔️' },
-  { id: 'crissCross', n: 4, name: '크리스 크로스', icon: '❌' },
-  { id: 'tango', n: 5, name: '탱고', icon: '💃' },
+  { id: 'takeL', n: 1, name: '작전 성공', icon: '✊' },
+  { id: 'veggie', n: 2, name: '무전 확인', icon: '📻' },
+  { id: 'sideToSide', n: 3, name: '경계 이동', icon: '👀' },
+  { id: 'crissCross', n: 4, name: '몸풀기', icon: '🤸' },
+  { id: 'tango', n: 5, name: '제자리 행진', icon: '🥁' },
   { id: 'salute', n: 6, name: '경례', icon: '🫡' },
   { id: 'wave', n: 7, name: '손 흔들기', icon: '👋' },
   { id: 'cheer', n: 8, name: '환호 박수', icon: '👏' },
@@ -98,8 +100,15 @@ function drawScene() {
 drawScene();
 window.addEventListener('resize', drawScene);
 
+// ---------- 목 계정: 저장소·서버 없이 이 탭에서만 쓰는 오프라인 계정(무기고·요원 기록부 화면용) ----------
+const account = createAccount({ storage: null, target: null, config: { url: '', anonKey: '' }, apiConfig: { url: '' } });
+// 포인트를 바로 넣는 공개 API가 없어 비밀 스팟 보상으로 채운다(tests/shop.test.mjs와 같은 방법)
+for (let i = 0; account.profile.points < 2600 && i < 50; i++) account.findSecret('qa', { id: 's' + i, name: '데모 스팟', points: 1000 });
+account.setNickname('홍길동').catch(() => {});
+for (const m of [{ kills: 14, deaths: 6, headshots: 5, win: true, seconds: 420 }, { kills: 9, deaths: 8, headshots: 2, seconds: 380 }, { mode: 'ffa', killTarget: 20, kills: 20, deaths: 7, headshots: 8, win: true, seconds: 300 }]) account.recordMatch(m);
+
 // ---------- UI ----------
-const ui = createUI(document.getElementById('stage'));
+const ui = createUI(document.getElementById('stage'), { account });
 
 const qs = new URLSearchParams(location.search);
 const bare = qs.get('bare') === '1';
@@ -351,7 +360,7 @@ function demoKillfeed() {
   ];
   k.forEach((x, i) => setTimeout(() => ui.killfeed.push(x), i * 120));
 }
-// 연속 킬: 누를 때마다 다음 단계(더블 킬 → … → 헥사 킬 → 당신은 전설입니다 → 처음부터)
+// 연속 킬: 누를 때마다 다음 단계(더블 킬 → … → 6연속 처치 → 당신은 전설입니다 → 처음부터)
 let demoMulti = 1;
 function demoMultiKill() {
   demoMulti = demoMulti >= 7 ? 2 : demoMulti + 1;
@@ -529,11 +538,22 @@ stage.addEventListener('mouseup', (e) => { if (e.button === 2 && ui.getSettings(
 
 // ---------- 시나리오 ----------
 const clickIn = (sel) => setTimeout(() => { const b = document.querySelector(sel); if (b) b.click(); }, 30);
+/** sel에 맞는 버튼 중 글자에 text가 든 것을 누른다(메뉴 레일처럼 같은 클래스의 버튼이 여럿일 때) */
+const clickBtn = (sel, text) => setTimeout(() => { const b = [...document.querySelectorAll(sel)].find((x) => x.textContent.includes(text)); if (b) b.click(); }, 30);
 const SCENES = {
   menu: () => { mode = 'menu'; ui.show('menu'); },
   'menu-account': () => { mode = 'menu'; ui.show('menu', { name: '홍길동', account: true }); },
-  settings: () => { SCENES.menu(); clickIn('.sk-menu .sk-menu-btn--sub'); },
-  controls: () => { SCENES.menu(); clickIn('.sk-menu .sk-menu-btn--sub:nth-of-type(4)'); },
+  settings: () => { SCENES.menu(); clickBtn('.sk-menu .sk-menu-btn--sub', '설정'); },
+  controls: () => { SCENES.menu(); clickBtn('.sk-menu .sk-menu-btn--sub', '조작법'); },
+  feedback: () => { SCENES.menu(); clickBtn('.sk-menu .sk-menu-btn--sub', '건의하기'); },
+  shop: () => { mode = 'menu'; ui.show('shop', { tab: 'primary' }); },
+  'shop-secondary': () => { mode = 'menu'; ui.show('shop', { tab: 'secondary' }); },
+  'shop-melee': () => { mode = 'menu'; ui.show('shop', { tab: 'melee' }); },
+  'shop-throw': () => { mode = 'menu'; ui.show('shop', { tab: 'throw' }); },
+  'shop-emote': () => { mode = 'menu'; ui.show('shop', { tab: 'emote' }); },
+  'shop-avatar': () => { mode = 'menu'; ui.show('shop', { tab: 'avatar' }); },
+  mypage: () => { mode = 'menu'; ui.show('mypage'); },
+  nickname: () => { mode = 'menu'; ui.show('menu'); ui.show('nickname'); },
   lobby: () => { mode = 'menu'; ui.show('lobby', lobbyProps()); },
   'lobby-empty': () => { mode = 'menu'; ui.show('lobby', { rooms: [] }); },
   'lobby-loading': () => { mode = 'menu'; ui.show('lobby', { rooms: [], loading: true }); },
@@ -583,7 +603,7 @@ const SCENES = {
   respawn: () => {
     startGame({ loadout: false, mode: 'ffa' });
     ui.killfeed.push({ killer: '하늘', victim: myName(), weaponId: 'sr_bolt', head: true, mode: 'ffa' });
-    ffaDie('하늘', 'SK-7 저격소총', 3.4);
+    ffaDie('하늘', 'SR-7 저격소총', 3.4);
   },
   'scoreboard-ffa': () => {
     startGame({ loadout: false, mode: 'ffa' });
@@ -645,7 +665,7 @@ SCENES['results-bomb'] = () => {
 };
 // ----- 이모트 휠 -----
 SCENES['emotes-idle'] = () => { startGame({ loadout: false }); openWheel({ x: 0, y: 0 }); }; // 안 움직임 → 안내 문구
-SCENES.emotes = () => { startGame({ loadout: false }); openWheel({ x: 18, y: 118 }); }; // 6시 방향 → 탱고 강조
+SCENES.emotes = () => { startGame({ loadout: false }); openWheel({ x: 18, y: 118 }); }; // 6시 방향 → 제자리 행진 강조
 SCENES['emote-active'] = () => { startGame({ loadout: false }); emo.active = { name: emoteItems[4].name, icon: emoteItems[4].icon }; };
 
 const TOUR = ['menu', 'settings', 'controls', 'lobby', 'lobby-empty', 'create', 'room', 'room-guest', 'loadout', 'hud', 'hud-low', 'scope', 'scoreboard', 'results', 'pause',
@@ -691,7 +711,7 @@ if (!bare) {
         b('힌트 토글', () => ui.hud.set({ hint: document.querySelector('.sk-hint[hidden]') ? '화면을 클릭하면 조작을 시작해요' : '' }))),
       h('p', { class: 'qa-label', text: '자동' }),
       h('div', { class: 'qa-grid' }, b('▶ 전체 투어', () => tour(0)), b('■ 정지', () => clearTimeout(tourTimer))),
-      h('p', { class: 'qa-help', text: 'HUD에서: 좌클릭 사격 · 우클릭 줌(SK-7) · 1~4 슬롯 · R 재장전 · Tab 점수판 · Esc 일시정지 · B 누르고 있기 = 이모트 휠(마우스로 고르고 떼기, WASD로 취소)' }),
+      h('p', { class: 'qa-help', text: 'HUD에서: 좌클릭 사격 · 우클릭 줌(SR-7) · 1~4 슬롯 · R 재장전 · Tab 점수판 · Esc 일시정지 · B 누르고 있기 = 이모트 휠(마우스로 고르고 떼기, WASD로 취소)' }),
       h('p', { class: 'qa-label', text: '이벤트 로그' }),
       logList));
   if (innerWidth < 700) panel.classList.add('is-min');

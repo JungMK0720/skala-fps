@@ -16,6 +16,7 @@
  * info = { attack, state, carrier, carrierName?, actorName?, pos:[x,y,z]|null, site, explodeInMs, action:{kind,id,leftMs,totalMs}|null,
  *          phase, plantMs?, defuseMs? } — match.applySnapshot(...).bomb에 attack·phase를 더한 모양
  */
+import { t } from '../core/i18n.js';
 import { BOMB, BOMB_CANCEL_LABELS, normalizeMission, siteAt, within, beepInterval, bombTexts, sideOfTeam } from './mission.js';
 
 const STILL_SPEED = 0.5;       // 이보다 느려야 설치·해체를 시작한다(m/s)
@@ -193,17 +194,17 @@ export function createBombView(o) {
     const side = mySide(L);
     const mine = !!L && ev.id != null && String(ev.id) === L.id;
     const h = hudApi();
-    const site = ev.site ? `${ev.site} 구역` : '';
+    const site = ev.site ? t('game.bomb.siteName', { id: ev.site }) : '';
     switch (ev.act) {
       case 'give':
-        if (mine && h) h.banner({ icon: '💣', title: '폭탄을 받았어요', sub: 'A 또는 B 구역에서 E를 길게 눌러 설치하세요' });
+        if (mine && h) h.banner({ icon: '💣', title: t('game.bomb.gotTitle'), sub: t('game.bomb.gotSub') });
         break;
       case 'pick':
-        if (mine) { play('bomb_pickup'); if (h) h.callout('💣 폭탄을 주웠어요', 'info'); }
-        else if (side === 'attack' && h) h.callout(`💣 ${ev.name || '아군'}이(가) 폭탄을 주웠어요`, 'info');
+        if (mine) { play('bomb_pickup'); if (h) h.callout(t('game.bomb.pickedMe'), 'info'); }
+        else if (side === 'attack' && h) h.callout(t('game.bomb.pickedOther', { name: ev.name || t('game.bomb.ally') }), 'info');
         break;
       case 'drop':
-        if (side === 'attack' && h) h.callout('💣 폭탄이 떨어졌어요', 'info');
+        if (side === 'attack' && h) h.callout(t('game.bomb.dropped'), 'info');
         break;
       case 'plantStart':
       case 'defuseStart':
@@ -217,8 +218,8 @@ export function createBombView(o) {
         const p = Array.isArray(ev.pos) ? ev.pos : info && info.pos;
         if (p) play('bomb_armed', { pos: [p[0], num(p[1], 0) + 0.3, p[2]] });
         if (h) {
-          h.center(`💣 폭탄 설치 · ${site || '구역'}`, 2600, {
-            sub: side === 'attack' ? `${Math.round(num(ev.ms, BOMB.fuseMs) / 1000)}초 동안 폭탄을 지키세요` : side === 'defense' ? '폭탄을 찾아 해체하세요 · E 5초' : '',
+          h.center(t('game.bomb.plantedCenter', { site: site || t('game.bomb.siteAny') }), 2600, {
+            sub: side === 'attack' ? t('game.bomb.plantedAttackSub', { secs: Math.round(num(ev.ms, BOMB.fuseMs) / 1000) }) : side === 'defense' ? t('game.bomb.plantedDefenseSub') : '',
             tone: 'warn'
           });
         }
@@ -278,7 +279,7 @@ export function createBombView(o) {
     const sig = kind || '';
     if (sig === touchSig || !bus || typeof bus.emit !== 'function') return;
     touchSig = sig;
-    bus.emit('touch:use', { on: !!kind, label: kind === 'defuse' ? '해체' : '설치' });
+    bus.emit('touch:use', { on: !!kind, label: kind === 'defuse' ? t('game.bomb.defuse') : t('game.bomb.plant') });
   }
 
   /* ---------- 프레임: 모형 · 삐 · 단말기 소리 ---------- */
@@ -362,32 +363,33 @@ export function createBombView(o) {
     if (!info) return null;
     const L = me();
     const side = mySide(L);
-    const nameOf = (id) => (info.carrier === id && info.carrierName ? info.carrierName : info.actorName && info.action && info.action.id === id ? info.actorName : '아군');
+    const nameOf = (id) => (info.carrier === id && info.carrierName ? info.carrierName : info.actorName && info.action && info.action.id === id ? info.actorName : t('game.bomb.ally'));
     const tx = bombTexts(side, info, { me: L && L.id, nameOf });
     let status = tx.status, tone = tx.tone;
     const a = info.action;
     const mineAct = !!(a && L && a.id === L.id);
     if (a && !mineAct && side && ((a.kind === 'plant' && side === 'attack') || (a.kind === 'defuse' && side === 'defense'))) {
-      status = `${info.actorName || '아군'} ${a.kind === 'plant' ? '설치' : '해체'} 중…`;
+      status = t(a.kind === 'plant' ? 'game.bomb.allyPlanting' : 'game.bomb.allyDefusing', { name: info.actorName || t('game.bomb.ally') });
     }
     let progress = null;
-    const t = now();
+    const tNow = now();
     if (mineAct && info.phase === 'live') {
       const total = Math.max(1, a.totalMs || msFor(a.kind));
       const left = actionLeft();
-      progress = { kind: a.kind, ratio: Math.min(1, Math.max(0, 1 - left / total)), label: `${a.kind === 'plant' ? '설치' : '해체'} 중… ${(left / 1000).toFixed(1)}초` };
+      progress = { kind: a.kind, ratio: Math.min(1, Math.max(0, 1 - left / total)), label: t(a.kind === 'plant' ? 'game.bomb.planting' : 'game.bomb.defusing', { secs: (left / 1000).toFixed(1) }) };
     } else if (pending) {
       const total = msFor(pending.kind);
-      const el = t - pending.at;
-      progress = { kind: pending.kind, ratio: Math.min(0.98, el / total), label: `${pending.kind === 'plant' ? '설치' : '해체'} 중… ${(Math.max(0, total - el) / 1000).toFixed(1)}초` };
+      const el = tNow - pending.at;
+      progress = { kind: pending.kind, ratio: Math.min(0.98, el / total), label: t(pending.kind === 'plant' ? 'game.bomb.planting' : 'game.bomb.defusing', { secs: (Math.max(0, total - el) / 1000).toFixed(1) }) };
     }
     let prompt = '';
     const can = ability(L);
     if (can && !pending && !mineAct) {
-      const verb = can === 'plant' ? '설치' : '해체';
+      const plant = can === 'plant';
       const secs = Math.round(msFor(can) / 1000);
-      if (L && hspeed(L.vel) >= STILL_SPEED) prompt = `멈춘 채 ${L.touch ? `${verb} 버튼` : 'E'}을 누르고 있으면 ${verb}`;
-      else prompt = L && L.touch ? `${verb} 버튼을 ${secs}초 누르고 있으세요` : `E 길게 눌러 ${verb} (${secs}초)`;
+      const touch = !!(L && L.touch);
+      if (L && hspeed(L.vel) >= STILL_SPEED) prompt = t(touch ? (plant ? 'game.bomb.stillPlantTouch' : 'game.bomb.stillDefuseTouch') : (plant ? 'game.bomb.stillPlantKey' : 'game.bomb.stillDefuseKey'));
+      else prompt = t(touch ? (plant ? 'game.bomb.holdPlantTouch' : 'game.bomb.holdDefuseTouch') : (plant ? 'game.bomb.holdPlantKey' : 'game.bomb.holdDefuseKey'), { secs });
     }
     const left = explodeLeft();
     return {

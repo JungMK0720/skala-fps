@@ -2,11 +2,10 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: WebAudio 합성 효과음·이모트 비트 엔진. 효과음은 코드로 합성해 캐시하고 보이스 풀로 재생한다.
- *          이모트는 audio/emotes의 음원 묶음(manifest)이 있으면 풀어서 쓰고, 없거나 못 읽으면 합성음으로 돌아간다.
+ *          이모트 음악은 직접 쓴 음표 표로 합성한 오리지널 루프만 쓴다(외부 음원 파일 없음).
  *          연속 킬 안내 음성(audio/voice, TTS로 합성한 mp3)은 받아서 디코드해 두었다가 전용 보이스 하나로 낸다.
  */
 import { EMOTES } from '../core/consts.js';
-import { decryptEmote } from './emote-key.js';
 
 // createAudio() → { unlock, setVolume, setListener, play, stopAll, setQuality, getStats, dispose }
 // 그래프: [보이스 풀: Gain → LowPass → Panner(HRTF)] → mix → Compressor → makeup → Limiter → SoftClip → Volume → out
@@ -368,6 +367,19 @@ const DEFS = {
       for (let i = 0; i < 26; i++) S.click(0.12 + S.rnd() ** 1.6 * 1.4, S.r(0.02, 0.12), 2500); // 파편 후드득
       S.sat(2).echo([{ t: 0.35, g: 0.25, lp: 700 }, { t: 0.8, g: 0.15, lp: 500 }, { t: 1.4, g: 0.08, lp: 400 }]);
     } },
+  // 연막탄: 뚜껑이 터지는 퐁 + 길게 뿜어 나오는 쉬익
+  smoke_burst: { dur: 3.2, prio: 6, level: 0.6, ref: 4, maxDist: 70, muffle: 1, send: 0.15, max: 3,
+    r: (S) => S.noise({ dur: 0.05, a: 0.0004, d: 0.012, lp: 1400, g: 0.8 })
+      .tone({ f: 140, f1: 70, glide: 0.04, d: 0.05, dur: 0.2, g: 0.5 })
+      .noise({ t: 0.04, dur: 3.1, env: 'hold', a: 0.15, h: 2.2, d: 0.6, bp: (u) => 3200 - 1400 * u, q: 0.5, g: 0.55 })
+      .noise({ t: 0.04, dur: 3, env: 'hold', a: 0.2, h: 2, d: 0.7, lp: 500, brown: 1, g: 0.35 }) },
+  // 섬광탄: 날카로운 쾅 + 짧은 금속 울림(폭발보다 높고 짧다)
+  flash_bang: { dur: 1.8, prio: 8, level: 1, ref: 10, maxDist: 320, muffle: 1, send: 0.45, max: 2,
+    r: (S) => S.noise({ dur: 0.04, a: 0.0002, d: 0.008, hp: 1800, g: 1.3 })
+      .tone({ f: 160, f1: 45, glide: 0.08, a: 0.002, d: 0.25, dur: 1, g: 1 })
+      .noise({ dur: 0.6, a: 0.001, d: 0.12, bp: (u) => 4200 - 3000 * u, q: 0.6, g: 0.9 })
+      .ring({ t: 0.01, f: [2650, 3980, 5310], amp: [1, 0.6, 0.3], dec: [0.18, 0.12, 0.08], g: 0.35 })
+      .sat(2.2).echo([{ t: 0.3, g: 0.2, lp: 900 }, { t: 0.7, g: 0.1, lp: 600 }]) },
   reload_mag_out: { dur: 0.35, prio: 4, level: 0.5, ref: 2, maxDist: 20, send: 0.03, max: 2,
     r: (S) => S.click(0, 0.6).noise({ t: 0.02, dur: 0.09, env: 'bell', bp: 2400, q: 1.4, g: 0.35 })
       .ring({ t: 0.09, f: [1650, 2480], amp: [1, 0.6], dec: [0.03, 0.02], g: 0.25 })
@@ -608,7 +620,7 @@ function ownDef(table, name) {
   return typeof name === 'string' && Object.prototype.hasOwnProperty.call(table, name) ? table[name] : null;
 }
 
-/* ───────────── 이모트 음악(대체 합성음): 직접 쓴 음표 표로 합성하는 오리지널 루프. 음원 묶음이 없거나 못 읽을 때 쓴다 ───────────── */
+/* ───────────── 이모트 음악: 직접 쓴 음표 표로 합성하는 오리지널 루프(외부 음원 없음) ───────────── */
 
 const mtof = (m) => 440 * 2 ** ((m - 69) / 12);
 
@@ -651,48 +663,57 @@ const kit = {
 };
 
 // code = 전송 번호(MODES.md 4.1). bpm은 core/consts.js EMOTES[].bpm을 그대로 쓴다(emoteanim 춤 박자와 같아야 박자가 맞는다).
-// loop형은 bpm·bars(4박 마디 수. 1.25면 5박), 한 번형은 dur. level은 효과음보다 작게.
+// loop형은 bpm·bars(4박 마디 수), 한 번형은 dur. 루프 길이(bars × 4박)는 춤 한 주기의 정수 배다(tests/emotes.test.mjs).
+// 춤에서 크게 움직이는 박(주먹 찌르기, 발 구르기 등)에 소리를 맞춘다. level은 효과음보다 작게.
 const BPM = Object.freeze(Object.fromEntries(EMOTES.map((e) => [e.id, e.bpm])));
 const EMOTE_DEFS = {
-  // 1 L을 가져가 — 통통 튀는 신스 비트 (C장조)
+  // 1 작전 성공 — 행진풍 금관 팡파르 (B♭장조). 한 마디 = 춤 한 주기: 주먹 찌르기(2·6칸)에 짧은 금관, 가슴 치기(8칸)에 북, 힘주기(12칸)에 긴 화음
   takeL: { code: 1, bpm: BPM.takeL, bars: 4, level: 0.32, r(S, st) {
-    hits('x...x...x...x...', 4, st, (t, g) => kit.kick(S, t, 0.9 * g));
-    hits('....x.......x...', 4, st, (t, g) => kit.clap(S, t, 0.5 * g));
-    hits('..x...x...x...x.', 4, st, (t, g) => kit.hat(S, t, 0.55 * g));
-    const roots = [36, 33, 29, 31];                                  // C A F G
+    hits('x...x...x...x...', 4, st, (t, g) => kit.kick(S, t, 0.85 * g));
+    hits('....x.......x...', 4, st, (t, g) => kit.snare(S, t, 0.5 * g));
+    hits('..o...o...o...o.', 4, st, (t, g) => kit.hat(S, t, 0.5 * g));
+    const brass = (t, ms, len, g) => { for (const m of ms) kit.held(S, t, m, len, g, { harm: 12, tilt: 0.9, a: 0.01, gate: 0.7, rel: 0.05 }); };
+    const chords = [[58, 62, 65], [55, 58, 62], [55, 58, 63], [57, 60, 65]];   // B♭ Gm E♭ F
+    const roots = [46, 43, 39, 41];
     for (let b = 0; b < 4; b++) {
-      for (const [s, iv] of [[0, 0], [3, 12], [6, 0], [8, 12], [11, 7], [14, 12]]) {
-        kit.pluck(S, (b * 16 + s) * st, roots[b] + iv, 0.09, 0.6, { harm: 6, tilt: 1.3 });
+      const t0 = b * 16 * st;
+      brass(t0 + 2 * st, chords[b], st, 0.09);
+      brass(t0 + 6 * st, chords[b], st, 0.09);
+      S.tone({ t: t0 + 8 * st, f: 110, f1: 70, glide: 0.04, a: 0.002, d: 0.14, dur: 0.45, g: 0.6 });
+      brass(t0 + 12 * st, chords[b].map((m) => m + 12), 3 * st, 0.08);
+      for (const [s, iv] of [[0, 0], [4, 12], [8, 7], [12, 12]]) kit.pluck(S, t0 + s * st, roots[b] + iv, 0.12, 0.55, { harm: 5, tilt: 1.3 });
+    }
+    notes([
+      [[0, 70, 2], [2, 74, 2], [4, 77, 4], [12, 82, 4]],
+      [[0, 74, 2], [2, 77, 2], [4, 79, 4], [12, 82, 3], [15, 79, 1]],
+      [[0, 75, 2], [2, 79, 2], [4, 82, 4], [12, 84, 4]],
+      [[0, 77, 2], [2, 81, 2], [4, 84, 2], [6, 81, 2], [8, 77, 4], [12, 82, 4]]
+    ], st, (t, m, len) => kit.held(S, t, m, len, 0.16, { harm: 9, tilt: 1, gate: 0.75, rel: 0.04, vib: 0.005, vibF: 5.5 }));
+  } },
+  // 2 무전 확인 — 무전 잡음과 신호음 위의 낮은 그루브 (D단조). 마디 첫머리 '치익', 끄덕임(2·6칸)에 짧은 '삐',
+  //   가리키기·엄지(8·12칸)에 마림바, 두 마디마다 송신 끝 '삐삑'
+  veggie: { code: 2, bpm: BPM.veggie, bars: 4, level: 0.3, r(S, st) {
+    hits('x.....x...x.....', 4, st, (t, g) => kit.kick(S, t, 0.7 * g));
+    hits('....x.......x...', 4, st, (t, g) => kit.rim(S, t, 0.7 * g));
+    hits('x.o.x.o.x.o.x.oo', 4, st, (t, g) => kit.hat(S, t, 0.35 * g));
+    const beep = (t, f, len, g) => S.tone({ t, f, env: 'hold', a: 0.002, h: len, d: 0.01, dur: len + 0.06, g });
+    const roots = [38, 38, 34, 36];                                  // D D B♭ C
+    const pads = [[62, 65, 69], [62, 65, 69], [58, 62, 65], [60, 64, 67]];
+    for (let b = 0; b < 4; b++) {
+      const t0 = b * 16 * st;
+      S.noise({ t: t0, dur: 0.14, a: 0.002, d: 0.05, bp: 1700, q: 0.6, g: 0.22 });
+      beep(t0 + 2 * st, 1000, 0.05, 0.12);
+      beep(t0 + 6 * st, 1000, 0.05, 0.12);
+      if (b % 2) { beep(t0 + 14 * st, 1250, 0.06, 0.1); beep(t0 + 14 * st + 0.08, 940, 0.07, 0.1); }
+      for (const m of pads[b]) S.tone({ t: t0, f: mtof(m), harm: 5, tilt: 1.6, env: 'bell', dur: 16 * st, g: 0.05 });
+      for (const [s, iv, len] of [[0, 0, 3], [6, 0, 1], [8, 7, 2], [12, 12, 2]]) {
+        kit.held(S, t0 + s * st, roots[b] + iv, len * st, 0.6, { harm: 5, tilt: 1.4, gate: 0.7 });
       }
     }
-    notes([
-      [[0, 76, 2], [3, 79, 2], [6, 81, 2], [8, 79, 2], [11, 76, 2], [14, 74, 2]],
-      [[0, 72, 2], [3, 76, 2], [6, 79, 3], [10, 81, 2], [12, 79, 3]],
-      [[0, 81, 2], [3, 79, 2], [6, 76, 2], [8, 79, 2], [11, 81, 2], [14, 84, 2]],
-      [[0, 86, 2], [2, 84, 2], [4, 81, 2], [6, 79, 2], [8, 76, 3], [12, 74, 4]]
-    ], st, (t, m, len) => kit.pluck(S, t, m, Math.min(0.16, len * 0.6), 0.38, { harm: 8, tilt: 1 }));
-    for (const b of [1, 3]) S.tone({ t: (b * 16 + 15) * st, f: 300, f1: 900, glide: 0.05, a: 0.003, d: 0.06, dur: 0.2, g: 0.25 });
+    notes([[[8, 74, 2], [12, 77, 2]], [[8, 76, 2], [12, 74, 2]], [[8, 77, 2], [12, 74, 2]], [[8, 76, 2], [12, 79, 3]]], st,
+      (t, m) => kit.marimba(S, t, m, 0.4));
   } },
-  // 2 야채 — 가벼운 마림바 비트 (F장조)
-  veggie: { code: 2, bpm: BPM.veggie, bars: 4, level: 0.29, r(S, st) {
-    hits('x.......x.......', 4, st, (t, g) => kit.kick(S, t, 0.5 * g));
-    hits('....x.......x...', 4, st, (t, g) => kit.rim(S, t, 0.7 * g));
-    hits('xoxoxoxoxoxoxoxo', 4, st, (t, g) => kit.shaker(S, t, 0.7 * g));
-    const bass = [41, 38, 34, 36];                                   // F Dm B♭ C
-    for (let b = 0; b < 4; b++) {
-      kit.marimba(S, b * 16 * st, bass[b], 0.75);
-      kit.marimba(S, (b * 16 + 6) * st, bass[b] + 7, 0.4);
-      kit.marimba(S, (b * 16 + 8) * st, bass[b], 0.6);
-      kit.marimba(S, (b * 16 + 11) * st, bass[b] + 12, 0.35);
-    }
-    notes([
-      [[0, 65], [2, 69], [4, 72], [7, 69], [8, 74], [10, 72], [12, 69], [14, 67]],
-      [[0, 65], [2, 69], [4, 72], [6, 74], [8, 77], [11, 74], [12, 72]],
-      [[0, 67], [2, 70], [4, 74], [7, 70], [8, 72], [10, 74], [12, 77], [14, 74]],
-      [[0, 72], [2, 69], [4, 67], [6, 65], [8, 69], [10, 72], [12, 77]]
-    ], st, (t, m) => kit.marimba(S, t, m, 0.55));
-  } },
-  // 3 사이드 스텝 — 펑키 베이스 비트 (E 도리안)
+  // 3 경계 이동 — 낮게 깔린 펑키 베이스 비트 (E 도리안)
   sideToSide: { code: 3, bpm: BPM.sideToSide, bars: 4, level: 0.27, r(S, st) {
     hits('x.....x...x.....x.....x...x.....x.....x...x.....x.....x...x..x..', 4, st, (t, g) => kit.kick(S, t, 0.85 * g));
     hits('....x..o....x..o', 4, st, (t, g) => kit.snare(S, t, 0.6 * g));
@@ -708,53 +729,47 @@ const EMOTE_DEFS = {
       for (const s of [2, 10]) for (const m of chords[b]) kit.held(S, (b * 16 + s) * st, m, st, 0.12, { harm: 5, tilt: 1.6, gate: 0.4, rel: 0.02 });
     }
   } },
-  // 4 크리스 크로스 — 8비트 비트 (A단조, 사각파·삼각파·노이즈)
-  crissCross: { code: 4, bpm: BPM.crissCross, bars: 4, level: 0.26, r(S, st) {
-    hits('x.......x.x.....', 4, st, (t, g) => S.tone({ t, f: 220, f1: 48, glide: 0.018, tri: 1, d: 0.07, dur: 0.25, g: 0.9 * g }));
-    hits('....x.......x...', 4, st, (t, g) => S.noise({ t, dur: 0.14, d: 0.045, hp: 1400, g: 0.5 * g }));
-    hits('x.x.x.x.x.x.x.x.', 4, st, (t, g) => S.noise({ t, dur: 0.03, d: 0.008, hp: 6000, g: 0.25 * g }));
-    const roots = [45, 41, 48, 43];                                  // Am F C G
-    const arps = [[69, 72, 76, 81], [65, 69, 72, 77], [72, 76, 79, 84], [67, 71, 74, 79]];
+  // 4 몸풀기 — 두 마디 = 춤 한 주기 (G장조). 늘이기 마디는 숨 쉬듯 부푸는 화음과 마림바, 털기 마디는 통통 튀는 베이스와 흔들개
+  crissCross: { code: 4, bpm: BPM.crissCross, bars: 4, level: 0.3, r(S, st) {
+    const chords = [[67, 71, 74, 78], [64, 67, 71, 74], [60, 64, 67, 71], [62, 66, 69, 72]];   // Gmaj7 Em7 Cmaj7 D7
+    const stretch = [[[0, 79], [4, 83], [8, 86], [12, 83]], null, [[0, 76], [4, 79], [8, 83], [12, 79]], null];
     for (let b = 0; b < 4; b++) {
-      for (let s = 0; s < 16; s += 2) {
-        kit.held(S, (b * 16 + s) * st, roots[b] - 12 + (s % 4 ? 12 : 0), st * 2, 0.5, { tri: 1, harm: 1, gate: 0.8, rel: 0.02 });
-      }
-      for (let s = 0; s < 16; s++) {
-        const i = s % 8;
-        kit.held(S, (b * 16 + s) * st, arps[b][i < 4 ? i : 7 - i], st, 0.13, { harm: 11, odd: 1, tilt: 1, gate: 0.5, rel: 0.012 });
+      const t0 = b * 16 * st, at = (cb, g0) => (t, g) => cb(S, t0 + t, g0 * g);
+      if (stretch[b]) {
+        for (const m of chords[b]) S.tone({ t: t0, f: mtof(m - 12), harm: 6, tilt: 1.5, env: 'bell', dur: 17 * st, vib: 0.004, vibF: 4, g: 0.06 });
+        hits('x.......x.......', 1, st, at(kit.kick, 0.5));
+        for (const [s, m] of stretch[b]) kit.marimba(S, t0 + s * st, m, 0.45);
+      } else {
+        hits('x...x...x...x...', 1, st, at(kit.kick, 0.75));
+        hits('....x.......x...', 1, st, at(kit.clap, 0.45));
+        hits('xoxoxoxoxoxoxoxo', 1, st, at(kit.shaker, 0.8));
+        for (let s = 0; s < 16; s += 2) kit.pluck(S, t0 + s * st, chords[b][0] - 24 + (s % 4 ? 12 : 0), 0.08, 0.55, { harm: 6, tilt: 1.3 });
+        for (const [s, m] of [[0, 74], [3, 76], [6, 79], [8, 78], [10, 76], [12, 74]]) kit.marimba(S, t0 + s * st, m, 0.35);
       }
     }
-    notes([
-      [[0, 81, 4], [4, 79, 2], [6, 76, 2], [8, 72, 4], [12, 74, 4]],
-      [],
-      [[0, 76, 4], [4, 79, 2], [6, 81, 2], [8, 84, 6], [14, 83, 2]],
-      [[0, 79, 3], [3, 76, 3], [6, 74, 2], [8, 71, 4], [12, 74, 2], [14, 76, 2]]
-    ], st, (t, m, len) => kit.held(S, t, m, len, 0.3, { harm: 9, odd: 1, tilt: 1, gate: 0.85, rel: 0.03, vib: 0.006, vibF: 6 }));
   } },
-  // 5 탱고 — 반도네온풍 리드 스타카토 (96 BPM, D단조, 매 박 마르카토)
-  tango: { code: 5, bpm: BPM.tango, bars: 4, level: 0.3, r(S, st) {
-    const reed = (t, m, len, g) => {                                  // 리드 2겹(기음 + 옥타브)
-      kit.held(S, t, m, len, g, { harm: 10, tilt: 0.85, a: 0.012, gate: 0.55, rel: 0.035 });
-      kit.held(S, t, m + 12, len, g * 0.25, { harm: 5, tilt: 1.2, a: 0.015, gate: 0.5, rel: 0.03 });
+  // 5 제자리 행진 — 군악대 행진곡 (B♭장조). 매 박 큰북(발소리), 무릎 드는 박에 작은북, 3박에 발 모으는 '쿵'과 심벌,
+  //   그 뒤 반 마디는 차렷으로 멈춘 듯 비운다
+  tango: { code: 5, bpm: BPM.tango, bars: 4, level: 0.32, r(S, st) {
+    const brass = (t, m, len, g) => {                                 // 금관 2겹(기음 + 한 옥타브 아래)
+      kit.held(S, t, m, len, g, { harm: 12, tilt: 0.85, a: 0.012, gate: 0.6, rel: 0.04 });
+      kit.held(S, t, m - 12, len, g * 0.35, { harm: 8, tilt: 1.1, a: 0.015, gate: 0.6, rel: 0.04 });
     };
-    const chords = [[62, 65, 69], [61, 64, 67, 69], [62, 65, 69], [61, 64, 67, 69]];  // Dm A7 Dm A7
+    hits('x...x...x.......', 4, st, (t, g) => kit.kick(S, t, 0.6 * g));
+    hits('o.x.o.x.oox.....', 4, st, (t, g) => kit.snare(S, t, 0.5 * g));
+    const roots = [34, 39, 41, 34];                                  // B♭ E♭ F B♭ (튜바)
     for (let b = 0; b < 4; b++) {
-      for (const s of [0, 4, 8, 12]) {
-        const acc = s === 0 || s === 8 ? 1 : 0.6;
-        for (const m of chords[b]) reed((b * 16 + s) * st, m - 12, st * 1.6, 0.11 * acc);
-      }
+      const t0 = b * 16 * st;
+      for (const [s, iv] of [[0, 0], [4, 7], [8, 0], [12, 0]]) kit.held(S, t0 + s * st, roots[b] + iv, 2 * st, 0.55, { harm: 6, tilt: 1.3, a: 0.01, gate: 0.6 });
+      S.tone({ t: t0 + 12 * st, f: 75, f1: 42, glide: 0.06, a: 0.002, d: 0.25, dur: 0.7, g: 0.8 });
+      S.noise({ t: t0 + 12 * st, dur: 0.9, a: 0.002, d: 0.3, hp: 4500, g: 0.12 });
     }
-    for (const m of chords[3]) S.tone({ t: 60 * st, f: mtof(m - 12), harm: 10, tilt: 0.85, env: 'bell', dur: st * 4, g: 0.1 }); // 끌어당기듯 부풂
-    notes([[[0, 38, 2], [8, 33, 2], [14, 37, 1]], [[0, 33, 2], [8, 40, 2], [12, 33, 2]],
-      [[0, 38, 2], [8, 41, 2], [12, 45, 2]], [[0, 33, 2], [8, 37, 2], [12, 40, 1], [15, 37, 1]]], st,
-    (t, m) => S.tone({ t, f: mtof(m), harm: 3, tilt: 1.5, a: 0.004, d: 0.16, dur: 0.6, g: 0.6 }));
     notes([
-      [[0, 69, 2], [3, 69, 1], [4, 74, 2], [7, 76, 1], [8, 77, 3], [12, 76, 2], [14, 74, 2]],
-      [[0, 73, 3], [4, 76, 2], [6, 79, 2], [8, 81, 4], [12, 79, 1], [13, 77, 1], [14, 76, 2]],
-      [[0, 77, 2], [3, 77, 1], [4, 74, 2], [6, 77, 2], [8, 81, 3], [11, 82, 1], [12, 81, 2], [14, 77, 2]],
-      [[0, 76, 2], [2, 77, 1], [3, 76, 1], [4, 74, 2], [6, 73, 2], [8, 69, 6]]
-    ], st, (t, m, len) => reed(t, m, len, 0.32));
-    hits('x.......x.......', 4, st, (t, g) => S.noise({ t, dur: 0.05, d: 0.012, lp: 900, g: 0.35 * g }));  // 몸통 두드림
+      [[0, 70, 2], [2, 74, 2], [4, 77, 3], [8, 77, 2], [10, 74, 2], [12, 82, 2]],
+      [[0, 79, 2], [2, 75, 2], [4, 79, 3], [8, 82, 2], [10, 79, 2], [12, 75, 2]],
+      [[0, 77, 2], [2, 81, 2], [4, 84, 3], [8, 84, 2], [10, 81, 2], [12, 77, 2]],
+      [[0, 74, 2], [2, 77, 2], [4, 82, 3], [8, 81, 2], [10, 77, 2], [12, 70, 2]]
+    ], st, (t, m, len) => brass(t, m, len, 0.2));
   } },
   // 6 경례 — 짧은 혼
   salute: { code: 6, oneShot: true, dur: 1.6, level: 0.4,
@@ -787,43 +802,60 @@ const EMOTE_DEFS = {
     }
     S.tone({ t: 24 * st, f: 1700, f1: 2500, glide: 0.12, env: 'bell', dur: 0.5, vib: 0.01, vibF: 9, g: 0.12 });
   } },
-  // 9 크림치즈 허니 — 5박 한 마디(춤 한 주기). 통통 튀는 마림바, 3.8박에 두 팔 번쩍과 함께 '짠', 마지막 박은 쉼 (F장조)
-  creamCheese: { code: 9, bpm: BPM.creamCheese, bars: 1.25, level: 0.3, r(S, st) {
-    const step = (str, cb) => { for (let i = 0; i < str.length; i++) if (str[i] === 'x' || str[i] === 'o') cb(i * st, str[i] === 'x' ? 1 : 0.55); };
-    step('x...x...x...x.......', (t, g) => kit.kick(S, t, 0.7 * g));
-    step('....x.......x.......', (t, g) => kit.clap(S, t, 0.45 * g));
-    step('..o...o...o...o.....', (t, g) => kit.hat(S, t, 0.5 * g));
-    for (const [s, m] of [[0, 72], [2, 76], [4, 79], [6, 77], [8, 76], [10, 72], [12, 74], [13, 76]]) kit.marimba(S, s * st, m, 0.55);
-    for (const [s, m] of [[0, 41], [4, 45], [8, 46], [12, 48]]) kit.pluck(S, s * st, m, 0.12, 0.55, { harm: 5, tilt: 1.4 });   // F A B♭ C
-    const ta = 15.2 * st;
-    for (const m of [65, 69, 72, 77]) S.tone({ t: ta, f: mtof(m), harm: 6, tilt: 1.2, env: 'bell', dur: 0.45, g: 0.12 });
-    S.tone({ t: ta, f: 1800, f1: 2600, glide: 0.08, env: 'bell', dur: 0.3, g: 0.08 });
-  } },
-  // 10 당신에게서 — 잔잔한 발라드(4박 = 춤 두 주기). 부드러운 패드 위 종소리 멜로디, 2박마다 숨 쉬듯 쉼 (D장조)
-  fromYou: { code: 10, bpm: BPM.fromYou, bars: 1, level: 0.3, r(S, st) {
-    const pad = (t, ms, len) => { for (const m of ms) S.tone({ t, f: mtof(m), harm: 5, tilt: 1.7, env: 'bell', dur: len, vib: 0.004, vibF: 4.5, g: 0.07 }); };
-    pad(0, [62, 66, 69, 73], 1.5);                                   // Dmaj7
-    pad(8 * st, [59, 62, 66, 69], 1.5);                              // Bm7
-    for (const [s, m] of [[0, 78], [2, 76], [3, 74], [5, 76], [8, 74], [10, 73], [11, 71], [13, 73]]) {
-      const f = mtof(m);
-      S.ring({ t: s * st, f: [f, f * 2.76, f * 5.4], amp: [1, 0.22, 0.05], dec: [0.9, 0.25, 0.08], g: 0.32 });
+  // 9 수신호 — 긴장감 있는 저음 반복 (E단조). 두 마디 = 춤 한 주기: 정지(0박)에 짧은 화음 찌르기, 집결(1.8~3.8박)에 올라가는 바람,
+  //   전진(4.4박)에 가르는 소리, 엎드려(6.5·7.4박)에 낮은 쿵
+  creamCheese: { code: 9, bpm: BPM.creamCheese, bars: 4, level: 0.3, r(S, st) {
+    hits('x.......x.......', 4, st, (t, g) => kit.kick(S, t, 0.75 * g));
+    hits('..x...x...x...x.', 4, st, (t, g) => kit.rim(S, t, 0.4 * g));
+    hits('xoooxoooxoooxooo', 4, st, (t, g) => kit.hat(S, t, 0.3 * g));
+    const bass = [40, 40, 36, 38];                                   // E E C D
+    for (let b = 0; b < 4; b++) {
+      for (let s = 0; s < 16; s += 2) kit.held(S, (b * 16 + s) * st, bass[b] + (s === 6 || s === 14 ? 7 : 0), st, 0.45, { harm: 7, tilt: 1.2, gate: 0.5, rel: 0.02 });
     }
-    hits('x.......x.......', 1, st, (t, g) => kit.kick(S, t, 0.35 * g));
-    hits('....o.......o...', 1, st, (t, g) => kit.rim(S, t, 0.5 * g));
-  } },
-  // 11 셀카 — 가벼운 힙합 비트(4박 = 춤 한 주기). 0.86박·2.86박에 셔터 '찰칵' (A단조)
-  selfie: { code: 11, bpm: BPM.selfie, bars: 1, level: 0.3, r(S, st) {
-    hits('x.....x...x.....', 1, st, (t, g) => kit.kick(S, t, 0.8 * g));
-    hits('....x.......x...', 1, st, (t, g) => kit.snare(S, t, 0.45 * g));
-    hits('x.x.x.x.x.x.x.x.', 1, st, (t, g) => kit.hat(S, t, 0.4 * g));
-    for (const [s, m, len] of [[0, 45, 2], [3, 45, 1], [8, 48, 2], [11, 43, 1]]) kit.held(S, s * st, m, len * st, 0.6, { harm: 4, tilt: 1.5, gate: 0.7 });
-    for (const [s, m] of [[1, 76], [2, 79], [9, 72], [10, 76]]) kit.pluck(S, s * st, m, 0.1, 0.3, { harm: 7 });
-    for (const beat of [0.86, 2.86]) {
-      const t = beat * 4 * st;
-      S.click(t, 0.9, 3000)
-        .noise({ t: t + 0.004, dur: 0.05, d: 0.012, bp: 3800, q: 1.4, g: 0.5 })
-        .noise({ t: t + 0.06, dur: 0.04, d: 0.01, bp: 2600, q: 1.2, g: 0.35 });
+    for (const c of [0, 32]) {
+      const at = (beat) => (c + beat * 4) * st;
+      for (const m of [64, 67, 71]) kit.held(S, at(0), m, 2 * st, 0.12, { harm: 10, tilt: 0.9, gate: 0.5 });
+      S.noise({ t: at(1.8), dur: 8 * st, env: 'bell', bp: (u) => 600 + 2400 * u, q: 1.2, g: 0.25 });
+      S.noise({ t: at(4.4), dur: 0.18, a: 0.001, d: 0.05, bp: 2500, q: 1.5, g: 0.4 })
+        .tone({ t: at(4.4), f: 90, f1: 55, glide: 0.05, a: 0.002, d: 0.12, dur: 0.4, g: 0.5 });
+      for (const beat of [6.5, 7.4]) S.tone({ t: at(beat), f: 80, f1: 48, glide: 0.04, a: 0.002, d: 0.15, dur: 0.45, g: 0.55 });
+      notes([[[0, 76, 6]], [[0, 79, 4], [4, 78, 2], [8, 74, 6]]], st, (t, m, len) => kit.held(S, at(0) + t, m, len, 0.16, { harm: 9, tilt: 1, gate: 0.8, rel: 0.05, vib: 0.004, vibF: 5 }));
     }
+  } },
+  // 10 쌍안경 정찰 — 잔잔한 정찰 분위기 (A단조). 두 마디 = 춤 한 주기: 훑는 동안 두 박마다 소나 '핑',
+  //   멈칫(5박)에 낮은 불협 긴장음, 가리키기(5.6박)에 한 음, 엄지(6.6박)에 밝은 C장조 분산화음
+  fromYou: { code: 10, bpm: BPM.fromYou, bars: 2, level: 0.3, r(S, st) {
+    const at = (beat) => beat * 4 * st;
+    for (const m of [57, 60, 64, 67]) S.tone({ t: 0, f: mtof(m), harm: 5, tilt: 1.7, env: 'bell', dur: at(8) * 1.05, vib: 0.004, vibF: 3.5, g: 0.05 });   // Am7
+    for (const b of [0, 2, 4]) {
+      S.ring({ t: at(b), f: [1318, 2650], amp: [1, 0.15], dec: [0.6, 0.2], g: 0.25 })
+        .ring({ t: at(b) + 0.35, f: [1318], amp: [1], dec: [0.4], g: 0.08 });
+    }
+    hits('x.......x.......', 2, st, (t, g) => kit.kick(S, t, 0.4 * g));
+    hits('....o.......o...', 2, st, (t, g) => kit.rim(S, t, 0.35 * g));
+    for (const [s, m] of [[0, 45], [8, 45], [16, 43], [24, 41]]) kit.pluck(S, s * st, m, 0.2, 0.5, { harm: 4, tilt: 1.5 });
+    S.tone({ t: at(5), f: mtof(45), harm: 8, tilt: 1.1, env: 'hold', a: 0.01, h: 0.3, d: 0.3, dur: 0.9, g: 0.3 })
+      .tone({ t: at(5), f: mtof(46), harm: 8, tilt: 1.1, env: 'hold', a: 0.01, h: 0.3, d: 0.3, dur: 0.9, g: 0.18 });
+    kit.marimba(S, at(5.6), 76, 0.5);
+    [72, 76, 79, 84].forEach((m, i) => kit.marimba(S, at(6.6) + i * 0.06, m, 0.4));
+  } },
+  // 11 깃발 흔들기 — 웅장한 금관 행진 (D장조). 두 마디 = 춤 한 주기: 흔드는 박(1~4박)마다 바람 소리와 큰 북,
+  //   꽂는 순간(5.6박)에 낮은 '쿵'과 긴 D장조 화음
+  selfie: { code: 11, bpm: BPM.selfie, bars: 2, level: 0.32, r(S, st) {
+    const at = (beat) => beat * 4 * st;
+    const tom = (t, f, g) => S.tone({ t, f: f * 1.5, f1: f, glide: 0.03, a: 0.002, d: 0.18, dur: 0.6, g });
+    tom(at(0), 110, 0.5);
+    for (const b of [1, 2, 3, 4]) {
+      S.noise({ t: at(b) - 0.18, dur: 0.3, env: 'bell', bp: b % 2 ? 1100 : 800, q: 0.8, g: 0.2 });
+      tom(at(b), b % 2 ? 98 : 82, 0.55);
+    }
+    const ch = [[62, 66, 69], [62, 67, 71], [61, 64, 69], [62, 66, 71], [62, 67, 71], [61, 64, 69]];   // D G A Bm G A
+    ch.forEach((c, b) => { for (const m of c) kit.held(S, at(b), m, at(0.9), 0.07, { harm: 12, tilt: 0.9, a: 0.02, gate: 0.8, rel: 0.06 }); });
+    notes([[[0, 74, 4], [4, 79, 4], [8, 81, 4], [12, 78, 2], [14, 74, 2]], [[0, 79, 4], [4, 81, 4]]], st,
+      (t, m, len) => kit.held(S, t, m, len, 0.18, { harm: 10, tilt: 0.95, a: 0.015, gate: 0.85, rel: 0.05, vib: 0.005, vibF: 5 }));
+    S.tone({ t: at(5.6), f: 70, f1: 36, glide: 0.08, a: 0.002, d: 0.4, dur: 1.2, g: 1 })
+      .noise({ t: at(5.6), dur: 0.5, a: 0.001, d: 0.12, lp: 900, brown: 1, g: 0.6 });
+    for (const m of [62, 66, 69, 74, 78]) S.tone({ t: at(5.6), f: mtof(m), harm: 10, tilt: 0.95, env: 'hold', a: 0.02, h: at(1.6), d: 0.4, dur: at(2.4), g: 0.07 });
   } }
 };
 
@@ -831,6 +863,8 @@ const EMOTE_DEFS = {
 export const EMOTE_SOUNDS = Object.freeze(Object.keys(EMOTE_DEFS).sort((a, b) => EMOTE_DEFS[a].code - EMOTE_DEFS[b].code));
 /** 이모트 루프 템포(id → BPM, 한 번형은 0). 춤 동작(core EMOTES[].bpm)과 같아야 박자가 맞는다 */
 export const EMOTE_BPM = Object.freeze(Object.fromEntries(EMOTE_SOUNDS.map((id) => [id, EMOTE_DEFS[id].bpm || 0])));
+/** 이모트 합성음 루프 길이(id → 박 수, 한 번형은 0). 춤 한 주기(engine/emoteanim TRACKS[id].beats)의 정수 배여야 한다 */
+export const EMOTE_LOOP_BEATS = Object.freeze(Object.fromEntries(EMOTE_SOUNDS.map((id) => [id, EMOTE_DEFS[id].oneShot ? 0 : EMOTE_DEFS[id].bars * 4])));
 
 /* ───────────── 엔진 ───────────── */
 
@@ -861,13 +895,6 @@ function readPos(p) {                      // {x,y,z} | THREE.Vector3 | [x,y,z]
   return tmpPos;
 }
 
-// 이모트 음원 교체(선택): audio/emotes/manifest.json. 이 모듈 기준 상대 경로라 어느 페이지에서 불러도 같은 곳을 본다.
-const DEFAULT_EMOTE_MANIFEST = (() => {
-  try { return new URL('../../audio/emotes/manifest.json', import.meta.url).href; } catch { return null; }
-})();
-const SAFE_FILE = /^[A-Za-z0-9_][A-Za-z0-9_.\-/]*$/;       // manifest 기준 상대 파일 이름만(절대 URL·'..' 금지)
-const EMOTE_FILE_MAX_BYTES = 8 * 1024 * 1024, EMOTE_FILE_MAX_SEC = 60;
-
 /**
  * 안내 음성(연속 킬) id 목록 = audio/voice/<id>.mp3. tools/make-voice.mjs가 Windows 한국어 음성(TTS)으로 합성해 다듬은
  * 짧은 문장이다. id는 js/game/multikill.js의 단계표와 같다(tests/multikill.test.mjs).
@@ -881,7 +908,7 @@ const VOICE_FILE_MAX_BYTES = 512 * 1024, VOICE_LEVEL = 0.95;
 export function createAudio(opts = {}) {
   const MAX3 = opts.maxVoices3d ?? 20;     // 3D 보이스(HRTF) 상한
   const MAX2 = opts.maxVoices2d ?? 8;      // 2D 보이스(UI·자기 무기) 상한
-  let ctx = null, mix = null, outVol = null, verb = null, chainNodes = [];
+  let ctx = null, mix = null, outVol = null, verb = null, deaf = null, chainNodes = [];
   let volume = Math.min(1, Math.max(0, opts.volume ?? 0.8));
   let quality = opts.quality === 'low' ? 'low' : 'high';
   let disposed = false, prewarmTimer = 0, seq = 0;
@@ -895,12 +922,7 @@ export function createAudio(opts = {}) {
   const emo3 = [], emo2 = [];
   const emoCache = new Map();              // id → AudioBuffer (32 kHz 모노, 루프는 이음매 없음)
   const emoSynth = new Map();              // id → 합성음 묘사자
-  const emoFiles = new Map();              // id → 파일 묘사자(manifest로 교체된 이모트만)
-  const manifestUrl = opts.emoteManifest === false ? null : (opts.emoteManifest || DEFAULT_EMOTE_MANIFEST);
-  const emoRaw = new Map();                // id → { ent, data } 받아서 푼 음원 바이트(언락 전에도 채운다)
-  const emoBuilding = new Map();           // id → 버퍼 만들기 Promise(한 번만)
-  const emoBad = [];                       // 합성음으로 대체한 이유
-  let emoFetch = null, emoReady = null, emoAbort = null, emoPrefetchTimer = 0;
+  let prefetchTimer = 0;
   const emoHandles = new Set();
   const emoCand = [], emoLocal = [];
   let emoSeq = 0, emoLast = -1e9;
@@ -922,12 +944,14 @@ export function createAudio(opts = {}) {
     const limiter = ctx.createDynamicsCompressor(); setComp(limiter, -3, 0, 20, 0.001, 0.08);
     const clip = ctx.createWaveShaper(); clip.curve = softClipCurve(); clip.oversample = 'none';
     outVol = ctx.createGain(); outVol.gain.value = volume;
+    // 섬광에 귀가 먹먹해질 때만 내려가는 저역 통과(평소 20 kHz = 그대로). 귀울림 소리는 이 뒤(outVol)로 따로 넣는다
+    deaf = ctx.createBiquadFilter(); deaf.type = 'lowpass'; deaf.frequency.value = 20000; deaf.Q.value = 0.5;
     mix.connect(comp); comp.connect(makeup); makeup.connect(limiter); limiter.connect(clip);
-    clip.connect(outVol); outVol.connect(ctx.destination);
+    clip.connect(deaf); deaf.connect(outVol); outVol.connect(ctx.destination);
     verb = ctx.createConvolver(); verb.buffer = makeIR();
     const verbRet = ctx.createGain(); verbRet.gain.value = 0.55;
     verb.connect(verbRet); verbRet.connect(mix);
-    chainNodes = [mix, comp, makeup, limiter, clip, outVol, verb, verbRet];
+    chainNodes = [mix, comp, makeup, limiter, clip, deaf, outVol, verb, verbRet];
     for (let i = 0; i < MAX3; i++) pool3.push(makeVoice(true));
     for (let i = 0; i < MAX2; i++) pool2.push(makeVoice(false));
     for (let i = 0; i < EMO_MAX3; i++) emo3.push(makeEmoteVoice(true));
@@ -1141,168 +1165,24 @@ export function createAudio(opts = {}) {
     return b;
   }
 
-  /* ── 이모트 음원 파일(manifest). 목록에 있는 파일만 요청, 실패는 console.info 한 줄 + 합성음 ──
-   * 1) 받기·풀기(fetchEmoteFiles)는 오디오를 켜기 전에도 한다: 페이지를 열고 잠시 뒤, 또는 언락 때 중 먼저.
-   *    번호 순서(L을 가져가가 먼저)로 요청한다.
-   * 2) 버퍼 만들기(buildEmoteFile)는 오디오 컨텍스트가 생긴 뒤. 묶음의 WAV는 직접 읽어 곧바로 버퍼로 만든다.
-   * 3) 파일이 늦게 준비돼 합성음으로 시작한 이모트(상점 미리 듣기 포함)는 준비되는 즉시 같은 박자 위치에서 파일로 바꿔 튼다. */
-  function fetchEmoteFiles() {
-    if (emoFetch) return emoFetch;
-    clearTimeout(emoPrefetchTimer); emoPrefetchTimer = 0;
-    if (!manifestUrl || typeof fetch !== 'function' || disposed) { emoFetch = Promise.resolve(); return emoFetch; }
-    emoAbort = typeof AbortController === 'function' ? new AbortController() : null;
-    const signal = emoAbort ? emoAbort.signal : undefined;
-    emoFetch = (async () => {
-      let list;
-      try {
-        const res = await fetch(manifestUrl, { cache: 'no-cache', signal });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        list = await res.json();
-      } catch (e) {
-        if (!disposed && e?.name !== 'AbortError') console.info('[fx] 이모트 음원 manifest를 읽지 못해 합성음을 씁니다 —', e?.message || String(e));
-        return;
-      }
-      if (!list || typeof list !== 'object' || Array.isArray(list)) {
-        console.info('[fx] 이모트 음원 manifest가 객체가 아니라서 합성음을 씁니다.');
-        return;
-      }
-      const rank = (id) => { const i = EMOTE_SOUNDS.indexOf(id); return i < 0 ? 99 : i; };
-      const ids = Object.keys(list).sort((a, b) => rank(a) - rank(b));
-      await Promise.all(ids.map(async (id) => {
-        const ent = list[id];
-        const file = ent && typeof ent.file === 'string' ? ent.file.trim() : '';
-        if (!ownDef(EMOTE_DEFS, id)) { emoBad.push(`${id}: 모르는 이모트`); return; }
-        if (!SAFE_FILE.test(file) || file.split('/').includes('..')) { emoBad.push(`${id}: 파일 이름`); return; }
-        try {
-          const res = await fetch(new URL(file, manifestUrl).href, { signal });
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          let ab = await res.arrayBuffer();
-          if (ab.byteLength > EMOTE_FILE_MAX_BYTES) throw new Error('파일이 너무 큼');
-          if (ent.enc === true) ab = await decryptEmote(ab);    // 음원 묶음(.bin, js/fx/emote-key.js)은 여기서 풀어 둔다
-          if (disposed) return;
-          emoRaw.set(id, { ent, data: ab });
-          if (ctx) await buildEmoteFile(id);                   // 이미 언락했으면 바로 버퍼로
-        } catch (e) {
-          if (e?.name !== 'AbortError') emoBad.push(`${id}: ${e?.message || e}`);
-        }
-      }));
-    })();
-    return emoFetch;
-  }
-
-  /** 언락 때 한 번: 받기를 시작(또는 이어서)하고, 받은 것을 모두 버퍼로 만든다. 끝나면 파일로 바뀐 id 목록 */
-  function loadEmoteFiles() {
-    if (emoReady) return emoReady;
-    if (!ctx) return Promise.resolve([]);
-    emoReady = fetchEmoteFiles()
-      .then(() => Promise.all([...emoRaw.keys()].map((id) => buildEmoteFile(id))))
-      .then(() => {
-        if (disposed) return [];
-        const ok = [...emoFiles.keys()];
-        if (ok.length || emoBad.length) {
-          console.info(`[fx] 이모트 음원 — 파일: ${ok.length ? ok.join(', ') : '없음'}${emoBad.length ? ` · 합성음 대체: ${emoBad.join(' / ')}` : ''}`);
-        }
-        return ok;
-      });
-    return emoReady;
-  }
-
-  /** 16비트 PCM WAV(묶는 도구가 만드는 형식)를 곧바로 AudioBuffer로. 다른 형식이면 null(→ decodeAudioData) */
-  function wavBuffer(ab) {
-    try {
-      const dv = new DataView(ab);
-      const tag = (o) => String.fromCharCode(dv.getUint8(o), dv.getUint8(o + 1), dv.getUint8(o + 2), dv.getUint8(o + 3));
-      if (ab.byteLength < 44 || tag(0) !== 'RIFF' || tag(8) !== 'WAVE') return null;
-      let o = 12, fmt = null, data = null;
-      while (o + 8 <= ab.byteLength) {
-        const id = tag(o), size = dv.getUint32(o + 4, true);
-        if (id === 'fmt ') fmt = { format: dv.getUint16(o + 8, true), ch: dv.getUint16(o + 10, true), rate: dv.getUint32(o + 12, true), bits: dv.getUint16(o + 22, true) };
-        else if (id === 'data') { data = { at: o + 8, size: Math.min(size, ab.byteLength - o - 8) }; break; }
-        o += 8 + size + (size & 1);
-      }
-      if (!fmt || !data || fmt.format !== 1 || fmt.bits !== 16 || fmt.ch < 1 || fmt.ch > 2 || fmt.rate < 8000 || fmt.rate > 96000) return null;
-      const frames = Math.floor(data.size / (2 * fmt.ch));
-      if (!frames) return null;
-      const buf = ctx.createBuffer(fmt.ch, frames, fmt.rate);
-      for (let c = 0; c < fmt.ch; c++) {
-        const out = buf.getChannelData(c);
-        for (let i = 0; i < frames; i++) out[i] = dv.getInt16(data.at + (i * fmt.ch + c) * 2, true) / 32768;
-      }
-      return buf;
-    } catch {
-      return null;
-    }
-  }
-
-  /** 받아 둔 음원 하나를 버퍼로(한 번만). 합성음으로 돌던 같은 이모트는 파일로 바꾼다 */
-  function buildEmoteFile(id) {
-    if (!ctx || disposed) return Promise.resolve();
-    if (emoBuilding.has(id)) return emoBuilding.get(id);
-    const raw = emoRaw.get(id);
-    if (!raw) return Promise.resolve();
-    const job = makeEmoteFile(id, raw.ent, raw.data)
-      .catch((e) => { emoBad.push(`${id}: ${e?.message || e}`); });
-    emoBuilding.set(id, job);
-    return job;
-  }
-
-  async function makeEmoteFile(id, ent, ab) {
-    let buf = wavBuffer(ab);
-    if (!buf) {
-      try { buf = await ctx.decodeAudioData(ab.slice(0)); } catch { throw new Error('디코드 실패'); }
-    }
-    if (!ctx || disposed || !buf) return;
-    if (buf.duration > EMOTE_FILE_MAX_SEC) throw new Error(`${EMOTE_FILE_MAX_SEC}초 초과`);
-    let pk = 0;                                            // 피크를 합성음과 같은 0.9로 맞춘다 → gain 1 ≈ 합성음 크기
-    for (let c = 0; c < buf.numberOfChannels; c++) {
-      const d = buf.getChannelData(c);
-      for (let i = 0; i < d.length; i++) { const a = d[i] < 0 ? -d[i] : d[i]; if (a > pk) pk = a; }
-    }
-    const norm = pk > 1e-4 ? Math.min(4, 0.9 / pk) : 1;
-    const g = Number(ent.gain);
-    const gain = ent.gain == null || !Number.isFinite(g) || g < 0 ? 1 : Math.min(4, g);
-    let ls = Number(ent.loopStart);
-    ls = Number.isFinite(ls) && ls > 0 ? ls : 0;
-    let le = ent.loopEnd == null ? buf.duration : Number(ent.loopEnd);
-    le = Number.isFinite(le) ? Math.min(buf.duration, le) : buf.duration;
-    if (le - ls < 0.05) { ls = 0; le = buf.duration; }     // 구간이 잘못되면 파일 전체를 반복
-    const f = { buf, ls, le, level: EMOTE_DEFS[id].level * gain * norm, source: 'file' };
-    emoFiles.set(id, f);
-    // 파일보다 먼저 시작해 합성음으로 돌던 같은 이모트: 보이스를 짧게 줄이고 같은 박자 위치(t0 기준)에서 파일로 다시 받는다
-    let swapped = false;
-    for (const h of emoHandles) {
-      if (h.name !== id || h.dead || h.snd.source !== 'synth') continue;
-      h.snd = f;
-      dropEmote(h, 0.06);
-      swapped = true;
-    }
-    if (swapped) refreshEmotes(true);
-  }
-
-  // 이모트 소리 묘사자 { buf, ls, le(루프 구간 초), level, source: 'file'|'synth' }.
-  // 파일(manifest)이 디코드돼 있으면 그것, 아니면 합성음. 핸들은 시작할 때 하나를 잡아 끝까지 쓴다.
+  // 이모트 소리 묘사자 { buf, level }. 핸들은 시작할 때 하나를 잡아 끝까지 쓴다.
   function emoteSound(id) {
-    const f = emoFiles.get(id);
-    if (f) return f;
     let s = emoSynth.get(id);
     if (!s) {
-      const buf = emoteBuffer(id);
-      s = { buf, ls: 0, le: buf.duration, level: EMOTE_DEFS[id].level, source: 'synth' };
+      s = { buf: emoteBuffer(id), level: EMOTE_DEFS[id].level };
       emoSynth.set(id, s);
     }
     return s;
   }
 
-  // 가상 재생 위치(초): 반복형은 처음엔 0→loopEnd, 그 뒤 loopStart~loopEnd 를 돈다
+  // 가상 재생 위치(초): 반복형은 루프 전체를 돈다
   function emotePos(h, el) {
-    const s = h.snd;
+    const d = h.snd.buf.duration;
     if (el <= 0) return 0;
-    if (!h.loop) return Math.min(el, s.buf.duration);
-    if (el < s.le) return el;
-    return s.ls + ((el - s.ls) % (s.le - s.ls));
+    return h.loop ? el % d : Math.min(el, d);
   }
 
-  const NO_EMOTE = Object.freeze({ id: 0, name: '', source: '', playing: false, stop() {}, setPos() {} });
+  const NO_EMOTE = Object.freeze({ id: 0, name: '', playing: false, stop() {}, setPos() {} });
 
   function emote(which, o = {}) {
     const name = typeof which === 'number' ? EMOTE_SOUNDS[which - 1] : which;
@@ -1316,8 +1196,6 @@ export function createAudio(opts = {}) {
     };
     h.api = {
       id: ++emoSeq, name,
-      /** 'file'(manifest 음원) | 'synth'(합성음) */
-      get source() { return h.snd.source; },
       get playing() { return !h.dead; },
       stop(fadeMs = 150) { endEmote(h, Math.max(5, +fadeMs || 0) / 1000); },
       setPos(np) {                                          // 2D(내 이모트) 핸들에서는 무시
@@ -1374,7 +1252,6 @@ export function createAudio(opts = {}) {
     } else gp.cancelScheduledValues(now);
     const src = ctx.createBufferSource();
     src.buffer = s.buf; src.loop = h.loop;
-    if (h.loop) { src.loopStart = s.ls; src.loopEnd = s.le; }    // 합성 루프는 0~끝, 파일은 manifest 구간
     const off = emotePos(h, el + 0.015);
     gp.setValueAtTime(0, at);                                     // 중간부터 이어 받으면 부드럽게 페이드 인
     gp.linearRampToValueAtTime(s.level * h.gain * (h.pos ? 0.75 : 1), at + (el > 0.05 ? 0.12 : 0.008));
@@ -1429,6 +1306,7 @@ export function createAudio(opts = {}) {
    * 아직 준비되지 않았거나 못 읽은 문장은 소리 없이 건너뛴다(같이 내는 효과음은 그대로 난다). */
   function fetchVoices() {
     if (voiceFetch) return voiceFetch;
+    clearTimeout(prefetchTimer); prefetchTimer = 0;
     if (!voiceDir || typeof fetch !== 'function' || disposed) { voiceFetch = Promise.resolve(); return voiceFetch; }
     voiceAbort = typeof AbortController === 'function' ? new AbortController() : null;
     const signal = voiceAbort ? voiceAbort.signal : undefined;
@@ -1437,7 +1315,7 @@ export function createAudio(opts = {}) {
         const res = await fetch(new URL(`${id}.mp3`, voiceDir).href, { signal });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const ab = await res.arrayBuffer();
-        if (ab.byteLength > VOICE_FILE_MAX_BYTES) throw new Error('파일이 너무 큼');
+        if (ab.byteLength > VOICE_FILE_MAX_BYTES) throw new Error('파일이 너무 큼'); // i18n-ok: 콘솔 로그로만 간다
         if (disposed) return;
         voiceRaw.set(id, ab);
         if (ctx) await decodeVoice(id);
@@ -1457,7 +1335,7 @@ export function createAudio(opts = {}) {
     if (!raw) return Promise.resolve();
     const job = ctx.decodeAudioData(raw.slice(0))
       .then((b) => { if (!disposed && ctx && b) voiceBuf.set(id, b); })
-      .catch(() => { voiceBad.push(`${id}: 디코드 실패`); });
+      .catch(() => { voiceBad.push(`${id}: 디코드 실패`); }); // i18n-ok: 콘솔 로그로만 간다
     voiceDecoding.set(id, job);
     return job;
   }
@@ -1517,11 +1395,11 @@ export function createAudio(opts = {}) {
     }
   }
 
-  // 음원 묶음과 안내 음성은 페이지를 연 뒤 잠시(게임 로딩과 겹치지 않게) 기다렸다가 미리 받아 둔다. 언락이 먼저면 그때 바로 받는다.
-  // 그래서 상점 미리 듣기나 첫 이모트도 대개 처음부터 파일로 나온다. createAudio({ emotePrefetch: false })로 끌 수 있다
-  const prefetchMs = opts.emotePrefetch === false ? -1 : Math.max(0, Number(opts.emotePrefetchDelayMs ?? 1500) || 0);
-  if (prefetchMs >= 0 && (manifestUrl || voiceDir) && typeof setTimeout === 'function') {
-    emoPrefetchTimer = setTimeout(() => { emoPrefetchTimer = 0; if (!disposed) { fetchEmoteFiles(); fetchVoices(); } }, prefetchMs);
+  // 안내 음성은 페이지를 연 뒤 잠시(게임 로딩과 겹치지 않게) 기다렸다가 미리 받아 둔다. 언락이 먼저면 그때 바로 받는다.
+  // createAudio({ voicePrefetch: false })로 끌 수 있다
+  const prefetchMs = opts.voicePrefetch === false ? -1 : Math.max(0, Number(opts.voicePrefetchDelayMs ?? 1500) || 0);
+  if (prefetchMs >= 0 && voiceDir && typeof setTimeout === 'function') {
+    prefetchTimer = setTimeout(() => { prefetchTimer = 0; if (!disposed) fetchVoices(); }, prefetchMs);
   }
 
   return {
@@ -1535,7 +1413,6 @@ export function createAudio(opts = {}) {
         s.connect(ctx.destination); s.start(); s.onended = () => s.disconnect();
       } catch { /* 무시 */ }
       schedulePrewarm();
-      loadEmoteFiles();                                  // manifest 음원(있으면) — 한 번만, 비동기
       loadVoices();                                      // 안내 음성 — 받은 것을 디코드(비동기)
       if (ctx.state === 'suspended') return ctx.resume().then(() => ctx?.state === 'running', () => false);
       return Promise.resolve(ctx.state === 'running');
@@ -1544,6 +1421,40 @@ export function createAudio(opts = {}) {
     setVolume(v) {
       volume = Math.min(1, Math.max(0, +v || 0));
       if (ctx) outVol.gain.setTargetAtTime(volume, ctx.currentTime, 0.02);
+    },
+    /**
+     * 섬광에 귀가 먹먹해진다: amount(0..1)만큼 모든 소리를 저역 통과로 막고 sec초에 걸쳐 돌아온다.
+     * 그동안 높은 귀울림(사인파 두 개의 맥놀이)을 낸다. 언락 전·0이면 아무 일도 없다
+     */
+    deafen(amount, sec) {
+      const k = Math.min(1, Math.max(0, +amount || 0)), dur = Math.max(0.1, +sec || 0);
+      if (!ctx || disposed || !deaf || k <= 0) return false;
+      const now = ctx.currentTime;
+      const low = 20000 * Math.pow(380 / 20000, k);       // 세기 1이면 380 Hz까지 막힌다
+      deaf.frequency.cancelScheduledValues(now);
+      deaf.frequency.setValueAtTime(low, now);
+      deaf.frequency.setValueAtTime(low, now + dur * 0.4);
+      deaf.frequency.exponentialRampToValueAtTime(20000, now + dur * 1.3);
+      const ring = ctx.createGain();
+      ring.gain.setValueAtTime(0.0001, now);
+      ring.gain.exponentialRampToValueAtTime(0.09 * k + 0.0001, now + 0.04);
+      ring.gain.setValueAtTime(0.09 * k + 0.0001, now + dur * 0.4);
+      ring.gain.exponentialRampToValueAtTime(0.0001, now + dur * 1.3);
+      ring.connect(outVol);
+      const end = now + dur * 1.3 + 0.05;
+      for (const f of [3520, 3534]) {
+        const o = ctx.createOscillator();
+        o.type = 'sine'; o.frequency.value = f;
+        o.connect(ring); o.start(now); o.stop(end);
+        o.onended = () => { try { o.disconnect(); ring.disconnect(); } catch (e) { /* 이미 끊겼다 */ } };
+      }
+      return true;
+    },
+    /** 먹먹함을 바로 푼다(맵 나가기·부활) */
+    undeafen() {
+      if (!ctx || !deaf) return;
+      deaf.frequency.cancelScheduledValues(ctx.currentTime);
+      deaf.frequency.setValueAtTime(20000, ctx.currentTime);
     },
     /** pos: {x,y,z}|Vector3|[x,y,z] (눈 위치), yaw/pitch: 라디안 (camera.rotation.y / .x, order 'YXZ') */
     setListener(pos, yaw = 0, pitch = 0) {
@@ -1563,10 +1474,6 @@ export function createAudio(opts = {}) {
     emote,
     /** 이모트 id 목록(인덱스 + 1 = 전송 번호) */
     emotes: EMOTE_SOUNDS,
-    /** 언락 뒤 manifest 음원을 모두 버퍼로 만들면 파일로 바뀐 이모트 id 목록으로 resolve(언락 전이거나 파일이 없으면 []) */
-    emoteFilesReady() { return emoReady || Promise.resolve([]); },
-    /** 음원 받기·풀기를 지금 시작한다(언락 전에도 됨, 한 번만). 끝나면 resolve */
-    prefetchEmoteFiles: () => fetchEmoteFiles(),
     /**
      * 안내 음성 한 문장(2D, VOICE_IDS 중 하나). { delay: 초, gain }. 앞 문장은 끊고 바로 잇는다.
      * 냈으면 true, 언락 전·모르는 id·아직 못 받은 파일이면 false(그때는 받기·디코드를 시작해 둔다)
@@ -1594,10 +1501,8 @@ export function createAudio(opts = {}) {
         emotes: emoHandles.size, emoteVoices3d: held(emo3), emoteVoices2d: held(emo2),
         emotePool3d: emo3.length, emotePool2d: emo2.length, emoteCached: emoCache.size,
         emoteSources: emo3.concat(emo2).reduce((n, v) => n + (v.src ? 1 : 0), 0),
-        emoteFiles: [...emoFiles.keys()],
-        emoteFetched: [...emoRaw.keys()],
-        /** 재생 중인 이모트 핸들: 'id:file' 또는 'id:synth' */
-        emotePlaying: [...emoHandles].map((h) => `${h.name}:${h.snd.source}`),
+        /** 재생 중인 이모트 id */
+        emotePlaying: [...emoHandles].map((h) => h.name),
         /** 안내 음성: 디코드해 쓸 수 있는 것, 받은 것, 마지막으로 낸 것, 낸 횟수, 지금 나오는 중인가 */
         voiceFiles: [...voiceBuf.keys()],
         voiceFetched: [...voiceRaw.keys()],
@@ -1616,10 +1521,8 @@ export function createAudio(opts = {}) {
         v.h = null;
         for (const n of [v.g, v.f, v.p, v.send]) if (n) { try { n.disconnect(); } catch { /* 무시 */ } }
       }
-      emo3.length = 0; emo2.length = 0; emoCache.clear(); emoSynth.clear(); emoFiles.clear();
-      clearTimeout(emoPrefetchTimer); emoPrefetchTimer = 0;
-      if (emoAbort) { try { emoAbort.abort(); } catch { /* 무시 */ } emoAbort = null; }
-      emoRaw.clear(); emoBuilding.clear();
+      emo3.length = 0; emo2.length = 0; emoCache.clear(); emoSynth.clear();
+      clearTimeout(prefetchTimer); prefetchTimer = 0;
       if (voiceAbort) { try { voiceAbort.abort(); } catch { /* 무시 */ } voiceAbort = null; }
       if (voiceV) {
         if (voiceV.src) { const s = voiceV.src; voiceV.src = null; s.onended = null; try { s.stop(); } catch { /* 무시 */ } try { s.disconnect(); } catch { /* 무시 */ } }

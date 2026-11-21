@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 무기 17종과 수류탄(+ 좀비 모드 전용 3종)의 수치·표시 정보, 데미지 계산의 유일한 구현(computeDamage)을 둔다.
+ * Purpose: 무기 17종과 수류탄·연막탄·섬광탄(+ 좀비 모드 전용 3종)의 수치·표시 정보, 데미지 계산의 유일한 구현(computeDamage)을 둔다.
  *          three.js·엔진·DOM에 의존하지 않아 node 테스트와 방장 판정에서 그대로 import한다.
  */
 
@@ -11,6 +11,13 @@
  * 탄퍼짐(spread): 원뿔 반각(°). hip = 미조준, ads = 조준(줌) 상태.
  * 수치를 고친 이유와 고칠 곳은 docs/BALANCE.md에 적어 둔다.
  */
+
+/*
+ * 영어 짝 칸(core/i18n.js의 loc(def, 'x')로 읽는다): nameEn, roleEn, taglineEn, descEn, recoilNoteEn,
+ * stats[].labelEn / stats[].valueEn, melee.slash.labelEn / melee.stab.labelEn.
+ * 계산으로 만드는 stats 행의 글자는 core/lang/weapons.js 표에서 두 말 모두 꺼낸다.
+ */
+import TXT from '../core/lang/weapons.js';
 
 export const DEG = Math.PI / 180;
 export const PLAYER_HP = 100;
@@ -107,7 +114,7 @@ const SG_DOUBLE_PATTERN = [[0.00, 5.00], [0.55, 4.60]];
 /** AS-12 오토. 연사하는 산탄총이라 한 발은 작게, 쏟아부을수록 좌우로 흔들린다. */
 const SG_AUTO_PATTERN = [[0.00, 1.90], [0.25, 1.70], [-0.25, 1.70], [0.15, 1.50], [-0.15, 1.50], [0.30, 1.40], [-0.30, 1.40], [0.00, 1.40]];
 /**
- * UZ-2 듀얼 우지. 왼손·오른손 총이 번갈아 나가서 한 발마다 좌우가 번갈아 튄다(처음 8발은 점점 벌어지고 그 뒤로는 작게 흔들린다).
+ * TW-2 쌍발 기관단총. 왼손·오른손 총이 번갈아 나가서 한 발마다 좌우가 번갈아 튄다(처음 8발은 점점 벌어지고 그 뒤로는 작게 흔들린다).
  * 위로는 발당 0.2~0.3°라 VX-3와 비슷하지만 좌우가 두 배 넓다.
  */
 const SM_UZI_DUAL_PATTERN = [
@@ -125,7 +132,7 @@ const SR_SWIFT_PATTERN = [[-0.20, 2.20], [0.25, 2.00]];
 const SR_HEAVY_PATTERN = [[0.35, 5.50], [-0.35, 5.50]];
 const PT_STD_PATTERN = [[0.00, 1.30], [0.25, 1.15], [-0.25, 1.15], [0.15, 1.05]];
 const PT_MAGNUM_PATTERN = [[0.00, 3.00], [0.50, 2.70], [-0.50, 2.70]];
-/** SH-2 쇼티. 두 발을 빠르게 쏘므로 둘째 발이 조금 옆으로 튄다 */
+/** SH-2 단축 산탄총. 두 발을 빠르게 쏘므로 둘째 발이 조금 옆으로 튄다 */
 const SG_SHORTY_PATTERN = [[0.00, 3.80], [0.45, 3.40]];
 /** AG-8 공기총. 압축 공기가 터지며 위로 한 번 튄다 */
 const PN_AIR_PATTERN = [[0.00, 2.20]];
@@ -147,69 +154,82 @@ const MG_LMG_PATTERN = [
 
 /* ───────────────────────────── 카드 문구 ───────────────────────────── */
 
-const sec = (v) => `${+v.toFixed(3)}초`;
+// 카드 문구는 두 말로 모두 만든다(label/labelEn, value/valueEn). L = 0 한국어, 1 영어
+const tl = (L, key, vars) => (vars ? TXT[key][L].replace(/\{(\w+)\}/g, (m, k) => (vars[k] === undefined ? m : String(vars[k]))) : TXT[key][L]);
+const sec = (L, v) => tl(L, 'weapons.u.sec', { v: +v.toFixed(3) });
 const pct = (v) => `${Math.round(v * 100)}%`;
-const limbsText = ({ hand, foot }) => (hand === foot ? `손·발 ${hand}` : `손 ${hand} · 발 ${foot}`);
+const limbsText = (L, { hand, foot }) => (hand === foot ? tl(L, 'weapons.dmg.limbs', { n: hand }) : tl(L, 'weapons.dmg.handFoot', { hand, foot }));
+const row = (L, key, value) => ({ label: tl(L, key), value });
 
-function rateRow(w) {
+function rateRow(L, w) {
   switch (w.fire) {
-    case 'auto': return { label: '연사', value: `${w.rpm} rpm` };
-    case 'burst': return { label: '점사', value: `${w.burst.count}발 · ${sec(w.burst.gap)} 간격 · 재사격 ${sec(w.fireInterval)}` };
-    case 'bolt': return { label: '볼트', value: `${sec(w.bolt)} · 사격 후 줌 해제` };
-    default: return { label: '연사', value: `반자동 · ${sec(w.fireInterval)}` };
+    case 'auto': return row(L, 'weapons.stat.rate', `${w.rpm} rpm`);
+    case 'burst': return row(L, 'weapons.stat.burst', tl(L, 'weapons.val.burst', { count: w.burst.count, gap: sec(L, w.burst.gap), interval: sec(L, w.fireInterval) }));
+    case 'bolt': return row(L, 'weapons.stat.bolt', tl(L, 'weapons.val.bolt', { time: sec(L, w.bolt) }));
+    default: return row(L, 'weapons.stat.rate', tl(L, 'weapons.val.semi', { interval: sec(L, w.fireInterval) }));
   }
 }
 
-function zoomText(z) {
-  return z.levels ? `${z.levels.length}단 ${z.levels.map((m) => `${m}배`).join(' → ')}` : `${z.mag}배`;
+function zoomText(L, z) {
+  return z.levels
+    ? tl(L, 'weapons.val.zoomLevels', { n: z.levels.length, mags: z.levels.map((m) => tl(L, 'weapons.u.mag', { m })).join(' → ') })
+    : tl(L, 'weapons.u.mag', { m: z.mag });
 }
 
 /**
  * 총기 카드의 stats 행. 표의 숫자에서 만들어 문구와 수치가 어긋나지 않게 한다.
  * '반샷'은 저격총이 손·발에 맞은 반피 타격만 뜻하고, 빠르게 줌하고 쏘는 기술은 '퀵스코프'라고 부른다.
  */
-function gunStats(w) {
+function gunStats(L, w) {
   const { damage: d, falloff: f, zoom: z } = w;
-  const base = `머리 ${d.head} · 몸 ${d.body} · 다리 ${d.legs}`;
-  const rows = [rateRow(w)];
+  const base = tl(L, 'weapons.dmg.base', d);
+  const rows = [rateRow(L, w)];
   if (w.kind === 'sniper') {
-    const one = [['head', '머리'], ['body', '몸'], ['legs', '다리']].filter(([p]) => d[p] >= PLAYER_HP).map(([, n]) => n);
-    rows.push({ label: '피해', value: base });
-    rows.push({ label: '반샷', value: `${limbsText(d)} · ${one.length === 3 ? '나머지 부위 1발 킬' : one.length === 1 ? '머리만 1발 킬' : `${one.join('·')} 1발 킬`}` });
-    rows.push({ label: '퀵스코프', value: `줌 ${pct(z.accurateAt)}(${sec(z.accurateAt * z.inTime)})부터 정조준` });
+    const one = ['head', 'body', 'legs'].filter((p) => d[p] >= PLAYER_HP).map((p) => tl(L, `weapons.part.${p}`));
+    rows.push(row(L, 'weapons.stat.damage', base));
+    const kill = one.length === 3 ? tl(L, 'weapons.val.killRest') : one.length === 1 ? tl(L, 'weapons.val.killHeadOnly') : tl(L, 'weapons.val.killParts', { parts: one.join('·') });
+    rows.push(row(L, 'weapons.stat.halfShot', `${limbsText(L, d)} · ${kill}`));
+    rows.push(row(L, 'weapons.stat.quickscope', tl(L, 'weapons.val.quickscope', { pct: pct(z.accurateAt), time: sec(L, z.accurateAt * z.inTime) })));
   } else if (w.pellets > 1) {
-    rows.push({ label: '피해', value: `펠릿 ${w.pellets}발 · 발당 ${base} · ${limbsText(d)}` });
+    rows.push(row(L, 'weapons.stat.damage', tl(L, 'weapons.val.pellets', { n: w.pellets, base, limbs: limbsText(L, d) })));
   } else {
-    rows.push({ label: '피해', value: `${base} · ${limbsText(d)}` });
+    rows.push(row(L, 'weapons.stat.damage', `${base} · ${limbsText(L, d)}`));
   }
-  rows.push({ label: '감쇠', value: f ? `${f.start}~${f.end} m → ${pct(f.min)}${w.headIgnoresFalloff ? ' · 머리 제외' : ''}` : '없음' });
-  if (z) rows.push({ label: '줌', value: `${zoomText(z)} · 이동 ${pct(z.moveMul)}` });
-  if (w.recoilNote) rows.push({ label: '반동', value: w.recoilNote });
-  rows.push({ label: '탄약', value: `${w.mag} / ${w.premium || !Number.isFinite(w.reserve) ? '무제한' : w.reserve}` });
-  rows.push({ label: '이동', value: pct(w.moveMul) });
+  rows.push(row(L, 'weapons.stat.falloff', f ? `${f.start}~${f.end} m → ${pct(f.min)}${w.headIgnoresFalloff ? tl(L, 'weapons.val.headExempt') : ''}` : tl(L, 'weapons.val.none')));
+  if (z) rows.push(row(L, 'weapons.stat.zoom', tl(L, 'weapons.val.zoom', { zoom: zoomText(L, z), move: pct(z.moveMul) })));
+  if (w.recoilNote) rows.push(row(L, 'weapons.stat.recoil', L ? w.recoilNoteEn || w.recoilNote : w.recoilNote));
+  rows.push(row(L, 'weapons.stat.ammo', `${w.mag} / ${w.premium || !Number.isFinite(w.reserve) ? tl(L, 'weapons.val.unlimited') : w.reserve}`));
+  rows.push(row(L, 'weapons.stat.move', pct(w.moveMul)));
   return rows;
 }
 
-function meleeStats(w) {
-  const row = (m) => ({ label: m.label, value: `${m.damage} · ${sec(m.cooldown)} · ${m.range} m` });
-  return [row(w.melee.slash), row(w.melee.stab), { label: '이동', value: pct(w.moveMul) }];
+const meleeLabel = (L, m) => (L ? m.labelEn || m.label : m.label);
+
+function meleeStats(L, w) {
+  const one = (m) => ({ label: meleeLabel(L, m), value: `${m.damage} · ${sec(L, m.cooldown)} · ${m.range} m` });
+  return [one(w.melee.slash), one(w.melee.stab), row(L, 'weapons.stat.move', pct(w.moveMul))];
 }
 
 /** 밀어내기(knock) 행: 좀비 물량 막기에서 맞은 좀비가 날아가는 속도와 각도. 사람은 밀지 않는다 */
-function knockRow(w) {
-  const parts = [['shot', '맞히면'], ['slash', w.melee && w.melee.slash.label], ['stab', w.melee && w.melee.stab.label]]
-    .filter(([k]) => w.knock[k]).map(([k, n]) => `${n} ${w.knock[k].speed} m/s · 위 ${w.knock[k].up}°`);
-  return { label: '밀어내기', value: `${parts.join(' / ')} (좀비 모드)` };
+function knockRow(L, w) {
+  const parts = [['shot', tl(L, 'weapons.val.knockHit')], ['slash', w.melee && meleeLabel(L, w.melee.slash)], ['stab', w.melee && meleeLabel(L, w.melee.stab)]]
+    .filter(([k]) => w.knock[k]).map(([k, name]) => tl(L, 'weapons.val.knockPart', { name, speed: w.knock[k].speed, up: w.knock[k].up }));
+  return row(L, 'weapons.stat.knock', tl(L, 'weapons.val.knock', { parts: parts.join(' / ') }));
+}
+
+/** 한국어 행과 영어 행을 짝 칸(label/labelEn, value/valueEn)으로 합친다 */
+function bothLangs(make) {
+  const en = make(1);
+  return make(0).map((r, i) => ({ label: r.label, labelEn: en[i].label, value: r.value, valueEn: en[i].value }));
 }
 
 /** 표의 값에 프리미엄 여부와 카드 문구를 더한다. 프리미엄 총의 reserve는 Infinity라 재장전 계산이 그대로 돈다. premium: false를 적으면 비싸도 예비가 정해진 총이다 */
 function gun(o) {
   const premium = o.premium ?? o.price >= PREMIUM_PRICE;
   const w = { pellets: 1, headIgnoresFalloff: false, ...o, premium, reserve: premium ? Infinity : o.reserve };
-  const stats = gunStats(w);
-  return { ...w, stats: w.knock ? [...stats, knockRow(w)] : stats };
+  return { ...w, stats: bothLangs((L) => (w.knock ? [...gunStats(L, w), knockRow(L, w)] : gunStats(L, w))) };
 }
-const blade = (o) => ({ ...o, stats: o.knock ? [...meleeStats(o), knockRow(o)] : meleeStats(o) });
+const blade = (o) => ({ ...o, stats: bothLangs((L) => (o.knock ? [...meleeStats(L, o), knockRow(L, o)] : meleeStats(L, o))) });
 
 /* ───────────────────────────── 무기 표 (DESIGN 3.2) ───────────────────────────── */
 
@@ -217,11 +237,11 @@ const WEAPON_TABLE = {
   // ───────────────────────────── 슬롯 1 · 라이플 ─────────────────────────────
   ar_std: gun({
     id: 'ar_std', slot: 1, kind: 'rifle', category: 'rifle', fire: 'auto', price: 0,
-    name: 'RX-4 돌격소총', nameEn: 'RX-4 Assault Rifle', short: 'RX-4', role: '돌격',
+    name: 'RX-4 돌격소총', nameEn: 'RX-4 Assault Rifle', short: 'RX-4', role: '돌격', roleEn: 'Assault',
     icon: '🔫', color: '#c0392b', sound: 'rifle', fxKind: 'rifle',
-    tagline: '어디서든 믿고 쓰는 표준 소총.',
-    desc: '거리·연사·반동이 고르게 맞춰진 기본 라이플이다. 다른 라이플은 이 총을 기준으로 잰다.',
-    recoilNote: '위로 솟다가 좌우로',
+    tagline: '어디서든 믿고 쓰는 표준 소총.', taglineEn: 'The standard rifle you can trust anywhere.',
+    desc: '거리·연사·반동이 고르게 맞춰진 기본 라이플이다. 다른 라이플은 이 총을 기준으로 잰다.', descEn: 'A balanced rifle in range, fire rate and recoil. Every other rifle is measured against it.',
+    recoilNote: '위로 솟다가 좌우로', recoilNoteEn: 'Climbs, then sways',
     bars: { power: 48, rate: 62, accuracy: 68, mobility: 72 },
 
     // 밸런스 패치(2026-11-12): 몸 30 → 24. 몸 4발(0.30초)에서 5발(0.40초)로 교전이 조금 길어진다. 머리 1발은 그대로
@@ -246,11 +266,11 @@ const WEAPON_TABLE = {
   // 몸 19로 약하지만 860rpm이라 근거리 TTK(6발 0.35초)가 표준(5발 0.40초)보다 살짝 빠르다. 반동과 탄퍼짐이 그 값을 치른다.
   ar_rapid: gun({
     id: 'ar_rapid', slot: 1, kind: 'rifle', category: 'rifle', fire: 'auto', price: 800,
-    name: 'RX-9 스톰', nameEn: 'RX-9 Storm', short: 'RX-9', role: '연사',
+    name: 'RX-9 스톰', nameEn: 'RX-9 Storm', short: 'RX-9', role: '연사', roleEn: 'Full-Auto',
     icon: '🌪️', color: '#e8731c', sound: 'rifle', fxKind: 'rifle',
-    tagline: '퍼붓는 만큼 제어가 어렵다.',
-    desc: '가장 빠른 라이플이다. 반동이 넓고 탄도 많이 퍼져서 짧게 끊어 쏘지 않으면 금방 조준을 잃는다.',
-    recoilNote: '크고 넓게 흔들린다',
+    tagline: '퍼붓는 만큼 제어가 어렵다.', taglineEn: 'All that firepower is hard to tame.',
+    desc: '가장 빠른 라이플이다. 반동이 넓고 탄도 많이 퍼져서 짧게 끊어 쏘지 않으면 금방 조준을 잃는다.', descEn: 'The fastest rifle. Wide recoil and heavy spread mean you\'ll lose your aim fast unless you fire in short bursts.',
+    recoilNote: '크고 넓게 흔들린다', recoilNoteEn: 'Big, wide sway',
     bars: { power: 38, rate: 90, accuracy: 45, mobility: 78 },
 
     damage: { head: 100, body: 19, legs: 14, hand: 10, foot: 10 },
@@ -276,11 +296,11 @@ const WEAPON_TABLE = {
   // 요청(2026-11-20)으로 탄약은 25/100: 가격은 프리미엄대지만 예비가 무제한이 아니다(premium: false).
   ar_line: gun({
     id: 'ar_line', slot: 1, kind: 'rifle', category: 'rifle', fire: 'auto', price: 1200, premium: false,
-    name: 'LN-3 헤드라인', nameEn: 'LN-3 Headline', short: 'LN-3', role: '정밀',
+    name: 'LN-3 헤드라인', nameEn: 'LN-3 Headline', short: 'LN-3', role: '정밀', roleEn: 'Precision',
     icon: '📏', color: '#35e0ff', sound: 'rifle', fxKind: 'rifle',
-    tagline: '몸에는 약하고, 머리에는 정확하다.',
-    desc: '반동이 표준 소총의 40%이고 탄이 거의 퍼지지 않는다. 몸통 피해가 낮아 머리를 맞혀야 값을 한다.',
-    recoilNote: 'RX-4의 40% · 머리 전용',
+    tagline: '몸에는 약하고, 머리에는 정확하다.', taglineEn: 'Weak to the body, deadly to the head.',
+    desc: '반동이 표준 소총의 40%이고 탄이 거의 퍼지지 않는다. 몸통 피해가 낮아 머리를 맞혀야 값을 한다.', descEn: 'Recoil is 40% of the standard rifle and shots barely spread. Body damage is low, so it pays off only on headshots.',
+    recoilNote: 'RX-4의 40% · 머리 전용', recoilNoteEn: '40% of RX-4 · headshot gun',
     bars: { power: 38, rate: 48, accuracy: 92, mobility: 72 },
 
     damage: { head: 120, body: 17, legs: 12, hand: 8, foot: 8 },
@@ -305,11 +325,11 @@ const WEAPON_TABLE = {
   // 지금은 몸 28이라 두 번째 점사의 첫 발에 쓰러진다(0.45초). 그 대신 재사격이 0.32초로 짧고 반동·탄퍼짐이 가장 작은 축이라 중거리에 강하다.
   ar_burst: gun({
     id: 'ar_burst', slot: 1, kind: 'rifle', category: 'rifle', fire: 'burst', price: 1000,
-    name: 'BR-3 트리플', nameEn: 'BR-3 Triple', short: 'BR-3', role: '점사',
+    name: 'BR-3 트리플', nameEn: 'BR-3 Triple', short: 'BR-3', role: '점사', roleEn: 'Burst',
     icon: '🔱', color: '#8e5bd6', sound: 'rifle', fxKind: 'rifle',
-    tagline: '한 번 당기면 세 발.',
-    desc: '한 번 누르면 세 발이 나가고 잠시 쉰다. 두 번의 점사로 쓰러뜨리고, 머리에 한 발이라도 맞으면 바로 끝난다.',
-    recoilNote: '세 발 동안 계단식으로',
+    tagline: '한 번 당기면 세 발.', taglineEn: 'One pull, three rounds.',
+    desc: '한 번 누르면 세 발이 나가고 잠시 쉰다. 두 번의 점사로 쓰러뜨리고, 머리에 한 발이라도 맞으면 바로 끝난다.', descEn: 'Each pull fires three rounds, then pauses. Two bursts take a target down, and a single headshot ends it instantly.',
+    recoilNote: '세 발 동안 계단식으로', recoilNoteEn: 'Stair-steps over 3 rounds',
     bars: { power: 55, rate: 60, accuracy: 74, mobility: 72 },
 
     damage: { head: 110, body: 28, legs: 20, hand: 13, foot: 13 },
@@ -337,11 +357,11 @@ const WEAPON_TABLE = {
   // 지금은 50 m까지 몸 2발(0.36초), 그 뒤로는 3발이다. 저격총의 1발과 라이플의 연사 사이를 메운다. 상점 탭은 라이플에 묶는다.
   dm_mark: gun({
     id: 'dm_mark', slot: 1, kind: 'dmr', category: 'rifle', fire: 'semi', price: 1500,
-    name: 'DM-4 마크스맨', nameEn: 'DM-4 Marksman', short: 'DM-4', role: '지정사수',
+    name: 'DM-4 마크스맨', nameEn: 'DM-4 Marksman', short: 'DM-4', role: '지정사수', roleEn: 'Marksman',
     icon: '🏹', color: '#6fbf4a', sound: 'dmr', fxKind: 'rifle',
-    tagline: '한 발씩 또박또박, 3배로 멀리.',
-    desc: '50 m까지 몸 2발로 쓰러뜨리는 반자동 소총이다. 3배 조준에 스코프 오버레이가 없어 주변이 그대로 보인다.',
-    recoilNote: '발마다 크게 튄다',
+    tagline: '한 발씩 또박또박, 3배로 멀리.', taglineEn: 'One shot at a time, 3x out to range.',
+    desc: '50 m까지 몸 2발로 쓰러뜨리는 반자동 소총이다. 3배 조준에 스코프 오버레이가 없어 주변이 그대로 보인다.', descEn: 'A semi-auto rifle that kills in two body shots out to 50 m. Its 3x sight has no scope overlay, so you keep your peripheral view.',
+    recoilNote: '발마다 크게 튄다', recoilNoteEn: 'Big kick every shot',
     bars: { power: 70, rate: 26, accuracy: 88, mobility: 58 },
 
     damage: { head: 130, body: 50, legs: 36, hand: 25, foot: 25 },
@@ -366,11 +386,11 @@ const WEAPON_TABLE = {
   // 12 m 안에서는 라이플과 TTK가 비슷하고 이동이 105%다. 40 m에서 55%까지 떨어져 먼 거리는 라이플에 내준다.
   sm_vx3: gun({
     id: 'sm_vx3', slot: 1, kind: 'smg', category: 'smg', fire: 'auto', price: 600,
-    name: 'VX-3 바이퍼', nameEn: 'VX-3 Viper', short: 'VX-3', role: '기동',
+    name: 'VX-3 바이퍼', nameEn: 'VX-3 Viper', short: 'VX-3', role: '기동', roleEn: 'Mobility',
     icon: '🐍', color: '#18c98a', sound: 'smg', fxKind: 'pistol',
-    tagline: '뛰면서 쏘는 근거리 기동형.',
-    desc: '달리면서 쏴도 탄이 덜 퍼지고 가장 빠르게 움직인다. 멀어지면 피해가 절반 가까이 줄어든다.',
-    recoilNote: '작고 빠르게 떤다',
+    tagline: '뛰면서 쏘는 근거리 기동형.', taglineEn: 'A run-and-gun close-range rifle.',
+    desc: '달리면서 쏴도 탄이 덜 퍼지고 가장 빠르게 움직인다. 멀어지면 피해가 절반 가까이 줄어든다.', descEn: 'Spread stays tight even on the run, and it\'s the fastest gun to move with. Damage drops by nearly half at range.',
+    recoilNote: '작고 빠르게 떤다', recoilNoteEn: 'Small, fast jitter',
     bars: { power: 36, rate: 98, accuracy: 55, mobility: 95 },
 
     damage: { head: 60, body: 18, legs: 14, hand: 9, foot: 9 },
@@ -394,11 +414,11 @@ const WEAPON_TABLE = {
   // 펠릿 8발이 모두 몸에 맞으면 112. 탄퍼짐 때문에 몸 중앙을 겨눠도 6 m쯤에서 한 방 확률이 절반으로 떨어지고, 22 m 밖에서는 35%라 견제만 된다.
   sg_bx12: gun({
     id: 'sg_bx12', slot: 1, kind: 'shotgun', category: 'shotgun', fire: 'semi', price: 700,
-    name: 'BX-12 브리처', nameEn: 'BX-12 Breacher', short: 'BX-12', role: '근거리',
+    name: 'BX-12 브리처', nameEn: 'BX-12 Breacher', short: 'BX-12', role: '근거리', roleEn: 'Close Range',
     icon: '💥', color: '#d9a441', sound: 'shotgun', fxKind: 'rifle',
-    tagline: '문을 열고 들어가는 한 방.',
-    desc: '펠릿 8발을 한 번에 쏘는 근거리 무기다. 코앞에서는 한 방이지만 조금만 멀어져도 맞는 펠릿이 줄어든다.',
-    recoilNote: '한 발에 크게 튄다',
+    tagline: '문을 열고 들어가는 한 방.', taglineEn: 'One blast to breach the door.',
+    desc: '펠릿 8발을 한 번에 쏘는 근거리 무기다. 코앞에서는 한 방이지만 조금만 멀어져도 맞는 펠릿이 줄어든다.', descEn: 'A close-range weapon firing 8 pellets at once. One-shots up close, but step back a little and fewer pellets land.',
+    recoilNote: '한 발에 크게 튄다', recoilNoteEn: 'Heavy kick per shot',
     bars: { power: 85, rate: 12, accuracy: 20, mobility: 78 },
 
     damage: { head: 20, body: 14, legs: 10, hand: 7, foot: 7 },   // 펠릿 1발 기준
@@ -421,11 +441,11 @@ const WEAPON_TABLE = {
   // 그 대신 한 발에 1초가 걸리고 7발을 다 쓰면 재장전이 길다. 한 방을 노리는 무기다.
   sg_pump: gun({
     id: 'sg_pump', slot: 1, kind: 'shotgun', category: 'shotgun', fire: 'semi', price: 900,
-    name: 'PM-9 펌프', nameEn: 'PM-9 Pump', short: 'PM-9', role: '펌프액션',
+    name: 'PM-9 펌프', nameEn: 'PM-9 Pump', short: 'PM-9', role: '펌프액션', roleEn: 'Pump-Action',
     icon: '🪵', color: '#c07f3a', sound: 'shotgun', fxKind: 'rifle',
-    tagline: '당기고, 밀고, 한 방.',
-    desc: '펠릿 9발을 모아 쏘는 펌프액션 산탄총이다. BX-12보다 탄이 덜 퍼지고 멀리 닿지만, 한 발마다 펌프를 당겨야 해서 느리다.',
-    recoilNote: '한 발에 크게 튄다',
+    tagline: '당기고, 밀고, 한 방.', taglineEn: 'Rack, pump, boom.',
+    desc: '펠릿 9발을 모아 쏘는 펌프액션 산탄총이다. BX-12보다 탄이 덜 퍼지고 멀리 닿지만, 한 발마다 펌프를 당겨야 해서 느리다.', descEn: 'A pump-action shotgun firing a tight 9-pellet blast. Tighter and longer-reaching than the BX-12, but slow since you pump every shot.',
+    recoilNote: '한 발에 크게 튄다', recoilNoteEn: 'Heavy kick per shot',
     bars: { power: 88, rate: 10, accuracy: 38, mobility: 76 },
 
     damage: { head: 18, body: 13, legs: 9, hand: 6, foot: 6 },   // 펠릿 1발 기준
@@ -448,11 +468,11 @@ const WEAPON_TABLE = {
   // 탄창이 두 발뿐이라 둘 다 빗나가면 재장전이 곧 죽음이다.
   sg_double: gun({
     id: 'sg_double', slot: 1, kind: 'shotgun', category: 'shotgun', fire: 'semi', price: 1000,
-    name: 'DB-2 쌍발', nameEn: 'DB-2 Double Barrel', short: 'DB-2', role: '쌍발',
+    name: 'DB-2 쌍발', nameEn: 'DB-2 Double Barrel', short: 'DB-2', role: '쌍발', roleEn: 'Double Barrel',
     icon: '♊', color: '#8a5a2b', sound: 'shotgun', fxKind: 'rifle',
-    tagline: '두 발, 그걸로 끝내라.',
-    desc: '총열이 두 개인 쌍발 산탄총이다. 펠릿 10발의 위력이 가장 크고 연달아 두 번 쏘지만, 두 발을 쓰면 바로 장전해야 하고 탄이 넓게 퍼진다.',
-    recoilNote: '두 발 모두 크게 튄다',
+    tagline: '두 발, 그걸로 끝내라.', taglineEn: 'Two shells. End it.',
+    desc: '총열이 두 개인 쌍발 산탄총이다. 펠릿 10발의 위력이 가장 크고 연달아 두 번 쏘지만, 두 발을 쓰면 바로 장전해야 하고 탄이 넓게 퍼진다.', descEn: 'A two-barrel shotgun. Its 10-pellet blasts hit hardest and fire back to back, but after two shots you must reload, and the spread is wide.',
+    recoilNote: '두 발 모두 크게 튄다', recoilNoteEn: 'Both barrels kick hard',
     bars: { power: 98, rate: 20, accuracy: 15, mobility: 82 },
 
     damage: { head: 22, body: 16, legs: 11, hand: 8, foot: 8 },   // 펠릿 1발 기준
@@ -475,11 +495,11 @@ const WEAPON_TABLE = {
   // 근거리 TTK는 비슷하고 연속 교전에 강하다. 이동이 느리고 탄이 넓게 퍼지며 20 m 밖에서는 35%뿐이다.
   sg_auto: gun({
     id: 'sg_auto', slot: 1, kind: 'shotgun', category: 'shotgun', fire: 'auto', price: 1500, premium: false,
-    name: 'AS-12 스톰브레이커', nameEn: 'AS-12 Stormbreaker', short: 'AS-12', role: '자동',
+    name: 'AS-12 템페스트', nameEn: 'AS-12 Tempest', short: 'AS-12', role: '자동', roleEn: 'Auto',
     icon: '🌩️', color: '#e0572b', sound: 'shotgun', fxKind: 'rifle',
-    tagline: '방아쇠를 당기고 있는 한 계속 터진다.',
-    desc: '방아쇠를 누르고 있으면 계속 나가는 자동 산탄총이다. 한 발은 약하지만 연사가 빨라 가까운 적을 몰아붙이기 좋고, 예비 탄약이 60발로 넉넉하다.',
-    recoilNote: '연사하면 좌우로 흔들린다',
+    tagline: '방아쇠를 당기고 있는 한 계속 터진다.', taglineEn: 'Keeps firing as long as you hold the trigger.',
+    desc: '방아쇠를 누르고 있으면 계속 나가는 자동 산탄총이다. 한 발은 약하지만 연사가 빨라 가까운 적을 몰아붙이기 좋고, 예비 탄약이 60발로 넉넉하다.', descEn: 'An automatic shotgun that fires as long as you hold the trigger. Each shell is weak, but the fast fire rate pins down close enemies, with a generous 60-round reserve.',
+    recoilNote: '연사하면 좌우로 흔들린다', recoilNoteEn: 'Sways side to side when spraying',
     bars: { power: 62, rate: 40, accuracy: 24, mobility: 70 },
 
     damage: { head: 14, body: 9, legs: 6, hand: 4, foot: 4 },   // 펠릿 1발 기준
@@ -498,15 +518,15 @@ const WEAPON_TABLE = {
     zoom: null,
   }),
 
-  // 양손에 우지를 하나씩 든다. 두 총이 번갈아 쏘아 초당 17발(1000rpm)이고 몸 15라 7발(0.36초)에 쓰러진다. 조준경이 없어 우클릭 조준이 없고
+  // 양손에 기관단총을 하나씩 든다. 두 총이 번갈아 쏘아 초당 17발(1000rpm)이고 몸 15라 7발(0.36초)에 쓰러진다. 조준경이 없어 우클릭 조준이 없고
   // 탄퍼짐이 VX-3의 두 배쯤이며 10 m 밖부터 피해가 빨리 줄어(32 m에서 45%) 근접전 전용이다. 이동은 가장 빠르다.
   sm_uzi_dual: gun({
     id: 'sm_uzi_dual', slot: 1, kind: 'smg', category: 'smg', fire: 'auto', price: 1100,
-    name: 'UZ-2 듀얼 우지', nameEn: 'UZ-2 Dual Uzi', short: 'UZ-2', role: '쌍권총',
+    name: 'TW-2 쌍발 기관단총', nameEn: 'TW-2 Twin SMG', short: 'TW-2', role: '쌍권총', roleEn: 'Akimbo',
     icon: '🎰', color: '#f0c419', sound: 'smg', fxKind: 'pistol',
-    tagline: '양손에 하나씩, 양쪽으로 쏟아붓는다.',
-    desc: '양손에 우지를 하나씩 들고 번갈아 쏜다. 연사가 아주 빠르지만 조준경이 없고 탄이 많이 퍼져서, 코앞에서 움직이며 쏘는 무기다.',
-    recoilNote: '좌우로 번갈아 튄다',
+    tagline: '양손에 하나씩, 양쪽으로 쏟아붓는다.', taglineEn: 'One in each hand, spraying both ways.',
+    desc: '양손에 기관단총을 하나씩 들고 번갈아 쏜다. 연사가 아주 빠르지만 조준경이 없고 탄이 많이 퍼져서, 코앞에서 움직이며 쏘는 무기다.', descEn: 'One SMG in each hand, firing in turns. Blistering fire rate but no sight and heavy spread: a point-blank, on-the-move weapon.',
+    recoilNote: '좌우로 번갈아 튄다', recoilNoteEn: 'Kicks left and right',
     bars: { power: 38, rate: 96, accuracy: 28, mobility: 98 },
 
     damage: { head: 56, body: 15, legs: 11, hand: 7, foot: 7 },
@@ -530,11 +550,11 @@ const WEAPON_TABLE = {
   // 대가: 이동 58%, 꺼내기 1.4초, 재장전 6초, 조준 없음. 요청(2026-11-20)으로 탄약은 200/200: 가격은 프리미엄대지만 예비가 무제한이 아니다(premium: false). 좀비 전용 MG-100(100발)과 다른 총이다.
   mg_minigun: gun({
     id: 'mg_minigun', slot: 1, kind: 'lmg', category: 'lmg', fire: 'auto', price: 2800, premium: false,
-    name: 'MN-6 미니건', nameEn: 'MN-6 Minigun', short: 'MN-6', role: '제압',
+    name: 'MN-6 미니건', nameEn: 'MN-6 Minigun', short: 'MN-6', role: '제압', roleEn: 'Suppression',
     icon: '🌀', color: '#7a8f9e', sound: 'lmg', fxKind: 'rifle',
-    tagline: '총열이 돌면, 탄이 멈추지 않는다.',
-    desc: '회전하는 여섯 총열로 초당 20발을 쏟아붓는 중화기다. 탄창 200발에 예비도 200발이라 아껴 써야 하고, 들고 있으면 걸음이 아주 느리고 꺼내기·재장전이 길다.',
-    recoilNote: '천천히 오르며 흔들린다',
+    tagline: '총열이 돌면, 탄이 멈추지 않는다.', taglineEn: 'Once the barrels spin, the lead never stops.',
+    desc: '회전하는 여섯 총열로 초당 20발을 쏟아붓는 중화기다. 탄창 200발에 예비도 200발이라 아껴 써야 하고, 들고 있으면 걸음이 아주 느리고 꺼내기·재장전이 길다.', descEn: 'A heavy weapon that pours out 20 rounds a second from six spinning barrels. 200 in the mag and 200 in reserve, so pace yourself; you move very slowly and draws and reloads are long.',
+    recoilNote: '천천히 오르며 흔들린다', recoilNoteEn: 'Slow climb with sway',
     bars: { power: 62, rate: 94, accuracy: 36, mobility: 8 },
 
     damage: { head: 44, body: 12, legs: 9, hand: 5, foot: 5 },
@@ -557,10 +577,10 @@ const WEAPON_TABLE = {
   // 밸런스 패치(2026-11-12): 기본 지급 저격총이 다리까지 1발이라 아무 데나 맞혀도 끝났다. 다리는 85로 한 발이 더 필요하다.
   sr_bolt: gun({
     id: 'sr_bolt', slot: 1, kind: 'sniper', category: 'sniper', fire: 'bolt', price: 0,
-    name: 'SK-7 볼트', nameEn: 'SK-7 Bolt', short: 'SK-7', role: '저격',
+    name: 'SR-7 볼트', nameEn: 'SR-7 Bolt', short: 'SR-7', role: '저격', roleEn: 'Sniper',
     icon: '🎯', color: '#f2c230', sound: 'sniper', fxKind: 'sniper',
-    tagline: '숨을 고르고, 한 방.',
-    desc: '기본 저격총이다. 머리·몸은 1발 킬이고 다리는 85, 손끝이나 발에 맞으면 반샷이 된다.',
+    tagline: '숨을 고르고, 한 방.', taglineEn: 'Breathe, then one shot.',
+    desc: '기본 저격총이다. 머리·몸은 1발 킬이고 다리는 85, 손끝이나 발에 맞으면 반샷이 된다.', descEn: 'The standard sniper rifle. One-shots to the head and body, 85 to the legs, and a limb shot on hands or feet.',
     bars: { power: 92, rate: 12, accuracy: 95, mobility: 52 },
 
     damage: { head: 200, body: 120, legs: 85, hand: 50, foot: 50 },
@@ -582,13 +602,13 @@ const WEAPON_TABLE = {
       hideViewmodelAt: 0.9, moveMul: 0.8, unzoomOnFire: true },
   }),
 
-  // SK-7과 위력이 같다. 9배를 얻는 대신 볼트·줌·이동이 조금씩 느려서 장거리가 아니면 손해다. 탄약은 요청(2026-11-20)으로 5/20(premium: false).
+  // SR-7과 위력이 같다. 9배를 얻는 대신 볼트·줌·이동이 조금씩 느려서 장거리가 아니면 손해다. 탄약은 요청(2026-11-20)으로 5/20(premium: false).
   sr_twin: gun({
     id: 'sr_twin', slot: 1, kind: 'sniper', category: 'sniper', fire: 'bolt', price: 1500, premium: false,
-    name: 'T-2 트윈옵틱', nameEn: 'T-2 Twin Optic', short: 'T-2', role: '2단 저격',
+    name: 'T-2 트윈옵틱', nameEn: 'T-2 Twin Optic', short: 'T-2', role: '2단 저격', roleEn: 'Dual-Zoom Sniper',
     icon: '🔭', color: '#5b82d6', sound: 'sniper', fxKind: 'sniper',
-    tagline: '4배로 찾고 9배로 끝낸다.',
-    desc: '우클릭할 때마다 4배, 9배, 해제 순서로 바뀌는 2단 조준경을 달았다. 사격하면 줌이 풀린다.',
+    tagline: '4배로 찾고 9배로 끝낸다.', taglineEn: 'Find them at 4x, finish at 9x.',
+    desc: '우클릭할 때마다 4배, 9배, 해제 순서로 바뀌는 2단 조준경을 달았다. 사격하면 줌이 풀린다.', descEn: 'Fitted with a dual-zoom scope that cycles 4x, 9x, off with each right-click. Firing unscopes you.',
     bars: { power: 92, rate: 10, accuracy: 98, mobility: 45 },
 
     damage: { head: 200, body: 120, legs: 85, hand: 50, foot: 50 },
@@ -614,10 +634,10 @@ const WEAPON_TABLE = {
   // 몸 85라 1발 킬이 아니다. 그 대신 볼트 0.85초, 이동 95%, 빠른 줌으로 저격총 중 유일하게 돌아다니며 쓴다.
   sr_swift: gun({
     id: 'sr_swift', slot: 1, kind: 'sniper', category: 'sniper', fire: 'bolt', price: 1000,
-    name: 'S-3 스위프트', nameEn: 'S-3 Swift', short: 'S-3', role: '경량 저격',
+    name: 'S-3 스위프트', nameEn: 'S-3 Swift', short: 'S-3', role: '경량 저격', roleEn: 'Light Sniper',
     icon: '🕊️', color: '#7fd1e8', sound: 'sniper', fxKind: 'sniper',
-    tagline: '가볍게 들고 빠르게 당긴다.',
-    desc: '가볍고 볼트가 빠른 3배 저격총이다. 머리가 아니면 한 발에 쓰러지지 않으니 두 번째 탄까지 생각해야 한다.',
+    tagline: '가볍게 들고 빠르게 당긴다.', taglineEn: 'Light in hand, quick on the trigger.',
+    desc: '가볍고 볼트가 빠른 3배 저격총이다. 머리가 아니면 한 발에 쓰러지지 않으니 두 번째 탄까지 생각해야 한다.', descEn: 'A light 3x sniper with a fast bolt. It won\'t one-shot unless you hit the head, so plan for a follow-up.',
     bars: { power: 72, rate: 20, accuracy: 90, mobility: 72 },
 
     damage: { head: 150, body: 85, legs: 60, hand: 40, foot: 40 },
@@ -642,10 +662,10 @@ const WEAPON_TABLE = {
   // 머리·몸·다리가 1발이고 반샷도 70으로 가장 크다. 볼트 1.9초와 탄 4/20(요청 2026-11-20, premium: false), 이동 75%가 빗나갔을 때의 대가다.
   sr_heavy: gun({
     id: 'sr_heavy', slot: 1, kind: 'sniper', category: 'sniper', fire: 'bolt', price: 2500, premium: false,
-    name: 'H-50 타이탄', nameEn: 'H-50 Titan', short: 'H-50', role: '대물 저격',
+    name: 'H-50 타이탄', nameEn: 'H-50 Titan', short: 'H-50', role: '대물 저격', roleEn: 'Anti-Materiel',
     icon: '🗿', color: '#7a8799', sound: 'sniper', fxKind: 'sniper',
-    tagline: '한 발이면 충분하지만, 다음 발은 멀다.',
-    desc: '가장 무거운 5배 대물 저격총이다. 손·발에 맞아도 크게 깎이지만 빗나가면 다음 탄까지 오래 걸린다.',
+    tagline: '한 발이면 충분하지만, 다음 발은 멀다.', taglineEn: 'One shot is enough, but the next is far off.',
+    desc: '가장 무거운 5배 대물 저격총이다. 손·발에 맞아도 크게 깎이지만 빗나가면 다음 탄까지 오래 걸린다.', descEn: 'The heaviest 5x anti-materiel rifle. Even hands and feet take big damage, but a miss means a long wait for the next round.',
     bars: { power: 100, rate: 6, accuracy: 94, mobility: 30 },
 
     damage: { head: 300, body: 200, legs: 150, hand: 70, foot: 70 },
@@ -670,10 +690,10 @@ const WEAPON_TABLE = {
   // ───────────────────────────── 슬롯 2 · 보조 ─────────────────────────────
   pt_std: gun({
     id: 'pt_std', slot: 2, kind: 'pistol', category: 'pistol', fire: 'semi', price: 0,
-    name: 'P-9 권총', nameEn: 'P-9 Pistol', short: 'P-9', role: '보조',
+    name: 'P-9 권총', nameEn: 'P-9 Pistol', short: 'P-9', role: '보조', roleEn: 'Sidearm',
     icon: '🔰', color: '#9aa5b1', sound: 'pistol', fxKind: 'pistol',
-    tagline: '언제나 허리춤에 있는 마지막 수단.',
-    desc: '꺼내는 속도가 빠른 기본 보조 무기다. 주무기 탄이 떨어졌을 때 교전을 이어 간다.',
+    tagline: '언제나 허리춤에 있는 마지막 수단.', taglineEn: 'Always on your hip, the last resort.',
+    desc: '꺼내는 속도가 빠른 기본 보조 무기다. 주무기 탄이 떨어졌을 때 교전을 이어 간다.', descEn: 'The standard sidearm with a fast draw. Keeps the fight going when your primary runs dry.',
     bars: { power: 40, rate: 55, accuracy: 72, mobility: 90 },
 
     damage: { head: 70, body: 28, legs: 20, hand: 14, foot: 14 },
@@ -695,11 +715,11 @@ const WEAPON_TABLE = {
   // 0.55초로 늦췄다. 6발 탄창과 큰 반동으로 P-9보다 빗나감의 대가가 크다.
   pt_magnum: gun({
     id: 'pt_magnum', slot: 2, kind: 'pistol', category: 'pistol', fire: 'semi', price: 500,
-    name: 'M-44 매그넘', nameEn: 'M-44 Magnum', short: 'M-44', role: '보조',
+    name: 'M-44 매그넘', nameEn: 'M-44 Magnum', short: 'M-44', role: '보조', roleEn: 'Sidearm',
     icon: '🧨', color: '#b5651d', sound: 'magnum', fxKind: 'pistol',
-    tagline: '여섯 발, 한 발 한 발이 무겁다.',
-    desc: '보조 무기 중 유일하게 가까운 거리에서 머리 1발 킬이 된다. 탄창이 작고 반동이 커서 연타하기 어렵다.',
-    recoilNote: '한 발에 크게 튄다',
+    tagline: '여섯 발, 한 발 한 발이 무겁다.', taglineEn: 'Six rounds, each one heavy.',
+    desc: '보조 무기 중 유일하게 가까운 거리에서 머리 1발 킬이 된다. 탄창이 작고 반동이 커서 연타하기 어렵다.', descEn: 'The only sidearm that one-shots to the head up close. Small mag and heavy recoil make it hard to spam.',
+    recoilNote: '한 발에 크게 튄다', recoilNoteEn: 'Heavy kick per shot',
     bars: { power: 68, rate: 21, accuracy: 66, mobility: 82 },
 
     damage: { head: 110, body: 55, legs: 38, hand: 25, foot: 25 },
@@ -717,15 +737,15 @@ const WEAPON_TABLE = {
     zoom: null,
   }),
 
-  // 짧게 자른 두 발짜리 산탄 보조무기(요청 2026-11-20, 발로란트 쇼티 같은 무기). 두 발을 0.25초 간격으로 쏟아내고 바로 장전한다.
+  // 짧게 자른 두 발짜리 산탄 보조무기(요청 2026-11-20). 두 발을 0.25초 간격으로 쏟아내고 바로 장전한다.
   // 펠릿 12발 × 몸 7이라 코앞에서 84, 두 발이면 쓰러진다. 5 m부터 줄어 15 m에서는 30%라 멀면 쓸모가 없다.
   sg_shorty: gun({
     id: 'sg_shorty', slot: 2, kind: 'shotgun', category: 'shotgun', fire: 'semi', price: 400,
-    name: 'SH-2 쇼티', nameEn: 'SH-2 Shorty', short: 'SH-2', role: '근거리 보조',
+    name: 'SH-2 단축 산탄총', nameEn: 'SH-2 Sawed-Off', short: 'SH-2', role: '근거리 보조', roleEn: 'CQB Sidearm',
     icon: '✂️', color: '#a0522d', sound: 'shotgun', fxKind: 'rifle',
-    tagline: '두 발을 빠르게, 코앞에서.',
-    desc: '총열을 짧게 자른 두 발짜리 산탄 보조무기다. 두 발을 빠르게 연달아 쏘고 곧바로 장전한다. 5 m 안에서는 강하지만 15 m 밖에서는 힘이 거의 없다.',
-    recoilNote: '두 발 모두 크게 튄다',
+    tagline: '두 발을 빠르게, 코앞에서.', taglineEn: 'Two quick shells, point-blank.',
+    desc: '총열을 짧게 자른 두 발짜리 산탄 보조무기다. 두 발을 빠르게 연달아 쏘고 곧바로 장전한다. 5 m 안에서는 강하지만 15 m 밖에서는 힘이 거의 없다.', descEn: 'A cut-down two-shell shotgun sidearm. Fires both quickly and reloads right away. Strong within 5 m, nearly useless past 15 m.',
+    recoilNote: '두 발 모두 크게 튄다', recoilNoteEn: 'Both barrels kick hard',
     bars: { power: 70, rate: 60, accuracy: 12, mobility: 92 },
 
     damage: { head: 10, body: 7, legs: 5, hand: 3, foot: 3 },   // 펠릿 1발 기준
@@ -748,18 +768,18 @@ const WEAPON_TABLE = {
   // 기본 지급. 갈고리 날에 밧줄을 감은 손잡이. 짧고 빠르게 베고, 찌르기는 한 번에 쓰러뜨린다.
   ml_knife: blade({
     id: 'ml_knife', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 0,
-    name: '호크빌 나이프', nameEn: 'Hawkbill Knife', short: 'HAWKBILL', role: '근접',
+    name: '호크빌 나이프', nameEn: 'Hawkbill Knife', short: 'HAWKBILL', role: '근접', roleEn: 'Melee',
     icon: '🔪', color: '#b8935a', sound: 'knife_slash', fxKind: null,
     heavySound: 'knife_slash', hitSound: 'knife_hit',
-    tagline: '갈고리 날로 짧고 빠르게.',
-    desc: '기본으로 주는 칼이다. 사거리는 짧지만 베기가 빠르고 몸이 가볍다. 찌르기는 한 번에 쓰러뜨린다.',
+    tagline: '갈고리 날로 짧고 빠르게.', taglineEn: 'Short, fast cuts with a hooked blade.',
+    desc: '기본으로 주는 칼이다. 사거리는 짧지만 베기가 빠르고 몸이 가볍다. 찌르기는 한 번에 쓰러뜨린다.', descEn: 'The default knife. Short reach, but quick slashes and light on your feet. A stab kills in one hit.',
     bars: { power: 70, rate: 40, accuracy: 30, mobility: 95 },
 
     damage: null,
     falloff: null,
     melee: {
-      slash: { label: '베기', damage: 50, cooldown: 0.45, windup: 0.06, range: 1.8, arc: 35 },
-      stab: { label: '찌르기', damage: 100, cooldown: 1.0, windup: 0.22, range: 1.8, arc: 12 },
+      slash: { label: '베기', labelEn: 'Slash', damage: 50, cooldown: 0.45, windup: 0.06, range: 1.8, arc: 35 },
+      stab: { label: '찌르기', labelEn: 'Stab', damage: 100, cooldown: 1.0, windup: 0.22, range: 1.8, arc: 12 },
     },
     maxRange: 1.8,
     rpm: 133, fireInterval: 0.45,
@@ -771,18 +791,18 @@ const WEAPON_TABLE = {
   // 베기는 세 번에 쓰러뜨려 호크빌보다 약하다. 대신 찌르기가 더 빠르고 멀리 닿고, 들고 뛰는 속도가 가장 빠르다.
   ml_tanto: blade({
     id: 'ml_tanto', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 500,
-    name: '탄토', nameEn: 'Tanto', short: 'TANTO', role: '근접',
+    name: '탄토', nameEn: 'Tanto', short: 'TANTO', role: '근접', roleEn: 'Melee',
     icon: '🔪', color: '#ff7a1a', sound: 'knife_slash', fxKind: null,
     heavySound: 'knife_slash', hitSound: 'knife_hit',
-    tagline: '찌르는 데 쓰는 각진 칼.',
-    desc: '무광 흑색 도신에 날만 밝게 갈았다. 베기는 약하지만 찌르기가 빠르고 멀리 닿으며 가장 빠르게 달린다.',
+    tagline: '찌르는 데 쓰는 각진 칼.', taglineEn: 'An angular blade built for stabbing.',
+    desc: '무광 흑색 도신에 날만 밝게 갈았다. 베기는 약하지만 찌르기가 빠르고 멀리 닿으며 가장 빠르게 달린다.', descEn: 'A matte black blade with only the edge polished. Weak slash, but a quick, long-reaching stab and the fastest run speed.',
     bars: { power: 62, rate: 46, accuracy: 35, mobility: 100 },
 
     damage: null,
     falloff: null,
     melee: {
-      slash: { label: '베기', damage: 40, cooldown: 0.42, windup: 0.06, range: 1.8, arc: 30 },
-      stab: { label: '찌르기', damage: 100, cooldown: 0.85, windup: 0.17, range: 2.1, arc: 12 },
+      slash: { label: '베기', labelEn: 'Slash', damage: 40, cooldown: 0.42, windup: 0.06, range: 1.8, arc: 30 },
+      stab: { label: '찌르기', labelEn: 'Stab', damage: 100, cooldown: 0.85, windup: 0.17, range: 2.1, arc: 12 },
     },
     maxRange: 2.1,
     rpm: 143, fireInterval: 0.42,
@@ -794,18 +814,18 @@ const WEAPON_TABLE = {
   // 앞으로 꺾인 묵직한 날. 호크빌과 같은 두 번 베기지만 조금 더 멀리 넓게 닿고, 그만큼 느리다.
   ml_gurkha: blade({
     id: 'ml_gurkha', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 800,
-    name: '구르카 나이프', nameEn: 'Gurkha Knife', short: 'GURKHA', role: '근접',
+    name: '구르카 나이프', nameEn: 'Gurkha Knife', short: 'GURKHA', role: '근접', roleEn: 'Melee',
     icon: '🔪', color: '#c8a45a', sound: 'katana_swing', fxKind: null,
     heavySound: 'katana_heavy', hitSound: 'knife_hit',
-    tagline: '앞으로 꺾인 날이 무게를 싣는다.',
-    desc: '앞이 무거운 굽은 칼이다. 베기가 조금 더 멀리 넓게 닿고, 내려찍기는 한 번에 쓰러뜨린다. 호크빌보다 느리다.',
+    tagline: '앞으로 꺾인 날이 무게를 싣는다.', taglineEn: 'A forward-bent blade that puts weight behind it.',
+    desc: '앞이 무거운 굽은 칼이다. 베기가 조금 더 멀리 넓게 닿고, 내려찍기는 한 번에 쓰러뜨린다. 호크빌보다 느리다.', descEn: 'A front-heavy curved knife. Slashes reach a bit farther and wider, and the chop kills in one hit. Slower than the Hawkbill.',
     bars: { power: 80, rate: 34, accuracy: 42, mobility: 94 },
 
     damage: null,
     falloff: null,
     melee: {
-      slash: { label: '베기', damage: 55, cooldown: 0.52, windup: 0.09, range: 2.1, arc: 42 },
-      stab: { label: '내려찍기', damage: 110, cooldown: 1.05, windup: 0.27, range: 2.1, arc: 16 },
+      slash: { label: '베기', labelEn: 'Slash', damage: 55, cooldown: 0.52, windup: 0.09, range: 2.1, arc: 42 },
+      stab: { label: '내려찍기', labelEn: 'Chop', damage: 110, cooldown: 1.05, windup: 0.27, range: 2.1, arc: 16 },
     },
     maxRange: 2.1,
     rpm: 115, fireInterval: 0.52,
@@ -817,18 +837,18 @@ const WEAPON_TABLE = {
   // 베기가 2발 킬(65×2)로 나이프와 같은데 사거리가 1.5배다. 선딜과 쿨다운이 길어 먼저 맞으면 진다.
   ml_katana: blade({
     id: 'ml_katana', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 1200,
-    name: '카게 카타나', nameEn: 'Kage Katana', short: 'KATANA', role: '근접',
+    name: '카게 카타나', nameEn: 'Kage Katana', short: 'KATANA', role: '근접', roleEn: 'Melee',
     icon: '🗡️', color: '#ff4d8d', sound: 'katana_swing', fxKind: null,
     heavySound: 'katana_heavy', hitSound: 'katana_hit',
-    tagline: '길게 베고 느리게 거둔다.',
-    desc: '멀리서 넓게 베는 긴 칼이다. 강타는 한 번에 쓰러뜨리지만 휘두른 뒤 빈틈이 크다.',
+    tagline: '길게 베고 느리게 거둔다.', taglineEn: 'Long cuts, slow recovery.',
+    desc: '멀리서 넓게 베는 긴 칼이다. 강타는 한 번에 쓰러뜨리지만 휘두른 뒤 빈틈이 크다.', descEn: 'A long blade with wide, far-reaching cuts. The heavy strike kills in one hit but leaves a big opening.',
     bars: { power: 90, rate: 28, accuracy: 55, mobility: 92 },
 
     damage: null,
     falloff: null,
     melee: {
-      slash: { label: '베기', damage: 65, cooldown: 0.62, windup: 0.12, range: 2.7, arc: 48 },
-      stab: { label: '강타', damage: 120, cooldown: 1.25, windup: 0.34, range: 2.9, arc: 14 },
+      slash: { label: '베기', labelEn: 'Slash', damage: 65, cooldown: 0.62, windup: 0.12, range: 2.7, arc: 48 },
+      stab: { label: '강타', labelEn: 'Heavy Strike', damage: 120, cooldown: 1.25, windup: 0.34, range: 2.9, arc: 14 },
     },
     maxRange: 2.9,
     rpm: 97, fireInterval: 0.62,
@@ -837,21 +857,21 @@ const WEAPON_TABLE = {
     spread: null, recoil: null, zoom: null,
   }),
 
-  // 야스오의 검: 좀비 증강 카드 전용. 좌우 클릭 모두 같은 칼 판정 찌르기이고, 두 번 맞힌 뒤 다음 공격으로 회오리를 날린다.
+  // GL-1 질풍검: 좀비 증강 카드 전용. 좌우 클릭 모두 같은 칼 판정 찌르기이고, 두 번 맞힌 뒤 다음 공격으로 바닥을 타고 가는 충격파를 낸다.
   ml_yasuo: blade({
     id: 'ml_yasuo', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 0, zombieOnly: true, cardOnly: true,
-    name: '야스오의 검', nameEn: 'Yasuo Sword', short: 'YASUO', role: '바람 검술',
+    name: 'GL-1 질풍검', nameEn: 'GL-1 Gale Blade', short: 'GALE', role: '질풍 검술', roleEn: 'Gale Swordplay',
     icon: '🗡️', color: '#70e8e3', sound: 'katana_swing', fxKind: null,
     heavySound: 'katana_swing', hitSound: 'katana_hit',
-    tagline: '두 번 맞히면 다음 찌르기가 회오리가 된다.',
-    desc: '좌우 클릭 모두 0.7초마다 같은 칼 판정으로 찌른다. 10초 안에 두 번 맞히면 다음 공격은 빗나가도 전방에 회오리를 날려 좀비를 띄우고 기절시킨다. 회오리가 보스를 맞히면 보스 뒤로 순간이동해 2초 동안 무적으로 공중 연타(총 10배 피해)를 하고 떨어진다.',
+    tagline: '두 번 맞히면 다음 찌르기가 바닥을 가르는 충격파가 된다.', taglineEn: 'Land two hits and the next stab becomes a ground-splitting shockwave.',
+    desc: '좌우 클릭 모두 0.7초마다 같은 칼 판정으로 찌른다. 10초 안에 두 번 맞히면 다음 공격은 빗나가도 바라보는 쪽 바닥을 따라 14 m 충격파를 보낸다. 갈수록 넓어지는 충격파에 맞은 좀비는 칼 피해를 받고 0.6초 비틀거린 뒤 2초 동안 느려진다. 처음 맞은 보스 하나는 칼 피해 10배를 받는다.', descEn: 'Both clicks stab every 0.7s with the same blade hitbox. Land two hits within 10s and your next attack, even a miss, sends a 14 m shockwave along the ground ahead. The widening wave deals blade damage, staggers zombies for 0.6s, then slows them for 2s. The first boss hit takes 10x blade damage.',
     bars: { power: 82, rate: 58, accuracy: 70, mobility: 94 },
 
     damage: null,
     falloff: null,
     melee: {
-      slash: { label: '찌르기', damage: 100, cooldown: 0.7, windup: 0.16, range: 2.9, arc: 12 },
-      stab: { label: '찌르기', damage: 100, cooldown: 0.7, windup: 0.16, range: 2.9, arc: 12 },
+      slash: { label: '찌르기', labelEn: 'Stab', damage: 100, cooldown: 0.7, windup: 0.16, range: 2.9, arc: 12 },
+      stab: { label: '찌르기', labelEn: 'Stab', damage: 100, cooldown: 0.7, windup: 0.16, range: 2.9, arc: 12 },
     },
     maxRange: 2.9,
     rpm: 86, fireInterval: 0.7,
@@ -860,22 +880,22 @@ const WEAPON_TABLE = {
     spread: null, recoil: null, zoom: null,
   }),
 
-  // 007 가방(요청 2026-11-20): 금속 모서리를 댄 서류 가방으로 친다. 휘두르기는 약하게, 우클릭 내려치기는 중간 피해로 더 세게 밀어낸다.
+  // BC-7 서류 가방(요청 2026-11-20): 금속 모서리를 댄 서류 가방으로 친다. 휘두르기는 약하게, 우클릭 내려치기는 중간 피해로 더 세게 밀어낸다.
   // 밀어내기(knock)는 좀비 물량 막기 방장(director.js knockZombie)만 쓰고, 다른 모드에서는 피해만 준다.
   ml_case: blade({
     id: 'ml_case', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 700,
-    name: '007 가방', nameEn: '007 Briefcase', short: '007', role: '근접',
+    name: 'BC-7 서류 가방', nameEn: 'BC-7 Briefcase', short: 'BC-7', role: '근접', roleEn: 'Melee',
     icon: '💼', color: '#3b3b44', sound: 'knife_slash', fxKind: null,
     heavySound: 'katana_heavy', hitSound: 'knife_hit',
-    tagline: '서류 가방으로 후려쳐 밀어낸다.',
-    desc: '금속 모서리를 댄 서류 가방이다. 휘두르면 맞은 좀비가 약하게 밀려나고, 우클릭으로 크게 내려치면 중간 피해와 함께 더 멀리 밀려난다. 밀어내기는 좀비 물량 막기에서만 된다.',
+    tagline: '서류 가방으로 후려쳐 밀어낸다.', taglineEn: 'Smack zombies back with a briefcase.',
+    desc: '금속 모서리를 댄 서류 가방이다. 휘두르면 맞은 좀비가 약하게 밀려나고, 우클릭으로 크게 내려치면 중간 피해와 함께 더 멀리 밀려난다. 밀어내기는 좀비 물량 막기에서만 된다.', descEn: 'A briefcase with metal corners. Swings knock zombies back a little; a right-click smash deals medium damage and knocks them farther. Knockback only works in Horde.',
     bars: { power: 55, rate: 40, accuracy: 45, mobility: 96 },
 
     damage: null,
     falloff: null,
     melee: {
-      slash: { label: '휘두르기', damage: 35, cooldown: 0.5, windup: 0.08, range: 2.0, arc: 40 },
-      stab: { label: '내려치기', damage: 70, cooldown: 1.0, windup: 0.24, range: 2.1, arc: 22 },
+      slash: { label: '휘두르기', labelEn: 'Swing', damage: 35, cooldown: 0.5, windup: 0.08, range: 2.0, arc: 40 },
+      stab: { label: '내려치기', labelEn: 'Smash', damage: 70, cooldown: 1.0, windup: 0.24, range: 2.1, arc: 22 },
     },
     knock: { slash: { speed: 5, up: 20 }, stab: { speed: 10, up: 30 } },
     maxRange: 2.1,
@@ -889,18 +909,18 @@ const WEAPON_TABLE = {
   // 좀비 물량 막기의 검기 증강은 우클릭 휘두르기(stab)에서만 나간다(world.js launchWave, director.js claimHit 'waveStab').
   ml_saw: blade({
     id: 'ml_saw', slot: 3, kind: 'melee', category: 'melee', fire: 'melee', price: 1300,
-    name: '전기톱', nameEn: 'Chainsaw', short: 'SAW', role: '근접',
+    name: '전기톱', nameEn: 'Chainsaw', short: 'SAW', role: '근접', roleEn: 'Melee',
     icon: '🪚', color: '#e8a317', sound: 'flame', fxKind: null,
     heavySound: 'katana_heavy', hitSound: 'knife_hit',
-    tagline: '누르고 있는 동안 계속 갈아 낸다.',
-    desc: '좌클릭을 누르고 있으면 톱날에 닿은 적을 0.04초마다 계속 벤다. 우클릭은 톱을 크게 휘둘러 한 번에 큰 피해를 준다. 무거워서 조금 느리게 걷는다.',
+    tagline: '누르고 있는 동안 계속 갈아 낸다.', taglineEn: 'Keeps grinding as long as you hold.',
+    desc: '좌클릭을 누르고 있으면 톱날에 닿은 적을 0.04초마다 계속 벤다. 우클릭은 톱을 크게 휘둘러 한 번에 큰 피해를 준다. 무거워서 조금 느리게 걷는다.', descEn: 'Hold left-click to keep cutting anything the blade touches every 0.04s. Right-click swings the saw for one big hit. It\'s heavy, so you walk a bit slower.',
     bars: { power: 85, rate: 100, accuracy: 40, mobility: 88 },
 
     damage: null,
     falloff: null,
     melee: {
-      slash: { label: '갈기', damage: 10, cooldown: 0.04, windup: 0.008, range: 1.8, arc: 30 },
-      stab: { label: '휘두르기', damage: 90, cooldown: 0.44, windup: 0.104, range: 1.8, arc: 40 },
+      slash: { label: '갈기', labelEn: 'Grind', damage: 10, cooldown: 0.04, windup: 0.008, range: 1.8, arc: 30 },
+      stab: { label: '휘두르기', labelEn: 'Swing', damage: 90, cooldown: 0.44, windup: 0.104, range: 1.8, arc: 40 },
     },
     maxRange: 1.8,
     rpm: 1500, fireInterval: 0.04,
@@ -912,13 +932,13 @@ const WEAPON_TABLE = {
   // ───────────────────────────── 슬롯 4 · 투척 ─────────────────────────────
   gr_frag: {
     id: 'gr_frag', slot: 4, kind: 'grenade', category: 'grenade', fire: 'throw', price: 0,
-    name: '수류탄', nameEn: 'Frag Grenade', short: 'FRAG', role: '투척',
+    name: '수류탄', nameEn: 'Frag Grenade', short: 'FRAG', role: '투척', roleEn: 'Throwable',
     icon: '💣', color: '#e0b324', sound: 'grenade_pin', fxKind: null,
-    tagline: '핀을 뽑고, 던지고, 엄폐.',
-    desc: '좌클릭으로 멀리 던지고 우클릭으로 낮게 굴린다. 벽 뒤에 있으면 피해를 받지 않는다.',
+    tagline: '핀을 뽑고, 던지고, 엄폐.', taglineEn: 'Pull the pin, throw, take cover.',
+    desc: '좌클릭으로 멀리 던지고 우클릭으로 낮게 굴린다. 벽 뒤에 있으면 피해를 받지 않는다.', descEn: 'Left-click throws it far, right-click rolls it low. Standing behind a wall protects you from the blast.',
     stats: [
-      { label: '투척', value: '누르고 떼기 · 16 m/s' }, { label: '굴리기', value: '우클릭' },
-      { label: '폭발', value: '2.5초 · 반경 6 m · 최대 100' }, { label: '엄폐', value: '가리면 피해 없음' }, { label: '수량', value: '1개' },
+      { label: '투척', labelEn: 'Throw', value: '누르고 떼기 · 16 m/s', valueEn: 'Hold & release · 16 m/s' }, { label: '굴리기', labelEn: 'Roll', value: '우클릭', valueEn: 'Right-click' },
+      { label: '폭발', labelEn: 'Blast', value: '2.5초 · 반경 6 m · 최대 100', valueEn: '2.5s fuse · 6 m radius · 100 max' }, { label: '엄폐', labelEn: 'Cover', value: '가리면 피해 없음', valueEn: 'No damage behind cover' }, { label: '수량', labelEn: 'Count', value: '1개', valueEn: '1' },
     ],
     bars: { power: 90, rate: 5, accuracy: 40, mobility: 85 },
 
@@ -949,10 +969,10 @@ const WEAPON_TABLE = {
   // 쏘면 총알 대신 발사체가 날아가 터진다(weapons/grenade.js PROJECTILES). 피해는 폭발(explosion)로만 준다.
   gl_m32: gun({
     id: 'gl_m32', slot: 2, kind: 'launcher', category: 'launcher', fire: 'semi', price: 0, zombieOnly: true,
-    name: 'GL-6 유탄 발사기', nameEn: 'GL-6 Grenade Launcher', short: 'GL-6', role: '폭발 보조',
+    name: 'GL-6 유탄 발사기', nameEn: 'GL-6 Grenade Launcher', short: 'GL-6', role: '폭발 보조', roleEn: 'Explosive Sidearm',
     icon: '🧨', color: '#6b8f3a', sound: 'shotgun', fxKind: 'shotgun',
-    tagline: '낮게 휘어 날아가 맞은 자리에서 터진다.',
-    desc: '좀비 물량 막기의 드문 증강으로만 얻는 보조무기다. 유탄이 처음 부딪히는 곳에서 터져 반경 4.2 m를 쓸어 낸다.',
+    tagline: '낮게 휘어 날아가 맞은 자리에서 터진다.', taglineEn: 'Arcs low and bursts where it lands.',
+    desc: '좀비 물량 막기의 드문 증강으로만 얻는 보조무기다. 유탄이 처음 부딪히는 곳에서 터져 반경 4.2 m를 쓸어 낸다.', descEn: 'A sidearm only obtained from rare Horde augments. Grenades burst on first impact, clearing a 4.2 m radius.',
     bars: { power: 80, rate: 30, accuracy: 60, mobility: 80 },
     damage: { head: 0, body: 0, legs: 0, hand: 0, foot: 0 },
     falloff: null,
@@ -968,10 +988,10 @@ const WEAPON_TABLE = {
   }),
   rl_b9: gun({
     id: 'rl_b9', slot: 2, kind: 'rocket', category: 'launcher', fire: 'semi', price: 0, zombieOnly: true,
-    name: 'BZ-9 바주카포', nameEn: 'BZ-9 Bazooka', short: 'BZ-9', role: '폭발 보조',
+    name: 'BZ-9 바주카포', nameEn: 'BZ-9 Bazooka', short: 'BZ-9', role: '폭발 보조', roleEn: 'Explosive Sidearm',
     icon: '🚀', color: '#8a6d3b', sound: 'sniper', fxKind: 'sniper',
-    tagline: '곧게 날아가 크게 터진다. 한 발씩.',
-    desc: '좀비 물량 막기의 드문 증강으로만 얻는 보조무기다. 로켓이 곧게 날아가 처음 닿는 곳에서 반경 5.2 m로 크게 터진다. 한 발마다 다시 넣는다.',
+    tagline: '곧게 날아가 크게 터진다. 한 발씩.', taglineEn: 'Flies straight and blows up big. One at a time.',
+    desc: '좀비 물량 막기의 드문 증강으로만 얻는 보조무기다. 로켓이 곧게 날아가 처음 닿는 곳에서 반경 5.2 m로 크게 터진다. 한 발마다 다시 넣는다.', descEn: 'A sidearm only obtained from rare Horde augments. Rockets fly straight and explode big in a 5.2 m radius on first impact. Reload after every shot.',
     bars: { power: 100, rate: 10, accuracy: 80, mobility: 70 },
     damage: { head: 0, body: 0, legs: 0, hand: 0, foot: 0 },
     falloff: null,
@@ -985,13 +1005,13 @@ const WEAPON_TABLE = {
     projectile: { kind: 'rocket', speed: 36, pitchUp: 0, fuse: 3.0 },
     explosion: { radius: 5.2, inner: 1.0, max: 100 },
   }),
-  // 중력건: 피해는 없다. 발사체가 곧게 날아가 처음 닿는 곳에서 중력 구멍이 생겨, 반경 안의 좀비를 그 한 점으로 끌어 뭉친다(explosion은 '끌어당길 범위'다)
+  // GV-1 특이점포: 피해는 없다. 발사체가 곧게 날아가 처음 닿는 곳에서 중력 구멍이 생겨, 반경 안의 좀비를 그 한 점으로 끌어 뭉친다(explosion은 '끌어당길 범위'다)
   gv_gun: gun({
     id: 'gv_gun', slot: 2, kind: 'launcher', category: 'launcher', fire: 'semi', price: 0, zombieOnly: true,
-    name: 'GV-1 중력건', nameEn: 'GV-1 Gravity Gun', short: 'GV-1', role: '군중 제어',
+    name: 'GV-1 특이점포', nameEn: 'GV-1 Singularity Cannon', short: 'GV-1', role: '군중 제어', roleEn: 'Crowd Control',
     icon: '🌀', color: '#8a5cff', sound: 'magnum', fxKind: 'pistol',
-    tagline: '쏜 자리로 좀비를 끌어모은다.',
-    desc: '좀비 물량 막기의 드문 증강으로만 얻는 보조무기다. 중력 탄이 처음 닿는 곳에서 반경 7 m의 좀비를 한 점으로 끌어당겨 뭉친다. 피해는 주지 않으니 뭉친 곳에 수류탄을 던져라.',
+    tagline: '쏜 자리로 좀비를 끌어모은다.', taglineEn: 'Pulls zombies into where you shoot.',
+    desc: '좀비 물량 막기의 드문 증강으로만 얻는 보조무기다. 중력 탄이 처음 닿는 곳에서 반경 7 m의 좀비를 한 점으로 끌어당겨 뭉친다. 피해는 주지 않으니 뭉친 곳에 수류탄을 던져라.', descEn: 'A sidearm only obtained from rare Horde augments. The gravity round pulls zombies within 7 m into one point on impact. It deals no damage, so throw a grenade into the pile.',
     bars: { power: 5, rate: 40, accuracy: 70, mobility: 85 },
     damage: { head: 0, body: 0, legs: 0, hand: 0, foot: 0 },
     falloff: null,
@@ -1010,10 +1030,10 @@ const WEAPON_TABLE = {
   // 맞은 좀비를 위로 45° 강하게 날린다(director.js knockZombie, 보스는 30%). 펠릿 5발 × 몸 2 = 10이라 피해는 약하다.
   pn_air: gun({
     id: 'pn_air', slot: 2, kind: 'shotgun', category: 'launcher', fire: 'semi', price: 900, zombieOnly: true, shop: true,
-    name: 'AG-8 공기총', nameEn: 'AG-8 Air Cannon', short: 'AG-8', role: '밀어내기',
+    name: 'AG-8 공기총', nameEn: 'AG-8 Air Cannon', short: 'AG-8', role: '밀어내기', roleEn: 'Knockback',
     icon: '💨', color: '#7fd3ff', sound: 'shotgun', fxKind: 'pistol',
-    tagline: '가까운 좀비를 하늘로 날려 보낸다.',
-    desc: '좀비 물량 막기에서만 쓰는 보조무기다. 8 m 안 앞쪽으로 압축 공기를 넓게 뿜어 맞은 좀비를 위로 45° 강하게 날려 보낸다. 피해는 약하고 보스는 조금만 밀린다.',
+    tagline: '가까운 좀비를 하늘로 날려 보낸다.', taglineEn: 'Launches nearby zombies into the sky.',
+    desc: '좀비 물량 막기에서만 쓰는 보조무기다. 8 m 안 앞쪽으로 압축 공기를 넓게 뿜어 맞은 좀비를 위로 45° 강하게 날려 보낸다. 피해는 약하고 보스는 조금만 밀린다.', descEn: 'A Horde-only sidearm. Blasts a wide cone of compressed air within 8 m, launching zombies 45° into the air. Low damage, and bosses barely budge.',
     bars: { power: 15, rate: 35, accuracy: 30, mobility: 90 },
     damage: { head: 3, body: 2, legs: 2, hand: 1, foot: 1 },   // 펠릿 1발 기준
     pellets: 5,
@@ -1031,10 +1051,10 @@ const WEAPON_TABLE = {
   // 처음 닿는 곳에서 반경 1.2 m 안의 좀비에게 100 × BLAST_MUL.stake(4.5) = 450을 준다. 폭발이 아니라 박히는 것이라 불빛·소리가 작다.
   sk_stake: gun({
     id: 'sk_stake', slot: 2, kind: 'launcher', category: 'launcher', fire: 'semi', price: 1000, zombieOnly: true, shop: true,
-    name: 'ST-1 말뚝건', nameEn: 'ST-1 Stake Gun', short: 'ST-1', role: '강타',
+    name: 'ST-1 말뚝건', nameEn: 'ST-1 Stake Gun', short: 'ST-1', role: '강타', roleEn: 'Heavy Hitter',
     icon: '📌', color: '#9b6b3d', sound: 'magnum', fxKind: 'pistol',
-    tagline: '포물선을 그리며 날아가 박힌다.',
-    desc: '좀비 물량 막기에서만 쓰는 보조무기다. 무거운 말뚝이 포물선을 그리며 날아가 처음 닿는 곳의 좀비에게 강력한 피해(최대 450)를 준다. 멀리 맞히려면 위를 겨눠야 한다.',
+    tagline: '포물선을 그리며 날아가 박힌다.', taglineEn: 'Arcs through the air and sticks.',
+    desc: '좀비 물량 막기에서만 쓰는 보조무기다. 무거운 말뚝이 포물선을 그리며 날아가 처음 닿는 곳의 좀비에게 강력한 피해(최대 450)를 준다. 멀리 맞히려면 위를 겨눠야 한다.', descEn: 'A Horde-only sidearm. A heavy stake arcs through the air and deals massive damage (up to 450) to the first zombie it hits. Aim high for distance.',
     bars: { power: 95, rate: 20, accuracy: 55, mobility: 85 },
     damage: { head: 0, body: 0, legs: 0, hand: 0, foot: 0 },
     falloff: null,
@@ -1051,13 +1071,13 @@ const WEAPON_TABLE = {
   // 투척 도끼: 좀비 물량 막기 전용 투척 장비. 비행 중 좀비를 관통하고, 벽·바닥에 닿으면 주울 수 있게 남는다.
   th_axe: {
     id: 'th_axe', slot: 4, kind: 'grenade', category: 'launcher', fire: 'throw', price: 800, zombieOnly: true, shop: true,
-    name: 'TX-3 투척 도끼', nameEn: 'TX-3 Throwing Axe', short: 'TX-3', role: '관통 투척',
+    name: 'TX-3 투척 도끼', nameEn: 'TX-3 Throwing Axe', short: 'TX-3', role: '관통 투척', roleEn: 'Piercing Throw',
     icon: '🪓', color: '#b0b8c0', sound: 'knife_slash', fxKind: null,
-    tagline: '휘어 날아가며 줄지어 선 좀비를 꿰뚫는다.',
-    desc: '좀비 물량 막기의 투척 장비다. 비행 중 닿는 좀비마다 피해 700을 주고 관통한다. 지형에 박히면 10초 동안 그 자리에서 다시 주울 수 있다.',
+    tagline: '휘어 날아가며 줄지어 선 좀비를 꿰뚫는다.', taglineEn: 'Curves through lines of zombies, piercing them all.',
+    desc: '좀비 물량 막기의 투척 장비다. 비행 중 닿는 좀비마다 피해 700을 주고 관통한다. 지형에 박히면 10초 동안 그 자리에서 다시 주울 수 있다.', descEn: 'Horde throwing gear. Deals 700 damage to every zombie it hits in flight and passes through. If it sticks in terrain, you can pick it up there for 10s.',
     stats: [
-      { label: '투척', value: '누르고 떼기 · 24 m/s' }, { label: '낮게 던지기', value: '우클릭' },
-      { label: '관통', value: '비행 중 좀비마다 피해 700' }, { label: '회수', value: '지형 충돌 뒤 10초' }, { label: '수량', value: '5개' },
+      { label: '투척', labelEn: 'Throw', value: '누르고 떼기 · 24 m/s', valueEn: 'Hold & release · 24 m/s' }, { label: '낮게 던지기', labelEn: 'Low Throw', value: '우클릭', valueEn: 'Right-click' },
+      { label: '관통', labelEn: 'Pierce', value: '비행 중 좀비마다 피해 700', valueEn: '700 to each zombie in flight' }, { label: '회수', labelEn: 'Retrieve', value: '지형 충돌 뒤 10초', valueEn: '10s after it sticks' }, { label: '수량', labelEn: 'Count', value: '5개', valueEn: '5' },
     ],
     bars: { power: 70, rate: 40, accuracy: 50, mobility: 95 },
     damage: null, falloff: null,
@@ -1079,11 +1099,11 @@ const WEAPON_TABLE = {
   // 머리 90은 워커(100)·브루트(420)를 한 발에 못 쓰러뜨려 라이플 같은 머리 한 발 킬이 없다(약한 특수 좀비만 초반에 한 발). 그 자리를 한 탄창의 양과 연사가 메운다.
   mg_m249: gun({
     id: 'mg_m249', slot: 1, kind: 'lmg', category: 'lmg', fire: 'auto', price: 0, zombieOnly: true,
-    name: 'MG-100 기관총', nameEn: 'MG-100 Machine Gun', short: 'MG-100', role: '제압',
+    name: 'MG-100 기관총', nameEn: 'MG-100 Machine Gun', short: 'MG-100', role: '제압', roleEn: 'Suppression',
     icon: '⛓️', color: '#a39a4f', sound: 'lmg', fxKind: 'rifle',
-    tagline: '100발을 쏟아붓는 대신 발이 무겁다.',
-    desc: '좀비 물량 막기에서만 쓰는 박스 탄창 기관총이다. 한 탄창 100발을 끊지 않고 쏟아붓지만, 들고 있으면 걸음이 느리고 꺼내기·재장전이 길며 반동이 크다. 다른 모드에서는 쓸 수 없다.',
-    recoilNote: '솟은 뒤 좌우로 크게 흔들린다',
+    tagline: '100발을 쏟아붓는 대신 발이 무겁다.', taglineEn: '100 rounds of fury, at the cost of speed.',
+    desc: '좀비 물량 막기에서만 쓰는 박스 탄창 기관총이다. 한 탄창 100발을 끊지 않고 쏟아붓지만, 들고 있으면 걸음이 느리고 꺼내기·재장전이 길며 반동이 크다. 다른 모드에서는 쓸 수 없다.', descEn: 'A Horde-only box-fed machine gun. Dumps a 100-round mag without stopping, but you move slowly, draws and reloads are long, and recoil is heavy. Not usable in other modes.',
+    recoilNote: '솟은 뒤 좌우로 크게 흔들린다', recoilNoteEn: 'Climbs, then sways hard',
     bars: { power: 60, rate: 82, accuracy: 34, mobility: 12 },
 
     damage: { head: 90, body: 22, legs: 16, hand: 11, foot: 11 },
@@ -1106,10 +1126,10 @@ const WEAPON_TABLE = {
   // 좀비 증강 카드로만 얻는 주무기. 펠릿별 판정을 그대로 써서 근거리 총 피해는 몸 8×5=40.
   fl_horde: gun({
     id: 'fl_horde', slot: 1, kind: 'shotgun', category: 'shotgun', fire: 'auto', price: 0, zombieOnly: true, cardOnly: true,
-    name: 'FL-12 화염 방사기', nameEn: 'FL-12 Flamethrower', short: 'FL-12', role: '근거리 화염',
+    name: 'FL-12 화염 방사기', nameEn: 'FL-12 Flamethrower', short: 'FL-12', role: '근거리 화염', roleEn: 'Close-Range Flame',
     icon: '🔥', color: '#ff7427', sound: 'flame', fxKind: 'flame',
-    tagline: '가까운 좀비 떼를 불길로 밀어낸다.',
-    desc: '화염을 초당 8번 연속 분사한다. 한 번에 불꽃 5갈래가 12 m까지 퍼지며 가까울수록 강하다. 연료 100을 다 쓰면 3초 동안 다시 채운다.',
+    tagline: '가까운 좀비 떼를 불길로 밀어낸다.', taglineEn: 'Pushes back zombie hordes with fire.',
+    desc: '화염을 초당 8번 연속 분사한다. 한 번에 불꽃 5갈래가 12 m까지 퍼지며 가까울수록 강하다. 연료 100을 다 쓰면 3초 동안 다시 채운다.', descEn: 'Sprays fire 8 times a second. Each burst spreads 5 flames up to 12 m, stronger up close. Running out of 100 fuel takes 3s to refill.',
     bars: { power: 68, rate: 80, accuracy: 20, mobility: 75 },
     damage: { head: 16, body: 8, legs: 6, hand: 4, foot: 4 },
     pellets: 5, falloff: { start: 5, end: 12, min: 0.45 }, maxRange: 12,
@@ -1123,10 +1143,10 @@ const WEAPON_TABLE = {
   }),
   rg_horde: gun({
     id: 'rg_horde', slot: 1, kind: 'dmr', category: 'dmr', fire: 'semi', price: 0, zombieOnly: true, cardOnly: true,
-    name: 'RG-5 레일건', nameEn: 'RG-5 Railgun', short: 'RG-5', role: '정밀 관통',
+    name: 'RG-5 레일건', nameEn: 'RG-5 Railgun', short: 'RG-5', role: '정밀 관통', roleEn: 'Piercing Precision',
     icon: '⚡', color: '#50baff', sound: 'rail', fxKind: 'rail',
-    tagline: '푸른 광선 한 줄로 거인을 쓰러뜨린다.',
-    desc: '1.5초마다 푸른 광선을 쏜다. 몸 400, 머리 800의 강력한 한 발이지만 탄창은 5발뿐이다.',
+    tagline: '푸른 광선 한 줄로 거인을 쓰러뜨린다.', taglineEn: 'Drops giants with a single blue beam.',
+    desc: '1.5초마다 푸른 광선을 쏜다. 몸 400, 머리 800의 강력한 한 발이지만 탄창은 5발뿐이다.', descEn: 'Fires a blue beam every 1.5s. Each shot hits hard: 400 to the body, 800 to the head. Only 5 rounds per mag.',
     bars: { power: 100, rate: 12, accuracy: 94, mobility: 55 },
     damage: { head: 800, body: 400, legs: 300, hand: 200, foot: 200 },
     falloff: null, maxRange: 400,
@@ -1144,10 +1164,10 @@ const WEAPON_TABLE = {
   // 예비 탄약은 무제한이다(infiniteAmmo: 좀비 모드의 프리미엄 탄창 제한 finiteMags도 받지 않는다, logic.js reserveOf).
   zs_bolt: gun({
     id: 'zs_bolt', slot: 1, kind: 'launcher', category: 'launcher', fire: 'semi', price: 0, zombieOnly: true, cardOnly: true, infiniteAmmo: true,
-    name: '제우스의 번개', nameEn: 'Bolt of Zeus', short: 'ZEUS', role: '연쇄 번개',
+    name: '제우스의 번개', nameEn: 'Bolt of Zeus', short: 'ZEUS', role: '연쇄 번개', roleEn: 'Chain Lightning',
     icon: '🌩️', color: '#fff27a', sound: 'rail', fxKind: 'rail',
-    tagline: '던진 번개가 좀비 사이를 다섯 번 튄다.',
-    desc: '번개를 던진다. 닿은 자리 옆 좀비를 맞히고 근처 좀비로 다섯 번 튀는데, 튈 때마다 피해가 줄지 않는다. 예비 탄약이 무제한이다.',
+    tagline: '던진 번개가 좀비 사이를 다섯 번 튄다.', taglineEn: 'Thrown lightning jumps between zombies five times.',
+    desc: '번개를 던진다. 닿은 자리 옆 좀비를 맞히고 근처 좀비로 다섯 번 튀는데, 튈 때마다 피해가 줄지 않는다. 예비 탄약이 무제한이다.', descEn: 'Throw lightning. It hits the zombie nearest the impact and chains to nearby zombies five times with no damage falloff. Unlimited reserve ammo.',
     bars: { power: 80, rate: 35, accuracy: 70, mobility: 90 },
     damage: { head: 0, body: 0, legs: 0, hand: 0, foot: 0 },
     falloff: null, maxRange: 120,
@@ -1160,6 +1180,61 @@ const WEAPON_TABLE = {
     projectile: { kind: 'bolt', speed: 40, pitchUp: 0.03, fuse: 3.0 },
     explosion: { radius: 8, inner: 8, max: 100 },   // radius는 튀는 거리 표기용. 피해는 맞은 좀비마다 max(폭발 반경 피해는 없다)
   }),
+
+  // ───────────── 전술 투척(모든 모드, 상점 판매). 피해는 없고 throwable 종류로 효과가 갈린다(weapons/tactical.js) ─────────────
+  // 물리·투척·굴리기는 수류탄과 같다. 신관이 다 되면 연막은 구름을 펼치고, 섬광은 시선·거리만큼 눈을 멀게 한다.
+  gr_smoke: {
+    id: 'gr_smoke', slot: 4, kind: 'grenade', category: 'grenade', fire: 'throw', price: 300, throwable: 'smoke',
+    name: 'M-7 연막탄', nameEn: 'M-7 Smoke', short: 'M-7', role: '시야 차단', roleEn: 'Vision Block',
+    icon: '🌫️', color: '#8f9a8a', sound: 'grenade_pin', fxKind: null,
+    tagline: '두꺼운 연기 벽으로 길을 가린다.', taglineEn: 'Wall off a lane with thick smoke.',
+    desc: '떨어진 자리에서 1.5초 뒤 반경 6 m 연기 구름이 14초 동안 피어오른다. 사람도 봇도 연기 너머를 볼 수 없다. 피해는 없다.', descEn: 'After 1.5s it spreads a 6 m smoke cloud that lasts 14s. Neither players nor bots can see through it. Deals no damage.',
+    stats: [
+      { label: '투척', labelEn: 'Throw', value: '누르고 떼기 · 16 m/s', valueEn: 'Hold & release · 16 m/s' }, { label: '굴리기', labelEn: 'Roll', value: '우클릭', valueEn: 'Right-click' },
+      { label: '연기', labelEn: 'Cloud', value: '1.5초 뒤 · 반경 6 m · 14초', valueEn: '1.5s fuse · 6 m radius · 14s' }, { label: '효과', labelEn: 'Effect', value: '시야 차단 · 피해 없음', valueEn: 'Blocks sight · no damage' }, { label: '수량', labelEn: 'Count', value: '1개', valueEn: '1' },
+    ],
+    bars: { power: 5, rate: 5, accuracy: 40, mobility: 85 },
+    damage: null, falloff: null,
+    explosion: { radius: 0, inner: 0, max: 0 },   // 폭발 피해 없음(방장 표의 explosive 칸 모양만 맞춘다)
+    count: 1,
+    fuse: 1.5,
+    throw: { speed: 16, pitchUp: 6 },
+    lob: { speed: 8, pitchUp: 4 },
+    physics: { gravity: -12 },
+    primeTime: 0.25,
+    throwRecover: 0.35,
+    maxRange: 6,
+    rpm: 100, fireInterval: 0.6,
+    mag: null, reserve: null, reload: null,
+    drawTime: 0.5, moveMul: 1.0,
+    spread: null, recoil: null, zoom: null,
+  },
+  gr_flash: {
+    id: 'gr_flash', slot: 4, kind: 'grenade', category: 'grenade', fire: 'throw', price: 400, throwable: 'flash',
+    name: 'FL-9 섬광탄', nameEn: 'FL-9 Flashbang', short: 'FL-9', role: '눈부심', roleEn: 'Blinding',
+    icon: '✨', color: '#e8edf2', sound: 'grenade_pin', fxKind: null,
+    tagline: '터지는 쪽을 본 적은 잠시 아무것도 못 본다.', taglineEn: 'Anyone looking at the blast sees nothing for a moment.',
+    desc: '1.6초 뒤 강한 빛과 소리로 터진다. 바라본 채 가까이 있으면 최대 3초 동안 화면이 하얗게 되고 귀가 울린다. 등을 돌리거나 멀면 짧아지고, 벽 뒤는 안전하다. 봇도 눈이 먼다.', descEn: 'Bursts with blinding light and sound after 1.6s. Up close and facing it, you are whited out with ringing ears for up to 3s. Turning away or distance shortens it, and walls block it. Bots are blinded too.',
+    stats: [
+      { label: '투척', labelEn: 'Throw', value: '누르고 떼기 · 16 m/s', valueEn: 'Hold & release · 16 m/s' }, { label: '굴리기', labelEn: 'Roll', value: '우클릭', valueEn: 'Right-click' },
+      { label: '섬광', labelEn: 'Flash', value: '1.6초 뒤 · 최대 3초 실명', valueEn: '1.6s fuse · up to 3s blind' }, { label: '피하기', labelEn: 'Avoid', value: '등 돌리기 · 거리 · 벽', valueEn: 'Look away · distance · walls' }, { label: '수량', labelEn: 'Count', value: '1개', valueEn: '1' },
+    ],
+    bars: { power: 10, rate: 5, accuracy: 40, mobility: 85 },
+    damage: null, falloff: null,
+    explosion: { radius: 0, inner: 0, max: 0 },
+    count: 1,
+    fuse: 1.6,
+    throw: { speed: 16, pitchUp: 6 },
+    lob: { speed: 8, pitchUp: 4 },
+    physics: { gravity: -12 },
+    primeTime: 0.25,
+    throwRecover: 0.35,
+    maxRange: 6,
+    rpm: 100, fireInterval: 0.6,
+    mag: null, reserve: null, reload: null,
+    drawTime: 0.5, moveMul: 1.0,
+    spread: null, recoil: null, zoom: null,
+  },
 };
 
 function deepFreeze(o) {

@@ -3,7 +3,8 @@
  * Author: Minkyu Jung
  * Purpose: 비밀번호 방의 채널 이름에 붙일 비밀 값. 비밀번호와 방 id로 PBKDF2(SHA-256, 10만 번)를 돌려 hex 24자를 만든다.
  *          비밀번호는 어디에도 보내지 않는다. 같은 비밀번호를 아는 사람만 같은 채널을 찾는다(서버가 검사하는 잠금이 아니라 채널 이름을 숨기는 잠금).
- */
+ */import { t } from '../core/i18n.js';
+
 export const PASSWORD_MAX = 32;
 const ITERATIONS = 100000;
 const SALT_PREFIX = 'skalafps-room:';
@@ -23,7 +24,7 @@ export async function roomSecret(roomId, password) {
   if (!pw) return '';
   const subtle = globalThis.crypto && globalThis.crypto.subtle;
   if (!subtle) {
-    const e = new Error('이 브라우저는 비밀번호 방을 지원하지 않아요');
+    const e = new Error(t('net.noCrypto'));
     e.code = 'NO_CRYPTO';
     throw e;
   }

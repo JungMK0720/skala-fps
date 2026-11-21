@@ -252,13 +252,13 @@ const decor = [
   ...decorHalf,
   ...rotate180(decorHalf),
   // 계단실 표지(팀 색)
-  { type: 'sign', x: -0.9, y: 2.2, z: -8.67, rotY: 0, w: 2.2, h: 0.5, text: '옥상 출입 · 1동', bg: '#1f3a6e', fg: '#ffe9b8' },
-  { type: 'sign', x: 0.9, y: 2.2, z: 8.67, rotY: PI, w: 2.2, h: 0.5, text: '옥상 출입 · 2동', bg: '#7a3a12', fg: '#ffe9b8' },
+  { type: 'sign', x: -0.9, y: 2.2, z: -8.67, rotY: 0, w: 2.2, h: 0.5, text: '옥상 출입 · 1동', textEn: 'Roof Access · Bldg 1', bg: '#1f3a6e', fg: '#ffe9b8' },
+  { type: 'sign', x: 0.9, y: 2.2, z: 8.67, rotY: PI, w: 2.2, h: 0.5, text: '옥상 출입 · 2동', textEn: 'Roof Access · Bldg 2', bg: '#7a3a12', fg: '#ffe9b8' },
   // 이웃 건물 간판
-  { type: 'sign', x: 17.94, y: 0.6, z: 2, rotY: -PI / 2, w: 4.2, h: 1, text: '세탁 · 수선', bg: '#160d24', fg: '#ff6fb0' },
-  { type: 'sign', x: -17.94, y: 0.6, z: -2, rotY: PI / 2, w: 4.2, h: 1, text: '24시 국밥', bg: '#0c1a24', fg: '#5ff0ff' },
-  { type: 'sign', x: 23.5, y: 7.2, z: -16, rotY: 0, w: 5, h: 1.2, text: '별빛 피아노', bg: '#120e22', fg: '#ffd166' },
-  { type: 'sign', x: -23.5, y: 7.2, z: 16, rotY: PI, w: 5, h: 1.2, text: '달동네 사진관', bg: '#120e22', fg: '#9ff5d2' }
+  { type: 'sign', x: 17.94, y: 0.6, z: 2, rotY: -PI / 2, w: 4.2, h: 1, text: '세탁 · 수선', textEn: 'Laundry · Alterations', bg: '#160d24', fg: '#ff6fb0' },
+  { type: 'sign', x: -17.94, y: 0.6, z: -2, rotY: PI / 2, w: 4.2, h: 1, text: '24시 국밥', textEn: '24H Gukbap', bg: '#0c1a24', fg: '#5ff0ff' },
+  { type: 'sign', x: 23.5, y: 7.2, z: -16, rotY: 0, w: 5, h: 1.2, text: '별빛 피아노', textEn: 'Starlight Piano', bg: '#120e22', fg: '#ffd166' },
+  { type: 'sign', x: -23.5, y: 7.2, z: 16, rotY: PI, w: 5, h: 1.2, text: '달동네 사진관', textEn: 'Hillside Photo Studio', bg: '#120e22', fg: '#9ff5d2' }
 ];
 
 export default {
@@ -266,7 +266,9 @@ export default {
   name: '빨랫줄 옥상',
   nameEn: 'Clothesline Roof',
   desc: '밤의 아파트 옥상. 빨랫줄 이불 밑으로 발이 보인다. 옥탑방을 가로지르고 장독대를 넘어 몇 초 만에 맞붙는다.',
+  descEn: 'An apartment rooftop at night. Feet show under the hanging blankets. Cut through the rooftop room and over the jar terrace to clash in seconds.',
   tag: '칼전 전용',
+  tagEn: 'Knife Only',
   size: { x: 22, z: 24 },
   rulesets: ['knife'],
   theme: {
@@ -282,7 +284,7 @@ export default {
   decor,
   pads: [],
   portals: [],
-  secrets: [{ id: 'rooftop_loft', name: '비둘기장', x: 1.1, y: SH_TOP, z: -9.65, w: 3, h: 2.5, d: 1.9, points: 100, reach: 'jump' }],
+  secrets: [{ id: 'rooftop_loft', name: '비둘기장', nameEn: 'Pigeon Coop', x: 1.1, y: SH_TOP, z: -9.65, w: 3, h: 2.5, d: 1.9, points: 100, reach: 'jump' }],
   props: [
     { type: 'barrel', x: -4.3, y: 0, z: -11.1 },
     { type: 'crate', x: 10, y: 0, z: -2.2, size: 0.8 },

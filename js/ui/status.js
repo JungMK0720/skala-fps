@@ -7,6 +7,7 @@
  *          hordeStatusList) 한 곳에서 온다.
  */
 import { h, setText, clamp, num } from './dom.js';
+import { t } from '../core/i18n.js';
 
 const STATUS_MAX = 12;           // 한 줄의 최대 칩 수
 const STATUS_REFILL_MS = 400;    // 남은 시간이 지난번보다 이만큼 넘게 늘면 새로 걸린 것으로 보고 전체 시간을 다시 잰다
@@ -59,8 +60,8 @@ export function statusTimeText(ms) {
 /** 칩 설명의 아래 줄: '남은 시간 4.3초 · 12겹' / '보호막 30' 같은 지금 값. 없으면 '' */
 export function statusMeta(it) {
   const parts = [];
-  if (it.leftMs != null) parts.push(`남은 시간 ${statusTimeText(it.leftMs)}초`);
-  if (it.stacks > 1) parts.push(`${it.stacks}겹`);
+  if (it.leftMs != null) parts.push(t('shop.status.left', { s: statusTimeText(it.leftMs) }));
+  if (it.stacks > 1) parts.push(t('shop.status.stacks', { n: it.stacks }));
   return parts.join(' · ');
 }
 
@@ -74,7 +75,7 @@ export function statusMeta(it) {
  */
 export function createStatusRow(o = {}) {
   const tips = !!o.tips;
-  const el = h('div', { class: o.cls || 'sk-status', hidden: true, role: 'list', 'aria-label': '버프와 디버프' });
+  const el = h('div', { class: o.cls || 'sk-status', hidden: true, role: 'list', 'aria-label': t('shop.status.aria') });
   const chips = new Map();   // id → { el, ico, n, t, tip*, 마지막으로 쓴 값 }
   const seen = new Set();
 
@@ -108,7 +109,7 @@ export function createStatusRow(o = {}) {
       if (c.icon !== it.icon) { c.icon = it.icon; setText(c.ico, it.icon); }
       if (c.badge !== it.badge) { c.badge = it.badge; setText(c.n, it.badge); c.n.hidden = !it.badge; }
       // 이름·설명(남은 시간은 넣지 않는다: 매 프레임 속성을 바꾸지 않게)
-      const kindText = it.kind === 'debuff' ? '디버프' : '버프';
+      const kindText = it.kind === 'debuff' ? t('shop.status.debuff') : t('shop.status.buff');
       const label = `${kindText} · ${it.name}${it.desc ? ` — ${it.desc}` : ''}`;
       if (c.label !== label) {
         c.label = label;

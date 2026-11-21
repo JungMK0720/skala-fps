@@ -6,6 +6,8 @@
  */
 import { h, btn, setText, clamp } from './dom.js';
 import { sheet } from './parts.js';
+import { t, getLang } from '../core/i18n.js';
+import { platform } from '../platform/index.js';
 
 export const SETTINGS_KEY = 'skalafps.settings.v1'; // core/settings.js와 같은 키
 
@@ -87,20 +89,21 @@ function rangeRow(ctx, { key, label, hint, min, max, step, fmt, toUi = (v) => v,
   return { row, sync(s) { input.value = String(toUi(s[key])); paint(s); } };
 }
 
-function segRow(ctx, { key, label, hint, options }) {
+/** current: 저장 값 대신 화면에 켤 값(언어 '자동'이면 지금 언어), onPick: 고른 뒤 할 일 */
+function segRow(ctx, { key, label, hint, options, current = (s) => s[key], onPick = null }) {
   const buttons = options.map(([value, text]) => {
     // 값이 바깥에서 되돌려질 수 있는 항목(전체 화면: 브라우저가 거절하면 '끔')은 잠시 뒤에 한 번 더 읽는다
-    const b = btn(text, () => { ctx.setSetting(key, value); sync(ctx.getSettings()); if (ctx.later) ctx.later(() => sync(ctx.getSettings()), 600); }, 'sk-seg-btn', { role: 'radio', 'data-value': value });
+    const b = btn(text, () => { ctx.setSetting(key, value); sync(ctx.getSettings()); if (onPick) onPick(value); if (ctx.later) ctx.later(() => sync(ctx.getSettings()), 600); }, 'sk-seg-btn', { role: 'radio', 'data-value': value });
     return b;
   });
   const hintEl = h('p', { class: 'sk-set-hint' });
   function sync(s) {
     for (const b of buttons) {
-      const on = b.getAttribute('data-value') === s[key];
+      const on = b.getAttribute('data-value') === current(s);
       b.classList.toggle('is-on', on);
       b.setAttribute('aria-checked', on ? 'true' : 'false');
     }
-    setText(hintEl, typeof hint === 'function' ? hint(s[key]) : hint || '');
+    setText(hintEl, typeof hint === 'function' ? hint(current(s)) : hint || '');
   }
   const row = h('div', { class: 'sk-set-row' },
     h('div', { class: 'sk-set-top' }, h('span', { class: 'sk-set-label', text: label })),
@@ -114,46 +117,56 @@ export const canLockKeys = () => typeof navigator !== 'undefined' && !!navigator
 
 /** 전체 화면 설정 아래 안내 글 */
 export function fullscreenHint(value, lockable = canLockKeys()) {
-  if (!lockable) return '이 브라우저는 단축키 잠금을 지원하지 않아 화면만 넓어져요. 앉은 채 앞으로 갈 때는 C 키를 쓰세요(Ctrl+W는 탭 닫기).';
-  return value === 'on'
-    ? 'Ctrl+W(탭 닫기)·Ctrl+T·Tab·Esc를 브라우저 대신 게임이 받아요. 나가려면 F11을 누르거나 Esc를 길게 누르세요.'
-    : '켜면 앉은 채 앞으로 가도(Ctrl+W) 탭이 닫히지 않고, Tab·Esc도 게임이 받아요. F11로도 켜고 끌 수 있어요.';
+  if (!lockable) return t('settings.fullscreenNoLock');
+  return value === 'on' ? t('settings.fullscreenOn') : t('settings.fullscreenOff');
 }
 
-/** 메뉴·일시정지가 각자 하나씩 만든다. 열 때 refresh()로 현재 값을 다시 읽는다. */
-export function createSettingsPanel(ctx, { onClose }) {
+/**
+ * 메뉴·일시정지가 각자 하나씩 만든다. 열 때 refresh()로 현재 값을 다시 읽는다.
+ * inGame: 일시정지에서 연 시트. 언어는 페이지를 다시 열어야 바뀌므로 경기 중에는 보이지 않는다.
+ */
+export function createSettingsPanel(ctx, { onClose, inGame = false }) {
   const isTouch = document.documentElement.classList.contains('pc-touch');
   const rows = [
-    rangeRow(ctx, { key: 'sensitivity', label: isTouch ? '시점 감도' : '마우스 감도', min: 0.1, max: 5, step: 0.05, fmt: (v) => `${Number(v).toFixed(2)}×` }),
+    rangeRow(ctx, { key: 'sensitivity', label: isTouch ? t('settings.lookSens') : t('settings.mouseSens'), min: 0.1, max: 5, step: 0.05, fmt: (v) => `${Number(v).toFixed(2)}×` }),
     // 휴대폰의 조준 버튼은 언제나 누를 때마다 켜고 끈다
     ...(isTouch ? [] : [segRow(ctx, {
-      key: 'zoomMode', label: '줌 방식',
-      options: [['hold', '누르고 있기'], ['toggle', '토글']],
-      hint: (v) => (v === 'toggle' ? '우클릭 한 번에 줌, 다시 누르면 해제' : '우클릭을 누르고 있는 동안만 줌'),
+      key: 'zoomMode', label: t('settings.zoomMode'),
+      options: [['hold', t('settings.zoomHold')], ['toggle', t('settings.zoomToggle')]],
+      hint: (v) => (v === 'toggle' ? t('settings.zoomToggleHint') : t('settings.zoomHoldHint')),
     })]),
-    // 휴대폰은 조작을 시작할 때 저절로 전체 화면이 된다(engine/touch.js)
-    ...(isTouch ? [] : [segRow(ctx, {
-      key: 'fullscreen', label: '전체 화면 · 브라우저 단축키 잠금',
-      options: [['off', '끔'], ['on', '켬']],
+    // 휴대폰은 조작을 시작할 때 저절로 전체 화면이 된다(engine/touch.js). CrazyGames는 전체 화면을 사이트가 주고 게임 안 단추를 금지한다
+    ...(isTouch || platform.isPortal ? [] : [segRow(ctx, {
+      key: 'fullscreen', label: t('settings.fullscreen'),
+      options: [['off', t('settings.off')], ['on', t('settings.on')]],
       hint: (v) => fullscreenHint(v),
     })]),
-    rangeRow(ctx, { key: 'fov', label: '시야각', hint: '수직 시야각. 넓을수록 많이 보이고 멀리 있는 적은 작아져요.', min: 60, max: 100, step: 1, fmt: (v) => `${Math.round(v)}°` }),
+    rangeRow(ctx, { key: 'fov', label: t('settings.fov'), hint: t('settings.fovHint'), min: 60, max: 100, step: 1, fmt: (v) => `${Math.round(v)}°` }),
     rangeRow(ctx, {
-      key: 'volume', label: '볼륨', min: 0, max: 100, step: 1,
+      key: 'volume', label: t('settings.volume'), min: 0, max: 100, step: 1,
       toUi: (v) => Math.round(v * 100), fromUi: (v) => v / 100, fmt: (v) => `${Math.round(v * 100)}%`,
     }),
+    // 언어: 두 말로 함께 적어 어느 언어에서도 찾을 수 있게 한다. 바꾸면 페이지를 다시 연다(이미 그린 화면을 모두 다시 그리지 않는다)
+    ...(inGame ? [] : [segRow(ctx, {
+      key: 'lang', label: '언어 / Language', // i18n-ok: 두 언어를 함께 쓰는 고정 이름
+      options: [['ko', '한국어'], ['en', 'English']], // i18n-ok: 언어 이름은 그 언어로 적는다
+      current: (s) => (s.lang === 'ko' || s.lang === 'en' ? s.lang : getLang()),
+      hint: () => t('settings.langHint'),
+      onPick: (v) => { if (v !== getLang()) location.reload(); },
+    })]),
   ];
   function refresh() {
     const s = ctx.getSettings();
     for (const r of rows) r.sync(s);
   }
-  const done = btn('완료', onClose, 'sk-btn--primary', { 'data-autofocus': '' });
+  const done = btn(t('settings.done'), onClose, 'sk-btn--primary', { 'data-autofocus': '' });
   const el = sheet({
-    title: '설정',
+    title: t('settings.title'),
+    kicker: 'SYSTEM SETUP',
     onClose,
     cls: 'sk-settings',
-    body: [rows.map((r) => r.row), h('p', { class: 'sk-note', text: '설정은 이 브라우저에 저장되고 바로 적용돼요.' })],
-    foot: [btn('기본값으로', () => { ctx.resetSettings(); refresh(); }, 'sk-btn--ghost'), done],
+    body: [rows.map((r) => r.row), h('p', { class: 'sk-note', text: t('settings.savedNote') })],
+    foot: [btn(t('settings.reset'), () => { ctx.resetSettings(); refresh(); }, 'sk-btn--ghost'), done],
   });
   return { el, refresh };
 }

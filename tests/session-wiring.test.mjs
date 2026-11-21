@@ -2578,7 +2578,8 @@ describe('로비·대기실 화면', () => {
     const ctx = uiCtx();
     const lobby = createLobby(ctx);
     lobby.show({ name: '하늘', rooms: [readLobbyEntry({ roomId: 'k1', name: '친구 방', mapId: 'alley', hostName: '방장', players: 1, max: 4, status: 'waiting', mode: packRoomKind('team', 'classic', true) })] });
-    assert.ok(lobby.el.all((k) => k.classList.contains('sk-room-name'))[0].textContent.startsWith('🔒'));
+    const nameCell = lobby.el.all((k) => k.classList.contains('sk-room-name'))[0];
+    assert.ok(/\bsk-room-lock\b/.test(nameCell.children[0].getAttribute('class') || ''), '비밀번호 방은 이름 앞에 자물쇠 아이콘');
     lobby.el.all((k) => k.classList.contains('sk-room-join'))[0].fire('click');
     assert.equal(lastEmit(ctx, 'lobby:join'), undefined, '바로 들어가지 않는다');
     const form = lobby.el.all((k) => k.classList.contains('sk-pw-form'))[0];
@@ -2637,7 +2638,7 @@ describe('로비·대기실 화면', () => {
   test('메뉴 좀비 물량 막기: 같이 하기·혼자 하기 중 하나를 고르고 [확인]을 누르면 시트를 닫은 뒤 알리고, 멀티플레이를 못 쓰면 같이 하기를 끈다', () => {
     globalThis.document.documentElement = new FakeEl('html');   // 메뉴의 설정·조작법 시트가 휴대폰(pc-touch)인지 본다
     const ctx = {
-      ...uiCtx(), playerName: '하늘', setPlayerName(n) { ctx.playerName = n; },
+      ...uiCtx(), every: () => 0, cancel() {}, playerName: '하늘', setPlayerName(n) { ctx.playerName = n; },
       account: { remoteEnabled: true, profile: { nickname: '하늘', points: 10 } }, getSettings: () => ({}), resetSettings() {}
     };
     const menu = createMenu(ctx);
@@ -2648,7 +2649,7 @@ describe('로비·대기실 화면', () => {
     const openSheet = () => { byText(menu.el, '좀비 물량 막기')[0].fire('click'); return modal.children[0]; };
     let sheet = openSheet();
     assert.equal(modal.hidden, false, '메뉴 버튼은 고르기 시트를 연다');
-    assert.ok(sheet.textContent.includes('🧟 좀비 물량 막기'));
+    assert.ok(sheet.textContent.includes('좀비 물량 막기'));
     assert.equal(emitted.length, 0, '시트를 여는 것만으로는 아무 데도 가지 않는다');
     const opt = (text) => byText(sheet, text)[0];
     assert.ok(opt('같이 하기 · 공개 방 만들기').textContent.includes('로비에 바로 보이는 좀비 방을 만들어요 · 최대 4명'));

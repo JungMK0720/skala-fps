@@ -25,29 +25,39 @@ import { createGrenadeSystem, stepGrenade, GRENADE_PHYSICS, PROJECTILES } from '
 import { createViewmodel } from '../weapons/viewmodel.js';
 import { createAudio } from '../fx/audio.js';
 import { createEffects } from '../fx/effects.js';
+import { createTacticalFx } from '../fx/tactical-fx.js';
+import { createSmokeField, flashIntensity, flashBlindSec, throwableOf } from '../weapons/tactical.js';
 import { relativeAngle } from '../ui/dom.js';
 import { droppedGunMesh } from '../engine/avatars.js';
 import { avatarIdOf } from '../core/avatar-defs.js';
 import { DEFAULT_RULESET, normalizeRuleset, rulesetOf, pickableWeapons, isWeaponAllowed, shotTargets } from './modes.js';
-import { createDrops, DROP_RADIUS } from './drops.js';
+import { createDrops, DROP_RADIUS, DROP_MAX, SUPPLY_KINDS } from './drops.js';
 import { normalizeMission, placeMission } from './mission.js';
 import { missionCrowd } from '../maps/collision.js';
 import { createBombView } from './bombview.js';
 import { createMultiKill, multiKillTier } from './multikill.js';
+import { t, loc } from '../core/i18n.js';
 import { createHordeView } from './horde/view.js';
 import { c4Offset, c4WorldPos } from './horde/contact.js';
 import { HORDE } from './horde/rules.js';
+import { createRoyaleView } from './br/view.js';
+import { BR, BR_MOVE } from './br/rules.js';
+import { createRoyaleKit, supplyLabel } from './br/kit.js';
+import { MEDKIT } from './br/medkit.js';
 
 const STEEL_MATS = new Set(['steel', 'rust', 'deck', 'tank', 'pipe', 'container_red', 'yellow', 'white', 'glass', 'metal_dark']);
 const SPECTATE_DELAY_MS = 1600;
 // 개인전 즉시 부활: 부활까지 이보다 적게 남으면 안내를 숨기고 E를 받지 않는다(방장은 500 ms 미만이면 거절, match.QUICK_RESPAWN_MIN_LEFT_MS)
 const QUICK_HIDE_MS = 700;
 const QUICK_RETRY_MS = 1500;                     // 요청한 뒤 방장 답(내 spawn)을 기다리는 동안 다시 보내지 않는 시간
-const LOCK_HINT = '🖱️ 화면을 클릭하면 조작을 시작해요';
-const TOUCH_LOCK_HINT = '👆 화면을 누르면 조작을 시작해요';
+const LOCK_HINT = t('game.world.lockHint');
+// 배틀로얄: 맵의 보급품(100곳 넘게)과 탈락자가 떨어뜨린 총을 모두 둔다 · 쓸 수 있는 칸(투척은 주운 것만)
+const ROYALE_DROP_MAX = 320;
+const ROYALE_SLOTS = Object.freeze([1, 2, 3, 4]);
+const TOUCH_LOCK_HINT = t('game.world.touchLockHint');
 const BODY_R = 0.3;
 const CROUCH_H = PLAYER.CROUCH_HEIGHT || 1.25;   // 앉은 키(core consts)
-const FFA_KEYS = Object.freeze(['kills', 'rank', 'total', 'leaderName', 'leaderKills', 'target', 'killTarget']);
+const FFA_KEYS = Object.freeze(['kills', 'rank', 'total', 'leaderName', 'leaderKills', 'target', 'killTarget', 'royale', 'survivors']);
 /** 부위 순위(작을수록 좋다). 산탄 한 발이 같은 사람의 여러 부위를 맞히면 가장 좋은 부위 하나로 주장한다 */
 const PART_RANK = Object.freeze({ head: 0, body: 1, legs: 2, hand: 3, foot: 4 });
 /** 움직이는 지형에 맞은 탄: 탄흔을 남기지 않는다(fx.impact) */
@@ -138,7 +148,7 @@ export function setWorldContext(ctx) { defaultCtx = ctx || null; }
  */
 export async function createWorld(opts = {}) {
   const ctx = (opts && opts.ctx) || defaultCtx;
-  if (!ctx || !ctx.renderer || !ctx.player) throw new Error('createWorld: core ctx가 필요해요(game/index.js install 이후에 부르세요)');
+  if (!ctx || !ctx.renderer || !ctx.player) throw new Error('createWorld: core ctx가 필요해요(game/index.js install 이후에 부르세요)');   // i18n-ok: 개발자용 오류
   if (!shared || shared.dead || shared.ctx !== ctx) shared = buildWorld(ctx, opts || {});
   else if (opts && opts.ui && shared.ui !== opts.ui) console.warn('[world] 이미 만든 World가 있어 새 ui는 쓰지 않아요(앱에 UI는 하나)');
   return shared.handle();
@@ -157,6 +167,9 @@ function buildWorld(ctx, opts) {
   fx.setApplyShake(false);                       // 흔들림은 frame()에서 한 번에 더한다
   const audio = createAudio({ volume: num(settings.get('volume'), 0.8) });
   const vm = createViewmodel(R.viewCamera, { lookCamera: R.camera, muzzleFlash: true });
+  // 연막탄·섬광탄(모든 모드): 연기 구름 판정(시계 = clock)과 연출(구름·번쩍임·화면 안개·하얀 실명 화면)
+  const smoke = createSmokeField();
+  const tfx = createTacticalFx({ scene: R.scene, container: R.three && R.three.domElement ? R.three.domElement.parentElement : null });
   try {
     vm.preload();
     if (typeof vm.prewarm === 'function') vm.prewarm(R.three);   // 셰이더·텍스처까지 미리 준비해 첫 교체에서 끊기지 않게 한다
@@ -185,7 +198,9 @@ function buildWorld(ctx, opts) {
     gl: new THREE.MeshLambertMaterial({ color: 0x4f6b2a }), rocket: new THREE.MeshLambertMaterial({ color: 0xff8a2a, emissive: 0x7a2a00 }),
     gravity: new THREE.MeshLambertMaterial({ color: 0x8a5cff, emissive: 0x4b2aa8 }), stake: new THREE.MeshLambertMaterial({ color: 0x9b6b3d }),
     axe: new THREE.MeshLambertMaterial({ color: 0xb0b8c0, emissive: 0x202428 }),
-    bolt: new THREE.MeshBasicMaterial({ color: 0xfff27a, fog: false, toneMapped: false })
+    bolt: new THREE.MeshBasicMaterial({ color: 0xfff27a, fog: false, toneMapped: false }),
+    // 연막탄(국방색 깡통)·섬광탄(밝은 회색 깡통)
+    smoke: new THREE.MeshLambertMaterial({ color: 0x6f7c62 }), flash: new THREE.MeshLambertMaterial({ color: 0xd4d9de })
   };
   const axePillarGeo = new THREE.CylinderGeometry(0.12, 0.12, 2.4, 8);
   const axePillarMat = new THREE.MeshBasicMaterial({ color: 0x3a9eff, transparent: true, opacity: 0.48, depthWrite: false, fog: false });
@@ -193,7 +208,7 @@ function buildWorld(ctx, opts) {
   const PROJ_DEF = { gl: WEAPONS.gl_m32, rocket: WEAPONS.rl_b9, gravity: WEAPONS.gv_gun, stake: WEAPONS.sk_stake, axe: WEAPONS.th_axe, bolt: WEAPONS.zs_bolt };
   // 투척 도끼가 이미 뚫고 지나간 좀비(도끼 id → 좀비 id 묶음). 한 좀비는 한 도끼에 한 번만 맞는다
   const axeHits = new Map();
-  // 중력건 블랙홀: 좀비가 끌려가는 동안(방장 director.js GRAVITY_PULL_MS와 같은 2.6초) 검은 핵으로 진한 보라 줄기가 소용돌이치며 빨려 든다.
+  // 특이점포 블랙홀: 좀비가 끌려가는 동안(방장 director.js GRAVITY_PULL_MS와 같은 2.6초) 검은 핵으로 진한 보라 줄기가 소용돌이치며 빨려 든다.
   // 줄기는 얇은 상자 InstancedMesh(블랙홀 하나에 그리기 호출 하나)라 선(1픽셀)보다 굵게 보인다
   const WELL_MS = 2600, WELL_R = 7, WELL_LINES = 56, MAX_WELLS = 6;
   const wellCoreGeo = new THREE.SphereGeometry(1, 16, 12);
@@ -295,6 +310,13 @@ function buildWorld(ctx, opts) {
   let quick = null;                               // 개인전 즉시 부활(E): { cost, ok }. 세션·연습장이 죽을 때 정하고 spawnLocal이 지운다
   let quickSentAt = -Infinity;                    // 이번 죽음에서 마지막으로 즉시 부활을 요청한 시각(ms)
   let quickTouch = false;                         // 휴대폰 '부활' 버튼(touch:use)을 보이고 있는가
+  let royaleTouch = '';                           // 배틀로얄 휴대폰 버튼(touch:use) 글자: 치료(구급상자) · 결과(탈락 뒤) · ''(숨김)
+  /** 배틀로얄 휴대폰 버튼: 살아 있고 구급상자가 있으면 치료, 탈락했으면 결과. 누르면 input:use(br/solo.js가 E와 같이 받는다) */
+  function syncRoyaleTouch(label) {
+    if (label === royaleTouch) return;
+    royaleTouch = label;
+    bus.emit('touch:use', { on: !!label, label: label || t('game.world.heal') });
+  }
   let protectUntil = 0;                           // 내 보호(무적) 표시가 끝나는 시각(ms)
   let pausedAt = 0;                               // 시뮬레이션을 멈춘 시각(ms). 멈춘 동안 부활·보호 표시 시계도 멈춘다
   const displayNow = () => (simPaused ? pausedAt : performance.now());
@@ -302,7 +324,7 @@ function buildWorld(ctx, opts) {
   // 좀비 물량 막기 상호작용(쓰러진 동료 살리기): HUD 안내 줄과 휴대폰 '살리기' 버튼(touch:use). horde/client.js가 setHordeInteract로 정한다
   let hordeHint = '';
   let hordeTouch = false;
-  let pauseOpts = { leaveLabel: '나가기', note: undefined };
+  let pauseOpts = { leaveLabel: t('game.world.leave'), note: undefined };
   let pauseDetailsProvider = null;                // 좀비 모드: ESC에서 현재 카드·능력치 보여 주기
   let scoreboardProvider = null, scoreboardOpen = false, sbRefresh = 0;
   let clock = 0;                                  // World 시뮬레이션 시각(초, 일시정지 중 멈춤)
@@ -341,6 +363,51 @@ function buildWorld(ctx, opts) {
     onCarrier: (prev, next) => { for (const id of [prev, next]) { const a = id ? actors.get(String(id)) : null; if (a) refreshAvatar(a); } }
   });
 
+  // 배틀로얄(연습장 혼자, MODES.md 15절, br/solo.js가 켠다): 관전 우선 대상·HUD 패널 값. 꺼져 있으면 null
+  let royale = null;
+  // 배틀로얄 내 장비(br/kit.js): 가방 인벤토리 · 주무기 두 자루 · 부착물 · 구급상자 채널링. 배틀로얄이 아니면 null
+  let kit = null;
+  // 봉쇄 구역 연출(br/view.js): 예고·봉쇄 구역의 격자 벽·바닥 색·이름표
+  const royaleView = createRoyaleView({ THREE, scene: R.scene });
+  /**
+   * 배틀로얄을 켜고(처음 o) 값을 바꾼다. o = { watch?(죽은 뒤 먼저 볼 사람 id), hud?(HUD royale 패널 값) }. null이면 끈다.
+   * 켜져 있는 동안: 바닥 보급품은 사라지지 않고 많이 둘 수 있으며, 출발 무기는 권총·칼(주무기 칸은 비어 있고 투척은 주운 것만),
+   * 내 장비는 가방 인벤토리(br/kit.js: 주무기 두 자루 · 가방 상한 · 부착물 · 구급상자 채널링), 이동은 BR_MOVE(버니합 없음),
+   * 죽으면 가진 것을 모두 떨어뜨리고 살아 있는 아무나 관전한다
+   */
+  function setRoyale(o) {
+    if (!o) {
+      if (!royale) return;
+      royale = null;
+      if (kit) { kit.dispose(); kit = null; }
+      vm.setAttachments(null);
+      vm.setFlashScale(1);
+      drops.setMax(DROP_MAX);
+      arsenal.setMods(null);
+      arsenal.setAllowedSlots(rulesetOf(ruleset).slots);
+      player.setMoveTuning(null);
+      player.setFallDamage(false);
+      setRoyaleZone(null);
+      syncRoyaleTouch('');
+      return;
+    }
+    if (!royale) {
+      royale = { watch: null, hud: null };
+      drops.setMax(ROYALE_DROP_MAX);
+      arsenal.setMods({ finiteMags: BR.finiteMags });
+      arsenal.setAllowedSlots(ROYALE_SLOTS);
+      player.setMoveTuning({ move: BR_MOVE });
+      kit = createRoyaleKit({ arsenal });
+      player.setFallDamage(true);   // 배틀로얄만 낙하 피해(4 m부터, MODES.md 15절)
+    }
+    for (const k of ['watch', 'hud']) if (k in o) royale[k] = o[k];
+  }
+  /** 봉쇄 구역 그리기: z = { grid, closed, closing, floorY } | null. 3D 벽과 미니맵 격자가 같은 값을 본다 */
+  function setRoyaleZone(z) {
+    royaleView.set(z || null);
+    if (ui) ui.hud.setMinimapZone(z || null);
+  }
+
   // 좀비 물량 막기(game/horde): 좀비·보스 그리기와 내 사격 판정. 판정 결과는 다른 사격처럼 'hitClaim'(victimId 'z12')으로 나간다
   const horde = createHordeView({ THREE, scene: R.scene, camera: R.camera, fx, play: (name, o) => play(name, o) });
   // 좀비 물량 막기 증강의 내 화면 몫. nadeMulti = 한 번에 더 던지는 수류탄 수, nadeRadiusOf(owner) = 그 사람 수류탄의 폭발 반경 배율
@@ -354,9 +421,10 @@ function buildWorld(ctx, opts) {
   const c4At = [0, 0, 0];
   /** 맵 충돌의 시선(벽에 막히면 false). 칼·검기가 쓴다 */
   const worldLos = (a, b) => (map ? lineOfSight(map.world, a, b) : true);
-  /** 내 이동 속도 배율: 무기(줌 포함) × 카드 × 느려짐(비명·얼음) × 좀비에게 붙잡힘 */
+  /** 내 이동 속도 배율: 무기(줌 포함) × 구급상자 사용 중(배틀로얄) × 카드 × 느려짐(비명·얼음) × 좀비에게 붙잡힘 */
   function speedScaleNow() {
     let k = arsenal.getMoveMul();
+    if (kit && kit.channelling) k *= MEDKIT.walkMul;
     if (mode !== 'zombie') return k;
     k *= hordePerk.speed;
     if (slowUntil > performance.now()) k *= slowMul;
@@ -456,8 +524,13 @@ function buildWorld(ctx, opts) {
     if (input.locked && input.enabled && !emoteBusy()) { rmbDown = true; latch.rmb = true; }
   }));
   offs.push(bus.on('input:reload', () => { latch.reload = true; }));
-  // 개인전 부활 대기 중 E(휴대폰은 '부활' 버튼, 같은 input:use) → 즉시 부활 요청. 폭파 미션의 설치·해체는 bombView가 따로 듣는다
-  offs.push(bus.on('input:use', (e) => { if (e && e.down) requestQuick(); }));
+  // 개인전 부활 대기 중 E(휴대폰은 '부활' 버튼, 같은 input:use) → 즉시 부활 요청. 폭파 미션의 설치·해체는 bombView가 따로 듣는다.
+  // 배틀로얄은 살아 있을 때 E = 구급상자 사용(다시 누르면 취소)
+  offs.push(bus.on('input:use', (e) => { if (!e || !e.down) return; if (kit) useLocalMedkit(); else requestQuick(); }));
+  // 배틀로얄: 점프(누르거나 Space를 누른 채 다시 뛰기)·턱 오르기·낙하 피해는 구급상자 사용을 취소한다(구급상자는 남는다)
+  const cancelHealMove = () => { if (kit && kit.cancelHeal() && ui) ui.hud.callout(t('game.br.healCancel')); };
+  offs.push(bus.on('input:jump', cancelHealMove));
+  offs.push(bus.on('player:jump', cancelHealMove));
   offs.push(bus.on('input:drop', () => { dropHeldGun(); }));
   offs.push(bus.on('input:slot', (e) => { latch.slot = e && e.slot; }));
   offs.push(bus.on('input:cycle', (e) => { latch.wheel = (e && e.dir) || 0; }));
@@ -483,6 +556,17 @@ function buildWorld(ctx, opts) {
     if (!active || !local.alive || !e) return;
     if (e.hopped) play('bhop_land', { gain: 0.6 });   // 버니합 사슬: 착지마다 쿵쿵거리지 않게 작게
     else if (e.speed > 3) play(stepSound(e.mat), { gain: Math.min(1, e.speed / 9) });
+  }));
+  // 낙하 피해(배틀로얄): core player가 잰 피해를 연습장(경기)에 넘긴다. 경기가 claimHazard(…, 'fall')로 넣는다
+  offs.push(bus.on('player:fall', (e) => {
+    if (!active || !local.alive || !royale || !e || !(e.damage > 0)) return;
+    cancelHealMove();
+    emit('fallDamage', { amount: e.damage, height: e.height, pos: e.pos });
+  }));
+  offs.push(bus.on('player:mantle', (e) => {
+    if (!active || !local.alive || !e) return;
+    cancelHealMove();
+    play(stepSound(null), { gain: 0.45 });
   }));
   // 발판·포털·비밀 스팟 판정과 재발동 대기는 core player(engine/triggers.js)가 한다. 스폰할 때 상태도 거기서 비운다. World는 연출과 보상만 맡는다
   offs.push(bus.on('player:pad', (e) => {
@@ -551,7 +635,7 @@ function buildWorld(ctx, opts) {
     if (keyLockTip || !e || !e.down || (e.code !== 'ControlLeft' && e.code !== 'ControlRight')) return;
     if (!active || !ui || !input.locked || !input.canKeyboardLock || input.keyboardLocked) return;
     keyLockTip = true;
-    ui.hud.banner({ icon: '⌨️', title: 'F11 · 전체 화면 키 잠금', sub: '켜면 Ctrl+W(탭 닫기)·Tab도 게임이 받아요' });
+    ui.hud.banner({ icon: '⌨️', title: t('game.world.f11Title'), sub: t('game.world.f11Sub') });
   }));
 
   function openPause() {
@@ -643,7 +727,7 @@ function buildWorld(ctx, opts) {
   async function loadMap(mapId, opt = {}) {
     const seq = ++loadSeq;
     const data = ctx.maps && ctx.maps.getMap ? ctx.maps.getMap(mapId) : null;
-    showLoading(true, `🗺️ ${(data && data.name) || mapId} 불러오는 중…`);
+    showLoading(true, t('game.world.loading', { name: (data && loc(data, 'name')) || mapId }));
     let built;
     try { built = await ctx.loadMap(mapId); }
     finally { if (seq === loadSeq) showLoading(false); }
@@ -660,7 +744,7 @@ function buildWorld(ctx, opts) {
     props.load(built.data, built.colliders);     // 기다리지 않는다: 표시 전용이고 cannon-es는 CDN에서 온다
     if (nades) nades.dispose();
     nades = createGrenadeSystem({ world: built.world });
-    c4Stuck.clear(); axeHits.clear(); clearWells();
+    c4Stuck.clear(); axeHits.clear(); clearWells(); clearTactical();
     active = true;
     simPaused = false; uiPaused = false; scoreboardOpen = false;
     controls = true; customHint = '';            // 이전 모드(멀티 teardown 등)가 남긴 설정을 지운다
@@ -701,8 +785,9 @@ function buildWorld(ctx, opts) {
     bombView.unload();
     horde.setActive(false);
     setHordePerks(null);
+    setRoyale(null);
     if (nades) { nades.dispose(); nades = null; }
-    c4Stuck.clear(); axeHits.clear(); clearWells();
+    c4Stuck.clear(); axeHits.clear(); clearWells(); clearTactical();
     for (const m of nadeMeshes) { m.visible = false; m.userData.pillar.visible = false; }
     fx.clear(false);
     fx.setSpeedAmount(0);
@@ -738,9 +823,8 @@ function buildWorld(ctx, opts) {
   /** 라운드 전환: 투사체·이펙트·예약 소리·관전 정리(액터는 유지) */
   function reset() {
     closeSwap();
-    swordHold = null;
     if (nades) nades.clear();
-    c4Stuck.clear(); axeHits.clear(); clearWells();
+    c4Stuck.clear(); axeHits.clear(); clearWells(); clearTactical();
     for (const m of nadeMeshes) { m.visible = false; m.userData.pillar.visible = false; }
     clearDrops();
     bombView.reset();
@@ -757,9 +841,8 @@ function buildWorld(ctx, opts) {
 
   /* ---------- 로컬 플레이어 ---------- */
   function spawnLocal(o = {}) {
-    if (!map) throw new Error('spawnLocal: 먼저 loadMap()을 부르세요');
+    if (!map) throw new Error('spawnLocal: 먼저 loadMap()을 부르세요');   // i18n-ok: 개발자용 오류
     cancelLocalEmote('spawn');
-    swordHold = null;
     if (o.id != null && String(o.id)) { local.id = String(o.id); player.state.id = local.id; }
     if (o.name) { local.name = String(o.name); player.state.name = local.name; }
     // 팀전: owner/charterer. 개인전: 팀 없음(null) — 아군 이름표 없음, 뷰모델 소매는 남색
@@ -776,7 +859,11 @@ function buildWorld(ctx, opts) {
     const keep = !!o.keepArsenal && local.spawned;
     if (!keep) {
       const lo = resolveLoadout(o.loadout);
+      // 배틀로얄: 모두 같은 권총·칼로 출발하고 주무기는 바닥에서 줍는다(주무기 칸을 비워 둔다)
+      if (royale) { lo.secondary = BR.startSecondary; lo.melee = BR.startMelee; }
       arsenal.resetRound({ ...lo, draw: true });
+      if (royale) arsenal.emptySlot(1);
+      if (kit) kit.reset();          // 배틀로얄: 가방 없음 · 경량탄 조금 · 주무기 칸 둘 다 비움
       local.loadout = lo[SLOT_KEYS[rulesetOf(ruleset).pickSlot]];
     }
     local.alive = true;
@@ -799,9 +886,10 @@ function buildWorld(ctx, opts) {
 
   /* ---------- 모드 · 부활 · 보호 (개인전) ---------- */
   const avatarTeam = (a) => (mode === 'ffa' ? 'charterer' : a.team || 'charterer');   // 개인전: 다른 사람은 모두 한 가지 '적' 색
-  // 이름표 앞 상태 표시: 🛡 부활 보호(개인전), 💣 폭탄을 든 아군(폭파 미션, bombView.carrier는 내가 공격 팀일 때만 채워진다).
+  // 이름표 앞 상태 표시: 🛡 부활 보호(개인전), 💣 폭탄을 든 아군(폭파 미션, bombView.carrier는 내가 공격 팀일 때만 채워진다), 💫 섬광에 눈이 먼 봇(연습장).
   // 적의 이름표는 이름 없이 이 표시만 보인다(engine/nametag.js) → 개인전에서도 다른 사람의 닉네임은 머리 위에 뜨지 않는다
-  const avatarBadge = (a) => [a.protectUntil > performance.now() ? '🛡' : '', mode === 'bomb' && bombView.carrier === a.id ? '💣' : ''].filter(Boolean).join(' ');
+  const avatarBadge = (a) => [a.protectUntil > performance.now() ? '🛡' : '', mode === 'bomb' && bombView.carrier === a.id ? '💣' : '',
+    a.blindUntil > performance.now() ? '💫' : ''].filter(Boolean).join(' ');
   function refreshAvatar(a) {
     const av = avatars.add(a.id, { name: a.name, badge: avatarBadge(a), team: avatarTeam(a), avatar: a.avatar });
     av.setAiGlasses(mode === 'zombie' && hordeGlasses.has(a.id));
@@ -916,17 +1004,17 @@ function buildWorld(ctx, opts) {
   }
   function requestQuick() {
     if (simPaused || uiPaused || !quickOpen()) return;
-    const t = performance.now();
-    if (t - quickSentAt < QUICK_RETRY_MS) return;    // 방장 응답을 기다리는 동안 거듭 누른 것
-    if (!quick.ok) { if (ui) ui.hud.callout(`포인트가 부족해요 · 즉시 부활 ${quick.cost} P`); return; }
-    quickSentAt = t;
+    const tNow = performance.now();
+    if (tNow - quickSentAt < QUICK_RETRY_MS) return;    // 방장 응답을 기다리는 동안 거듭 누른 것
+    if (!quick.ok) { if (ui) ui.hud.callout(t('game.world.noPoints', { cost: quick.cost })); return; }
+    quickSentAt = tNow;
     emit('quickRespawn', { cost: quick.cost });
   }
   /** 휴대폰: 즉시 부활을 쓸 수 있는 동안 설치/해체 버튼을 '부활'로 보인다(개인전에는 폭탄이 없어 버튼이 비어 있다) */
   function syncQuickTouch(on) {
     if (on === quickTouch) return;
     quickTouch = on;
-    bus.emit('touch:use', { on, label: '부활' });
+    bus.emit('touch:use', { on, label: t('game.world.respawn') });
   }
 
   /**
@@ -939,7 +1027,7 @@ function buildWorld(ctx, opts) {
     const on = !!(o && o.touch);
     if (on === hordeTouch) return;
     hordeTouch = on;
-    bus.emit('touch:use', { on, label: '살리기' });
+    bus.emit('touch:use', { on, label: t('game.world.revive') });
   }
   /** 내 보호(무적) 표시: ms(>0) 동안 · true = 끌 때까지 · false/0 = 끔 */
   function setProtect(v) {
@@ -952,6 +1040,15 @@ function buildWorld(ctx, opts) {
     const until = v === true ? Infinity : num(v) > 0 ? performance.now() + num(v) : 0;
     const was = a.protectUntil > performance.now();
     a.protectUntil = until;
+    if (was !== (until > performance.now())) refreshAvatar(a);
+  }
+  /** 다른 사람(연습장 봇)이 섬광에 눈이 멀었다: ms 동안 이름표에 💫. 0이면 끈다 */
+  function setActorBlind(id, ms) {
+    const a = actors.get(String(id));
+    if (!a) return;
+    const until = num(ms) > 0 ? performance.now() + num(ms) : 0;
+    const was = a.blindUntil > performance.now();
+    a.blindUntil = until;
     if (was !== (until > performance.now())) refreshAvatar(a);
   }
 
@@ -998,25 +1095,18 @@ function buildWorld(ctx, opts) {
     if (!h || typeof h.stop !== 'function') return;
     try { h.stop(150); } catch (err) { /* ignore */ }            // fadeMs
   }
-  /* 상점 미리 듣기: 내 소리(2D)로 잠깐 재생한다. 음원 묶음을 읽는 중이면 조금(최대 3초) 기다렸다가 파일로 들려주고,
-   * 그래도 늦으면 합성음으로 시작했다가 파일이 준비되는 즉시 파일로 바뀐다(fx/audio.js) */
+  /* 상점 미리 듣기: 내 소리(2D)로 잠깐 재생한다(합성음 루프, fx/audio.js) */
   const PREVIEW_MS = 4000;
-  let previewSnd = null, previewTimer = 0, previewSeq = 0;
+  let previewSnd = null, previewTimer = 0;
   function stopEmotePreview() {
-    previewSeq++;
     clearTimeout(previewTimer);
     stopSound(previewSnd);
     previewSnd = null;
   }
-  async function previewEmote(id) {
+  function previewEmote(id) {
     stopEmotePreview();
     const e = emoteInfo(id);
     if (!e || typeof audio.emote !== 'function') return false;
-    const seq = previewSeq;
-    if (typeof audio.emoteFilesReady === 'function') {
-      try { await Promise.race([audio.emoteFilesReady(), new Promise((r) => setTimeout(r, 3000))]); } catch (err) { /* 합성음으로 */ }
-    }
-    if (seq !== previewSeq) return false;
     previewSnd = emoteSound(e.code, null);
     previewTimer = setTimeout(stopEmotePreview, PREVIEW_MS);
     return !!previewSnd;
@@ -1044,7 +1134,7 @@ function buildWorld(ctx, opts) {
   /* 이모트 휠(MODES.md 4.2) — 커서·강조 칸 계산과 B를 뗄 때의 시작은 core(input·player)가 한다.
    * World는 core 'input:emoteWheel' {open, cursor, selected, ...}를 UI 'emotes' 화면에 그대로 옮기고,
    * 시작이 거절되면('player:emote-denied') 안내를 띄운다. */
-  const NOT_STILL = '멈춘 상태에서만 할 수 있어요';
+  const NOT_STILL = t('game.world.notStill');
   /** 휠 8칸의 이모트 id: 계정 장비(상점에서 고른 순서), 계정이 없으면 기본 휠 */
   function wheelIdsNow() {
     const ids = ctx.account && ctx.account.emoteWheel;
@@ -1166,20 +1256,35 @@ function buildWorld(ctx, opts) {
     sprite.position.y = 0.72;
     return sprite;
   }
+  // 배틀로얄 보급품 바닥 모형: 종류마다 모양 하나와 색 하나를 모든 항목이 같이 쓴다(탄약 상자 · 구급상자 · 가방 · 부착물 · 투척)
+  const supplyGeos = {
+    ammo: new THREE.BoxGeometry(0.46, 0.3, 0.34), medkit: new THREE.BoxGeometry(0.46, 0.3, 0.34),
+    backpack: new THREE.BoxGeometry(0.4, 0.46, 0.24), attach: new THREE.BoxGeometry(0.28, 0.12, 0.14), throw: new THREE.SphereGeometry(0.11, 12, 8)
+  };
+  const supplyMats = {
+    ammo: new THREE.MeshLambertMaterial({ color: 0x6f7d3c }), medkit: new THREE.MeshLambertMaterial({ color: 0xf0efe8 }),
+    backpack: new THREE.MeshLambertMaterial({ color: 0x7a5a3a }), attach: new THREE.MeshLambertMaterial({ color: 0x2c3036 }), throw: new THREE.MeshLambertMaterial({ color: 0x55603f })
+  };
+  const ringMat = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false });
+  const supplyRing = { ammo: ringMat(0xc9d77a, 0.75), medkit: ringMat(0x6fe39a, 0.8), backpack: ringMat(0xd9a35c, 0.8), attach: ringMat(0x6fd2ff, 0.8), throw: ringMat(0xffb347, 0.8) };
   function addDropView(d) {
-    const def = getDef(d.weaponId);
+    const supply = SUPPLY_KINDS.includes(d.kind) ? d.kind : null;
+    const def = supply ? null : getDef(d.weaponId);
     const group = new THREE.Group();
     group.name = 'world:drop';
     group.position.set(d.pos[0], d.pos[1], d.pos[2]);
-    const ring = new THREE.Mesh(dropRingGeo, def.premium ? dropRingPremium : dropRingMat);
+    const ring = new THREE.Mesh(dropRingGeo, supply ? supplyRing[supply] : def.premium ? dropRingPremium : dropRingMat);
     ring.position.y = 0.03;
     const spin = new THREE.Group();
     spin.position.y = 0.34;
-    const gun = droppedGunMesh();
-    gun.position.z = 0.18;                        // 모형의 가운데를 돌림축에 맞춘다
-    gun.rotation.z = 0.9;
-    spin.add(gun);
-    const label = dropLabel(def.short, !!def.premium);
+    if (supply) spin.add(new THREE.Mesh(supplyGeos[supply], supplyMats[supply]));
+    else {
+      const gun = droppedGunMesh();
+      gun.position.z = 0.18;                        // 모형의 가운데를 돌림축에 맞춘다
+      gun.rotation.z = 0.9;
+      spin.add(gun);
+    }
+    const label = dropLabel(supply ? supplyLabel(d) : def.short, !!(def && def.premium));
     group.add(ring, spin, label);
     R.scene.add(group);
     dropViews.set(d.id, { group, spin, label });
@@ -1192,14 +1297,21 @@ function buildWorld(ctx, opts) {
     v.label.material.map.dispose();
     v.label.material.dispose();
   }
-  /** 항목 { id, weaponId, pos, mag, reserve }를 바닥에 놓는다. 이 규칙에서 못 쓰는 총이나 깨진 값이면 null */
+  /**
+   * 항목 { id, weaponId, pos, mag, reserve }를 바닥에 놓는다. 이 규칙에서 못 쓰는 총이나 깨진 값이면 null.
+   * 배틀로얄이면 보급품 { id, kind: 'ammo'|'medkit'|'backpack'|'attach'|'throw', ref?, n?, pos }도 받고, 무엇이든 사라지지 않는다
+   */
   function addDrop(o) {
-    if (!active || !o || !isWeaponAllowed(ruleset, o.weaponId, mode === 'zombie')) return null;
-    const { drop, evicted } = drops.add(o);
+    if (!active || !o) return null;
+    const supply = !!royale && SUPPLY_KINDS.includes(o.kind);
+    if (!supply && !isWeaponAllowed(ruleset, o.weaponId, mode === 'zombie')) return null;
+    const { drop, evicted } = drops.add(o, royale ? { supply: true, ttl: Infinity } : undefined);
     for (const d of evicted) removeDropView(d.id);
     if (drop) addDropView(drop);
     return drop;
   }
+  /** 바닥의 총·보급품 목록(읽기 전용 사본이 아니라 항목 그대로 — 고치지 말 것). 배틀로얄 봇이 주울 것을 찾는다 */
+  function listDrops() { return drops.list(); }
   function removeDrop(id) {
     const d = drops.remove(String(id));
     if (d) removeDropView(d.id);
@@ -1213,19 +1325,33 @@ function buildWorld(ctx, opts) {
     const h = map ? raycastWorld(map.world, [p[0], p[1] + 0.5, p[2]], [0, -1, 0], 60) : null;
     return h ? p[1] + 0.5 - h.dist : p[1];
   }
-  /** 내 총 { id, mag, reserve }를 pos에 놓고 모두에게 알린다. 탄이 하나도 없는 총은 쓸모가 없어 놓지 않는다 */
+  /** 내 총 { id, mag, reserve }를 pos에 놓고 모두에게 알린다. 탄이 하나도 없는 총은 쓸모가 없어 놓지 않는다(배틀로얄은 예비 탄이 가방에 있어 빈 총도 놓는다) */
   function placeLocalDrop(gun, pos) {
-    if (!gun || !(gun.mag > 0 || gun.reserve > 0)) return null;
+    if (!gun || (!royale && !(gun.mag > 0 || gun.reserve > 0))) return null;
     const dropId = `${local.id}#${++dropSeq}`;
     const drop = addDrop({ id: dropId, weaponId: gun.id, pos: r2(pos), mag: gun.mag, reserve: gun.reserve });
     if (!drop) return null;
     emit('weaponDrop', { dropId, weaponId: gun.id, pos: drop.pos, mag: gun.mag, reserve: gun.reserve });
     return drop;
   }
-  /** (살아 있을 때 G) 손에 든 주무기·보조무기를 앞 발밑에 버린다. 앞이 벽이면 발밑에 둔다 */
+  /** 배틀로얄: 내 장비에서 나온 항목들(총 { weaponId, mag, reserve } · 보급품 { kind, ref, n })을 at 둘레에 차례로 놓는다 → 놓인 항목 */
+  function scatterLocal(items, at, start = 0) {
+    const out = [];
+    items.forEach((it, k) => {
+      const i = k + start;
+      const a = i * 2.1, r = i ? 0.35 + 0.1 * Math.min(4, i) : 0;
+      const pos = [at[0] + Math.cos(a) * r, at[1], at[2] + Math.sin(a) * r];
+      const d = it.weaponId ? placeLocalDrop({ id: it.weaponId, mag: it.mag, reserve: it.reserve || 0 }, pos)
+        : addDrop({ id: `${local.id}#s${++dropSeq}`, kind: it.kind, ref: it.ref, n: it.n, pos: r2(pos) });
+      if (d) out.push(d);
+    });
+    return out;
+  }
+  /** (살아 있을 때 G) 손에 든 주무기·보조무기를 앞 발밑에 버린다. 앞이 벽이면 발밑에 둔다. 배틀로얄은 그 총의 부착물도 옆에 떨어진다 */
   function dropHeldGun() {
     if (!active || !map || !local.spawned || !local.alive || rnd.phase !== 'live' || !localCanAct()) return false;
-    const gun = arsenal.dropHeld();
+    const r = kit ? kit.dropHeld() : null;
+    const gun = kit ? r && r.gun : arsenal.dropHeld();
     if (!gun) return false;
     const p = player.state.pos;
     const aim = player.getAimDir();
@@ -1235,23 +1361,41 @@ function buildWorld(ctx, opts) {
     at[1] = floorUnder(at);
     const d = placeLocalDrop(gun, at);
     if (d) local.ownDrops.add(d.id);   // 방금 버린 총은 한 번 벗어날 때까지 다시 줍지 않는다
+    if (r) for (const x of scatterLocal(r.items, at, 1)) local.ownDrops.add(x.id);
     play('switch', { gain: 0.7 });
-    if (ui) ui.hud.callout(`${getDef(gun.id).short} 버림`);
+    if (ui) ui.hud.callout(t('game.world.dropped', { weapon: loc(getDef(gun.id), 'short') }));
     return true;
   }
-  /** 총을 든 채 죽으면 그 총이 바닥에 떨어진다(남은 탄 그대로). killLocal이 상태를 바꾸기 전에 부른다 */
+  /**
+   * 총을 든 채 죽으면 그 총이 바닥에 떨어진다(남은 탄 그대로). 배틀로얄은 가진 것을 모두 떨어뜨린다
+   * (주무기 두 자루·권총·부착물·계열 탄약·투척·구급상자·가방). killLocal이 상태를 바꾸기 전에 부른다
+   */
   function dropOnDeath() {
     if (!active || !map || rnd.phase !== 'live') return;
-    const held = arsenal.getWeapon();
-    const def = getDef(held.id);
-    if (!def || (def.slot !== 1 && def.slot !== 2) || !isWeaponAllowed(ruleset, held.id, mode === 'zombie')) return;
-    const a = arsenal.getAmmo(held.id);
     const p = player.state.pos;
-    placeLocalDrop({ id: held.id, mag: a.mag, reserve: a.reserve }, [p[0], floorUnder(p), p[2]]);
+    const at = [p[0], floorUnder(p), p[2]];
+    if (kit) { scatterLocal(kit.deathItems(), at); return; }
+    const id = arsenal.getWeapon().id;
+    const def = getDef(id);
+    if (!def || (def.slot !== 1 && def.slot !== 2) || !isWeaponAllowed(ruleset, id, mode === 'zombie')) return;
+    const a = arsenal.getAmmo(id);
+    placeLocalDrop({ id, mag: a.mag, reserve: a.reserve }, at);
   }
   /** 그 총의 칸이 비어 있어 주울 수 있는가 */
   const canTake = (d) => { const def = getDef(d.weaponId); return !!def && arsenal.isSlotEmpty(def.slot); };
-  /** 닿은 총을 줍는다: 그 총의 칸(주무기·보조)이 비어 있을 때만. 방금 내가 버린 총은 한 번 벗어난 뒤부터 */
+  /** 배틀로얄: 내 장비(br/kit.js)로 줍는다. 가방에 다 안 들어간 수량은 그 자리에 남기고, 바뀐 가방·부착물·넘친 탄약은 옆에 놓는다 */
+  function takeRoyale(d) {
+    const r = kit.offer(d);
+    if (!r.ok) return;
+    removeDrop(d.id);
+    if (r.left) { const rest = addDrop({ id: `${local.id}#s${++dropSeq}`, kind: d.kind, ref: d.ref, n: r.left, pos: d.pos }); if (rest) local.ownDrops.add(rest.id); }
+    for (const x of scatterLocal(r.spawn || [], d.pos, 1)) local.ownDrops.add(x.id);
+    play('switch', d.kind ? { gain: 0.6 } : undefined);
+    if (ui && r.callout) ui.hud.callout(r.callout);
+    if (d.kind) emit('lootPick', { dropId: d.id, kind: d.kind, ref: d.ref });
+    else emit('weaponPick', { dropId: d.id, weaponId: d.weaponId });
+  }
+  /** 닿은 총을 줍는다: 그 총의 칸(주무기·보조)이 비어 있을 때만. 방금 내가 버린 총은 한 번 벗어난 뒤부터. 배틀로얄은 보급품도(내 장비가 정한다) */
   function pickNearbyGun() {
     if (!drops.size) { local.ownDrops.clear(); return; }
     const p = player.state.pos;
@@ -1259,22 +1403,42 @@ function buildWorld(ctx, opts) {
       const own = drops.list().find((d) => d.id === id);
       if (!own || Math.hypot(own.pos[0] - p[0], own.pos[2] - p[2]) > DROP_RADIUS + 0.4) local.ownDrops.delete(id);
     }
-    const d = drops.nearest(p, (x) => !local.ownDrops.has(x.id) && canTake(x));
-    if (!d || !arsenal.takeWeapon(d.weaponId, { mag: d.mag, reserve: d.reserve })) return;
+    // 배틀로얄은 바닥 항목이 많다: 닿는 거리 안의 것만 내 장비에 물어본다
+    const near = (x) => Math.hypot(x.pos[0] - p[0], x.pos[2] - p[2]) <= DROP_RADIUS;
+    const d = drops.nearest(p, (x) => !local.ownDrops.has(x.id) && (kit ? near(x) && kit.offer(x, true).ok : !x.kind && canTake(x)));
+    if (!d) return;
+    if (kit) { takeRoyale(d); return; }
+    if (!arsenal.takeWeapon(d.weaponId, { mag: d.mag, reserve: d.reserve })) return;
     removeDrop(d.id);
     play('switch');
-    if (ui) ui.hud.callout(`${getDef(d.weaponId).short} 획득`);
+    if (ui) ui.hud.callout(t('game.world.picked', { weapon: loc(getDef(d.weaponId), 'short') }));
     emit('weaponPick', { dropId: d.id, weaponId: d.weaponId });
   }
-  /** 총 위에 섰는데 그 칸에 무기가 있어 줍지 못할 때의 안내 */
+  /** 총 위에 섰는데 그 칸에 무기가 있어 줍지 못할 때의 안내. 배틀로얄 보급품을 가방 상한·부착물 규칙 때문에 못 주울 때도 */
   function pickHint() {
     if (!local.spawned || !local.alive || !drops.size || rnd.phase !== 'live') return '';
     const d = drops.nearest(player.state.pos, (x) => !local.ownDrops.has(x.id));
-    if (!d || canTake(d)) return '';
+    if (!d) return '';
+    if (kit) {
+      const r = kit.offer(d, true);
+      if (r.ok) return '';
+      if (r.hint !== null) return r.hint || '';   // null = 총 칸이 찼다 → 아래 'G로 버리고 줍기'
+    } else if (d.kind || canTake(d)) return '';
     const def = getDef(d.weaponId);
-    const slotName = def.slot === 1 ? '주무기' : '보조무기';
-    const how = input.touchMode ? '무기 칸을 길게 눌러' : '들고 G를 눌러';
-    return `${def.short}: ${slotName}를 ${how} 버리면 주울 수 있어요`;
+    if (!def) return '';
+    const primary = def.slot === 1;
+    const key = input.touchMode ? (primary ? 'game.world.dropHintPrimaryTouch' : 'game.world.dropHintSecondaryTouch') : (primary ? 'game.world.dropHintPrimaryKey' : 'game.world.dropHintSecondaryKey');
+    return t(key, { weapon: loc(def, 'short') });
+  }
+  /** 배틀로얄 E: 구급상자 사용 시작(4초, 진행 막대) · 쓰는 중이면 취소. 다 쓰면 tick이 'medkitUse'를 낸다 */
+  function useLocalMedkit() {
+    if (!kit || !local.spawned || !local.alive || rnd.phase !== 'live' || !localCanAct()) return;
+    const r = kit.useMedkit(player.state.hp);
+    if (r === 'start') play('switch', { gain: 0.5 });
+    if (!ui) return;
+    if (r === 'cancel') ui.hud.callout(t('game.br.healCancel'));
+    else if (r === 'full') ui.hud.callout(t('game.br.hpFull'));
+    else if (r === 'none') ui.hud.callout(t('game.br.noMedkit'));
   }
 
   /* ---------- 로컬 무기 ---------- */
@@ -1412,6 +1576,9 @@ function buildWorld(ctx, opts) {
     };
     if (hit.kind === 'player') { payload.victimId = hit.id; payload.part = hit.part; }
     if (hit.kind === 'world') { payload.normal = r3(hit.normal); payload.mat = hit.mat; }
+    // 배틀로얄 소염기: 가까이서만 들린다(연습장 봇 귀 · br/solo.js canHear)
+    const hs = kit ? kit.heldStats() : null;
+    if (hs && hs.quiet) payload.quiet = true;
     emit('fire', payload);
     if (byVictim.size) protectUntil = 0;         // 먼저 공격하면 보호 끝(match 규칙과 같게 표시)
     // 관통한 좀비는 가까운 순서로 주장한다(방장이 순서대로 70%씩 줄인다)
@@ -1486,9 +1653,11 @@ function buildWorld(ctx, opts) {
     const eye = player.getEye();
     const fwd = player.getAimDir();
     const axe = mode === 'zombie' && ev.weaponId === 'th_axe';
+    // 연막탄·섬광탄은 어느 모드든 그 종류로 날아간다(좀비 모드의 다연발·C4 증강도 받지 않는다)
+    const tactical = throwableOf(ev.weaponId);
     // 도끼는 한 개씩 던져 회수한다. 수류탄 전용 다연발·C4 증강은 적용하지 않는다.
-    const extra = !axe && mode === 'zombie' ? hordePerk.nadeMulti : 0;
-    const kind = axe ? 'axe' : mode === 'zombie' && hordePerk.sticky ? 'c4' : null;
+    const extra = !axe && !tactical && mode === 'zombie' ? hordePerk.nadeMulti : 0;
+    const kind = tactical || (axe ? 'axe' : mode === 'zombie' && hordePerk.sticky ? 'c4' : null);
     for (let i = 0; i <= extra; i++) {
       const ang = i === 0 ? 0 : (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 0.16;
       const c = Math.cos(ang), s = Math.sin(ang);
@@ -1509,6 +1678,8 @@ function buildWorld(ctx, opts) {
     if (e.type === 'expire') { axeHits.delete(e.id); return; }
     if (e.type !== 'explode') return; // 도끼 착지는 폭발·피해·이펙트 없이 그대로 남는다
     c4Stuck.delete(e.id);
+    if (e.kind === 'smoke') { smokeBurst(e); return; }
+    if (e.kind === 'flash') { flashBurst(e); return; }
     const c = arr3(e.pos);
     // 좀비 물량 막기 '폭발 반경' 증강: 던진 사람의 배율만큼 넓게 터진다(방장 화면은 남의 수류탄도 그 사람 배율로 잰다)
     const pdef = e.kind ? PROJ_DEF[e.kind] : null;
@@ -1524,7 +1695,7 @@ function buildWorld(ctx, opts) {
       emit('explosion', { ownerId: e.owner, local: e.owner === local.id, grenadeId: e.id, center: { x: c[0], y: c[1], z: c[2] }, pos: r3(c), victims, kind: 'bolt' });
       return;
     }
-    // 중력건은 터지지 않는다: 작은 불빛만 남기고(피해 없이 끌어당기는 구멍), 소리도 작게. 말뚝은 박히므로 작은 불빛과 박히는 소리
+    // 특이점포는 터지지 않는다: 작은 불빛만 남기고(피해 없이 끌어당기는 구멍), 소리도 작게. 말뚝은 박히므로 작은 불빛과 박히는 소리
     const pull = e.kind === 'gravity', stake = e.kind === 'stake';
     fx.explosion(c, { radius: pull ? 1.4 : stake ? 0.6 : ex.radius * rk });
     if (!pull && !stake) props.explode(c, ex.radius * rk);
@@ -1543,6 +1714,37 @@ function buildWorld(ctx, opts) {
     emit('explosion', { ownerId: e.owner, local: e.owner === local.id, grenadeId: e.id, center: { x: c[0], y: c[1], z: c[2] }, pos: r3(c), victims, kind: e.kind || null });
   }
 
+  /* ---------- 연막탄 · 섬광탄 (모든 모드, weapons/tactical.js) ---------- */
+  /** 연막탄 신관이 다 됐다: 그 자리에 연기 구름(내 화면 시야·연습장 봇 시야를 같이 막는다) */
+  function smokeBurst(e) {
+    const c = arr3(e.pos);
+    if (!smoke.add({ id: e.id, pos: c, t: clock })) return;
+    play('smoke_burst', { pos: c });
+    emit('smoke', { ownerId: e.owner, id: e.id, pos: r3(c) });
+  }
+  /** 섬광탄이 터졌다: 번쩍임·소리, 내 눈(시선 각도·거리·벽·연기)만큼 하얀 화면과 귀울림. 봇은 'flash' 이벤트로 연습장이 판정한다 */
+  function flashBurst(e) {
+    const c = arr3(e.pos);
+    const at = [c[0], c[1] + 0.25, c[2]];
+    tfx.flashBurst(at);
+    play('flash_bang', { pos: at });
+    if (local.spawned && local.alive && map) {
+      const eye = player.getEye();
+      const k = flashIntensity({ eye, forward: player.getAimDir(), pos: at, clear: lineOfSight(map.world, eye, at), smoke: smoke.blocks(eye, at, clock) });
+      if (k > 0) {
+        tfx.blind(k);
+        audio.deafen(k, flashBlindSec(k));
+      }
+    }
+    emit('flash', { ownerId: e.owner, id: e.id, pos: r3(at) });
+  }
+  /** 연기·섬광 연출을 모두 지운다(맵 불러오기·나가기·라운드 정리) */
+  function clearTactical() {
+    smoke.clear();
+    tfx.clear();
+    audio.undeafen();
+  }
+
   function actorGrenade(o = {}) {
     if (!nades || !o) return null;
     const gid = o.grenadeId != null ? String(o.grenadeId) : `${o.id}#r${++grenadeSeq}`;
@@ -1551,6 +1753,8 @@ function buildWorld(ctx, opts) {
     const fuse = num(o.fuse, WEAPONS.gr_frag.fuse);
     const kind = PROJECTILES[o.kind] ? o.kind : null;
     const g = nades.spawn(arr3(o.pos), arr3(o.vel), { owner: o.id != null ? String(o.id) : null, fuse, id: gid, kind });
+    const thrower = g && o.id != null ? avatars.get(String(o.id)) : null;
+    if (thrower) thrower.throwNade();              // 3인칭: 던지는 팔 동작
     // 늦게 받은 만큼 앞당기기(폭발 직전까지만). C4는 잘게 나눠 가며 좀비에 닿았는지 본다(던진 사람 화면에서 붙은 C4가 지나쳐 날아가지 않게)
     const lag = Number.isFinite(o.t) ? (performance.now() - o.t) / 1000 : 0;
     if (g && lag > 0.02) {
@@ -1600,7 +1804,7 @@ function buildWorld(ctx, opts) {
     arsenal.giveGrenade(1);
     axeHits.delete(g.id);
     play('switch', { gain: 0.5 });
-    if (ui) ui.hud.callout('투척 도끼 회수 +1');
+    if (ui) ui.hud.callout(t('game.world.axeBack'));
   }
 
   /** 도끼 크기 배율: 좀비 모드 '폭발 반경' 증강을 그 사람 도끼의 크기·판정에 그대로 건다(1~3배) */
@@ -1810,6 +2014,13 @@ function buildWorld(ctx, opts) {
     }
   }
 
+  /** 원격·봇 재장전 연출: 3인칭 아바타가 탄창을 갈아 끼우는 팔 동작(duration초). 소리는 부르는 쪽이 낸다 */
+  function actorReload(o = {}) {
+    if (!active || !o) return;
+    const av = avatars.get(String(o.id));
+    if (av) av.reload(num(o.duration, 2));
+  }
+
   function actorDeath(id, info = {}) {
     const a = actors.get(String(id));
     if (!a) return;
@@ -1850,6 +2061,8 @@ function buildWorld(ctx, opts) {
       return;
     }
     const kind = (def && def.fxKind) || 'rifle';
+    const shooterAv = avatars.get(String(o.id));
+    if (shooterAv) shooterAv.recoil();             // 3인칭: 쏠 때마다 총이 튄다
     const yaw = Math.atan2(-d[0], -d[2]);
     const rx = Math.cos(yaw), rz = -Math.sin(yaw);
     const muzzle = [origin[0] + d[0] * 0.75 + rx * 0.12, origin[1] + d[1] * 0.75 - 0.2, origin[2] + d[2] * 0.75 + rz * 0.12];
@@ -1903,8 +2116,8 @@ function buildWorld(ctx, opts) {
     const head = !!o.head, kill = !!o.kill, half = !!(o.half || o.halfShot);
     if (ui) {
       ui.hud.hitmarker(head, kill, { half });
-      if (half) ui.hud.callout(`반샷! −${Math.round(num(o.amount))}`, 'half');
-      else if (head) ui.hud.callout('헤드샷!', 'head');
+      if (half) ui.hud.callout(t('game.world.halfShot', { amount: Math.round(num(o.amount)) }), 'half');
+      else if (head) ui.hud.callout(t('game.world.headshot'), 'head');
     }
     // half_shot은 hit_marker 대신 난다. 반샷으로 끝낸 킬은 킬 소리와 겹친다
     play(kill ? 'kill' : head ? 'headshot' : half ? 'half_shot' : 'hit_marker');
@@ -1925,7 +2138,7 @@ function buildWorld(ctx, opts) {
     const tier = multiKillTier(n);
     if (!tier) return n;
     const legend = tier.id === 'legend';
-    if (ui) ui.hud.multiKill({ id: tier.id, title: tier.title, sub: legend ? `${n}연속 처치` : '' });
+    if (ui) ui.hud.multiKill({ id: tier.id, title: tier.title, sub: legend ? t('game.multi.streak', { n }) : '' });
     play(legend ? 'legend_kill' : 'multi_kill', legend ? undefined : { rate: 1 + 0.06 * (tier.count - 2) });
     try { audio.voice(tier.id, { delay: 0.08 }); } catch (e) { /* 소리 없이 계속 */ }
     emit('multiKill', { count: n, id: tier.id });
@@ -1944,10 +2157,10 @@ function buildWorld(ctx, opts) {
       secretsNoAccount.add(key);
     }
     if (res && res.first) {
-      if (ui) ui.hud.banner({ icon: '🏆', title: '비밀 스팟 발견', sub: `${secret.name} · +${res.gained} P` });
+      if (ui) ui.hud.banner({ icon: '🏆', title: t('game.world.secretTitle'), sub: t('game.world.secretFound', { name: loc(secret, 'name'), points: res.gained }) });
       play('secret_found');
       fx.secretSparkle(e.pos);
-    } else if (ui) ui.hud.callout(`${secret.name} · 이미 찾은 곳`);
+    } else if (ui) ui.hud.callout(t('game.world.secretAgain', { name: loc(secret, 'name') }));
   }
 
   function setRound(o = {}) {
@@ -1968,7 +2181,9 @@ function buildWorld(ctx, opts) {
         rnd.ffa = {
           mode: 'ffa', kills: pick('kills', int, 0), rank: pick('rank', int, undefined), total: pick('total', int, undefined),
           leaderName: pick('leaderName', (v) => String(v == null ? '' : v), ''), leaderKills: pick('leaderKills', int, 0),
-          target: src.target !== undefined || src.killTarget !== undefined ? int(src.target ?? src.killTarget) || 20 : f.target || 20
+          target: src.target !== undefined || src.killTarget !== undefined ? int(src.target ?? src.killTarget) || 20 : f.target || 20,
+          // 배틀로얄: 순위·목표 킬 대신 남은 인원(survivors)/전체(total)를 보인다
+          royale: pick('royale', (v) => !!v, false), survivors: pick('survivors', int, undefined)
         };
       }
     } else if (o.score) rnd.score = { owner: num(o.score.owner) | 0, charterer: num(o.score.charterer) | 0 };
@@ -1980,8 +2195,7 @@ function buildWorld(ctx, opts) {
   }
 
   /* ---------- 루프 ---------- */
-  let swordHold = null;
-  const localCanMove = () => !swordHold && controls && rnd.phase !== 'loadout' && rnd.phase !== 'matchEnd' && local.spawned && local.alive && !(stunUntil > performance.now());
+  const localCanMove = () => controls && rnd.phase !== 'loadout' && rnd.phase !== 'matchEnd' && local.spawned && local.alive && !(stunUntil > performance.now());
   /** 무기 입력을 받을 수 있는가: 움직일 수 있고, 입력이 켜져 있고, 커서가 필요한 화면·이모트·휠이 없을 때 */
   const localCanAct = () => localCanMove() && input.enabled && !(ui && ui.needsCursor()) && !emoteLocal && !wheel.open;
   /**
@@ -2004,7 +2218,6 @@ function buildWorld(ctx, opts) {
     clock += dt;
     runScheduled();
     const st = player.state;
-    if (swordHold) player.teleport({ x: swordHold[0], y: swordHold[1], z: swordHold[2] });
     syncFrozen();
     syncLocalEmote();
     const canAct = localCanAct();
@@ -2025,8 +2238,15 @@ function buildWorld(ctx, opts) {
     aimFirePrev = aimFire;
     if (local.spawned && local.alive) {
       // crouch → 탄퍼짐 ×0.8(arsenal, 크로스헤어 getHud도 같이)
+      // 배틀로얄: 키 1~5·휠을 가방 칸으로 옮기고, 구급상자 사용 중이면 사격·조준·재장전을 막는다(사격·교체는 취소)
+      if (kit && kit.filterInput(wi).cancelled && ui) ui.hud.callout(t('game.br.healCancel'));
       const evs = arsenal.update(dt, wi, { speed: Math.hypot(st.vel[0], st.vel[2]), onGround: st.onGround, walking: st.walking, crouch: !!st.crouch });
       for (const ev of evs) onWeaponEvent(ev);
+      if (kit) {
+        kit.afterUpdate();
+        const heal = rnd.phase === 'live' ? kit.stepHeal(dt * 1000) : 0;
+        if (heal > 0) { emit('medkitUse', { amount: heal }); if (ui) ui.hud.callout(t('game.br.healed', { n: heal })); }
+      }
       grabbedNow = mode === 'zombie' && horde.grabbed(st.pos);
       player.setSpeedScale(speedScaleNow());
       if (rnd.phase === 'live') pickNearbyGun();
@@ -2050,14 +2270,17 @@ function buildWorld(ctx, opts) {
 
   function updateSpectate(dt) {
     const cam = R.camera;
-    if (mode === 'ffa') { spec.name = ''; return; }   // 개인전: 아군이 없다 → 쓰러진 시점 그대로 부활 대기
+    // 개인전: 아군이 없다 → 쓰러진 시점 그대로 부활 대기. 배틀로얄은 부활이 없어 살아 있는 아무나(먼저 royale.watch) 따라가며 본다
+    if (mode === 'ffa' && !royale) { spec.name = ''; return; }
     if (performance.now() - local.deadAt < SPECTATE_DELAY_MS) { spec.name = ''; return; }
+    const mine = (x) => !!royale || x.team === local.team;
     const list = [];
-    for (const a of actors.values()) if (a.alive && a.state && a.team === local.team) list.push(a);
+    for (const a of actors.values()) if (a.alive && a.state && mine(a)) list.push(a);
     if (!list.length) { spec.id = null; spec.name = ''; return; }
     let a = spec.id ? actors.get(spec.id) : null;
-    if (!a || !a.alive || a.team !== local.team) {
-      a = list[((spec.idx % list.length) + list.length) % list.length];
+    if (!a || !a.alive || !mine(a)) {
+      const watched = royale && royale.watch && spec.idx === 0 ? actors.get(String(royale.watch)) : null;
+      a = watched && watched.alive && watched.state ? watched : list[((spec.idx % list.length) + list.length) % list.length];
       spec.id = a.id;
       const av0 = avatars.get(a.id);
       spec.yaw = av0 ? av0.yaw : a.state.yaw;
@@ -2097,8 +2320,10 @@ function buildWorld(ctx, opts) {
       const z = arsenal.getZoom(baseFov);
       if (Math.abs(cam.fov - z.fov) > 1e-3) R.setFov(z.fov);
       input.setLookScale(z.progress > 0 ? (z.fov / baseFov) * num(settings.get('zoomSensitivity'), 1) : 1);
-      // 스코프 오버레이가 없는 총도 배율을 넘긴다(크로스헤어 옆 조준 배율 표시). 2단 줌은 level로 단계를 보여 준다
-      if (ui) ui.scope.set(z.scopeAmount, { mag: z.mag, level: z.level, levels: z.levels });
+      // 스코프 오버레이가 없는 총도 배율을 넘긴다(크로스헤어 옆 조준 배율 표시). 2단 줌은 level로 단계를 보여 준다. 배틀로얄 4·6배율 조준경은 reticle 'optic'
+      if (ui) ui.scope.set(z.scopeAmount, { mag: z.mag, level: z.level, levels: z.levels, reticle: z.reticle });
+      // 배틀로얄: 든 총의 부착물(조준경·손잡이·소염기) 모형과 총구 불꽃 크기. 바뀔 때만 다시 만든다
+      if (kit) { vm.setAttachments(kit.heldAttach()); const hs = kit.heldStats(); vm.setFlashScale(hs ? hs.flash : 1); }
       vm.update(dt, arsenal.getViewState(baseFov));
     } else {
       if (Math.abs(cam.fov - baseFov) > 1e-3) R.setFov(baseFov);
@@ -2115,6 +2340,8 @@ function buildWorld(ctx, opts) {
     if (mode === 'zombie') horde.frame(dt, performance.now(), simPaused);
     drawGrenades();
     drawWells(performance.now());
+    // 연기 구름·번쩍임과 화면 덮개(카메라가 연기 속이면 회색 안개 — 관전 카메라도 같다)
+    tfx.frame(dt, smoke.list(clock), smoke.density([cam.position.x, cam.position.y, cam.position.z], clock));
     if (mode === 'bomb') bombView.frame(dt);
     for (const v of dropViews.values()) v.spin.rotation.y += dt * 1.4;
     // 속도 줄기: 걷기 속도부터 나타나 수평 속도 상한에서 가장 세다
@@ -2122,8 +2349,9 @@ function buildWorld(ctx, opts) {
     // 체력 낮음: 심장 박동
     const nowMs = performance.now();
     if (local.alive && player.state.hp > 0 && player.state.hp <= 25 && nowMs >= heartbeatAt) { heartbeatAt = nowMs + 900; play('low_hp_heartbeat'); }
-    // 다른 사람 보호 표시(🛡) 만료
+    // 다른 사람 보호 표시(🛡)·섬광 실명 표시(💫) 만료
     for (const a of actors.values()) if (a.protectUntil && a.protectUntil !== Infinity && a.protectUntil <= displayNow()) { a.protectUntil = 0; refreshAvatar(a); }
+    for (const a of actors.values()) if (a.blindUntil && a.blindUntil <= nowMs) { a.blindUntil = 0; refreshAvatar(a); }
     hudFrame(dt);
     if (scoreboardOpen) { sbRefresh -= dt; if (sbRefresh <= 0) { sbRefresh = 0.5; showScoreboard(); } }
   }
@@ -2138,6 +2366,8 @@ function buildWorld(ctx, opts) {
     if (!simPaused && rnd.timeLeftMs != null) rnd.elapsed += dt * 1000;   // 멀티는 일시정지 화면이 떠도 시간이 흐른다
     const alive = local.spawned && local.alive;
     const p = alive ? arsenal.getHud(R.baseFov) : { crosshair: false };
+    // 죽어서 관전 중이면 오른쪽 아래 무기 칸·탄약을 감춘다
+    p.dead = local.spawned && !alive;
     // 이모트 중: 크로스헤어 숨김 + hud.emote(이름·아이콘). 휠 화면은 UI 'emotes'
     const em = alive && emoteLocal ? emoteInfo(emoteLocal) : null;
     if (em || (alive && thirdAmount() > 0.01)) p.crosshair = false;
@@ -2167,6 +2397,13 @@ function buildWorld(ctx, opts) {
       p.protect = false;
     }
     p.bomb = mode === 'bomb' ? bombView.hud() : null;
+    // 배틀로얄: 구역 패널(br/solo.js) + 내 장비(br/kit.js)의 구급상자 수·사용 진행, 무기 칸 다섯·인벤토리 패널
+    const kh = kit && alive ? kit.hud() : null;
+    p.royale = royale && royale.hud ? { ...royale.hud, medkits: kit ? kit.medkits : 0, medkitMax: kit ? kit.medkitCap : 0, heal: kit ? kit.healProgress : null } : null;
+    if (kh) { p.slots = kh.slots; p.slot = kh.slot; }
+    p.inventory = kh ? kh.inv : null;
+    p.channel = kit && alive && kit.channelling ? { label: t('game.br.healing'), ratio: kit.healProgress } : null;
+    if (royale) syncRoyaleTouch(!input.touchMode || !local.spawned ? '' : alive ? (kit && (kit.medkits > 0 || kit.channelling) ? t('game.world.heal') : '') : t('game.world.result'));
     p.hint = lockHint() || hordeHint || pickHint() || customHint || '';
     // 살리기 안내는 읽기만 하는 줄이다: 휴대폰에서 이 줄을 눌러도 총 버리기(줍기 안내용 탭)가 되지 않게 ui/hud.js가 표시한다
     p.hintInfo = !lockHint() && !!hordeHint;
@@ -2216,9 +2453,11 @@ function buildWorld(ctx, opts) {
     removeUnlock();
     try { props.dispose(); } catch (e) { /* ignore */ }
     try { bombView.dispose(); } catch (e) { /* ignore */ }
+    try { royaleView.dispose(); } catch (e) { /* ignore */ }
     try { horde.dispose(); } catch (e) { /* ignore */ }
     try { vm.dispose(); } catch (e) { /* ignore */ }
     try { fx.dispose(); } catch (e) { /* ignore */ }
+    try { tfx.dispose(); } catch (e) { /* ignore */ }
     try { audio.dispose(); } catch (e) { /* ignore */ }
     if (nades) nades.dispose();
     for (const m of nadeMeshes) R.scene.remove(m, m.userData.pillar);
@@ -2227,6 +2466,7 @@ function buildWorld(ctx, opts) {
     c4Geo.dispose(); c4Mat.dispose(); ledGeo.dispose(); ledOn.dispose(); ledOff.dispose();
     clearDrops();
     dropRingGeo.dispose(); dropRingMat.dispose(); dropRingPremium.dispose();
+    supplyGeo.dispose(); for (const m of [...Object.values(supplyMats), ...Object.values(supplyRing)]) m.dispose();
     avatars.setDelay(prevDelay);
     if (loadingEl) loadingEl.remove();
     listeners.clear();
@@ -2258,10 +2498,14 @@ function buildWorld(ctx, opts) {
     clearActors,
     setActorState,
     actorFire,
+    actorReload,
     actorGrenade,
     actorDeath,
     addDrop,
     removeDrop,
+    listDrops,
+    setRoyale,
+    setRoyaleZone,
     feedbackDamage,
     noteKill,
     setRound,
@@ -2271,6 +2515,9 @@ function buildWorld(ctx, opts) {
     setQuickRespawn,
     setProtect,
     setActorProtect,
+    setActorBlind,
+    /** a→b 시선이 지금 연막탄 연기에 막히는가(연습장 봇 시야). 벽은 보지 않는다 */
+    smokeBlocks: (a, b) => smoke.blocks(a, b, clock),
     /**
      * 좀비 물량 막기(WORLD_API 9절): 방장 뷰(horde/director.js applyHordeSnapshot)를 받은 시각과 함께 넣으면 좀비·보스·투사체·장판을
      * 시간축으로 보간해 그린다. 내 사격·칼·검기·수류탄은 이 좀비들을 맞히고 'hitClaim'(victimId 'z12')을 낸다. 쓰러진 동료 표시는 나를 빼고 띄운다
@@ -2310,13 +2557,6 @@ function buildWorld(ctx, opts) {
       if (ok) { settleArsenal(); play('switch', { gain: 0.8 }); }
       return ok;
     },
-    /** 방장이 확인한 2초 공중 연타: 입력을 묶고 위치를 고정한다. 착지 이벤트에서 해제한다. */
-    hordeSwordPosition(pos, hold = false) {
-      if (mode !== 'zombie' || !local.spawned || !local.alive || !Array.isArray(pos) || !pos.every(Number.isFinite)) return;
-      swordHold = hold ? pos : null;
-      player.teleport({ x: pos[0], y: pos[1], z: pos[2] });
-      syncFrozen();
-    },
     /** (좀비 물량 막기 증강) 보조무기 칸을 이 무기로 바꾼다(새 탄 가득). 살아 있을 때만 → 바꿨으면 true */
     equipSidearm(id) {
       const def = getDef(id);
@@ -2332,7 +2572,7 @@ function buildWorld(ctx, opts) {
       slowUntil = Math.max(slowUntil, performance.now() + clamp(num(ms, 0), 0, 10000));
       slowMul = Math.min(slowUntil > performance.now() ? slowMul : 1, m);
     },
-    /** 블리츠 평타: ms 동안 기절(움직이지도 쏘지도 못한다). 띄우는 힘은 방장의 밀려남으로 따로 온다 */
+    /** 사슬꾼 평타: ms 동안 기절(움직이지도 쏘지도 못한다). 띄우는 힘은 방장의 밀려남으로 따로 온다 */
     stunLocal(ms) {
       stunUntil = Math.max(stunUntil, performance.now() + clamp(num(ms, 0), 0, 5000));
       syncFrozen();
@@ -2387,7 +2627,7 @@ function buildWorld(ctx, opts) {
       }
       simPaused = next;
     },
-    setPauseOptions(o = {}) { pauseOpts = { leaveLabel: (o && o.leaveLabel) || '나가기', note: o ? o.note : undefined }; },
+    setPauseOptions(o = {}) { pauseOpts = { leaveLabel: (o && o.leaveLabel) || t('game.world.leave'), note: o ? o.note : undefined }; },
     setPauseDetails(fn) { pauseDetailsProvider = typeof fn === 'function' ? fn : null; },
     setScoreboard(fn) { scoreboardProvider = typeof fn === 'function' ? fn : null; },
     setHint(text) { customHint = text ? String(text) : ''; },
@@ -2409,7 +2649,7 @@ function buildWorld(ctx, opts) {
     get multiKillCount() { return multiKill.count; },
     get paused() { return uiPaused; },
     /** 디버그·테스트용 내부 객체(읽기 전용으로 쓸 것) */
-    get internals() { return { arsenal, vm, fx, audio, nades, actors, local, rnd, props, drops, bombView, horde, hordePerk, c4Stuck }; }
+    get internals() { return { arsenal, vm, fx, audio, nades, actors, local, rnd, props, drops, bombView, horde, hordePerk, c4Stuck, kit, smoke, tfx, clock }; }
   };
 
   W.handle = function handle() {

@@ -217,12 +217,27 @@ const propsHalf = [
   { type: 'crate', x: -11.3, y: 0, z: 11.6, size: 0.8 }
 ];
 
+/** 표지 글씨의 영어 짝. 글씨가 같은 표지는 모두 같은 영어를 쓴다 */
+const SIGN_EN = {
+  '블루': 'BLUE',
+  '레드': 'RED',
+  '스칼라초등학교': 'SKALA Elementary',
+  '참되게 · 씩씩하게 · 슬기롭게': 'Honest · Brave · Wise',
+  '가을 운동회': 'Fall Sports Day',
+  '청군 백군 모두 힘내라': 'Go Blue! Go White!',
+  '체육 창고': 'PE Storage',
+  '물을 아껴 써요': 'Save water'
+};
+const withEn = (d) => (SIGN_EN[d.text] ? { ...d, textEn: SIGN_EN[d.text] } : d);
+
 export default {
   id: 'schoolyard',
   name: '초등학교 운동장',
   nameEn: 'Schoolyard',
   desc: '구령대와 스탠드 사이 모래 운동장. 정글짐과 골대, 뜀틀 말고는 가릴 것이 없는 한낮의 개활지다.',
+  descEn: 'A sandy schoolyard between the podium and the bleachers. Open ground in broad daylight, with only a jungle gym, goals and a vaulting box for cover.',
   tag: '좁은 맵',
+  tagEn: 'Small Map',
   size: { x: HALF_X * 2, z: HALF_Z * 2 },
   rulesets: ['classic', 'knife'],
   theme: {
@@ -241,7 +256,7 @@ export default {
     ...mirrorX(decorHalf),
     ...teamDecor(TEAMS.owner),
     ...mirrorX(teamDecor(TEAMS.charterer))
-  ],
+  ].map(withEn),
   pads: [],
   movers: [],
   portals: [],

@@ -119,6 +119,34 @@ async function shootPart(t, page, id, part, { ads = true, handIndex = 0 } = {}) 
   return { ...res, dist: aim ? aim.dist : 0 };
 }
 
+/** 페이지에서: 표적 봇 아바타의 쓰러진 몸 상태. headY = 발 원점 기준 머리 뼈 높이(m) */
+function corpseView() {
+  const qa = window.__qa;
+  const id = qa.run.bots[0].id;
+  const a = qa.ctx.avatars.get(id);
+  if (!a || !a.body) return null;
+  const v = a.root.position.clone();
+  a.body.bones.Head.getWorldPosition(v);
+  return {
+    t: a.death ? a.death.t : null, headY: v.y - a.pos[1], shown: a.root.visible, tag: a.tag.visible,
+    target: qa.ctx.avatars.getTargets().some((x) => x.id === id)
+  };
+}
+
+/**
+ * 쓰러진 몸은 바닥에 누워 있다가(쓰러짐 동작이 끝난 뒤에도 서 있으면 안 된다) 3초 안에 가라앉아 숨는다.
+ * 히트 대상·이름표에서는 바로 빠진다. 끝에서 멈춘 쓰러짐 동작이 T자로 서 있던 버그(engine/operator-model.js restorePose)를 본다
+ */
+async function checkCorpse(t, page) {
+  await page.waitFor('(() => { const a = __qa.ctx.avatars.get(__qa.run.bots[0].id); return !a.death || a.death.t >= 1.5; })()', 5000, { intervalMs: 30, label: '쓰러짐 동작 끝' });
+  const lying = await page.fn(corpseView);
+  t.check(lying && lying.t !== null && lying.headY < 0.6 && lying.shown && !lying.tag && !lying.target, '쓰러진 몸은 바닥에 누워 있고 히트 대상·이름표에서 빠진다', lying);
+  await page.waitFor('(() => { const a = __qa.ctx.avatars.get(__qa.run.bots[0].id); return !a.death || a.death.t >= 2.95; })()', 5000, { intervalMs: 20, label: '쓰러진 몸 사라짐' });
+  const gone = await page.fn(corpseView);
+  if (gone && gone.t !== null) t.check(!gone.shown && !gone.target, '쓰러진 몸은 3초 안에 사라진다', gone);
+  else t.note('쓰러진 몸이 사라지기 전에 표적이 부활했다(사라짐 검사 건너뜀)');
+}
+
 export default {
   name: 'damage',
   title: '부위별 피해, 라이플 헤드 1발, 저격 반샷 표시, 칼, 수류탄, 피격과 부활',
@@ -142,7 +170,10 @@ export default {
       t.check(computeDamage(id, 'head', far.dist) === WEAPONS[id].damage.head, `${id}: 머리 피해는 거리 감쇠가 없다`);
       t.check(r.kill && r.kill.head === true, `${id}: 먼 거리 머리 1발 킬`, r.kill);
       t.check((await page.eval(`__qa.text('.sk-killfeed')`)).length > 0, `${id}: 킬피드가 뜬다`);
-      if (id === 'ar_std') await t.shot('rifle-head-kill');
+      if (id === 'ar_std') {
+        await t.shot('rifle-head-kill');
+        await checkCorpse(t, page);
+      }
       await readyTarget(page, far);
     }
 
@@ -158,19 +189,19 @@ export default {
     const finish = await shootPart(t, page, 'sr_bolt', 'body');
     t.check(finish.kill && !finish.kill.halfShot, '체력이 깎인 표적도 몸 1발에 쓰러진다', finish.kill);
     await readyTarget(page, far);
-    // 밸런스 패치(2026-11-12): SK-7 다리는 85라 1발 킬이 아니다. 몸·머리만 1발
+    // 밸런스 패치(2026-11-12): SR-7 다리는 85라 1발 킬이 아니다. 몸·머리만 1발
     const legs = await shootPart(t, page, 'sr_bolt', 'legs');
-    t.check(legs.damage && legs.damage.part === 'legs' && legs.damage.amount === 85 && !legs.damage.halfShot, 'SK-7 다리: 85(반샷 아님)', legs.damage);
-    t.check(!legs.kill && legs.alive && legs.hp === 15, 'SK-7 다리 1발로는 쓰러지지 않는다', { hp: legs.hp, alive: legs.alive });
+    t.check(legs.damage && legs.damage.part === 'legs' && legs.damage.amount === 85 && !legs.damage.halfShot, 'SR-7 다리: 85(반샷 아님)', legs.damage);
+    t.check(!legs.kill && legs.alive && legs.hp === 15, 'SR-7 다리 1발로는 쓰러지지 않는다', { hp: legs.hp, alive: legs.alive });
     // 체력을 채우려면 한 번 쓰러뜨린다(다음 검사는 체력 100인 표적이어야 한다)
     const legsFinish = await shootPart(t, page, 'sr_bolt', 'body');
     t.check(!!legsFinish.kill, '다리를 맞은 표적은 다음 발에 쓰러진다', legsFinish.damage);
     await readyTarget(page, far);
     for (const part of ['body', 'head']) {
       const r = await shootPart(t, page, 'sr_bolt', part);
-      t.check(r.damage && r.damage.part === part && r.damage.amount === 100 && !r.damage.halfShot, `SK-7 ${part}: 체력 100이 한 번에 닳는다`, r.damage);
-      t.check(r.kill && !r.kill.halfShot, `SK-7 ${part} 1발 킬`, r.kill);
-      t.check(r.kill && r.kill.head === (part === 'head'), `SK-7 ${part}: 킬피드 헤드샷 표시`, r.kill);
+      t.check(r.damage && r.damage.part === part && r.damage.amount === 100 && !r.damage.halfShot, `SR-7 ${part}: 체력 100이 한 번에 닳는다`, r.damage);
+      t.check(r.kill && !r.kill.halfShot, `SR-7 ${part} 1발 킬`, r.kill);
+      t.check(r.kill && r.kill.head === (part === 'head'), `SR-7 ${part}: 킬피드 헤드샷 표시`, r.kill);
       if (part === 'body') await t.shot('sniper-body-kill');
       if (part === 'head') {
         const call = await page.eval(`[...document.querySelectorAll('.sk-callout')].map((c) => [c.textContent, c.dataset.tone]).filter((c) => /헤드샷/.test(c[0]))`);
@@ -181,7 +212,7 @@ export default {
 
     t.setSection('저격 반샷');
     const hand = await shootPart(t, page, 'sr_bolt', 'hand');
-    t.check(hand.damage && hand.damage.amount === 50 && hand.damage.part === 'hand' && hand.damage.halfShot === true, 'SK-7 손 피해 50, 반샷', hand.damage);
+    t.check(hand.damage && hand.damage.amount === 50 && hand.damage.part === 'hand' && hand.damage.halfShot === true, 'SR-7 손 피해 50, 반샷', hand.damage);
     t.check(!hand.kill && hand.alive && hand.hp === 50, '손에 맞으면 죽지 않는다', { hp: hand.hp, alive: hand.alive });
     const callout = await page.eval(`[...document.querySelectorAll('.sk-callout')].map((c) => [c.textContent, c.dataset.tone]).filter((c) => /반샷/.test(c[0]))`);
     t.check(callout.length === 1 && callout[0][0] === '반샷! −50' && callout[0][1] === 'half', '반샷 콜아웃', callout);
@@ -191,7 +222,7 @@ export default {
     await page.waitFor('__qa.arsenal.getWeapon().state === "idle"', 8000, { label: '볼트 끝' });
 
     const foot = await shootPart(t, page, 'sr_bolt', 'foot');
-    t.check(foot.damage && foot.damage.amount === 50 && foot.damage.part === 'foot' && foot.damage.halfShot === true, 'SK-7 발 피해 50, 반샷', foot.damage);
+    t.check(foot.damage && foot.damage.amount === 50 && foot.damage.part === 'foot' && foot.damage.halfShot === true, 'SR-7 발 피해 50, 반샷', foot.damage);
     t.check(foot.kill && foot.kill.halfShot === true, '반샷 두 번이면 쓰러진다', foot.kill);
     const halfStat = await page.eval(`__qa.run.match.state.players.find((p) => p.id === __qa.world.localId).halfShots`);
     t.check(halfStat === 2, '경기 전적의 반샷 수', halfStat);

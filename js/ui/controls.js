@@ -5,76 +5,77 @@
  */
 import { h, btn } from './dom.js';
 import { sheet, keycap } from './parts.js';
+import { t } from '../core/i18n.js';
 
 const OR = '|'; // 키 사이 "또는"
 const KEYS = [
-  [['W', 'A', 'S', 'D'], '이동'],
-  [['마우스'], '시점'],
-  [['좌클릭'], '사격 · 베기 · 투척'],
-  [['우클릭'], '줌. 2단 줌 저격총은 누를 때마다 다음 단계로, 칼은 강타, 수류탄은 낮게 굴리기'],
-  [['Space'], '점프. 꾹 누르고 있으면 착지할 때마다 자동으로 다시 뛰어요'],
-  [['Ctrl', OR, 'C'], '앉기 (누르고 있는 동안)'],
-  [['Shift'], '천천히 걷기'],
-  [['R'], '재장전'],
-  [['E'], '폭탄 설치·해체(폭파 미션, 누르고 있기)'],
-  [['F'], '살펴보기 (들고 있는 무기를 돌려 봐요)'],
-  [['F 길게'], '좀비 멀티: 쓰러진 동료 살리기 (3초)'],
-  [['G'], '들고 있는 주무기·보조무기 버리기. 칼로 바꿔 더 빨리 달릴 수 있고, 그 칸이 비면 바닥의 총을 주워 남은 탄 그대로 써요'],
-  [['1', '2', '3', '4'], '주무기 · 보조 · 근접 · 투척'],
-  [['휠'], '무기 전환'],
-  [['N'], '무기 교체 (라운드가 시작되기 전 대기 시간에. 목록에서 무기를 누르면 바로 바뀌어요)'],
-  [['Tab'], '점수판 (누르는 동안)'],
-  [['B'], '이모트 휠 (누른 채 마우스로 고르고 떼기, 움직이면 취소)'],
-  [['Enter'], '채팅 (멀티플레이 경기 중). Enter로 보내고 Esc로 닫아요. 팀 경기에서는 Tab으로 전체 ↔ 팀 채팅을 바꿔요'],
-  [['F11'], '전체 화면 · 브라우저 단축키 잠금 (Ctrl+W·Ctrl+T·Tab·Esc를 게임이 받아요. 크롬·엣지)'],
-  [['Esc'], '일시정지 메뉴. 전체 화면에서 나가려면 길게 눌러요'],
+  [['W', 'A', 'S', 'D'], t('hud.controls.key.move')],
+  [[t('hud.controls.cap.mouse')], t('hud.controls.key.look')],
+  [[t('hud.controls.cap.lmb')], t('hud.controls.key.fire')],
+  [[t('hud.controls.cap.rmb')], t('hud.controls.key.zoom')],
+  [['Space'], t('hud.controls.key.jump')],
+  [['Ctrl', OR, 'C'], t('hud.controls.key.crouch')],
+  [['Shift'], t('hud.controls.key.walk')],
+  [['R'], t('hud.controls.key.reload')],
+  [['E'], t('hud.controls.key.use')],
+  [['F'], t('hud.controls.key.inspect')],
+  [[t('hud.controls.cap.fHold')], t('hud.controls.key.revive')],
+  [['G'], t('hud.controls.key.drop')],
+  [['1', '2', '3', '4'], t('hud.controls.key.slots')],
+  [[t('hud.controls.cap.wheel')], t('hud.controls.key.wheel')],
+  [['N'], t('hud.controls.key.swap')],
+  [['Tab'], t('hud.controls.key.score')],
+  [['B'], t('hud.controls.key.emote')],
+  [['Enter'], t('hud.controls.key.chat')],
+  [['F11'], t('hud.controls.key.fullscreen')],
+  [['Esc'], t('hud.controls.key.pause')],
 ];
 
 /** 휴대폰 조작(engine/touch.js). html.pc-touch가 켜져 있으면 키 표 대신 보여 준다 */
 const TOUCH_KEYS = [
-  [['왼쪽 화면'], '끌면 이동. 조금만 밀면 천천히 걸어요'],
-  [['오른쪽 화면'], '끌면 시점'],
-  [['발사'], '사격 · 베기 · 투척. 누른 채 끌면 시점도 함께 움직여요'],
-  [['조준'], '줌 켜고 끄기. 2단 줌 저격총은 누를 때마다 다음 단계로, 칼은 강타, 수류탄은 낮게 굴리기. 누른 채 끌면 시점도 움직여요'],
-  [['조준 사격'], '라이플을 들면 조준 버튼이 바뀌어요. 누르는 동안 조준하면서 자동으로 쏘고, 떼면 멈춰요'],
-  [['점프'], '점프. 꾹 누르고 있으면 착지할 때마다 자동으로 다시 뛰어요'],
-  [['앉기'], '누를 때마다 앉고 일어나요'],
-  [['장전'], '재장전'],
-  [['설치/해체'], '폭파 미션에서 구역 안이나 폭탄 근처에서만 나타나요(누르고 있기)'],
-  [['살리기'], '좀비 멀티: 쓰러진 동료 옆에 서면 나타나요. 3초 누르고 있으면 그 자리에서 일어나요'],
-  [['무기 칸'], '화면 아래 칸을 눌러 무기를 바꿔요'],
-  [['무기 칸 길게'], '주무기·보조무기 칸을 길게 누르면 그 총을 버려요. 그 칸이 비면 바닥의 총을 주워 남은 탄 그대로 써요'],
-  [['안내 줄'], '조작이 풀렸을 때 눌러 다시 시작해요'],
-  [['점수'], '점수판 (누르는 동안)'],
-  [['이모트'], '한 번 누르면 휠이 열려요. 원하는 칸을 누르면 시작, 가운데를 누르면 닫혀요. 누른 채 끌어서 고르고 떼도 돼요. 움직이면 취소'],
-  [['채팅'], '멀티플레이 경기 중에만 보여요. 빠른 문장을 누르면 바로 보내고, 입력칸을 누르면 직접 써요'],
-  [['Ⅱ'], '일시정지 메뉴'],
+  [[t('hud.controls.tcap.left')], t('hud.controls.tkey.left')],
+  [[t('hud.controls.tcap.right')], t('hud.controls.tkey.right')],
+  [[t('hud.controls.tcap.fire')], t('hud.controls.tkey.fire')],
+  [[t('hud.controls.tcap.zoom')], t('hud.controls.tkey.zoom')],
+  [[t('hud.controls.tcap.aimFire')], t('hud.controls.tkey.aimFire')],
+  [[t('hud.controls.tcap.jump')], t('hud.controls.key.jump')],
+  [[t('hud.controls.tcap.crouch')], t('hud.controls.tkey.crouch')],
+  [[t('hud.controls.tcap.reload')], t('hud.controls.key.reload')],
+  [[t('hud.controls.tcap.use')], t('hud.controls.tkey.use')],
+  [[t('hud.controls.tcap.revive')], t('hud.controls.tkey.revive')],
+  [[t('hud.controls.tcap.slots')], t('hud.controls.tkey.slots')],
+  [[t('hud.controls.tcap.slotsHold')], t('hud.controls.tkey.slotsHold')],
+  [[t('hud.controls.tcap.hint')], t('hud.controls.tkey.hint')],
+  [[t('hud.controls.tcap.score')], t('hud.controls.key.score')],
+  [[t('hud.controls.tcap.emote')], t('hud.controls.tkey.emote')],
+  [[t('hud.controls.tcap.chat')], t('hud.controls.tkey.chat')],
+  [['Ⅱ'], t('hud.controls.tkey.pause')],
 ];
 
 const TOUCH_MOVES = [
-  '점프 버튼을 꾹 누르면 자동 점프: 착지하자마자 다시 뛰어서 달리던 속도가 줄지 않아요.',
-  '공중 가속: 공중에서 이동과 시점을 같은 쪽으로 번갈아 흔들면 빨라져요.',
+  t('hud.controls.tmove1'),
+  t('hud.controls.tmove2'),
 ];
 
 const MOVES = [
-  '스페이스를 꾹 누르면 자동 점프: 착지하자마자 다시 뛰어서 달리던 속도가 줄지 않아요.',
-  '공중 가속: 공중에서 A/D와 마우스를 같은 쪽으로 흔들면 빨라져요. A → 왼쪽, D → 오른쪽을 번갈아 가며 리듬을 타 보세요.',
-  '점프 발판: 빛나는 원판을 밟으면 표시된 곳으로 높이 날아가요. 빛나는 문(포털)은 다른 장소로 바로 옮겨 줘요.',
-  '비밀 스팟: 맵 곳곳의 숨은 곳에 처음 들어가면 포인트를 받아요. 찾은 곳은 마이페이지에 남아요.',
+  t('hud.controls.move1'),
+  t('hud.controls.move2'),
+  t('hud.controls.move3'),
+  t('hud.controls.move4'),
 ];
 
 const SHOTS = [
-  '라이플은 거리와 상관없이 머리 한 방이면 쓰러져요.',
-  '저격 반샷: 저격총은 머리·몸·다리가 대체로 한 방이지만 손끝이나 발에 맞으면 반샷이에요. SK-7 기준 50 피해만 들어가고, 화면에 "반샷"으로 표시돼요.',
-  '퀵스코프: 저격총은 줌이 절반쯤 들어간 순간부터 정확해요. 줌을 켜자마자 쏘면 빗나가기 쉬워요.',
+  t('hud.controls.shot1'),
+  t('hud.controls.shot2'),
+  t('hud.controls.shot3'),
 ];
 
 const RULES = [
-  '규칙: 클래식은 모든 무기, 칼전은 칼만, 스나전은 저격총과 칼만 써요.',
-  '팀전: 블루 팀 🟦 vs 레드 팀 🟥 섬멸전 · 5판 3선승 · 라운드 2:00 · 라운드 중 부활 없음',
-  '팀전 시간 종료: 생존자가 많은 팀 → 남은 체력 합이 큰 팀 → 같으면 무승부(재경기)',
-  '폭파 미션: 공격 팀이 A·B 구역에 폭탄 설치(3초) → 35초 뒤 폭발 · 수비는 폭탄 옆에서 5초 해체 · 5판 3선승 · 2라운드 뒤 공수 교대 · 라운드 1:40 · 부활 없음',
-  '개인전: 모두가 적 · 먼저 목표 킬(기본 20, 멀티는 방장이 5~20 중에서 정함)에 닿으면 우승 · 5분 · 죽으면 3초 뒤 부활(직후 잠깐 보호)',
+  t('hud.controls.rule1'),
+  t('hud.controls.rule2'),
+  t('hud.controls.rule3'),
+  t('hud.controls.rule4'),
+  t('hud.controls.rule5'),
 ];
 
 const bullets = (lines) => h('ul', { class: 'sk-rules' }, lines.map((t) => h('li', { text: t })));
@@ -84,23 +85,24 @@ export function createControlsPanel({ onClose }) {
   const moves = isTouch ? [...TOUCH_MOVES, ...MOVES.slice(2)] : MOVES;
   const list = h('ul', { class: 'sk-keys' },
     (isTouch ? TOUCH_KEYS : KEYS).map(([keys, desc]) => h('li', { class: 'sk-keys-row' },
-      h('span', { class: 'sk-keys-caps' }, keys.map((k) => (k === OR ? h('span', { class: 'sk-keys-or', text: '또는' }) : keycap(k)))),
+      h('span', { class: 'sk-keys-caps' }, keys.map((k) => (k === OR ? h('span', { class: 'sk-keys-or', text: t('hud.controls.or') }) : keycap(k)))),
       h('span', { class: 'sk-keys-desc', text: desc }))));
   // Ctrl+W는 브라우저가 가로채 탭을 닫는다(전체 화면 키 잠금이 아니면 페이지가 막을 수 없음)
   const warn = h('p', { class: 'sk-keys-warn', role: 'note' },
-    h('b', { text: 'Ctrl+W는 브라우저 탭 닫기예요' }),
-    h('span', { text: ' · F11(전체 화면)을 켜면 Ctrl+W·Tab도 게임이 받아요. 창 화면에서는 앉은 채 앞으로 갈 때 C 키를 쓰세요.' }));
+    h('b', { text: t('hud.controls.warnTitle') }),
+    h('span', { text: t('hud.controls.warnBody') }));
   const el = sheet({
-    title: '조작법',
+    title: t('hud.controls.title'),
+    kicker: 'CONTROLS',
     onClose,
     cls: 'sk-controls',
     body: [
       list, warn,
-      h('h3', { class: 'sk-sub-title', text: '이동과 맵' }), bullets(moves),
-      h('h3', { class: 'sk-sub-title', text: '사격' }), bullets(SHOTS),
-      h('h3', { class: 'sk-sub-title', text: '모드와 규칙' }), bullets(RULES),
+      h('h3', { class: 'sk-sub-title', text: t('hud.controls.subMoves') }), bullets(moves),
+      h('h3', { class: 'sk-sub-title', text: t('hud.controls.subShots') }), bullets(SHOTS),
+      h('h3', { class: 'sk-sub-title', text: t('hud.controls.subRules') }), bullets(RULES),
     ],
-    foot: [btn('확인', onClose, 'sk-btn--primary', { 'data-autofocus': '' })],
+    foot: [btn(t('hud.controls.ok'), onClose, 'sk-btn--primary', { 'data-autofocus': '' })],
   });
   return { el };
 }

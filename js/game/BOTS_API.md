@@ -36,7 +36,8 @@ const inp = brain.think(dt, {
     recoil: arsenal.getRecoilKick(),                      // { yaw, pitch } 카메라에 더해지는 반동 (반동 보정용)
     grenades: arsenal.getAmmo('gr_frag').mag,              // 남은 수류탄
     vel: body.vel,
-    crouch: player.state.crouch                           // 봇이 지금 앉아 있나(bool|0..1) → 눈높이 1.1. 주면 '앉아서 숨는 낮은 엄폐'도 쓴다
+    crouch: player.state.crouch,                          // 봇이 지금 앉아 있나(bool|0..1) → 눈높이 1.1. 주면 '앉아서 숨는 낮은 엄폐'도 쓴다
+    blind: false                                          // 섬광에 눈이 멀었나(true면 아무 적도 보지 못한다 → 쏘지 않는다, MODES.md 연막탄·섬광탄)
   },
   enemies: [{ id, pos, alive, crouch?, protect? }],       // 적 '전원'을 넘긴다 — 봇이 시야각·시야선으로 직접 거른다
                                                           // crouch: 앉은 상대(true|0..1) → 머리 1.12·몸통 0.6~1.05로 낮춰 겨눔
@@ -44,6 +45,7 @@ const inp = brain.think(dt, {
   allies:  [{ id, pos, alive }],                          // 자기 자신은 빼도 되고 넣어도 된다
   nav,
   los: (a, b) => world.lineOfSight(a, b),                 // a,b = 배열이면서 .x/.y/.z도 있는 점 → physics 함수에 그대로 넘김
+  sight: (a, b) => los(a, b) && !world.smokeBlocks(a, b), // (선택) '보기'만 쓰는 시선 — 연막탄 연기도 막는다. 없으면 los. 걷기·엄폐 찾기는 los만 쓴다
   time                                                    // (참고용, 봇은 dt를 누적해 자체 시계를 쓴다)
 });
 
@@ -97,6 +99,7 @@ brain 메서드:
 - `reset()` — 라운드 시작 때 기억·계획 초기화(안 불러도 부활·순간이동을 감지해 스스로 초기화).
 - `respawn({ spawn:{x,y,z,rotY}, loadout, protectMs })` — 개인전 부활(아래 6절). `{x,y,z,rotY,loadout}`처럼 평평하게 줘도 된다. `loadout`은 규칙에서 쓸 수 있는 무기 id면 무엇이든, 아니면 그대로 둔다.
 - `setLoadout(id)` — 다음 `respawn`부터 쓸 무기만 예약(지금 목숨은 그대로). 규칙에서 쓸 수 없으면 예약을 지우고 `false`.
+- `setCarried({ primary, secondary, melee, grenade })` — 지금 실제로 가진 무기(배틀로얄 MODES.md 15절: 권총·칼로 출발해 줍는다). `null`인 슬롯은 없는 것으로 보고 쓰지 않는다. 주무기가 있으면 평소 슬롯은 1, 없으면 권총. 무기를 줍거나 출발할 때마다 부른다(`respawn` 뒤).
 - `onLaunch()` — 발판에 실려 날기 시작했다. 들고 있던 경로를 버리고, 착지하면 새로 계획한다.
 - `mode`(`'team'|'ffa'`), `ruleset`, `primary`(고른 무기 id), `role`(그 무기의 `def.kind`) — 읽기용 (respawn으로 무기가 바뀌면 같이 바뀜)
 - `debug()` — `{ mode, ruleset, primary, weapon, homeSlot, target, lane, slot, goal, path, memory, stuckLevel, holding, ... }` (HUD·오버레이용)

@@ -4,6 +4,7 @@
  * Purpose: 도형으로 그린 아이콘(외부 이미지 없음)과 메뉴 배경, 무기·맵 정보 조회. 맵 아이콘은 맵을 위에서 본 단순한 평면도다.
  */
 import { svg } from './dom.js';
+import { t, loc } from '../core/i18n.js';
 
 // ---------- 맵 미니 아이콘 (viewBox 0 0 48 32) ----------
 const fill = (d) => svg('path', { d, class: 'sk-ic-fill' });
@@ -151,48 +152,86 @@ export function mapIcon(id, cls = '') {
 
 // ---------- 헤드샷 아이콘 (조준선 + 머리) ----------
 export function headshotIcon() {
-  return svg('svg', { viewBox: '0 0 16 16', class: 'sk-hs-ico', role: 'img', 'aria-label': '헤드샷' },
-    svg('title', { text: '헤드샷' }),
+  return svg('svg', { viewBox: '0 0 16 16', class: 'sk-hs-ico', role: 'img', 'aria-label': t('shop.headshot') },
+    svg('title', { text: t('shop.headshot') }),
     svg('circle', { cx: 8, cy: 8, r: 5.2 }),
     svg('path', { d: 'M8 0.8 V4.4 M8 11.6 V15.2 M0.8 8 H4.4 M11.6 8 H15.2' }),
     svg('circle', { cx: 8, cy: 8, r: 1.4, class: 'sk-hs-dot' }));
 }
 
-// ---------- 메뉴·화면 아이콘 (viewBox 0 0 24 24, 선으로만 그려 글자색을 따른다) ----------
+// ---------- 메뉴·화면 아이콘 (viewBox 0 0 24 24, 직접 그린 선 아이콘. 선으로만 그려 글자색을 따른다) ----------
+const P = (d) => svg('path', { d });
+const C = (cx, cy, r) => svg('circle', { cx, cy, r });
+const R = (x, y, width, height) => svg('rect', { x, y, width, height });
 const UI_ICONS = {
-  bolt: () => [svg('path', { d: 'M13 2 L5 13.5 H11 L10 22 L19 9.5 H13 Z' })],
-  target: () => [svg('circle', { cx: 12, cy: 12, r: 7.5 }), svg('circle', { cx: 12, cy: 12, r: 2.5 }), svg('path', { d: 'M12 1.5 V6 M12 18 V22.5 M1.5 12 H6 M18 12 H22.5' })],
-  globe: () => [svg('circle', { cx: 12, cy: 12, r: 9.5 }), svg('path', { d: 'M2.5 12 H21.5 M12 2.5 C8 7 8 17 12 21.5 C16 17 16 7 12 2.5' })],
-  bag: () => [svg('path', { d: 'M5 8 H19 L20.5 21.5 H3.5 Z' }), svg('path', { d: 'M8.5 11 V6.5 a3.5 3.5 0 0 1 7 0 V11' })],
-  gear: () => [svg('circle', { cx: 12, cy: 12, r: 3.2 }), svg('circle', { cx: 12, cy: 12, r: 7.2 }), svg('path', { d: 'M12 1.5 V4.8 M12 19.2 V22.5 M1.5 12 H4.8 M19.2 12 H22.5 M4.6 4.6 L6.9 6.9 M17.1 17.1 L19.4 19.4 M4.6 19.4 L6.9 17.1 M17.1 6.9 L19.4 4.6' })],
-  keys: () => [svg('rect', { x: 2, y: 6.5, width: 20, height: 11, rx: 2 }), svg('path', { d: 'M6 10.5 H6.5 M10 10.5 H10.5 M14 10.5 H14.5 M18 10.5 H18.5 M7.5 14 H16.5' })],
-  user: () => [svg('circle', { cx: 12, cy: 8, r: 4.2 }), svg('path', { d: 'M3.8 21.5 C4.6 16.8 8 14.8 12 14.8 C16 14.8 19.4 16.8 20.2 21.5' })],
-  coin: () => [svg('circle', { cx: 12, cy: 12, r: 9.5 }), svg('path', { d: 'M9.5 17 V7.5 H13.2 a3 3 0 0 1 0 6 H9.5' })],
-  lock: () => [svg('rect', { x: 5, y: 11, width: 14, height: 10.5, rx: 2 }), svg('path', { d: 'M8 11 V7.5 a4 4 0 0 1 8 0 V11' })],
-  check: () => [svg('path', { d: 'M4 12.5 L10 18.5 L20 6.5' })],
-  // 좀비 물량 막기(메뉴): 해골. 건의하기(메뉴): 편지 봉투
-  skull: () => [svg('path', { d: 'M12 2.8 C7.1 2.8 4 6.1 4 10.4 C4 13 5.2 14.9 6.8 16 V19.6 a1.4 1.4 0 0 0 1.4 1.4 H15.8 a1.4 1.4 0 0 0 1.4 -1.4 V16 C18.8 14.9 20 13 20 10.4 C20 6.1 16.9 2.8 12 2.8 Z' }),
-    svg('circle', { cx: 9, cy: 11, r: 1.9 }), svg('circle', { cx: 15, cy: 11, r: 1.9 }), svg('path', { d: 'M12 13.8 L11 15.6 H13 Z M10 21 V18.6 M14 21 V18.6' })],
-  mail: () => [svg('rect', { x: 2.5, y: 5, width: 19, height: 14, rx: 2.2 }), svg('path', { d: 'M3.5 6.5 L12 13 L20.5 6.5' })],
+  bolt: () => [P('M13 2 L5 13.5 H11 L10 22 L19 9.5 H13 Z')],
+  target: () => [C(12, 12, 7.5), C(12, 12, 2.5), P('M12 1.5 V6 M12 18 V22.5 M1.5 12 H6 M18 12 H22.5')],
+  globe: () => [C(12, 12, 9.5), P('M2.5 12 H21.5 M12 2.5 C8 7 8 17 12 21.5 C16 17 16 7 12 2.5')],
+  bag: () => [P('M5 8 H19 L20.5 21.5 H3.5 Z'), P('M8.5 11 V6.5 a3.5 3.5 0 0 1 7 0 V11')],
+  gear: () => [C(12, 12, 3.2), C(12, 12, 7.2), P('M12 1.5 V4.8 M12 19.2 V22.5 M1.5 12 H4.8 M19.2 12 H22.5 M4.6 4.6 L6.9 6.9 M17.1 17.1 L19.4 19.4 M4.6 19.4 L6.9 17.1 M17.1 6.9 L19.4 4.6')],
+  keys: () => [R(2, 6.5, 20, 11), P('M6 10.5 H6.5 M10 10.5 H10.5 M14 10.5 H14.5 M18 10.5 H18.5 M7.5 14 H16.5')],
+  user: () => [C(12, 8, 4.2), P('M3.8 21.5 C4.6 16.8 8 14.8 12 14.8 C16 14.8 19.4 16.8 20.2 21.5')],
+  coin: () => [C(12, 12, 9.5), P('M9.5 17 V7.5 H13.2 a3 3 0 0 1 0 6 H9.5')],
+  lock: () => [R(5, 11, 14, 10.5), P('M8 11 V7.5 a4 4 0 0 1 8 0 V11')],
+  check: () => [P('M4 12.5 L10 18.5 L20 6.5')],
+  // 좀비 물량 막기: 해골. 건의하기: 편지 봉투
+  skull: () => [P('M12 2.8 C7.1 2.8 4 6.1 4 10.4 C4 13 5.2 14.9 6.8 16 V19.6 a1.4 1.4 0 0 0 1.4 1.4 H15.8 a1.4 1.4 0 0 0 1.4 -1.4 V16 C18.8 14.9 20 13 20 10.4 C20 6.1 16.9 2.8 12 2.8 Z'),
+    C(9, 11, 1.9), C(15, 11, 1.9), P('M12 13.8 L11 15.6 H13 Z M10 21 V18.6 M14 21 V18.6')],
+  mail: () => [R(2.5, 5, 19, 14), P('M3.5 6.5 L12 13 L20.5 6.5')],
+  // 화면 공용: 닫기 · 출격(겹 화살) · 뒤로 · 더하기 · 새로고침 · 정렬
+  close: () => [P('M6 6 L18 18 M18 6 L6 18')],
+  deploy: () => [P('M4 6 L10 12 L4 18 M11 6 L17 12 L11 18'), P('M20 5 V19')],
+  back: () => [P('M10 5 L3 12 L10 19 M3 12 H21')],
+  plus: () => [P('M12 4.5 V19.5 M4.5 12 H19.5')],
+  refresh: () => [P('M20 12 a8 8 0 1 1 -2.4 -5.7'), P('M20.5 3.5 V8 H16')],
+  play: () => [P('M7 4.5 L19 12 L7 19.5 Z')],
+  clock: () => [C(12, 12, 9), P('M12 7 V12 L15.5 14')],
+  alert: () => [P('M12 3 L22.5 20.5 H1.5 Z'), P('M12 9.5 V14.5 M12 17 V17.6')],
+  sort: () => [P('M8 4.5 V19.5 M4.5 16 L8 19.5 L11.5 16 M16 19.5 V4.5 M12.5 8 L16 4.5 L19.5 8')],
+  // 무기고(장비 상자) · 요원 기록부(서류철)
+  armory: () => [R(3, 8, 18, 12), P('M3 12.5 H21 M10 12.5 V15 H14 V12.5 M7.5 8 L9 4.5 H15 L16.5 8')],
+  file: () => [P('M3 5.5 H9.5 L11.5 7.5 H21 V20 H3 Z'), P('M7 12 H17 M7 15.5 H13.5')],
+  // 같이 하기 · 혼자 하기 · 방장 · 봇
+  squad: () => [C(9, 8, 3.2), C(16.5, 9, 2.6), P('M3 20.5 C3.6 15.8 6.2 14.2 9 14.2 C11.8 14.2 14.4 15.8 15 20.5 M15.4 14.3 C18.2 14.2 20.4 15.8 21 19.5')],
+  solo: () => [C(12, 7.5, 3.6), P('M5.5 21 C6.2 15.6 8.8 13.6 12 13.6 C15.2 13.6 17.8 15.6 18.5 21')],
+  crown: () => [P('M3 8 L7.5 12.5 L12 5 L16.5 12.5 L21 8 L19 18.5 H5 Z')],
+  bot: () => [R(5, 8, 14, 11), C(9.5, 13, 1.3), C(14.5, 13, 1.3), P('M12 4 V8 M2.5 12 V15.5 M21.5 12 V15.5 M9.5 16.5 H14.5')],
+  // 채팅 · 지도 · 규칙 · 트로피
+  chat: () => [P('M3.5 4.5 H20.5 V16 H11 L6 20 V16 H3.5 Z')],
+  map: () => [P('M3 6 L9 4 L15 6 L21 4 V18 L15 20 L9 18 L3 20 Z M9 4 V18 M15 6 V20')],
+  rules: () => [R(5, 4, 14, 17), P('M9 4 V2.5 H15 V4 M8.5 10 H15.5 M8.5 13.5 H15.5 M8.5 17 H12.5')],
+  trophy: () => [P('M7 3.5 H17 V9 a5 5 0 0 1 -10 0 Z M12 14 V18 M8 21 H16 M7 5.5 H3.5 V7.5 a3.5 3.5 0 0 0 3.5 3.5 M17 5.5 H20.5 V7.5 a3.5 3.5 0 0 1 -3.5 3.5')],
+  // 모드: 팀전(맞선 두 칼날) · 폭파 미션(폭탄)
+  team: () => [P('M4 4 L14 14 M20 4 L10 14 M4 4 H7.5 M4 4 V7.5 M20 4 H16.5 M20 4 V7.5 M7 17 L4 20 M17 17 L20 20 M5.5 15.5 L8.5 18.5 M18.5 15.5 L15.5 18.5')],
+  bomb: () => [C(10.5, 14.5, 6.5), P('M13.6 9.6 L15.6 7.6 L17.6 9.6 L15.6 11.6'), P('M16.6 8.6 C17.4 6.2 18.8 5 20.8 5 M21 2 V3 M23 5 H22')],
+  // 무기 종류: 소총 · 저격총 · 권총 · 칼 · 수류탄
+  rifle: () => [P('M2 10.5 H15 L16.5 9 H22 V12 H17.5 L16 13.5 H11 L9.5 17.5 H6.5 L8 13.5 H2 Z'), P('M5 10.5 V9')],
+  sniper: () => [P('M2 12 H14 L15.5 10.5 H22 V13 H17 L15.5 14.5 H11 L9.5 18 H7 L8.5 14.5 H2 Z'), R(6, 7, 6, 2.5), P('M8 9.5 V12 M10 9.5 V12')],
+  pistol: () => [P('M3 7 H20 V11 H11.5 L10.5 13.5 H9 L7.8 19 H4.2 L5.8 11 H3 Z'), P('M11.5 11 V13.5')],
+  knife: () => [P('M4 20 L8 16 M6.3 14.3 L9.7 17.7 M8 16 L19.5 4.5 C21 8 18.5 12 12 18.3')],
+  grenade: () => [C(11, 14.5, 6), P('M8.5 8.5 V5.5 H13.5 V8.5 M13.5 5.5 L18 3.5 M17 7.5 a2 2 0 1 0 0.01 0')],
+  // 이모트(팔 벌린 사람) · 캐릭터(전술 헬멧)
+  emote: () => [C(12, 5, 2.4), P('M4.5 8 L12 11 L19.5 8 M12 11 V15 M12 15 L8 21 M12 15 L16 21')],
+  helmet: () => [P('M3.5 15.5 C3.5 9.2 7.2 5 12 5 C16.8 5 20.5 9.2 20.5 15.5 Z M2.5 15.5 H21.5 M12 5 V9.5 M7 15.5 V18.5 H11')],
 };
 
 /** 이름 → 선 아이콘. 크기는 글자 크기(1em)를 따른다. */
 export function uiIcon(name, cls = '') {
-  const draw = UI_ICONS[name];
+  const draw = Object.prototype.hasOwnProperty.call(UI_ICONS, name) ? UI_ICONS[name] : null;
   return svg('svg', { viewBox: '0 0 24 24', class: 'sk-uico' + (cls ? ' ' + cls : ''), 'aria-hidden': 'true', focusable: 'false' }, draw ? draw() : []);
 }
 
-// ---------- 메뉴 배경: 사선 띠와 네온 선, 큰 조준 고리(추상 도형) ----------
-export function menuBackdrop() {
-  const path = (d, cls) => svg('path', { d, class: cls });
-  const circle = (r) => svg('circle', { cx: 1215, cy: 455, r, class: 'sk-bd-ring' });
-  return svg('svg', { viewBox: '0 0 1600 900', preserveAspectRatio: 'xMidYMid slice', class: 'sk-backdrop', 'aria-hidden': 'true', focusable: 'false' },
-    path('M930 0 H1600 V900 H360 Z', 'sk-bd-band'),
-    path('M1250 0 H1600 V900 H680 Z', 'sk-bd-band sk-bd-band--pink'),
-    circle(330), circle(210),
-    path('M1215 90 V200 M1215 710 V820 M850 455 H960 M1470 455 H1580', 'sk-bd-ring'),
-    path('M930 0 L360 900', 'sk-bd-line sk-bd-line--cyan'),
-    path('M1250 0 L680 900', 'sk-bd-line sk-bd-line--pink'));
+/** 모드 → 선 아이콘 이름(dom.js MODE_ICON의 이모지 대신 화면에 그린다) */
+export const MODE_GLYPH = Object.freeze({ team: 'team', ffa: 'target', bomb: 'bomb', zombie: 'skull' });
+/** 규칙(game/modes.js RULESETS id) → 선 아이콘 이름 */
+export const RULE_GLYPH = Object.freeze({ classic: 'rifle', knife: 'knife', sniper: 'sniper' });
+
+/** 무기 id·칸 → 선 아이콘 이름. 저격총은 id로, 나머지는 칸(1 주무기 · 2 보조 · 3 근접 · 4 투척)으로 고른다 */
+export function weaponGlyph(id, slot) {
+  const s = String(id == null ? '' : id).toLowerCase();
+  if (/sr_|bolt|snip/.test(s)) return 'sniper';
+  if (/gr_|grenade|nade|frag|flash|smoke/.test(s)) return 'grenade';
+  return ({ 1: 'rifle', 2: 'pistol', 3: 'knife', 4: 'grenade' })[slot] || (/pt_|pistol/.test(s) ? 'pistol' : /ml_|knife|melee/.test(s) ? 'knife' : 'rifle');
 }
 
 // ---------- 무기 ----------
@@ -216,7 +255,7 @@ function shortName(name) {
 
 /** 무기 표에 없는 피해 원인. 폭파 미션의 폭탄 폭발은 킬피드·점수판·결과에서 '💥 폭탄'이다 */
 const SPECIAL_WEAPONS = Object.freeze({
-  bomb: Object.freeze({ id: 'bomb', name: '폭탄', short: '폭탄', icon: '💥' }),
+  bomb: Object.freeze({ id: 'bomb', name: '폭탄', nameEn: 'Bomb', short: '폭탄', shortEn: 'Bomb', icon: '💥' }), // i18n-ok: 짝 칸(nameEn·shortEn)을 loc으로 읽는다
 });
 const specialWeapon = (id) => (id != null && Object.prototype.hasOwnProperty.call(SPECIAL_WEAPONS, String(id)) ? SPECIAL_WEAPONS[String(id)] : null);
 
@@ -225,12 +264,12 @@ export function weaponInfo(registry, ref, extra = {}) {
   const isObj = ref && typeof ref === 'object';
   const id = isObj ? ref.id : ref;
   const def = { ...((id != null && registry.get(String(id))) || specialWeapon(id) || {}), ...(isObj ? ref : {}) };
-  const name = extra.weaponName || def.name || def.label || (id != null ? String(id) : '');
+  const name = extra.weaponName || loc(def, 'name') || def.label || (id != null ? String(id) : '');
   return {
     id: id == null ? '' : String(id),
     icon: extra.weaponIcon || def.icon || def.emoji || guessWeaponIcon(id, def.slot),
     name,
-    short: extra.weaponShort || def.short || def.code || shortName(name),
+    short: extra.weaponShort || loc(def, 'short') || def.code || shortName(name),
     def,
   };
 }
@@ -238,20 +277,21 @@ export function weaponInfo(registry, ref, extra = {}) {
 // ---------- 맵 ----------
 // 엔진이 ui.setMaps()/props.maps로 넘기지 않았을 때만 쓰는 최소 대체값(이름만).
 const FALLBACK_MAPS = [
-  { id: 'rooftop', name: '빨랫줄 옥상', nameEn: 'Clothesline Roof', desc: '' },
-  { id: 'glasshouse', name: '선인장 온실', nameEn: 'Cactus Glasshouse', desc: '' },
-  { id: 'alley', name: '항구 골목', nameEn: 'Harbor Alley', desc: '' },
-  { id: 'dojo', name: '벚꽃 도장', nameEn: 'Blossom Dojo', desc: '' },
-  { id: 'longshot', name: '협곡 저격장', nameEn: 'Long Shot', desc: '' },
-  { id: 'nexus', name: '넥서스', nameEn: 'Nexus', desc: '' },
+  { id: 'rooftop', name: '빨랫줄 옥상', nameEn: 'Clothesline Roof', desc: '' }, // i18n-ok: 짝 칸(nameEn)을 loc으로 읽는다
+  { id: 'glasshouse', name: '선인장 온실', nameEn: 'Cactus Glasshouse', desc: '' }, // i18n-ok: 짝 칸(nameEn)을 loc으로 읽는다
+  { id: 'alley', name: '항구 골목', nameEn: 'Harbor Alley', desc: '' }, // i18n-ok: 짝 칸(nameEn)을 loc으로 읽는다
+  { id: 'dojo', name: '벚꽃 도장', nameEn: 'Blossom Dojo', desc: '' }, // i18n-ok: 짝 칸(nameEn)을 loc으로 읽는다
+  { id: 'longshot', name: '협곡 저격장', nameEn: 'Long Shot', desc: '' }, // i18n-ok: 짝 칸(nameEn)을 loc으로 읽는다
+  { id: 'nexus', name: '넥서스', nameEn: 'Nexus', desc: '' }, // i18n-ok: 짝 칸(nameEn)을 loc으로 읽는다
 ];
 
 /** mission: 폭파 미션을 할 수 있는 맵(A·B 구역이 있음), zombie: 좀비 물량 막기 전용 맵. MAP_LIST 항목에 없으면 false */
 export function normMap(m) {
   if (typeof m === 'string') return { id: m, name: m, nameEn: '', desc: '', tag: '', rulesets: null, test: false, mission: false, zombie: false };
   return {
-    id: String(m.id), name: m.name || String(m.id), nameEn: m.nameEn || '', desc: m.desc || '',
-    tag: m.tag || '', rulesets: Array.isArray(m.rulesets) ? m.rulesets : null, test: !!m.test, mission: m.mission === true, zombie: m.zombie === true,
+    // 이름·설명·태그는 지금 언어로 고른 값이다(mapInfo를 쓰는 결과·방 화면도 같은 글자를 보인다). nameEn은 한국어 화면의 영어 부제
+    id: String(m.id), name: loc(m, 'name') || String(m.id), nameEn: m.nameEn || '', desc: loc(m, 'desc') || '',
+    tag: loc(m, 'tag') || '', rulesets: Array.isArray(m.rulesets) ? m.rulesets : null, test: !!m.test, mission: m.mission === true, zombie: m.zombie === true,
   };
 }
 

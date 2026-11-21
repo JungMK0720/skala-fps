@@ -79,15 +79,26 @@ describe('중계 규칙', () => {
   });
 
   test('Origin은 목록과 포트 와일드카드로만 허용하고, Origin이 없는 도구는 통과한다', () => {
-    assert.ok(R.originAllowed('https://jungmk0720.github.io'));
+    const gameOrigins = R.DEFAULT_ORIGINS.split(',').map((origin) => origin.trim()).filter((origin) => origin.startsWith('https://'));
+    assert.ok(gameOrigins.length > 0, '배포 게임 Origin이 하나 이상 있다');
+    for (const origin of gameOrigins) assert.ok(R.originAllowed(origin), `설정된 게임 Origin: ${origin}`);
     assert.ok(R.originAllowed('http://localhost:8080'));
     assert.ok(R.originAllowed('http://127.0.0.1:54321'));
     assert.ok(R.originAllowed(undefined) && R.originAllowed(''));
     assert.ok(!R.originAllowed('https://evil.example'));
     assert.ok(!R.originAllowed('http://localhost:8080.evil.example'), '포트 자리에 숫자만');
-    assert.ok(!R.originAllowed('https://jungmk0720.github.io.evil.example'));
+    for (const origin of gameOrigins) assert.ok(!R.originAllowed(origin + '.evil.example'), '허용 호스트를 접두사로 쓰는 가짜 Origin은 거부한다');
     assert.ok(R.originAllowed('https://a.example', 'https://a.example, https://b.example'));
     assert.ok(!R.originAllowed('https://c.example', 'https://a.example,https://b.example'));
+    // CrazyGames에 올린 게임 파일: https://<게임>.game-files.crazygames.com 만, 같은 scheme·기본 포트
+    assert.ok(R.originAllowed('https://skala-ops.game-files.crazygames.com'));
+    assert.ok(R.originAllowed('https://a.b.game-files.crazygames.com'));
+    assert.ok(!R.originAllowed('https://game-files.crazygames.com'), '하위 도메인만');
+    assert.ok(!R.originAllowed('http://skala-ops.game-files.crazygames.com'), 'https만');
+    assert.ok(!R.originAllowed('https://skala-ops.game-files.crazygames.com:8443'), '기본 포트만');
+    assert.ok(!R.originAllowed('https://evilgame-files.crazygames.com'));
+    assert.ok(!R.originAllowed('https://x.game-files.crazygames.com.evil.example'));
+    assert.ok(!R.originAllowed('https://www.crazygames.com'), '게임 파일 주소가 아닌 CrazyGames 페이지는 허용하지 않는다');
   });
 
   test('들어온 글자: 크기, JSON, 모양, ref를 검사한다', () => {

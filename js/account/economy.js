@@ -2,10 +2,11 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: 포인트 규칙(순수 함수). docs/DESIGN.md 7절의 표를 데이터로 두고 경기 보상과 비밀 스팟 보상을 계산한다.
- *          개인전 승리 보상은 목표 킬에 비례해 줄인다(20킬 판이 표의 값 전부). 개인전 즉시 부활 값도 여기서 정한다.
+ *          개인전 승리 보상은 목표 킬에 비례해 줄인다(20킬 판이 표의 값 전부). 배틀로얄은 최후의 1인 · 상위 3위 보상을 준다. 개인전 즉시 부활 값도 여기서 정한다.
  *          가격은 weapons/defs.js(무기), core/consts.js EMOTES(이모트), core/avatar-defs.js AVATARS(캐릭터)가 정본이다. 값이 바뀌면 서버 가격표(supabase/schema.sql)와 설계 문서를 함께 고친다.
  */
 import { WEAPON_IDS, getDef } from '../weapons/defs.js';
+import { t } from '../core/i18n.js';
 import { EMOTE_IDS, emoteById } from '../core/consts.js';
 import { AVATAR_IDS, avatarById, isAvatarId } from '../core/avatar-defs.js';
 import { FFA_KILLS } from '../game/modes.js';
@@ -40,14 +41,14 @@ export function withQuickRespawns(reward, quickCount, spent) {
   const n = count(quickCount), paid = count(spent);
   if (!reward || typeof reward !== 'object' || !n || !paid) return reward;
   const lines = Array.isArray(reward.breakdown) ? reward.breakdown : [];
-  return { ...reward, gained: (Number(reward.gained) || 0) - paid, breakdown: [...lines, { label: `즉시 부활 ×${n}`, points: -paid }] };
+  return { ...reward, gained: (Number(reward.gained) || 0) - paid, breakdown: [...lines, { label: t('account.rwQuickRespawn', { n }), points: -paid }] };
 }
 
 /** 봇전에만 적용한다 */
 export const DIFFICULTY_BONUS = Object.freeze({
-  easy: Object.freeze({ label: '쉬움', mul: 0.7 }),
-  normal: Object.freeze({ label: '보통', mul: 1 }),
-  hard: Object.freeze({ label: '어려움', mul: 1.4 })
+  easy: Object.freeze({ label: t('account.diffEasy'), mul: 0.7 }),
+  normal: Object.freeze({ label: t('account.diffNormal'), mul: 1 }),
+  hard: Object.freeze({ label: t('account.diffHard'), mul: 1.4 })
 });
 
 function count(v) {
@@ -65,15 +66,19 @@ export const FFA_FULL_WIN_KILLS = FFA_KILLS.max;
  * 경기 summary를 안전한 값으로 읽는다. 숫자가 아니거나 음수면 0, 모르는 난이도는 normal, 무승부는 승리가 아니다.
  * knifeKills는 DESIGN의 summary에 없는 선택 필드로, 넘겨 주면 전적에 쌓인다.
  * killTarget은 개인전(mode 'ffa')에서만 읽는다. 없으면 0이고 승리 보상을 줄이지 않는다(목표 킬을 싣지 않던 예전 기록).
+ * placement·players는 배틀로얄(mode 'br')에서만 읽는다: 최종 순위(1 = 최후의 1인)와 참가 인원
  */
 export function readSummary(summary) {
   const s = summary && typeof summary === 'object' ? summary : {};
   const draw = !!s.draw;
   const ffa = s.mode === 'ffa';
+  const br = s.mode === 'br';
   return {
     online: !!s.online,
-    mode: ffa || s.mode === 'bomb' ? s.mode : 'team',
+    mode: ffa || br || s.mode === 'bomb' ? s.mode : 'team',
     killTarget: ffa ? count(s.killTarget) : 0,
+    placement: br ? count(s.placement) : 0,
+    players: br ? count(s.players) : 0,
     difficulty: Object.prototype.hasOwnProperty.call(DIFFICULTY_BONUS, s.difficulty) ? s.difficulty : 'normal',
     kills: count(s.kills),
     deaths: count(s.deaths),
@@ -86,6 +91,9 @@ export function readSummary(summary) {
   };
 }
 
+/** 배틀로얄 상위권 보상(우승 제외): 이 순위 안이면 승리 보상의 3분의 1. 참가자가 이보다 적으면 주지 않는다 */
+export const BR_TOP_PLACES = 3;
+
 /** → { gained, breakdown: [{ label, points }] }. breakdown의 합은 항상 gained와 같다. */
 export function matchReward(summary) {
   const s = readSummary(summary);
@@ -93,14 +101,16 @@ export function matchReward(summary) {
   const breakdown = [];
   const add = (label, points) => { if (points !== 0) breakdown.push({ label, points }); };
 
-  add(`킬 ×${s.kills}`, s.kills * table.kill);
-  add(`헤드샷 ×${s.headshots}`, s.headshots * table.headshot);
+  add(t('account.rwKills', { n: s.kills }), s.kills * table.kill);
+  add(t('account.rwHeadshots', { n: s.headshots }), s.headshots * table.headshot);
   if (s.win) {
     // 목표 킬이 짧은 개인전은 승리 보상을 비례해 줄인다. 5킬보다 작은 값은 5킬로 본다(믿을 수 없는 값이 보상을 0으로 만들지 않게)
     const k = s.killTarget ? Math.min(FFA_FULL_WIN_KILLS, Math.max(FFA_KILLS.min, s.killTarget)) : FFA_FULL_WIN_KILLS;
-    add(k < FFA_FULL_WIN_KILLS ? `승리(${k}킬 판)` : '승리', Math.round((table.win * k) / FFA_FULL_WIN_KILLS));
+    add(s.mode === 'br' ? t('account.rwLastStanding') : k < FFA_FULL_WIN_KILLS ? t('account.rwWinShort', { k }) : t('account.rwWin'), Math.round((table.win * k) / FFA_FULL_WIN_KILLS));
+  } else if (s.mode === 'br' && s.placement >= 2 && s.placement <= BR_TOP_PLACES && s.players > BR_TOP_PLACES) {
+    add(t('account.rwTopPlace', { n: s.placement }), Math.round(table.win / 3));
   }
-  add('완주', table.finish);
+  add(t('account.rwFinish'), table.finish);
 
   const subtotal = breakdown.reduce((sum, row) => sum + row.points, 0);
   let gained = subtotal;
@@ -108,7 +118,7 @@ export function matchReward(summary) {
     const { label, mul } = DIFFICULTY_BONUS[s.difficulty];
     // 0.7 같은 소수를 바로 곱하면 24.5가 24.499…가 되어 반올림이 어긋난다. 정수 백분율로 계산한다.
     gained = Math.round((subtotal * Math.round(mul * 100)) / 100);
-    add(`난이도 ${label} ×${mul}`, gained - subtotal);
+    add(t('account.rwDifficulty', { label, mul }), gained - subtotal);
   }
   return { gained, breakdown };
 }
@@ -135,15 +145,15 @@ export function readZombieSummary(summary) {
 /** → { gained, breakdown: [{ label, points }] }. breakdown의 합은 항상 gained와 같다 */
 export function zombieReward(summary) {
   const s = readZombieSummary(summary);
-  const t = s.online ? ZOMBIE_POINTS.multi : ZOMBIE_POINTS.bot;
+  const pts = s.online ? ZOMBIE_POINTS.multi : ZOMBIE_POINTS.bot;
   const breakdown = [];
   const add = (label, points) => { if (points !== 0) breakdown.push({ label, points }); };
-  add(`스테이지 클리어 ×${s.cleared}`, s.cleared * t.stage);
-  add(`보스 처치 ×${s.bossKills}`, s.bossKills * t.boss);
-  add(`좀비 처치 ${s.kills}마리`, Math.floor(s.kills / 10) * t.per10);
+  add(t('account.rwStages', { n: s.cleared }), s.cleared * pts.stage);
+  add(t('account.rwBosses', { n: s.bossKills }), s.bossKills * pts.boss);
+  add(t('account.rwZombies', { n: s.kills }), Math.floor(s.kills / 10) * pts.per10);
   const sum = breakdown.reduce((a, r) => a + r.points, 0);
-  if (sum > t.cap) add(`판당 상한 ${t.cap} P`, t.cap - sum);
-  return { gained: Math.min(sum, t.cap), breakdown };
+  if (sum > pts.cap) add(t('account.rwCap', { cap: pts.cap }), pts.cap - sum);
+  return { gained: Math.min(sum, pts.cap), breakdown };
 }
 
 /** 비밀 스팟 첫 발견 보상. 맵에 적힌 값, 없으면 기본값. */

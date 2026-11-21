@@ -1,32 +1,34 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 대기실 화면. 팀 또는 개인전 명단, 준비와 시작, 모드·규칙·개인전 목표 킬·맵 변경, 채팅, 내 장비 칸(주무기·보조무기·근접·수류탄)을 다룬다.
+ * Purpose: 대기실 = 출격 대기(DEPLOYMENT). 팀 또는 개인전 명단, 준비와 시작, 모드·규칙·개인전 목표 킬·맵 변경, 채팅, 내 장비 칸(주무기·보조무기·근접·수류탄)을 다룬다.
  *          폭파 미션은 팀 칼럼에 전반 진영(먼저 공격/수비)을 붙이고, 규칙은 클래식, 맵은 미션 맵만 고른다.
  *          자리 비움으로 방이 곧 닫히면(idleLeft) 위에 남은 초와 [계속 기다리기] 띠를 띄운다. 화면을 누르거나 키를 치면 'room:active'(1초에 한 번까지).
  *          장비 칸을 누르면 그 칸의 무기 창이 뜨고, 가진 무기는 바로 장착, 안 가진 무기는 포인트로 사서 바로 장착한다(account.buy·equip).
  */
-// SKALA 작전 UI — 방(대기실): 팀 칼럼(팀전·폭파 미션) / 한 줄 명단(개인전), 준비/시작, 모드·규칙·목표 킬·맵 변경, 채팅
-import { h, btn, setText, num, fmtPoints, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, modeLabel, MODE_ICON, MODE_NAME, SIDE_NAME, bombSide } from './dom.js';
+// 대기실: 팀 칼럼(팀전·폭파 미션) / 한 줄 명단(개인전), 준비/출격, 모드·규칙·목표 킬·맵 변경, 채팅
+import { h, btn, setText, num, fmtPoints, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, modeLabel, MODE_NAME, SIDE_NAME, bombSide } from './dom.js';
 import { makeScreen, mapCard, createChoiceRow, createStepper, createModal, sheet, normWeapon, summaryChips, pointsBadge } from './parts.js';
-import { mapList, mapInfo } from './icons.js';
+import { mapList, mapInfo, uiIcon, weaponGlyph, MODE_GLYPH, RULE_GLYPH } from './icons.js';
 import { RULE_CHOICES, MODE_IDS, ZOMBIE_MAX, mapsForMode, missionMaps, ruleForMode } from './lobby.js';
 import { RULESETS, normalizeRuleset, FFA_KILLS, FFA_KILL_PRESETS, normalizeKillTarget } from '../game/modes.js';
+import { t, loc } from '../core/i18n.js';
+import { platform } from '../platform/index.js';
 
 const CHAT_MAX = 30;
 const CHAT_LEN = 120;
 /** 대기실 장비 칸. 수류탄은 팔지 않고 계정 장비에도 없다(언제나 기본 지급) */
 const GEAR_SLOTS = [
-  { key: 'primary', slot: 1, label: '주무기' },
-  { key: 'secondary', slot: 2, label: '보조무기' },
-  { key: 'melee', slot: 3, label: '근접' },
-  { key: 'grenade', slot: 4, label: '수류탄' },
+  { key: 'primary', slot: 1, label: t('room.gearPrimary') },
+  { key: 'secondary', slot: 2, label: t('room.gearSecondary') },
+  { key: 'melee', slot: 3, label: t('room.gearMelee') },
+  { key: 'grenade', slot: 4, label: t('room.gearGrenade') },
 ];
 
 function normPlayers(p) {
   return (Array.isArray(p.players) ? p.players : []).map((x, i) => ({
     id: x.id != null ? x.id : `p${i}`,
-    name: x.name || '플레이어',
+    name: x.name || t('room.playerFallback'),
     team: teamKey(x.team),
     ready: !!x.ready,
     ping: x.ping,
@@ -44,23 +46,48 @@ export function createRoom(ctx) {
 
   // ---------- 헤더 ----------
   const title = h('h1', { class: 'sk-h1 sk-stencil sk-room-title' });
-  const modeChip = h('span', { class: 'sk-chip sk-chip--mode' });
-  const ruleChip = h('span', { class: 'sk-chip sk-chip--mode' });
-  const mapChip = h('span', { class: 'sk-chip' });
-  const countChip = h('span', { class: 'sk-chip' });
+  /** 아이콘 + 글자 칩. 글자는 text에, 아이콘은 ico에 바꿔 넣는다 */
+  const iconChip = (cls, glyph) => {
+    const ico = h('span', { class: 'sk-chip-ico', 'aria-hidden': 'true' }, uiIcon(glyph));
+    const text = h('span');
+    return { el: h('span', { class: cls }, ico, text), ico, text, glyph };
+  };
+  const modeChip = iconChip('sk-chip sk-chip--mode', 'team');
+  const ruleChip = iconChip('sk-chip sk-chip--mode', 'rifle');
+  const mapChip = iconChip('sk-chip', 'map');
+  const countChip = iconChip('sk-chip', 'squad');
+  const setChip = (c, glyph, text) => {
+    if (c.glyph !== glyph) { c.glyph = glyph; c.ico.replaceChildren(uiIcon(glyph)); }
+    setText(c.text, text);
+  };
   const idChip = h('span', { class: 'sk-chip sk-chip--dim' });
+  // 포털에서 초대 링크를 줄 수 있으면 방 번호 옆에 [초대 링크 복사]. 누르면 잠깐 '복사했어요'로 바뀐다
+  const inviteLabel = t('room.copyInvite');
+  let inviteTimer = 0;
+  const inviteBtn = h('button', {
+    type: 'button', class: 'sk-chip sk-chip--dim sk-room-invite', hidden: true, text: inviteLabel,
+    onclick: () => {
+      const link = platform.isPortal ? platform.inviteLink(p.roomId) : null;
+      if (typeof link !== 'string' || !link || !navigator.clipboard) return;
+      navigator.clipboard.writeText(link).then(() => {
+        setText(inviteBtn, t('portal.inviteCopied'));
+        clearTimeout(inviteTimer);
+        inviteTimer = setTimeout(() => setText(inviteBtn, inviteLabel), 2000);
+      }, () => {});
+    },
+  });
 
   // ---------- 팀 칼럼(폭파 미션은 머리에 전반 진영 '먼저 공격'/'먼저 수비') ----------
   function teamCol(team) {
     const T = TEAMS[team];
     const count = h('span', { class: 'sk-team-count' });
-    const move = btn('이 팀으로 이동', () => ctx.emit('room:team', { team }), 'sk-btn--sm');
-    const list = h('ul', { class: 'sk-team-list', 'aria-label': `${T.name} 팀 명단` });
+    const move = btn(t('room.moveTeam'), () => ctx.emit('room:team', { team }), 'sk-btn--sm');
+    const list = h('ul', { class: 'sk-team-list', 'aria-label': t('room.teamRoster', { team: T.name }) });
     const side = h('span', { class: 'sk-team-side', hidden: true });
     const el = h('section', { class: `sk-team sk-team--${team} sk-steel` },
       h('header', { class: 'sk-team-head' },
         h('h2', { class: 'sk-team-name' },
-          h('span', { class: 'sk-team-emoji', text: T.emoji, 'aria-hidden': 'true' }),
+          h('span', { class: 'sk-team-emoji', 'aria-hidden': 'true' }),
           h('span', { text: T.name }), h('small', { text: T.en }), side),
         count, move),
       list);
@@ -68,15 +95,16 @@ export function createRoom(ctx) {
   }
   const cols = { owner: teamCol('owner'), charterer: teamCol('charterer') };
   const waiting = h('p', { class: 'sk-unassigned' });
-  const bombNote = h('p', { class: 'sk-room-note', hidden: true, text: '💣 2라운드 뒤 공수 교대' });
+  const bombNote = h('p', { class: 'sk-room-note', hidden: true }, uiIcon('bomb', 'sk-uico--inline'), t('room.bombSwapNote'));
   const teamsWrap = h('div', { class: 'sk-room-teams' }, waiting, cols.owner.el, h('div', { class: 'sk-vs', text: 'VS', 'aria-hidden': 'true' }), cols.charterer.el, bombNote);
 
   // ---------- 개인전 명단(팀 버튼 없음) ----------
   const ffaCount = h('span', { class: 'sk-team-count' });
-  const ffaList = h('ul', { class: 'sk-team-list', 'aria-label': '개인전 명단' });
-  const ffaEmoji = h('span', { class: 'sk-team-emoji', text: MODE_ICON.ffa, 'aria-hidden': 'true' });
-  const ffaName = h('span', { text: '개인전' });
-  const ffaSub = h('small', { text: '· 모두가 적' });
+  const ffaList = h('ul', { class: 'sk-team-list', 'aria-label': t('room.ffaRoster') });
+  const ffaEmoji = h('span', { class: 'sk-team-emoji sk-team-emoji--ico', 'aria-hidden': 'true' }, uiIcon(MODE_GLYPH.ffa));
+  let ffaGlyph = MODE_GLYPH.ffa;
+  const ffaName = h('span', { text: t('room.ffaTitle') });
+  const ffaSub = h('small', { text: t('room.ffaSub') });
   const ffaCol = h('section', { class: 'sk-team sk-team--ffa sk-steel', hidden: true },
     h('header', { class: 'sk-team-head' },
       h('h2', { class: 'sk-team-name' }, ffaEmoji, ffaName, ffaSub),
@@ -85,10 +113,10 @@ export function createRoom(ctx) {
 
   // ---------- 모드(방장만 바꿀 수 있음 → 머리글 오른쪽 전환 버튼, 다른 사람은 모드 칩만) ----------
   const modeBtns = MODE_IDS.map((m) => btn([
-    h('span', { class: 'sk-mode-ico', text: MODE_ICON[m], 'aria-hidden': 'true' }),
+    h('span', { class: 'sk-mode-ico', 'aria-hidden': 'true' }, uiIcon(MODE_GLYPH[m])),
     h('span', { class: 'sk-mode-txt' }, h('b', { text: MODE_NAME[m] })),
   ], () => pickMode(m), 'sk-mode-btn', { role: 'radio', 'data-mode': m }));
-  const modePick = h('div', { class: 'sk-modepick sk-modepick--bar', role: 'radiogroup', 'aria-label': '모드 변경(방장)', title: '방장만 모드를 바꿀 수 있어요' }, modeBtns);
+  const modePick = h('div', { class: 'sk-modepick sk-modepick--bar', role: 'radiogroup', 'aria-label': t('room.modePickLabel'), title: t('room.modeHostOnly') }, modeBtns);
   const hasMissionMap = () => missionMaps(mapList(ctx.maps, p.maps)).length > 0;
   function pickMode(m) {
     const players = normPlayers(p);
@@ -102,16 +130,16 @@ export function createRoom(ctx) {
 
   function playerRow(x) {
     return h('li', { class: 'sk-pl' + (x.me ? ' is-me' : '') + (x.ready || x.host ? ' is-ready' : '') },
-      h('span', { class: 'sk-pl-crown', text: x.host ? '👑' : '', title: x.host ? '방장' : null }),
-      h('span', { class: 'sk-pl-name', text: (x.bot ? '🤖 ' : '') + x.name }),
-      x.me ? h('span', { class: 'sk-tag', text: '나' }) : null,
-      h('span', { class: 'sk-ping ' + pingClass(x.ping), text: pingText(x.ping), title: '핑' }),
-      h('span', { class: 'sk-pl-ready', text: x.host ? '방장' : x.ready ? '✔ 준비' : '대기 중' }));
+      h('span', { class: 'sk-pl-crown', title: x.host ? t('room.host') : null }, x.host ? uiIcon('crown') : null),
+      h('span', { class: 'sk-pl-name' }, x.bot ? uiIcon('bot', 'sk-uico--inline sk-pl-bot') : null, x.bot ? h('span', { class: 'sk-vh', text: t('room.bot') }) : null, x.name),
+      x.me ? h('span', { class: 'sk-tag', text: t('room.me') }) : null,
+      h('span', { class: 'sk-ping ' + pingClass(x.ping), text: pingText(x.ping), title: t('room.ping') }),
+      h('span', { class: 'sk-pl-ready' }, x.ready && !x.host ? uiIcon('check', 'sk-uico--inline') : null, x.host ? t('room.host') : x.ready ? t('room.ready') : t('room.waiting')));
   }
-  const emptyRow = (n) => h('li', { class: 'sk-pl sk-pl--empty' }, h('span', { class: 'sk-pl-crown' }), h('span', { class: 'sk-pl-name', text: n > 1 ? `빈 자리 ×${n}` : '빈 자리' }));
+  const emptyRow = (n) => h('li', { class: 'sk-pl sk-pl--empty' }, h('span', { class: 'sk-pl-crown' }), h('span', { class: 'sk-pl-name', text: n > 1 ? t('room.emptySlots', { n }) : t('room.emptySlot') }));
 
   // ---------- 규칙(방장만 바꿀 수 있음. 바꾸면 세션이 이 규칙으로 고를 수 있는 맵으로 맞춘다. 폭파 미션은 클래식 고정) ----------
-  const rulePick = createChoiceRow({ label: '규칙 변경(방장)', onPick: pickRule });
+  const rulePick = createChoiceRow({ label: t('room.rulePickLabel'), onPick: pickRule });
   const ruleDesc = h('p', { class: 'sk-set-hint' });
   function pickRule(id) {
     const me = normPlayers(p).find((x) => x.me);
@@ -123,11 +151,11 @@ export function createRoom(ctx) {
 
   // ---------- 목표 킬(개인전만. 방장만 5~20 안에서 바꾼다. 다른 사람은 글과 모드 칩으로 확인) ----------
   const killPick = createStepper({
-    label: '목표 킬', min: FFA_KILLS.min, max: FFA_KILLS.max, presets: FFA_KILL_PRESETS, fmt: (n) => `${n}킬`, onPick: pickKills, cls: 'sk-kill-pick',
+    label: t('room.killTarget'), min: FFA_KILLS.min, max: FFA_KILLS.max, presets: FFA_KILL_PRESETS, fmt: (n) => t('room.killsN', { n }), onPick: pickKills, cls: 'sk-kill-pick',
   });
   const killDesc = h('p', { class: 'sk-set-hint' });
   const killBox = h('div', { class: 'sk-room-kills', hidden: true },
-    h('h3', { class: 'sk-room-kills-title', text: '🎯 목표 킬' }), killPick.el, killDesc);
+    h('h3', { class: 'sk-room-kills-title' }, uiIcon('target', 'sk-uico--inline'), t('room.killTargetTitle')), killPick.el, killDesc);
   function pickKills(n) {
     const me = normPlayers(p).find((x) => x.me);
     const next = normalizeKillTarget(n);
@@ -138,7 +166,7 @@ export function createRoom(ctx) {
 
   // ---------- 맵 ----------
   const mapCur = h('div', { class: 'sk-room-mapcur' });
-  const mapPick = h('div', { class: 'sk-mapcards sk-mapcards--sm', role: 'radiogroup', 'aria-label': '맵 변경' });
+  const mapPick = h('div', { class: 'sk-mapcards sk-mapcards--sm', role: 'radiogroup', 'aria-label': t('room.mapPickLabel') });
   const mapNote = h('p', { class: 'sk-set-hint' });
   /** 작은 카드는 mapCard가 tag를 빼므로 여기서 붙인다('칼전 전용' 같은 표시가 고를 때 보이게) */
   function pickerCard(m) {
@@ -151,13 +179,15 @@ export function createRoom(ctx) {
   }
 
   // ---------- 채팅 ----------
-  const chatLog = h('ol', { class: 'sk-chat-log', 'aria-live': 'polite', 'aria-label': '채팅' });
+  const chatLog = h('ol', { class: 'sk-chat-log', 'aria-live': 'polite', 'aria-label': t('room.chat') });
   const chatIn = h('input', {
-    class: 'sk-input', type: 'text', maxlength: CHAT_LEN, placeholder: '메시지 입력 후 Enter',
-    autocomplete: 'off', spellcheck: 'false', 'aria-label': '채팅 입력',
+    class: 'sk-input', type: 'text', maxlength: CHAT_LEN, placeholder: t('room.chatPlaceholder'),
+    autocomplete: 'off', spellcheck: 'false', 'aria-label': t('room.chatInput'),
   });
   const chatForm = h('form', { class: 'sk-chat-form', onsubmit: (e) => { e.preventDefault(); sendChat(); } },
-    chatIn, h('button', { type: 'submit', class: 'sk-btn' }, '전송'));
+    chatIn, h('button', { type: 'submit', class: 'sk-btn' }, t('room.send')));
+  // 포털이 채팅을 끄면 기록·입력칸 대신 한 줄 안내만 보인다(render마다 platform.chatAllowed를 다시 본다)
+  const chatOff = h('p', { class: 'sk-set-hint sk-chat-off', hidden: true, text: t('portal.chatOff') });
   function sendChat() {
     const text = chatIn.value.replace(/\s+/g, ' ').trim().slice(0, CHAT_LEN);
     if (!text) return;
@@ -174,14 +204,14 @@ export function createRoom(ctx) {
       ? h('li', { class: 'sk-chat-sys', text: m.text })
       : h('li', { class: 'sk-chat-line' },
         h('b', { class: 'sk-chat-name t-' + (teamKey(m.team) || 'none'), text: m.name || '?' }),
-        h('span', { class: 'sk-chat-text', text: m.scope === 'team' ? `[팀] ${m.text}` : m.text })))) : [h('li', { class: 'sk-chat-sys', text: '대기실 채팅 — 작전 계획을 나눠 보세요.' })]));
+        h('span', { class: 'sk-chat-text', text: m.scope === 'team' ? t('room.teamTag', { text: m.text }) : m.text })))) : [h('li', { class: 'sk-chat-sys', text: t('room.chatEmpty') })]));
     if (stick) chatLog.scrollTop = chatLog.scrollHeight;
   }
 
   // ---------- 하단 ----------
   const status = h('p', { class: 'sk-room-status', role: 'status' });
-  const readyBtn = btn('준비하기', toggleReady, 'sk-btn--big sk-ready-btn');
-  const startBtn = btn('▶ 게임 시작', () => {
+  const readyBtn = btn(t('room.readyUp'), toggleReady, 'sk-btn--big sk-ready-btn');
+  const startBtn = btn(t('room.deployStart'), () => {
     if (!startBtn.disabled) ctx.emit('room:start', { roomId: p.roomId, mapId: p.mapId, mode: modeKey(p.mode) });
   }, 'sk-btn--primary sk-btn--big');
 
@@ -206,8 +236,8 @@ export function createRoom(ctx) {
       ico, h('span', { class: 'sk-rgear-txt' }, h('small', { class: 'sk-rgear-label', text: g.label }), name));
     return { ...g, el, ico, name };
   });
-  const gearBox = h('section', { class: 'sk-panel sk-steel sk-rgear', 'aria-label': '내 장비' },
-    h('header', { class: 'sk-rgear-head' }, h('h2', { class: 'sk-panel-title', text: '🎒 내 장비' }), gearPoints.el),
+  const gearBox = h('section', { class: 'sk-panel sk-steel sk-rgear', 'aria-label': t('room.myGear') },
+    h('header', { class: 'sk-rgear-head' }, h('h2', { class: 'sk-panel-title' }, uiIcon('armory'), t('room.myGear')), gearPoints.el),
     h('div', { class: 'sk-rgear-slots' }, gearSlots.map((s) => s.el)),
     gearNote);
   const gearSheetNote = h('p', { class: 'sk-set-hint sk-rgear-sheetnote', role: 'status' });
@@ -217,8 +247,9 @@ export function createRoom(ctx) {
   /** 상점에서 파는 그 칸의 무기(좀비 전용·카드 전용은 빠지고, 상점에서 파는 좀비 전용 무기 shop은 남는다). 무기 정의 순서 그대로 */
   const slotWeapons = (slot) => [...ctx.weapons.values()].filter((w) => w.slot === slot && (!w.zombieOnly || w.shop) && !w.cardOnly);
   function equippedId(g) {
-    if (g.key !== 'grenade') return ctx.account.loadout[g.key];
-    const first = slotWeapons(g.slot)[0];
+    const id = ctx.account.loadout[g.key];
+    if (id || g.key !== 'grenade') return id;
+    const first = slotWeapons(g.slot)[0];   // 투척 칸이 비어 있으면 기본 수류탄
     return first ? first.id : null;
   }
 
@@ -227,9 +258,9 @@ export function createRoom(ctx) {
     const state = h('span', { class: 'sk-shop-state' });
     const action = h('button', { type: 'button', class: 'sk-btn sk-btn--sm sk-rgear-act', onclick: () => pickGear(g, w) });
     const el = h('article', { class: 'sk-rgear-item', 'aria-label': w.name },
-      h('span', { class: 'sk-lo-ico', text: w.icon, 'aria-hidden': 'true' }),
+      h('span', { class: 'sk-lo-ico', 'aria-hidden': 'true' }, uiIcon(weaponGlyph(w.id, w.slot))),
       h('div', { class: 'sk-rgear-itext' },
-        h('b', { class: 'sk-rgear-iname', text: w.name }, w.premium ? h('span', { class: 'sk-premium', text: '프리미엄' }) : null),
+        h('b', { class: 'sk-rgear-iname', text: w.name }, w.premium ? h('span', { class: 'sk-premium', text: t('room.premium') }) : null),
         w.tagline ? h('span', { class: 'sk-lo-tagline', text: w.tagline }) : null,
         w.summary.length ? summaryChips(w.summary) : null),
       h('div', { class: 'sk-rgear-iside' }, state, action));
@@ -239,10 +270,10 @@ export function createRoom(ctx) {
   function openGear(g) {
     if (!ctx.account || p.starting) return;
     gearOpen = g;
-    setText(gearSheetNote, g.key === 'grenade' ? '수류탄은 모두에게 기본으로 지급돼요.' : '가진 무기는 바로 장착하고, 없는 무기는 포인트로 사서 바로 장착해요.');
+    setText(gearSheetNote, g.key === 'grenade' ? t('room.grenadeNote') : t('room.gearSheetNote'));
     gearRows = slotWeapons(g.slot).map((d) => gearRow(g, d));
     modal.open(sheet({
-      title: `${g.label} 고르기`, onClose: () => modal.close(), cls: 'sk-rgear-sheet',
+      title: t('room.pickSlot', { slot: g.label }), kicker: 'LOADOUT', onClose: () => modal.close(), cls: 'sk-rgear-sheet',
       body: [gearSheetNote, h('div', { class: 'sk-rgear-list' }, gearRows.map((r) => r.el))],
     }), () => { gearOpen = null; gearRows = []; });
     paintGearRows();
@@ -255,17 +286,16 @@ export function createRoom(ctx) {
     const a = ctx.account;
     if (!g || !a) return;
     const now = equippedId(g);
-    const fixed = g.key === 'grenade';
     for (const r of gearRows) {
-      const owned = fixed || a.isOwned(r.id);
+      const owned = a.isOwned(r.id);
       const on = r.id === now;
       const closed = !owned && typeof a.canSell === 'function' && !a.canSell(r.id);   // 서버 가격표에 아직 없다
       const short = owned || closed ? 0 : Math.max(0, r.w.price - a.profile.points);
       r.el.classList.toggle('is-on', on);
       r.el.classList.toggle('is-owned', owned);
-      setText(r.state, on ? '장착 중' : owned ? '보유' : fmtPoints(r.w.price));
-      setText(r.action, on ? '장착 중' : owned ? '장착' : closed ? '구매 준비 중' : short ? `${fmtPoints(short)} 부족` : '구매 후 장착');
-      r.action.disabled = on || fixed || closed || short > 0 || !!p.starting;
+      setText(r.state, on ? t('room.equipped') : owned ? t('room.owned') : fmtPoints(r.w.price));
+      setText(r.action, on ? t('room.equipped') : owned ? t('room.equip') : closed ? t('room.buyPending') : short ? t('room.short', { points: fmtPoints(short) }) : t('room.buyEquip'));
+      r.action.disabled = on || closed || short > 0 || !!p.starting;
       r.action.classList.toggle('sk-btn--primary', !owned && !closed && !short);
       r.action.classList.toggle('sk-btn--ghost', on);
     }
@@ -273,13 +303,13 @@ export function createRoom(ctx) {
 
   function pickGear(g, w) {
     const a = ctx.account;
-    if (!a || p.starting || g.key === 'grenade') return;
+    if (!a || p.starting) return;
     let bought = null;
     if (!a.isOwned(w.id)) {
       const r = a.buy(w.id);
       if (!r.ok) {
-        setText(gearSheetNote, r.reason === 'points' ? `포인트가 모자라요. ${fmtPoints(w.price - r.points)} 더 필요해요.`
-          : r.reason === 'closed' ? '이 무기는 서버 업데이트 뒤에 살 수 있어요. 포인트는 그대로예요.' : '이 무기는 살 수 없어요.');
+        setText(gearSheetNote, r.reason === 'points' ? t('room.notEnoughPoints', { points: fmtPoints(w.price - r.points) })
+          : r.reason === 'closed' ? t('room.buyClosed') : t('room.cantBuy'));
         paintGearRows();
         return;
       }
@@ -287,13 +317,13 @@ export function createRoom(ctx) {
       bought = r;
     }
     if (!a.equip(g.key, w.id).ok) {
-      setText(gearSheetNote, '이 무기는 장착할 수 없어요.');
+      setText(gearSheetNote, t('room.cantEquip'));
       paintGear();
       return;
     }
     setText(gearNote, bought
-      ? `${w.name}을(를) 사서 장착했어요. 남은 포인트 ${fmtPoints(bought.points)}.`
-      : `${g.label} 칸에 ${w.name}을(를) 장착했어요.`);
+      ? t('room.boughtEquipped', { weapon: w.name, points: fmtPoints(bought.points) })
+      : t('room.slotEquipped', { slot: g.label, weapon: w.name }));
     modal.close();
     paintGear();
   }
@@ -307,9 +337,10 @@ export function createRoom(ctx) {
     for (const s of gearSlots) {
       const id = equippedId(s);
       const w = id ? normWeapon(ctx.weapons, id) : null;
-      setText(s.ico, w ? w.icon : '—');
-      setText(s.name, w ? w.name : '없음');
-      s.el.title = `${s.label} 바꾸기`;
+      const glyph = w ? weaponGlyph(w.id, w.slot) : '';
+      if (s.ico.dataset.glyph !== glyph) { s.ico.dataset.glyph = glyph; s.ico.replaceChildren(glyph ? uiIcon(glyph) : '—'); }
+      setText(s.name, w ? w.name : t('room.none'));
+      s.el.title = t('room.changeSlot', { slot: s.label });
       s.el.disabled = !!p.starting;
     }
     paintGearRows();
@@ -319,34 +350,35 @@ export function createRoom(ctx) {
   const idleText = h('span', { class: 'sk-room-idle-text' });
   const idleBar = h('div', { class: 'sk-room-idle', role: 'alert', hidden: true },
     idleText,
-    btn('계속 기다리기', () => ctx.emit('room:stay', {}), 'sk-btn--sm sk-btn--primary sk-room-idle-stay'));
+    btn(t('room.keepWaiting'), () => ctx.emit('room:stay', {}), 'sk-btn--sm sk-btn--primary sk-room-idle-stay'));
 
-  const el = h('section', { class: 'sk-screen sk-page sk-room', hidden: true, 'aria-label': '대기실' },
+  const el = h('section', { class: 'sk-screen sk-page sk-room', hidden: true, 'aria-label': t('room.screenLabel') },
     h('div', { class: 'sk-page-inner' },
       h('header', { class: 'sk-bar' },
-        btn('← 나가기', () => ctx.emit('room:leave', { roomId: p.roomId }), 'sk-btn--ghost'),
-        h('div', { class: 'sk-bar-title' }, title, h('p', { class: 'sk-bar-sub sk-chips' }, ruleChip, modeChip, mapChip, countChip, idChip)),
+        btn([uiIcon('back'), h('span', { text: t('room.leave') })], () => ctx.emit('room:leave', { roomId: p.roomId }), 'sk-btn--ghost'),
+        h('div', { class: 'sk-bar-title' },
+          h('p', { class: 'sk-kicker', text: 'DEPLOYMENT // STANDBY', 'aria-hidden': 'true' }),
+          title, h('p', { class: 'sk-bar-sub sk-chips' }, ruleChip.el, modeChip.el, mapChip.el, countChip.el, idChip, inviteBtn)),
         modePick),
-      h('div', { class: 'sk-hazard sk-hazard--thin', 'aria-hidden': 'true' }),
       idleBar,
       h('div', { class: 'sk-room-grid' },
         h('div', { class: 'sk-room-left' },
           teamsWrap,
           ffaCol,
-          h('section', { class: 'sk-panel sk-steel sk-chat' }, h('h2', { class: 'sk-panel-title', text: '💬 채팅' }), chatLog, chatForm)),
+          h('section', { class: 'sk-panel sk-steel sk-chat' }, h('h2', { class: 'sk-panel-title' }, uiIcon('chat'), t('room.chat')), chatLog, chatForm, chatOff)),
         h('aside', { class: 'sk-room-side' },
           gearBox,
-          h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title', text: '🎮 규칙' }), rulePick.el, ruleDesc, killBox),
-          h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title', text: '🗺️ 맵' }), mapCur, mapPick, mapNote))),
+          h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title' }, uiIcon('rules'), t('room.rules')), rulePick.el, ruleDesc, killBox),
+          h('section', { class: 'sk-panel sk-steel' }, h('h2', { class: 'sk-panel-title' }, uiIcon('map'), t('room.map')), mapCur, mapPick, mapNote))),
       h('footer', { class: 'sk-room-foot sk-steel' }, status, h('div', { class: 'sk-room-foot-actions' }, readyBtn, startBtn))),
     modal.el);
 
   // 대기실을 누르거나 키를 치면 자리 비움을 처음부터 센다(방장 것만 쓰인다). 1초에 한 번까지만 알린다
   let activeAt = -Infinity;
   const onActive = () => {
-    const t = Date.now();
-    if (t - activeAt < 1000) return;
-    activeAt = t;
+    const nowMs = Date.now();
+    if (nowMs - activeAt < 1000) return;
+    activeAt = nowMs;
     ctx.emit('room:active', {});
   };
   el.addEventListener('pointerdown', onActive, true);
@@ -356,7 +388,7 @@ export function createRoom(ctx) {
     p = props;
     const idleLeft = Math.max(0, Math.ceil(num(p.idleLeft, 0)));
     idleBar.hidden = !(idleLeft > 0);
-    if (idleLeft > 0) setText(idleText, `⏳ ${p.idleSpan || '1분'} 동안 아무 활동이 없어 ${idleLeft}초 뒤 방이 닫혀요`);
+    if (idleLeft > 0) setText(idleText, t('room.idleBar', { span: p.idleSpan || t('room.spanMin', { m: 1 }), left: idleLeft }));
     const players = normPlayers(p);
     const me = players.find((x) => x.me);
     const isHost = !!(me && me.host);
@@ -370,20 +402,23 @@ export function createRoom(ctx) {
     const rs = ruleForMode(mode, p.ruleset);
     const kills = normalizeKillTarget(p.killTarget);
 
-    setText(title, p.name || '대기실');
-    setText(ruleChip, `${RULESETS[rs].icon} ${RULESETS[rs].name}`);
-    setText(modeChip, `${MODE_ICON[mode]} ${modeLabel(mode, { killTarget: kills })}`);
-    modeChip.classList.toggle('is-ffa', mode === 'ffa');
-    modeChip.classList.toggle('is-zombie', zombie);
-    setText(ffaEmoji, zombie ? MODE_ICON.zombie : MODE_ICON.ffa);
-    setText(ffaName, zombie ? '함께 막는 사람' : '개인전');
-    setText(ffaSub, zombie ? '· 모두 같은 편' : '· 모두가 적');
-    modeChip.classList.toggle('is-bomb', bomb);
+    setText(title, p.name || t('room.roomTitle'));
+    setChip(ruleChip, RULE_GLYPH[rs] || 'rifle', loc(RULESETS[rs], 'name'));
+    setChip(modeChip, MODE_GLYPH[mode], modeLabel(mode, { killTarget: kills }));
+    modeChip.el.classList.toggle('is-ffa', mode === 'ffa');
+    modeChip.el.classList.toggle('is-zombie', zombie);
+    const fg = zombie ? MODE_GLYPH.zombie : MODE_GLYPH.ffa;
+    if (fg !== ffaGlyph) { ffaGlyph = fg; ffaEmoji.replaceChildren(uiIcon(fg)); }
+    setText(ffaName, zombie ? t('room.zombieTeam') : t('room.ffaTitle'));
+    setText(ffaSub, zombie ? t('room.zombieSub') : t('room.ffaSub'));
+    modeChip.el.classList.toggle('is-bomb', bomb);
     const m = mapInfo(ctx.maps, p.maps, p.mapId);
-    setText(mapChip, `🗺️ ${m ? m.name : '맵 미정'}`);
-    setText(countChip, `👥 ${players.length}/${max}`);
+    setChip(mapChip, 'map', m ? m.name : t('room.mapTbd'));
+    setChip(countChip, 'squad', `${players.length}/${max}`);
     setText(idChip, p.roomId ? `#${p.roomId}` : '');
     idChip.hidden = !p.roomId;
+    const invite = p.roomId && platform.isPortal ? platform.inviteLink(p.roomId) : null;
+    inviteBtn.hidden = !(typeof invite === 'string' && invite && navigator.clipboard);
 
     // 명단: 팀전·폭파 미션 = 팀 칼럼 두 개, 개인전 = 한 줄 명단
     teamsWrap.hidden = ffa;
@@ -396,25 +431,25 @@ export function createRoom(ctx) {
       const free = Math.max(0, max - players.length); // 빈 자리는 한 줄로 묶는다(명단이 길어지지 않게)
       ffaList.replaceChildren(...players.map(playerRow), ...(free ? [emptyRow(free)] : []));
     } else {
-      for (const t of TEAM_KEYS) {
-        const c = cols[t];
-        setText(c.count, `${byTeam[t].length}/${cap}`);
-        c.move.hidden = !me || me.team === t;
-        c.move.disabled = byTeam[t].length >= cap;
-        const empties = Array.from({ length: Math.max(0, cap - byTeam[t].length) }, emptyRow);
-        c.list.replaceChildren(...byTeam[t].map(playerRow), ...empties);
+      for (const tk of TEAM_KEYS) {
+        const c = cols[tk];
+        setText(c.count, `${byTeam[tk].length}/${cap}`);
+        c.move.hidden = !me || me.team === tk;
+        c.move.disabled = byTeam[tk].length >= cap;
+        const empties = Array.from({ length: Math.max(0, cap - byTeam[tk].length) }, emptyRow);
+        c.list.replaceChildren(...byTeam[tk].map(playerRow), ...empties);
       }
-      setText(waiting, unassigned.length ? `⏳ 팀 배정 대기: ${unassigned.map((x) => x.name).join(', ')}` : '');
+      setText(waiting, unassigned.length ? t('room.unassignedList', { names: unassigned.map((x) => x.name).join(', ') }) : '');
       waiting.hidden = !unassigned.length;
     }
     // 폭파 미션: 전반 진영(firstAttack, 기본은 블루가 먼저 공격)과 공수 교대 안내
     const first = teamKey(p.firstAttack) || 'owner';
-    for (const t of TEAM_KEYS) {
-      const role = bomb ? bombSide(t, first) : '';
-      const tag = cols[t].side;
+    for (const tk of TEAM_KEYS) {
+      const role = bomb ? bombSide(tk, first) : '';
+      const tag = cols[tk].side;
       tag.hidden = !role;
       tag.dataset.side = role;
-      setText(tag, role ? `먼저 ${SIDE_NAME[role]}` : '');
+      setText(tag, role ? t('room.sideFirst', { side: SIDE_NAME[role] }) : '');
     }
     bombNote.hidden = !bomb;
 
@@ -426,38 +461,42 @@ export function createRoom(ctx) {
       b.classList.toggle('is-on', on);
       b.setAttribute('aria-checked', on ? 'true' : 'false');
       b.disabled = !!p.starting || (id === 'bomb' && !missionReady && !on) || (id === 'zombie' && !on && players.length > ZOMBIE_MAX);
-      if (id === 'bomb') b.title = missionReady ? '' : '폭파 미션을 할 수 있는 맵이 아직 없어요';
-      if (id === 'zombie') b.title = players.length > ZOMBIE_MAX ? `좀비 물량 막기는 ${ZOMBIE_MAX}명까지예요` : '';
+      if (id === 'bomb') b.title = missionReady ? '' : t('room.noBombMapYet');
+      if (id === 'zombie') b.title = players.length > ZOMBIE_MAX ? t('room.zombieMaxShort', { max: ZOMBIE_MAX }) : '';
     }
     modePick.hidden = !isHost;
-    modeChip.title = isHost ? '' : '모드는 방장만 바꿀 수 있어요';
+    modeChip.el.title = isHost ? '' : t('room.modeHostOnlyChip');
 
     // 규칙: 방장만 바꾼다. 다른 사람은 설명과 칩으로 확인. 폭파 미션은 클래식뿐이라 고르는 버튼이 없다
     rulePick.el.hidden = !isHost || fixedRule;
     if (isHost && !fixedRule) rulePick.set(RULE_CHOICES, rs);
-    if (fixedRule) setText(ruleDesc, `${MODE_NAME[mode]}은 클래식 규칙만 써요${zombie ? ' · 탄은 스테이지 사이에 채워지지 않고 예비 탄이 3배예요' : ''}`);
-    else setText(ruleDesc, isHost ? RULESETS[rs].desc : `${RULESETS[rs].desc} · 규칙은 방장만 바꿀 수 있어요.`);
+    if (fixedRule) setText(ruleDesc, `${t('room.fixedRule', { mode: MODE_NAME[mode] })}${zombie ? t('room.zombieAmmoNote') : ''}`);
+    else setText(ruleDesc, isHost ? loc(RULESETS[rs], 'desc') : t('room.ruleHostOnly', { desc: loc(RULESETS[rs], 'desc') }));
 
     // 목표 킬: 개인전에서만 보인다. 고르는 칸은 방장에게만
     killBox.hidden = mode !== 'ffa';
     killPick.el.hidden = !isHost;
     killPick.set(kills, { disabled: !isHost || !!p.starting });
     setText(killDesc, isHost
-      ? `먼저 ${kills}킬을 채우면 우승해요. ${FFA_KILLS.min}~${FFA_KILLS.max}킬 중에서 고를 수 있어요.`
-      : `먼저 ${kills}킬을 채우면 우승해요 · 목표 킬은 방장만 바꿀 수 있어요.`);
+      ? t('room.killDescHost', { k: kills, min: FFA_KILLS.min, max: FFA_KILLS.max })
+      : t('room.killDesc', { k: kills }));
 
     // 맵: 이 규칙(폭파 미션은 미션 맵)으로 고를 수 있는 맵만 (바뀐 경우에만 다시 그린다)
     const maps = mapsForMode(mapList(ctx.maps, p.maps), mode, rs);
     const sig = JSON.stringify([isHost, p.mapId, maps]);
     if (sig !== mapSig) {
       mapSig = sig;
-      mapCur.replaceChildren(m ? mapCard(m) : h('p', { class: 'sk-set-hint', text: '맵이 아직 정해지지 않았어요.' }));
+      mapCur.replaceChildren(m ? mapCard(m) : h('p', { class: 'sk-set-hint', text: t('room.mapUnset') }));
       mapPick.hidden = !isHost;
       mapPick.replaceChildren(...(isHost ? maps.map(pickerCard) : []));
-      setText(mapNote, !isHost ? '맵은 방장만 바꿀 수 있어요.' : maps.length ? '방장: 카드를 눌러 맵을 바꿀 수 있어요.' : '폭파 미션을 할 수 있는 맵이 없어요.');
+      setText(mapNote, !isHost ? t('room.mapHostOnly') : maps.length ? t('room.mapHostHint') : t('room.noBombMap'));
     }
 
-    renderChat(p.chat);
+    const chatOn = platform.chatAllowed;
+    chatLog.hidden = !chatOn;
+    chatForm.hidden = !chatOn;
+    chatOff.hidden = chatOn;
+    if (chatOn) renderChat(p.chat);
     paintGear();
 
     // 시작 조건(방장은 자동 준비)
@@ -466,27 +505,27 @@ export function createRoom(ctx) {
     const notReady = players.filter((x) => !x.host && !x.ready);
     let reason = '';
     if (zombie) {
-      if (players.length > ZOMBIE_MAX) reason = `좀비 물량 막기는 ${ZOMBIE_MAX}명까지예요.`;
+      if (players.length > ZOMBIE_MAX) reason = t('room.zombieMax', { max: ZOMBIE_MAX });
     } else if (ffa) {
-      if (players.length < 2) reason = '2명 이상 있어야 시작할 수 있어요.';
-    } else if (byTeam.owner.length < 1 || byTeam.charterer.length < 1) reason = '양 팀에 1명 이상 있어야 시작할 수 있어요.';
-    else if (unassigned.length) reason = `팀 배정을 기다리는 플레이어가 ${unassigned.length}명 있어요.`;
-    if (!reason && notReady.length) reason = `준비 안 된 플레이어 ${notReady.length}명: ${notReady.map((x) => x.name).join(', ')}`;
+      if (players.length < 2) reason = t('room.needTwo');
+    } else if (byTeam.owner.length < 1 || byTeam.charterer.length < 1) reason = t('room.needBothTeams');
+    else if (unassigned.length) reason = t('room.unassignedCount', { n: unassigned.length });
+    if (!reason && notReady.length) reason = t('room.notReadyList', { n: notReady.length, names: notReady.map((x) => x.name).join(', ') });
 
     startBtn.hidden = !isHost;
     readyBtn.hidden = isHost || !me;
     startBtn.disabled = !isHost || !!reason || !!p.starting;
-    setText(startBtn, p.starting ? '시작하는 중…' : '▶ 게임 시작');
+    setText(startBtn, p.starting ? t('room.deploying') : t('room.deployStart'));
     if (me && !isHost) {
-      setText(readyBtn, me.ready ? '✔ 준비 완료 (취소)' : '준비하기');
+      setText(readyBtn, me.ready ? t('room.readyCancel') : t('room.readyUp'));
       readyBtn.classList.toggle('is-on', me.ready);
       readyBtn.setAttribute('aria-pressed', me.ready ? 'true' : 'false');
     }
     let msg;
-    if (isHost) msg = reason || '모두 준비됐어요. 게임을 시작하세요!';
-    else if (!me) msg = '방 정보를 기다리는 중…';
-    else if (!me.ready) msg = '준비를 누르면 방장이 게임을 시작할 수 있어요.';
-    else msg = reason ? `방장 대기 중 · ${reason}` : '방장이 게임을 시작하기를 기다리는 중…';
+    if (isHost) msg = reason || t('room.allReady');
+    else if (!me) msg = t('room.waitingInfo');
+    else if (!me.ready) msg = t('room.readyHint');
+    else msg = reason ? t('room.waitHostReason', { reason }) : t('room.waitHost');
     setText(status, msg);
     status.classList.toggle('is-ok', isHost && !reason);
   }

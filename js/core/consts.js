@@ -60,8 +60,8 @@ export const HITBOX = Object.freeze({
   BODY: Object.freeze({ y0: 1.0, y1: 1.5, hw: 0.26, hd: 0.17 }),
   LEGS: Object.freeze({ y0: 0.13, y1: 1.0, hw: 0.22, hd: 0.15 }),
   FOOT: Object.freeze({ y0: 0.0, y1: 0.13, hw: 0.22, hd: 0.19, cz: -0.035 }),
-  // 손끝: 총을 든 두 손(구). 저격총은 손·발에 맞으면 반샷(50)이다. 위치는 engine/avatars.js 모델과 맞춘다
-  HANDS: Object.freeze([Object.freeze({ x: 0.244, y: 1.278, z: -0.518, r: 0.075 }), Object.freeze({ x: -0.023, y: 1.258, z: -0.428, r: 0.075 })])
+  // 손: 총을 든 두 손바닥(구). 저격총은 손·발에 맞으면 반샷(50)이다. 대원 모델(engine/operator-model.js)이 총을 든 자세에서 잰 손바닥 위치다
+  HANDS: Object.freeze([Object.freeze({ x: 0.12, y: 1.246, z: -0.259, r: 0.075 }), Object.freeze({ x: 0.062, y: 1.237, z: -0.364, r: 0.075 })])
 });
 
 /** 앉은 히트박스 (hw·hd는 서 있을 때와 같음). 레이 대상의 crouch(true 또는 0..1)로 HITBOX와 섞는다 */
@@ -70,7 +70,7 @@ export const HITBOX_CROUCH = Object.freeze({
   BODY: Object.freeze({ y0: 0.6, y1: 1.05, hw: 0.26, hd: 0.17 }),
   LEGS: Object.freeze({ y0: 0.13, y1: 0.6, hw: 0.22, hd: 0.15 }),
   FOOT: Object.freeze({ y0: 0.0, y1: 0.13, hw: 0.22, hd: 0.19, cz: -0.035 }),
-  HANDS: Object.freeze([Object.freeze({ x: 0.244, y: 0.798, z: -0.513, r: 0.075 }), Object.freeze({ x: -0.023, y: 0.779, z: -0.423, r: 0.075 })])
+  HANDS: Object.freeze([Object.freeze({ x: 0.119, y: 0.806, z: -0.224, r: 0.075 }), Object.freeze({ x: 0.057, y: 0.797, z: -0.326, r: 0.075 })])
 });
 
 /** 앉은 상태에서의 탄퍼짐 배율 (weapons/logic.js · 임시 총) */
@@ -144,35 +144,32 @@ export function toRad(v) {
   return Math.abs(n) > Math.PI * 2 + 0.01 ? n * Math.PI / 180 : n;
 }
 
-/** 한 소절(sec초)에 beats박이 들어가는 템포(BPM) */
-const perBar = (beats, sec) => (60 * beats) / sec;
-
 /**
  * 이모트(감정 표현) 목록 — MODES.md 4.1. code = 전송 번호(1~15, 0 = 없음). 휠의 8칸에 무엇을 둘지는 계정 장비(loadout.emotes)가 정하고,
  * 처음 휠은 DEFAULT_EMOTE_WHEEL이다. loop: 반복형이면 true(duration 0), 한 번만 하면 false(duration 초).
- * bpm: 춤 박자. 음원 묶음(audio/emotes)이 있는 이모트는 한 소절 길이에 정수 박이 들어가게 정해서 춤과 소리가 어긋나지 않는다
- *      (예: L을 가져가는 소절 1.95초에 4박). fx/audio.js의 합성음도 같은 bpm을 쓴다.
+ * bpm: 춤 박자. fx/audio.js의 합성음 루프도 같은 bpm을 쓰고, 루프 길이는 춤 한 주기의 정수 배라서 춤과 소리가 어긋나지 않는다.
  * price: 상점 가격(0 = 기본 지급). desc: 상점에 보이는 동작 설명. 동작은 engine/emoteanim.js의 절차적 키프레임(직접 설계)으로 그린다.
+ * id는 저장된 휠·구매 기록과 서버 가격표에 묶여 있어 이름·동작을 바꿔도 그대로 둔다(docs/ASSETS.md "내부 id").
  */
 export const EMOTES = Object.freeze([
-  Object.freeze({ code: 1, id: 'takeL', name: 'L을 가져가', icon: '🫵', loop: true, duration: 0, bpm: perBar(4, 1.95), price: 0, desc: '이마에 L을 대고 깡충깡충 다리를 번갈아 찬다' }),
-  Object.freeze({ code: 2, id: 'veggie', name: '야채', icon: '🥬', loop: true, duration: 0, bpm: perBar(2, 1.45), price: 0, desc: '두 팔을 머리 위로 모아 새싹처럼 살랑살랑' }),
-  Object.freeze({ code: 3, id: 'sideToSide', name: '사이드 스텝', icon: '↔️', loop: true, duration: 0, bpm: 129.7, price: 0, desc: '좌우로 한 걸음씩, 팔은 반대쪽으로 크게' }),
-  Object.freeze({ code: 4, id: 'crissCross', name: '크리스 크로스', icon: '❌', loop: true, duration: 0, bpm: perBar(3, 1.65), price: 0, desc: '제자리에서 뛰며 팔다리를 X자로 엇갈렸다 벌린다' }),
-  Object.freeze({ code: 5, id: 'tango', name: '탱고', icon: '💃', loop: true, duration: 0, bpm: 96, price: 0, desc: '상대를 안은 자세로 큰 두 걸음, 고개를 휙' }),
-  Object.freeze({ code: 6, id: 'salute', name: '경례', icon: '🫡', loop: false, duration: 2.5, bpm: 0, price: 0, desc: '차렷 자세에서 오른손 경례' }),
-  Object.freeze({ code: 7, id: 'wave', name: '손 흔들기', icon: '👋', loop: false, duration: 2.5, bpm: 0, price: 0, desc: '오른팔을 높이 들어 크게 흔든다' }),
-  Object.freeze({ code: 8, id: 'cheer', name: '환호 박수', icon: '👏', loop: true, duration: 0, bpm: 128, price: 0, desc: '머리 위에서 박수 치며 깡충' }),
-  Object.freeze({ code: 9, id: 'creamCheese', name: '크림치즈 허니', icon: '🍯', loop: true, duration: 0, bpm: perBar(5, 1.8), price: 0, desc: '주먹을 볼에 대고 갸웃갸웃 통통 튀다가 두 팔을 번쩍' }),
-  Object.freeze({ code: 10, id: 'fromYou', name: '당신에게서', icon: '💌', loop: true, duration: 0, bpm: perBar(2, 1.65), price: 600, desc: '손을 가슴에 얹었다가 두 손을 앞으로 내밀며 흔들린다' }),
-  Object.freeze({ code: 11, id: 'selfie', name: '셀카', icon: '🤳', loop: true, duration: 0, bpm: perBar(2, 1.3), price: 400, desc: '휴대폰을 들고 찰칵, 각도와 손 모양을 바꿔 한 번 더' })
+  Object.freeze({ code: 1, id: 'takeL', name: '작전 성공', nameEn: 'Mission Success', icon: '✊', loop: true, duration: 0, bpm: 120, price: 0, desc: '주먹으로 하늘을 두 번 찌르고 가슴을 친 뒤 두 팔에 힘을 준다', descEn: 'Punches the sky twice, thumps the chest and flexes both arms' }),
+  Object.freeze({ code: 2, id: 'veggie', name: '무전 확인', nameEn: 'Radio Check', icon: '📻', loop: true, duration: 0, bpm: 100, price: 0, desc: '왼손을 귀에 대고 고개를 끄덕이다가 오른손으로 앞을 가리키고 엄지를 든다', descEn: 'Hand to ear, nods, points ahead and gives a thumbs-up' }),
+  Object.freeze({ code: 3, id: 'sideToSide', name: '경계 이동', nameEn: 'Sweep & Clear', icon: '👀', loop: true, duration: 0, bpm: 116, price: 0, desc: '낮은 자세로 좌우 게걸음, 보이지 않는 총을 겨누며 양옆을 살핀다', descEn: 'Low side-steps, aiming an invisible gun while checking both flanks' }),
+  Object.freeze({ code: 4, id: 'crissCross', name: '몸풀기', nameEn: 'Warm-Up', icon: '🤸', loop: true, duration: 0, bpm: 96, price: 0, desc: '깍지 낀 두 팔로 옆구리를 늘이고, 팔다리를 털어 준다', descEn: 'Stretches the sides with laced arms, then shakes out arms and legs' }),
+  Object.freeze({ code: 5, id: 'tango', name: '제자리 행진', nameEn: 'March in Place', icon: '🥁', loop: true, duration: 0, bpm: 112, price: 0, desc: '무릎을 높이 들며 세 걸음, 네 번째 박에 발을 모아 차렷', descEn: 'Three high-knee steps, feet together and attention on four' }),
+  Object.freeze({ code: 6, id: 'salute', name: '경례', nameEn: 'Salute', icon: '🫡', loop: false, duration: 2.5, bpm: 0, price: 0, desc: '차렷 자세에서 오른손 경례', descEn: 'Stands at attention and salutes' }),
+  Object.freeze({ code: 7, id: 'wave', name: '손 흔들기', nameEn: 'Wave', icon: '👋', loop: false, duration: 2.5, bpm: 0, price: 0, desc: '오른팔을 높이 들어 크게 흔든다', descEn: 'Raises the right arm high and waves big' }),
+  Object.freeze({ code: 8, id: 'cheer', name: '환호 박수', nameEn: 'Cheer', icon: '👏', loop: true, duration: 0, bpm: 128, price: 0, desc: '머리 위에서 박수 치며 깡충', descEn: 'Claps overhead and hops' }),
+  Object.freeze({ code: 9, id: 'creamCheese', name: '수신호', nameEn: 'Hand Signals', icon: '✋', loop: true, duration: 0, bpm: 104, price: 0, desc: '정지, 집결, 전진, 엎드려 — 분대 수신호를 차례로 보낸다', descEn: 'Halt, rally, advance, get down — squad signals in sequence' }),
+  Object.freeze({ code: 10, id: 'fromYou', name: '쌍안경 정찰', nameEn: 'Binocular Recon', icon: '🔭', loop: true, duration: 0, bpm: 84, price: 600, desc: '쌍안경으로 왼쪽에서 오른쪽까지 훑다가 목표를 가리키고 엄지를 든다', descEn: 'Scans left to right with binoculars, points at the target, thumbs-up' }),
+  Object.freeze({ code: 11, id: 'selfie', name: '깃발 흔들기', nameEn: 'Flag Wave', icon: '🚩', loop: true, duration: 0, bpm: 92, price: 400, desc: '큰 깃발을 머리 위에서 좌우로 흔든 뒤 땅에 꽂고 허리에 손을 얹는다', descEn: 'Waves a big flag overhead, plants it and puts hands on hips' })
 ]);
 export const EMOTE_IDS = Object.freeze(EMOTES.map((e) => e.id));
 
 /** 이모트 휠: 가운데에서 DEADZONE(px) 벗어나야 칸 선택, 가상 커서는 RADIUS(px) 테두리에서 멈춤 */
 export const EMOTE_WHEEL = Object.freeze({ DEADZONE: 40, RADIUS: 160, SLOTS: 8 });
 
-/** 처음 휠(12시부터 시계 방향). 모두 기본 지급 이모트다. 사이드 스텝은 빼 두었고 상점에서 다시 넣을 수 있다 */
+/** 처음 휠(12시부터 시계 방향). 모두 기본 지급 이모트다. 경계 이동은 빼 두었고 상점에서 다시 넣을 수 있다 */
 export const DEFAULT_EMOTE_WHEEL = Object.freeze(['takeL', 'veggie', 'creamCheese', 'crissCross', 'tango', 'salute', 'wave', 'cheer']);
 
 /**

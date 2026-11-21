@@ -197,75 +197,123 @@ const pose = (o) => o;
 // 자주 쓰는 다리 모양
 const STAND = { legR: [0, 0, 0.02], legL: [0, 0, 0.02] };
 const BOUNCE = { legR: [0.32, 0, 0.04], kneeR: 0.62, legL: [0.32, 0, 0.04], kneeL: 0.62, torso: [-0.06, 0, 0] };
+/** 포즈 조각 합치기(뒤가 이김) */
+const P = (...parts) => Object.assign({}, ...parts);
+// 몸통을 돌린 키에서 손목 목표도 엉덩이를 축으로 같이 돌린다(IK 목표는 몸통 회전 전 좌표)
+const turnY = (p, a) => [p[0] * Math.cos(a) + p[2] * Math.sin(a), p[1], -p[0] * Math.sin(a) + p[2] * Math.cos(a)];
+
+// 1 작전 성공: 주먹 장전(어깨 앞) ↔ 하늘로 찌르기, 가슴 치기, 두 팔 굽혀 힘주기
+const COCK_R = { armR: [0.35, 0, 0.55], foreR: 2.3, shapeR: 'fist', armL: [0.15, 0, 0.3], foreL: 1.1, shapeL: 'fist' };
+const PUMP_R = { armR: [0.3, 0, 2.75], foreR: 0.05, shapeR: 'fist', armL: [0.1, 0, 0.35], foreL: 1.3, shapeL: 'fist' };
+const FLEX = { armR: [1.57, 0, 1.55], foreR: 1.9, armL: [1.57, 0, 1.55], foreL: 1.9, shapeR: 'fist', shapeL: 'fist' };
+// 2 무전 확인: 왼손은 귀(헤드셋)에 붙인 채
+const EAR_L = [-0.18, 1.5, -0.04], EAR_PREF = [0.4, 0, 0.6, 2.4];
+// 3 경계 이동: 낮은 자세, 보이지 않는 총을 겨눈 팔
+const AIM = { armR: [1.2, 0, -0.15], foreR: 0.35, armL: [1.1, 0, -0.5], foreL: 0.25, shapeL: 'flat' };
+const CROUCH = { legR: [0.45, 0, 0.05], kneeR: 0.85, legL: [0.45, 0, 0.05], kneeL: 0.85 };
+// 4 몸풀기: 두 팔을 옆으로 올려 머리 위에서 깍지(관절각 직접 — 몸통을 기울이면 팔도 함께 기운다)
+const UP_ARMS = { armR: [-0.03, 0, 3.64], foreR: 0.25, armL: [-0.03, 0, 3.64], foreL: 0.25, shapeR: 'flat', shapeL: 'flat' };
+// 5 제자리 행진: 높이 든 무릎, 앞뒤로 크게 흔드는 팔
+const KNEE_UP = [1.2, 0, 0.02], ARM_FWD = [0.6, 0, 0.06], ARM_BACK = [-0.45, 0, 0.06];
+// 9 수신호: 오른 주먹을 어깨 높이 옆으로 들고 아래팔을 세운 '정지'
+const FREEZE = { armR: [1.57, 0, 1.5], foreR: 1.57, shapeR: 'fist', armL: [0.08, 0, 0.12], foreL: 0.25 };
+// 집결: 머리 위에서 손목이 반지름 13 cm 원을 그리는 네 점(오른쪽 → 앞 → 왼쪽 → 뒤)의 [앞으로 들기, 옆으로 들기, 팔꿈치]
+const RALLY = [[0.38, 3.14, 1.11], [-0.03, 3.41, 0.73], [0.16, 3.66, 0.55], [0.61, 3.43, 0.97]];
+// 10 쌍안경 정찰: 두 주먹을 눈앞에
+const BINO_R = [0.07, 1.6, -0.25], BINO_L = [-0.07, 1.6, -0.25], BINO_PREF = [1.3, -0.3, -0.4, 2.0];
+const SCOUT_LEGS = { legL: [0.12, 0, 0.06], kneeL: 0.1, legR: [-0.05, 0, 0.06], kneeR: 0.15 };
+// 11 깃발 흔들기: 세운 깃대를 두 손으로 앞머리 위에서 쥔다(오른손 위). 흔들 때는 몸통째 기운다
+const POLE = { armR: [2.41, 0, -0.43], foreR: 0.34, armL: [1.65, 0, -0.87], foreL: 0.78, shapeR: 'fist', shapeL: 'fist' };
 
 /** 동작 정의 (박자 = 60/bpm 초). 모두 직접 설계한 오리지널 키프레임 */
 const DEFS = {
-  // 1. L을 가져가: 오른손 엄지·검지 'L'을 이마에 대고, 박자마다 깡충 뛰며 다리를 번갈아 앞으로 찬다
+  // 1. 작전 성공(4박): 무릎 반동과 함께 주먹을 하늘로 두 번(0.5·1.5박) → 오른 주먹으로 왼 가슴을 치고(2박) →
+  //    다리를 벌리고 두 팔을 굽혀 힘을 준다(3박)
   takeL: {
-    loop: true, beats: 2,
+    loop: true, beats: 4,
     keys: [
-      { t: 0, p: pose({ legR: [0.15, 0, 0.03], kneeR: 0.35, legL: [0.15, 0, 0.03], kneeL: 0.35, armL: [0.25, 0, 0.35], foreL: 0.5, shapeR: 'L', head: [0.08, 0, 0] }),
-        handTo: { R: [0.07, 1.53, -0.24] }, prefR: [1.4, -0.4, -0.5, 1.9] },
-      { t: 0.5, p: pose({ air: 0.13, legR: [0.95, 0, 0.05], kneeR: 0.1, legL: [-0.1, 0, 0.03], kneeL: 0.55, armL: [-0.2, 0, 0.5], foreL: 0.7, shapeR: 'L', head: [0.1, -0.12, 0], torso: [0.08, 0.06, 0] }),
-        handTo: { R: [0.07, 1.53, -0.24] }, prefR: [1.4, -0.4, -0.5, 1.9] },
-      { t: 1, p: pose({ legR: [0.15, 0, 0.03], kneeR: 0.35, legL: [0.15, 0, 0.03], kneeL: 0.35, armL: [0.25, 0, 0.35], foreL: 0.5, shapeR: 'L', head: [0.08, 0, 0] }),
-        handTo: { R: [0.07, 1.53, -0.24] }, prefR: [1.4, -0.4, -0.5, 1.9] },
-      { t: 1.5, p: pose({ air: 0.13, legL: [0.95, 0, 0.05], kneeL: 0.1, legR: [-0.1, 0, 0.03], kneeR: 0.55, armL: [0.55, 0, 0.25], foreL: 0.4, shapeR: 'L', head: [0.1, 0.12, 0], torso: [0.08, -0.06, 0] }),
-        handTo: { R: [0.07, 1.53, -0.24] }, prefR: [1.4, -0.4, -0.5, 1.9] }
+      { t: 0, p: pose(P(BOUNCE, COCK_R, { head: [0, 0, 0] })) },
+      { t: 0.5, p: pose(P(PUMP_R, { air: 0.08, legR: [0.15, 0, 0.04], kneeR: 0.25, legL: [0.15, 0, 0.04], kneeL: 0.25, head: [0.25, 0, 0], torso: [0.08, 0, 0.04] })) },
+      { t: 1, p: pose(P(BOUNCE, COCK_R, { head: [0, 0, 0] })) },
+      { t: 1.5, p: pose(P(PUMP_R, { air: 0.08, legR: [0.15, 0, 0.04], kneeR: 0.25, legL: [0.15, 0, 0.04], kneeL: 0.25, head: [0.25, 0, 0], torso: [0.08, 0, 0.04] })) },
+      { t: 2, p: pose({ legR: [0, 0, 0.08], legL: [0, 0, 0.08], armL: [0.1, 0, 0.2], foreL: 0.4, shapeR: 'fist', head: [-0.1, 0, 0], torso: [0.04, 0, 0] }),
+        handTo: { R: [-0.06, 1.3, -0.2] }, prefR: [0.9, 0.3, -0.5, 2.0] },
+      { t: 2.5, p: pose({ legR: [0, 0, 0.08], legL: [0, 0, 0.08], armL: [0.1, 0, 0.2], foreL: 0.4, shapeR: 'fist', head: [-0.04, 0, 0], torso: [0.02, 0, 0] }),
+        handTo: { R: [0.02, 1.32, -0.34] }, prefR: [0.9, 0.3, -0.5, 2.0] },
+      { t: 3, p: pose(P(FLEX, { legR: [0.05, 0, 0.2], kneeR: 0.35, legL: [0.05, 0, 0.2], kneeL: 0.35, torso: [0.1, 0, 0], head: [0.15, 0, 0] })) },
+      { t: 3.7, p: pose(P(FLEX, { foreR: 2.0, foreL: 2.0, legR: [0.05, 0, 0.2], kneeR: 0.4, legL: [0.05, 0, 0.2], kneeL: 0.4, torso: [0.12, 0, 0], head: [0.18, 0, 0] })) }
     ]
   },
-  // 2. 야채: 두 팔을 머리 위로 모아 새싹(잎) 모양, 좌우로 살랑이며 박자마다 무릎 바운스
+  // 2. 무전 확인(4박): 왼손을 귀에 대고 듣다가 박자마다 고개를 끄덕(0.5·1.5박) → 오른손을 펴서 앞을 가리키며 한 걸음(2박) →
+  //    제자리로 돌아와 엄지를 들며 끄덕(3박). 왼손은 내내 귀에
   veggie: {
-    loop: true, beats: 2,
+    loop: true, beats: 4,
     keys: [
-      { t: 0, p: pose(Object.assign({}, BOUNCE, { rz: 0.1, torso: [-0.04, 0, 0.12], head: [0, 0, 0.15], shapeR: 'flat', shapeL: 'flat', handR: [0, 0, -0.4], handL: [0, 0, -0.4] })),
-        handTo: { R: [0.04, 1.86, -0.06], L: [-0.08, 1.88, -0.06] }, prefR: [0.3, 0, 2.3, 1.2], prefL: [0.3, 0, 2.3, 1.2] },
-      { t: 0.5, p: pose(Object.assign({}, STAND, { rz: 0, torso: [0, 0, 0], head: [0, 0, 0], shapeR: 'flat', shapeL: 'flat', handR: [0, 0, -0.4], handL: [0, 0, -0.4] })),
-        handTo: { R: [0.06, 1.94, -0.05], L: [-0.06, 1.94, -0.05] }, prefR: [0.3, 0, 2.3, 1.2], prefL: [0.3, 0, 2.3, 1.2] },
-      { t: 1, p: pose(Object.assign({}, BOUNCE, { rz: -0.1, torso: [-0.04, 0, -0.12], head: [0, 0, -0.15], shapeR: 'flat', shapeL: 'flat', handR: [0, 0, -0.4], handL: [0, 0, -0.4] })),
-        handTo: { R: [0.08, 1.88, -0.06], L: [-0.04, 1.86, -0.06] }, prefR: [0.3, 0, 2.3, 1.2], prefL: [0.3, 0, 2.3, 1.2] },
-      { t: 1.5, p: pose(Object.assign({}, STAND, { rz: 0, torso: [0, 0, 0], head: [0, 0, 0], shapeR: 'flat', shapeL: 'flat', handR: [0, 0, -0.4], handL: [0, 0, -0.4] })),
-        handTo: { R: [0.06, 1.94, -0.05], L: [-0.06, 1.94, -0.05] }, prefR: [0.3, 0, 2.3, 1.2], prefL: [0.3, 0, 2.3, 1.2] }
+      { t: 0, p: pose(P(STAND, { armR: [0.1, 0, 0.15], foreR: 0.35, shapeL: 'flat', head: [0.02, 0.05, 0.14], torso: [0, 0, 0.03] })),
+        handTo: { L: EAR_L }, prefL: EAR_PREF },
+      { t: 0.5, p: pose(P(STAND, { armR: [0.1, 0, 0.15], foreR: 0.35, shapeL: 'flat', head: [0.28, 0.05, 0.12], torso: [-0.04, 0, 0.03] })),
+        handTo: { L: EAR_L }, prefL: EAR_PREF },
+      { t: 1, p: pose(P(STAND, { armR: [0.1, 0, 0.15], foreR: 0.35, shapeL: 'flat', head: [0.02, 0.05, 0.14], torso: [0, 0, 0.03] })),
+        handTo: { L: EAR_L }, prefL: EAR_PREF },
+      { t: 1.5, p: pose(P(STAND, { armR: [0.1, 0, 0.15], foreR: 0.35, shapeL: 'flat', head: [0.28, 0.05, 0.12], torso: [-0.04, 0, 0.03] })),
+        handTo: { L: EAR_L }, prefL: EAR_PREF },
+      { t: 2, p: pose({ z: -0.06, legR: [0.35, 0, 0.03], kneeR: 0.15, legL: [-0.15, 0, 0.03], kneeL: 0.25, armR: [1.5, 0, 0.12], foreR: 0.05,
+        shapeR: 'flat', shapeL: 'flat', torso: [-0.06, -0.15, 0], head: [0, -0.1, 0.05] }),
+        handTo: { L: turnY(EAR_L, -0.15) }, prefL: EAR_PREF },
+      { t: 2.6, p: pose({ z: -0.06, legR: [0.35, 0, 0.03], kneeR: 0.15, legL: [-0.15, 0, 0.03], kneeL: 0.25, armR: [1.52, 0, 0.1], foreR: 0.05,
+        shapeR: 'flat', shapeL: 'flat', torso: [-0.07, -0.15, 0], head: [0, -0.12, 0.05] }),
+        handTo: { L: turnY(EAR_L, -0.15) }, prefL: EAR_PREF },
+      { t: 3, p: pose(P(STAND, { armR: [0.45, 0, 0.35], foreR: 2.0, shapeR: 'fist', shapeL: 'flat', head: [0.18, 0, 0.08] })),
+        handTo: { L: EAR_L }, prefL: EAR_PREF },
+      { t: 3.6, p: pose(P(STAND, { armR: [0.45, 0, 0.35], foreR: 2.05, shapeR: 'fist', shapeL: 'flat', head: [0.04, 0, 0.1] })),
+        handTo: { L: EAR_L }, prefL: EAR_PREF }
     ]
   },
-  // 3. 사이드 스텝: 왼쪽으로 한 걸음·오른쪽으로 한 걸음, 팔은 반대쪽으로 크게 흔들고 엉덩이는 반 박자로 흔들기
+  // 3. 경계 이동(4박): 무릎을 굽힌 낮은 자세로 총을 겨눈 채 반 박자마다 오른쪽으로 게걸음 두 번 → 왼쪽으로 두 번.
+  //    몸통(과 겨눈 팔)은 왼쪽 끝에서 왼쪽을, 오른쪽 끝에서 오른쪽을 살핀다
   sideToSide: {
-    loop: true, beats: 2,
+    loop: true, beats: 4,
     keys: [
-      { t: 0, p: pose({ x: -0.18, rz: -0.12, legL: [0.05, 0, 0.32], kneeL: 0.15, legR: [0.05, 0, -0.08], kneeR: 0.3, armR: [0.15, 0, 1.0], foreR: 0.5, armL: [0.15, 0, -0.35], foreL: 0.9, torso: [0, 0.1, 0.1], head: [0, 0.15, -0.1] }) },
-      { t: 0.5, p: pose({ x: 0, rz: 0.1, legR: [0.25, 0, 0.05], kneeR: 0.5, legL: [0.25, 0, 0.05], kneeL: 0.5, armR: [0.2, 0, 0.3], foreR: 0.9, armL: [0.2, 0, 0.3], foreL: 0.9, torso: [-0.05, 0, 0] }) },
-      { t: 1, p: pose({ x: 0.18, rz: 0.12, legR: [0.05, 0, 0.32], kneeR: 0.15, legL: [0.05, 0, -0.08], kneeL: 0.3, armL: [0.15, 0, 1.0], foreL: 0.5, armR: [0.15, 0, -0.35], foreR: 0.9, torso: [0, -0.1, -0.1], head: [0, -0.15, 0.1] }) },
-      { t: 1.5, p: pose({ x: 0, rz: -0.1, legR: [0.25, 0, 0.05], kneeR: 0.5, legL: [0.25, 0, 0.05], kneeL: 0.5, armR: [0.2, 0, 0.3], foreR: 0.9, armL: [0.2, 0, 0.3], foreL: 0.9, torso: [-0.05, 0, 0] }) }
-    ]
+      [0, -0.16, 0.35, null], [0.5, -0.06, 0.18, 'R'], [1, 0.04, 0, null], [1.5, 0.12, -0.18, 'R'],
+      [2, 0.18, -0.35, null], [2.5, 0.08, -0.18, 'L'], [3, -0.02, 0, null], [3.5, -0.1, 0.18, 'L']
+    ].map(([t, x, ry, out]) => ({
+      t, p: pose(P(CROUCH, AIM, out ? { ['leg' + out]: [0.4, 0, 0.3], ['knee' + out]: 0.7 } : null,
+        { x, torso: [-0.12, ry, 0], head: [0.04, ry * 0.4, 0] }))
+    }))
   },
-  // 4. 크리스 크로스: 박자마다 제자리 점프 — 착지할 때 다리·팔을 X자로 교차 ↔ 다음 착지에 크게 벌림
+  // 4. 몸풀기(8박): 머리 위로 깍지 → 왼쪽 옆구리 늘이기(1박) → 가운데 → 오른쪽(3박) → 가운데(4박) →
+  //    팔을 내리고 반 박자마다 다리를 번갈아 들며 손목을 턴다(4.5~7박) → 다시 머리 위로
   crissCross: {
-    loop: true, beats: 2,
+    loop: true, beats: 8,
     keys: [
-      { t: 0, p: pose({ legR: [0.12, 0, -0.2], kneeR: 0.25, legL: [-0.05, 0, -0.2], kneeL: 0.2, torso: [-0.08, 0, 0] }),
-        handTo: { R: [-0.1, 1.3, -0.33], L: [0.1, 1.34, -0.37] }, prefR: [1.2, 0, -0.9, 1.4], prefL: [1.2, 0, -0.9, 1.4] },
-      { t: 0.5, p: pose({ air: 0.22, legR: [0.1, 0, 0.12], kneeR: 0.45, legL: [0.1, 0, 0.12], kneeL: 0.45, armR: [0.4, 0, 1.6], foreR: 0.3, armL: [0.4, 0, 1.6], foreL: 0.3 }) },
-      { t: 1, p: pose({ legR: [0.05, 0, 0.42], kneeR: 0.3, legL: [0.05, 0, 0.42], kneeL: 0.3, armR: [0.3, 0, 2.5], foreR: 0.1, armL: [0.3, 0, 2.5], foreL: 0.1, torso: [0.06, 0, 0], head: [0.15, 0, 0] }) },
-      { t: 1.5, p: pose({ air: 0.22, legR: [0.1, 0, 0.12], kneeR: 0.45, legL: [0.1, 0, 0.12], kneeL: 0.45, armR: [0.8, 0, 0.6], foreR: 0.9, armL: [0.8, 0, 0.6], foreL: 0.9 }) }
+      ...[[0, 0], [1, 0.32], [1.6, 0.34], [2, 0], [3, -0.32], [3.6, -0.34], [4, 0]].map(([t, a]) => ({
+        t, p: pose(P(UP_ARMS, { legR: [0, 0, 0.12], legL: [0, 0, 0.12], torso: [0, 0, a], head: [a ? 0.05 : 0.1, 0, a * 0.3] }))
+      })),
+      ...[4.5, 5, 5.5, 6, 6.5, 7].map((t, i) => {
+        const up = i % 2 ? 'L' : 'R', s = i % 2 ? -1 : 1;
+        return { t, p: pose({ ['leg' + up]: [0.35, 0, 0.05], ['knee' + up]: 0.7, rz: 0.03 * s,
+          armR: [0.05, 0, 0.3], foreR: 0.25, handR: [0, 0, 0.5 * s], armL: [0.05, 0, 0.3], foreL: 0.25, handL: [0, 0, -0.5 * s],
+          shapeR: 'flat', shapeL: 'flat', head: [0, 0, -0.06 * s] }) };
+      }),
+      { t: 7.4, p: pose({ legR: [0, 0, 0.08], legL: [0, 0, 0.08], armR: [0.1, 0, 0.5], foreR: 0.4, armL: [0.1, 0, 0.5], foreL: 0.4, shapeR: 'flat', shapeL: 'flat' }) }
     ]
   },
-  // 5. 탱고: 상대를 안은 듯한 팔(왼팔 들어 손잡기, 오른팔 감싸기), 앞으로 큰 두 걸음 → 뒤로 → 고개 휙
+  // 5. 제자리 행진(4박): 왼 무릎(0.5박)·오른 무릎(1.5박)·왼 무릎(2.5박)을 높이 들며 팔을 반대로 크게 흔든다 →
+  //    3박에 발을 쿵 모으고 차렷으로 멈춘다
   tango: {
     loop: true, beats: 4,
     keys: [
-      { t: 0, p: pose({ legR: [0.05, 0, 0.03], legL: [0.05, 0, 0.03], torso: [0.1, 0, 0], head: [0.05, 0.5, 0] }),
-        handTo: { R: [-0.02, 1.28, -0.38], L: [-0.6, 1.6, -0.28] }, prefR: [1.3, 0.3, -0.6, 1.3], prefL: [0.5, 0, 1.4, 1.5] },
-      { t: 1, p: pose({ z: -0.3, legL: [0.6, 0, 0.03], kneeL: 0.1, legR: [-0.35, 0, 0.03], kneeR: 0.15, torso: [0.12, 0, 0], head: [0.05, 0.5, 0] }),
-        handTo: { R: [-0.02, 1.28, -0.38], L: [-0.6, 1.6, -0.28] }, prefR: [1.3, 0.3, -0.6, 1.3], prefL: [0.5, 0, 1.4, 1.5] },
-      { t: 2, p: pose({ z: -0.55, legR: [0.6, 0, 0.03], kneeR: 0.1, legL: [-0.35, 0, 0.03], kneeL: 0.15, torso: [0.14, 0, 0], head: [0.05, 0.5, 0] }),
-        handTo: { R: [-0.02, 1.28, -0.38], L: [-0.6, 1.6, -0.28] }, prefR: [1.3, 0.3, -0.6, 1.3], prefL: [0.5, 0, 1.4, 1.5] },
-      { t: 3, p: pose({ z: -0.15, legL: [-0.4, 0, 0.03], kneeL: 0.25, legR: [0.35, 0, 0.03], kneeR: 0.05, torso: [0.16, 0, 0], head: [0.05, 0.5, 0] }),
-        handTo: { R: [-0.02, 1.28, -0.38], L: [-0.6, 1.6, -0.28] }, prefR: [1.3, 0.3, -0.6, 1.3], prefL: [0.5, 0, 1.4, 1.5] },
-      { t: 3.35, ease: 'linear', p: pose({ z: -0.08, legR: [0.1, 0, 0.03], legL: [0.1, 0, 0.03], torso: [0.12, 0, 0], head: [0.05, -0.75, 0] }),
-        handTo: { R: [-0.02, 1.28, -0.38], L: [-0.6, 1.6, -0.28] }, prefR: [1.3, 0.3, -0.6, 1.3], prefL: [0.5, 0, 1.4, 1.5] },
-      { t: 3.75, p: pose({ z: -0.02, legR: [0.05, 0, 0.03], legL: [0.05, 0, 0.03], torso: [0.1, 0, 0], head: [0.05, -0.75, 0] }),
-        handTo: { R: [-0.02, 1.28, -0.38], L: [-0.6, 1.6, -0.28] }, prefR: [1.3, 0.3, -0.6, 1.3], prefL: [0.5, 0, 1.4, 1.5] }
-    ]
+      { t: 0, p: pose(P(STAND, { armR: [0.05, 0, 0.06], foreR: 0.2, armL: [0.05, 0, 0.06], foreL: 0.2, torso: [0.04, 0, 0], head: [0.04, 0, 0] })) },
+      ...[[0.5, 'L'], [1.5, 'R'], [2.5, 'L']].map(([t, up]) => {
+        const fwd = up === 'L' ? 'R' : 'L';
+        return { t, p: pose({ ['leg' + up]: KNEE_UP, ['knee' + up]: 1.5, ['leg' + fwd]: [0, 0, 0.02],
+          ['arm' + fwd]: ARM_FWD, ['fore' + fwd]: 0.35, ['arm' + up]: ARM_BACK, ['fore' + up]: 0.1, torso: [0.04, 0, 0], head: [0.04, 0, 0] }) };
+      }),
+      ...[1, 2].map((t) => ({ t, p: pose(P(STAND, { armR: [0.05, 0, 0.06], foreR: 0.2, armL: [0.05, 0, 0.06], foreL: 0.2, torso: [0.04, 0, 0], head: [0.04, 0, 0] })) })),
+      { t: 3, p: pose({ legR: [0.12, 0, 0], kneeR: 0.25, legL: [0.12, 0, 0], kneeL: 0.25, armR: [0, 0, 0.04], foreR: 0.05, armL: [0, 0, 0.04], foreL: 0.05, head: [0, 0, 0] }) },
+      { t: 3.3, ease: 'linear', p: pose({ legR: [0, 0, -0.01], legL: [0, 0, -0.01], armR: [0, 0, 0.04], foreR: 0.05, armL: [0, 0, 0.04], foreL: 0.05, torso: [0.05, 0, 0], head: [0.06, 0, 0] }) },
+      { t: 3.8, p: pose({ legR: [0, 0, -0.01], legL: [0, 0, -0.01], armR: [0, 0, 0.04], foreR: 0.05, armL: [0, 0, 0.04], foreL: 0.05, torso: [0.05, 0, 0], head: [0.06, 0, 0] }) }
+    ].sort((a, b) => a.t - b.t)
   },
   // 6. 경례: 차렷 → 오른손 경례 → 내림 (2.5초, 시간 단위: 초)
   salute: {
@@ -306,61 +354,61 @@ const DEFS = {
         handTo: { R: [0.36, 1.86, -0.16], L: [-0.36, 1.86, -0.16] }, prefR: [0.6, 0, 2.2, 1.0], prefL: [0.6, 0, 2.2, 1.0] }
     ]
   },
-  // 9. 크림치즈 허니(5박 = 음원 한 소절): 주먹을 볼에 대고 박자마다 무릎 바운스·고개 갸웃(0~3박) →
-  //    소절 끝의 큰 소리에 맞춰 두 팔을 번쩍 들며 깡충(3.8박) → 쉼 동안 팔을 든 채 멈춤 → 다시 볼로
+  // 9. 수신호(8박): 정지 — 오른 주먹을 들어 세움(0박) → 집결 — 머리 위에서 손을 크게 돌림(1.8~3.8박) →
+  //    전진 — 편 손날로 앞을 가르며 한 걸음(4.4박) → 엎드려 — 손바닥으로 두 번 눌러 내리며 무릎을 굽힘(6·7박)
   creamCheese: {
-    loop: true, beats: 5,
+    loop: true, beats: 8,
     keys: [
-      ...[0, 1, 2, 3].map((t) => ({ t, p: pose(Object.assign({}, t % 2 ? Object.assign({}, BOUNCE, t === 3 ? { kneeR: 0.78, kneeL: 0.78, legR: [0.4, 0, 0.04], legL: [0.4, 0, 0.04] } : null) : STAND, {
-        x: t % 2 ? 0.03 : -0.03, rz: t % 2 ? 0.05 : -0.05, head: [0.04, t % 2 ? -0.1 : 0.1, t % 2 ? 0.22 : -0.22], torso: [-0.04, 0, t % 2 ? 0.06 : -0.06],
-        shapeR: 'fist', shapeL: 'fist' })),
-      handTo: { R: [0.14, 1.46, -0.2], L: [-0.14, 1.46, -0.2] }, prefR: [0.5, 0, 0.15, 2.3], prefL: [0.5, 0, 0.15, 2.3] })),
-      { t: 3.8, p: pose({ air: 0.16, legR: [0.15, 0, 0.12], kneeR: 0.4, legL: [0.15, 0, 0.12], kneeL: 0.4, armR: [0.25, 0, 2.6], foreR: 0.15, armL: [0.25, 0, 2.6], foreL: 0.15,
-        shapeR: 'flat', shapeL: 'flat', head: [0.2, 0, 0], torso: [0.06, 0, 0] }) },
-      { t: 4.3, p: pose(Object.assign({}, BOUNCE, { armR: [0.2, 0, 2.5], foreR: 0.2, armL: [0.2, 0, 2.5], foreL: 0.2, shapeR: 'flat', shapeL: 'flat', head: [0.15, 0, 0] })) },
-      { t: 4.62, p: pose(Object.assign({}, STAND, { armR: [0.2, 0, 2.45], foreR: 0.25, armL: [0.2, 0, 2.45], foreL: 0.25, shapeR: 'flat', shapeL: 'flat', head: [0.12, 0, 0] })) }
+      { t: 0, p: pose(P(STAND, FREEZE, { head: [0.04, -0.2, 0] })) },
+      { t: 1.2, p: pose(P(STAND, FREEZE, { head: [0.04, -0.26, 0], torso: [0, -0.04, 0] })) },
+      ...[0, 1, 2, 3, 4].map((i) => {
+        const [flex, abd, fore] = RALLY[i % 4];
+        return { t: 1.8 + i * 0.5, ease: i ? 'linear' : 'smooth',
+          p: pose(P(STAND, { armR: [flex, 0, abd], foreR: fore, armL: [0.08, 0, 0.12], foreL: 0.25, shapeR: 'flat', head: [0.12, 0, 0] })) };
+      }),
+      { t: 4.4, p: pose({ z: -0.07, legR: [0.32, 0, 0.03], kneeR: 0.12, legL: [-0.15, 0, 0.03], kneeL: 0.22, armR: [1.5, 0, 0], foreR: 0.05, handR: [0, -1.3, 0],
+        armL: [0.08, 0, 0.12], foreL: 0.25, shapeR: 'flat', torso: [-0.08, -0.05, 0], head: [0, -0.04, 0] }) },
+      { t: 5.4, p: pose({ z: -0.07, legR: [0.32, 0, 0.03], kneeR: 0.12, legL: [-0.15, 0, 0.03], kneeL: 0.22, armR: [1.52, 0, 0], foreR: 0.05, handR: [0, -1.3, 0],
+        armL: [0.08, 0, 0.12], foreL: 0.25, shapeR: 'flat', torso: [-0.09, -0.05, 0], head: [0, -0.04, 0] }) },
+      ...[[6, 0.9, false], [6.5, 0.6, true], [7, 0.9, false], [7.4, 0.6, true]].map(([t, flex, low]) => ({
+        t, p: pose(P(low ? BOUNCE : STAND, { armR: [flex, 0, 0.22], foreR: low ? 0.55 : 0.45, armL: [flex * 0.8, 0, 0.18], foreL: 0.4,
+          shapeR: 'flat', shapeL: 'flat', torso: [low ? -0.14 : -0.04, 0, 0], head: [low ? -0.05 : 0.02, 0, 0] }))
+      }))
     ]
   },
-  // 10. 당신에게서(2박 = 음원 한 소절): 오른손을 가슴에 얹고 고개를 숙였다가(0박) 왼손을 앞으로 내밀며 한 걸음(0.8박),
-  //     두 손을 모두 내밀어 손바닥을 위로(1.2박), 쉼 동안 그대로 기울인 채 멈춤 → 다시 가슴으로
+  // 10. 쌍안경 정찰(8박): 두 주먹을 눈앞에 대고 왼쪽(0박)에서 천천히 오른쪽(4.5박)까지 훑다가 멈칫(5박) →
+  //     오른손으로 그쪽을 가리키고(5.6박) → 쌍안경을 내리고 엄지를 들며 끄덕(6.6박)
   fromYou: {
-    loop: true, beats: 2,
+    loop: true, beats: 8,
     keys: [
-      { t: 0, p: pose({ rz: 0.03, legL: [0, 0, 0.02], legR: [0.08, 0, 0.06], kneeR: 0.15, torso: [0.04, 0, 0], head: [0.14, 0.12, 0.08],
-        armL: [0.1, 0, 0.12], foreL: 0.25, shapeR: 'flat', shapeL: 'flat', handR: [0, 0, 0.5] }),
-        handTo: { R: [-0.02, 1.28, -0.2] }, prefR: [0.9, 0.3, -0.5, 1.9] },
-      { t: 0.8, p: pose({ z: -0.05, legL: [0.25, 0, 0.03], kneeL: 0.1, legR: [-0.1, 0, 0.03], kneeR: 0.2, torso: [-0.08, 0, 0], head: [-0.02, 0, 0],
-        shapeR: 'flat', shapeL: 'flat', handR: [0, 0, 0.5], handL: [0, -1.2, 0] }),
-        handTo: { R: [-0.02, 1.28, -0.2], L: [-0.3, 1.45, -0.45] }, prefR: [0.9, 0.3, -0.5, 1.9], prefL: [1.5, 0, 0.5, 0.3] },
-      { t: 1.2, p: pose({ z: -0.06, rz: -0.04, legL: [0.25, 0, 0.03], kneeL: 0.1, legR: [-0.1, 0, 0.03], kneeR: 0.2, torso: [-0.12, 0, 0], head: [-0.05, 0, -0.06],
-        shapeR: 'flat', shapeL: 'flat', handR: [0, -1.2, 0], handL: [0, -1.2, 0] }),
-        handTo: { R: [0.34, 1.42, -0.45], L: [-0.34, 1.42, -0.45] }, prefR: [1.4, 0, 0.5, 0.3], prefL: [1.4, 0, 0.5, 0.3] },
-      { t: 1.65, p: pose({ z: -0.06, rz: -0.02, legL: [0.22, 0, 0.03], kneeL: 0.05, legR: [-0.08, 0, 0.03], kneeR: 0.1, torso: [-0.1, 0, 0], head: [0, 0, 0.08],
-        shapeR: 'flat', shapeL: 'flat', handR: [0, -1.2, 0], handL: [0, -1.2, 0] }),
-        handTo: { R: [0.36, 1.46, -0.44], L: [-0.36, 1.46, -0.44] }, prefR: [1.4, 0, 0.5, 0.3], prefL: [1.4, 0, 0.5, 0.3] }
+      ...[[0, 0.45, 'smooth'], [1.5, 0.45, 'smooth'], [3, 0, 'linear'], [4.5, -0.45, 'linear']].map(([t, ry, ease]) => ({
+        t, ease, p: pose(P(SCOUT_LEGS, { torso: [0, ry, 0], head: [0.02, 0, 0] })),
+        handTo: { R: turnY(BINO_R, ry), L: turnY(BINO_L, ry) }, prefR: BINO_PREF, prefL: BINO_PREF
+      })),
+      { t: 5, p: pose(P(SCOUT_LEGS, { torso: [-0.08, -0.45, 0], head: [-0.04, 0, 0] })),
+        handTo: { R: turnY(BINO_R, -0.45), L: turnY(BINO_L, -0.45) }, prefR: BINO_PREF, prefL: BINO_PREF },
+      { t: 5.6, p: pose(P(SCOUT_LEGS, { torso: [-0.06, -0.35, 0], head: [0, -0.05, 0], armR: [1.5, 0, 0.1], foreR: 0.05, shapeR: 'flat' })),
+        handTo: { L: turnY(BINO_L, -0.35) }, prefL: BINO_PREF },
+      { t: 6.6, p: pose(P(SCOUT_LEGS, { torso: [0.02, -0.1, 0], head: [0.16, 0, 0], armR: [0.45, 0, 0.35], foreR: 2.0, armL: [0.1, 0, 0.15], foreL: 0.3 })) },
+      { t: 7.3, p: pose(P(SCOUT_LEGS, { torso: [0.02, -0.1, 0], head: [0.04, 0, 0], armR: [0.45, 0, 0.35], foreR: 2.05, armL: [0.1, 0, 0.15], foreL: 0.3 })) }
     ]
   },
-  // 11. 셀카(4박 = 음원 두 소절): 오른손 휴대폰을 오른쪽 위로 들고 왼손은 허리(0박) → 큰 소리에 찰칵(0.86박, 왼손 L을 턱 옆에, 고개 갸웃) →
-  //     쉼 동안 멈춤 → 휴대폰을 왼쪽 위로 옮겨(2박) 다시 찰칵(2.86박, 왼손을 볼에, 무릎 하나 굽힘) → 멈춤
+  // 11. 깃발 흔들기(8박): 두 손으로 세운 깃대를 머리 위에서 박자마다 왼쪽·오른쪽으로 크게 흔든다(1~4박) →
+  //     가운데로 들어 올렸다가(5박) 땅에 내리꽂고(5.6박) → 일어나 오른손은 허리에, 왼손은 깃대에(6.6박)
   selfie: {
-    loop: true, beats: 4,
+    loop: true, beats: 8,
     keys: [
-      { t: 0, p: pose(Object.assign({}, STAND, { rz: 0.04, head: [0.1, -0.3, -0.08], torso: [0.02, -0.06, 0], shapeR: 'fist', shapeL: 'flat' })),
-        handTo: { R: [0.26, 1.7, -0.45], L: [-0.28, 0.98, -0.04] }, prefR: [1.6, 0, 0.3, 0.4], prefL: [-0.1, 0, 0.6, 1.6] },
-      { t: 0.66, p: pose(Object.assign({}, STAND, { rz: 0.05, head: [0.08, -0.28, -0.1], torso: [0.03, -0.06, 0.02], shapeR: 'fist', shapeL: 'flat' })),
-        handTo: { R: [0.27, 1.69, -0.46], L: [-0.28, 0.98, -0.04] }, prefR: [1.6, 0, 0.3, 0.4], prefL: [-0.1, 0, 0.6, 1.6] },
-      { t: 0.86, ease: 'linear', p: pose(Object.assign({}, STAND, { rz: 0.06, head: [0.1, -0.26, 0.2], torso: [0.06, -0.04, 0.06], shapeR: 'fist', shapeL: 'L' })),
-        handTo: { R: [0.27, 1.72, -0.45], L: [-0.1, 1.42, -0.28] }, prefR: [1.6, 0, 0.3, 0.4], prefL: [0.9, 0, 0.1, 2.2] },
-      { t: 1.6, p: pose(Object.assign({}, STAND, { rz: 0.05, head: [0.1, -0.26, 0.18], torso: [0.05, -0.04, 0.05], shapeR: 'fist', shapeL: 'L' })),
-        handTo: { R: [0.27, 1.71, -0.45], L: [-0.1, 1.41, -0.28] }, prefR: [1.6, 0, 0.3, 0.4], prefL: [0.9, 0, 0.1, 2.2] },
-      { t: 2, p: pose(Object.assign({}, STAND, { rz: -0.04, head: [0.1, 0.26, 0.06], torso: [0.02, 0.08, 0], shapeR: 'fist', shapeL: 'flat' })),
-        handTo: { R: [0.06, 1.68, -0.4], L: [-0.28, 0.98, -0.04] }, prefR: [1.6, 0.2, -0.3, 0.5], prefL: [-0.1, 0, 0.6, 1.6] },
-      { t: 2.66, p: pose(Object.assign({}, STAND, { rz: -0.05, head: [0.08, 0.24, 0.08], torso: [0.03, 0.08, -0.02], shapeR: 'fist', shapeL: 'flat' })),
-        handTo: { R: [0.07, 1.67, -0.41], L: [-0.28, 0.98, -0.04] }, prefR: [1.6, 0.2, -0.3, 0.5], prefL: [-0.1, 0, 0.6, 1.6] },
-      { t: 2.86, ease: 'linear', p: pose({ rz: -0.06, legR: [0.32, 0, 0.05], kneeR: 0.62, legL: [0, 0, 0.02], head: [0.22, 0.18, -0.22], torso: [0.05, 0.06, -0.06], shapeR: 'fist', shapeL: 'flat' }),
-        handTo: { R: [0.06, 1.7, -0.4], L: [-0.12, 1.47, -0.2] }, prefR: [1.6, 0.2, -0.3, 0.5], prefL: [0.5, 0, 0.15, 2.3] },
-      { t: 3.6, p: pose({ rz: -0.05, legR: [0.3, 0, 0.05], kneeR: 0.58, legL: [0, 0, 0.02], head: [0.2, 0.18, -0.2], torso: [0.05, 0.06, -0.05], shapeR: 'fist', shapeL: 'flat' }),
-        handTo: { R: [0.06, 1.69, -0.4], L: [-0.12, 1.47, -0.2] }, prefR: [1.6, 0.2, -0.3, 0.5], prefL: [0.5, 0, 0.15, 2.3] }
+      ...[[0, 0], [1, 0.3], [2, -0.3], [3, 0.3], [4, -0.3], [5, 0]].map(([t, a]) => ({
+        t, p: pose(P(POLE, { air: t === 5 ? 0.06 : 0, legR: [0.1, 0, 0.14], kneeR: 0.2, legL: [0.1, 0, 0.14], kneeL: 0.2, torso: [0.02, 0, a], head: [0.18, 0, a * -0.4] }))
+      })),
+      { t: 5.6, ease: 'linear', p: pose({ legR: [0.55, 0, 0.1], kneeR: 0.95, legL: [0.55, 0, 0.1], kneeL: 0.95, torso: [-0.25, 0, 0], head: [0.1, 0, 0],
+        armR: [0.27, 0, -0.71], foreR: 1.49, armL: [0.36, 0, -0.87], foreL: 1.14, shapeR: 'fist', shapeL: 'fist' }) },
+      { t: 6.1, p: pose({ legR: [0.28, 0, 0.1], kneeR: 0.5, legL: [0.28, 0, 0.1], kneeL: 0.5, torso: [-0.08, 0, 0], head: [0.1, 0.06, 0],
+        armR: [-0.08, 0, -0.39], foreR: 1.3, armL: [0.35, 0, -0.54], foreL: 1.38, shapeR: 'fist', shapeL: 'fist' }) },
+      ...[[6.6, 0.1, 0.15], [7.4, 0.12, 0.18]].map(([t, chest, look]) => ({
+        t, p: pose({ legR: [0, 0, 0.1], legL: [0, 0, 0.1], torso: [chest, 0, 0], head: [chest + 0.02, look, 0],
+          armR: [-0.42, 0, -0.07], foreR: 1.12, armL: [0.33, 0, -0.21], foreL: 1.62, shapeR: 'fist', shapeL: 'fist' })
+      }))
     ]
   }
 };

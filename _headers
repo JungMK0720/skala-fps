@@ -1,0 +1,20 @@
+# Date: 06NOV2026
+# Author: Minkyu Jung
+# Purpose: Pages의 실제 보안 응답 헤더와 정적 자산 캐시 정책을 설정한다.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://sdk.crazygames.com 'sha256-TM0KDHAQbO12MKjS7wA+y53W8I0SldAmN++tBE9dMgI='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://images.crazygames.com; font-src 'self' data:; connect-src 'self' https://tvsoacvbjvggqdgnzijc.supabase.co wss://tvsoacvbjvggqdgnzijc.supabase.co https://skala-relay.skala-fps.workers.dev wss://skala-relay.skala-fps.workers.dev https://skala-api.skala-fps.workers.dev https://cza.crazygames.com; media-src 'self' blob: data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self' https://*.crazygames.com https://crazygames.com capacitor://app.crazygames.com
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+/
+  Cache-Control: no-cache
+/*.html
+  Cache-Control: no-cache
+/privacy
+  Cache-Control: no-cache
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+/assets/models/*
+  Cache-Control: public, max-age=31536000, immutable
+/audio/*
+  Cache-Control: public, max-age=31536000, immutable

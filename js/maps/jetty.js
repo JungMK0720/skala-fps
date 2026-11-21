@@ -4,8 +4,8 @@
  * Purpose: 맵 데이터: 원유 부두. 데크 위 근접전과 저격 구역이 섞인 항만 테마 클래식 맵이다.
  */
 /**
- * SKALA 작전 맵 — 원유 부두 (Crude Jetty)   담당: map-jetty
- * 울산 탱커 터미널 선석 SK-7 원유 제티. 실제 T자형 탱커 제티 구조를 참고한 오리지널 레이아웃.
+ * 맵 — 원유 부두 (Crude Jetty)   담당: map-jetty
+ * 가상 항만 탱커 터미널의 K-7 선석 원유 제티. 일반적인 T자형 탱커 제티 구조를 참고한 오리지널 레이아웃.
  *
  * 좌표: 1 = 1m, 원점 = 맵 중앙, -x = 해안(서), +x = 바다(동), +z = 남, -z = 북(팀 규약). 해수면 y=0(가라앉은 water 박스),
  *       주 데크(해안 부지·접속교·플랫폼·돌핀) 윗면 y=4.0, 접속교 아래 보조 보행로 y=0.8, 제어실 2층 y=7.4.
@@ -23,7 +23,7 @@
  */
 export default {
   id: 'jetty', name: '원유 부두', nameEn: 'Crude Jetty',
-  desc: '울산 탱커 터미널 SK-7 선석: VLCC가 ALL FAST로 접안해 NOR 통지 후 하역 중인 원유 제티 — 접속교 저격선, 플랫폼·제어실 근접전, 파이프랙 중거리전',
+  desc: '가상 항만 K-7 선석: VLCC가 ALL FAST로 접안해 NOR 통지 후 하역 중인 원유 제티 — 접속교 저격선, 플랫폼·제어실 근접전, 파이프랙 중거리전', descEn: 'Fictional port, berth K-7: a supertanker is ALL FAST and discharging crude — sniper lanes on the trestle, close quarters on the platform and control room, mid-range fights across the pipe racks.',
   size: { x: 140, z: 90 },
   theme: { sky: '#f6b885', skyTop: '#1f3b57', fog: [60, 230], sunDir: [0.75, 0.32, 0.22],
            sunColor: '#ffc896', ambient: 0.5, water: '#1d4e6e' },
@@ -427,9 +427,9 @@ export default {
     // 표지판(도메인 용어)
     { type: 'pipe', from: [-33.6, 4, -3.1], to: [-33.6, 9.1, -3.1], r: 0.1, mat: 'steel' },
     { type: 'pipe', from: [-33.6, 4, 4.15], to: [-33.6, 9.1, 4.15], r: 0.1, mat: 'steel' },
-    { type: 'sign', x: -33.6, y: 8.5, z: 0.5, rotY: -1.57, w: 7.2, h: 1.1, text: 'BERTH SK-7  CRUDE JETTY', bg: '#0b2545', fg: '#ffffff' },
+    { type: 'sign', x: -33.6, y: 8.5, z: 0.5, rotY: -1.57, w: 7.2, h: 1.1, text: 'BERTH K-7  CRUDE JETTY', bg: '#0b2545', fg: '#ffffff' },
     { type: 'sign', x: -33.6, y: 7.5, z: 0.5, rotY: -1.57, w: 5.6, h: 0.6, text: 'NO SMOKING  NO NAKED LIGHTS', bg: '#b00020', fg: '#ffffff' },
-    { type: 'sign', x: 32.97, y: 9.8, z: 0, rotY: -1.57, w: 5, h: 0.7, text: 'BERTH SK-7', bg: '#0b2545', fg: '#ffffff' },
+    { type: 'sign', x: 32.97, y: 9.8, z: 0, rotY: -1.57, w: 5, h: 0.7, text: 'BERTH K-7', bg: '#0b2545', fg: '#ffffff' },
     { type: 'sign', x: 27.97, y: 4.7, z: 10, rotY: -1.57, w: 3.2, h: 0.6, text: 'MAX DRAFT 21m', bg: '#f2c14e', fg: '#111111' },
     { type: 'sign', x: 27.97, y: 4.7, z: -9, rotY: -1.57, w: 3.2, h: 0.6, text: 'MAX LOA 340m', bg: '#f2c14e', fg: '#111111' },
     { type: 'sign', x: 47.97, y: 7, z: 0, rotY: -1.57, w: 3, h: 0.7, text: 'MANIFOLD', bg: '#0b2545', fg: '#ffffff' },

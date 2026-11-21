@@ -52,8 +52,8 @@ const FACE = { '+x': Math.PI / 2, '-x': -Math.PI / 2, '+z': 0, '-z': Math.PI };
 
 /* ---------------- 폭파 구역 ---------------- */
 
-const SITE_A = { id: 'A', name: 'A 구역 · 신호 취급소', x: 17.5, y: 0, z: -18.1, w: 9, h: 3, d: 9 };
-const SITE_B = { id: 'B', name: 'B 구역 · 화물 계량소', x: 17.5, y: 0, z: 18.9, w: 9, h: 3, d: 9 };
+const SITE_A = { id: 'A', name: 'A 구역 · 신호 취급소', nameEn: 'Site A · Signal Box', x: 17.5, y: 0, z: -18.1, w: 9, h: 3, d: 9 };
+const SITE_B = { id: 'B', name: 'B 구역 · 화물 계량소', nameEn: 'Site B · Weigh Station', x: 17.5, y: 0, z: 18.9, w: 9, h: 3, d: 9 };
 
 /* ---------------- 도형 도우미 ---------------- */
 
@@ -480,7 +480,46 @@ const solids = [
 
 /* ---------------- 장식 도우미 ---------------- */
 
-const sign = (x, y, z, face, w, h, text, bg = '#18232d', fg = '#e8f1f7') => ({ type: 'sign', x, y, z, rotY: FACE[face], w, h, text, bg, fg });
+/** 표지판 글자의 영어 짝(core/i18n.js loc). 한국어 글자를 그대로 열쇠로 쓴다 */
+const SIGN_EN = {
+  'A 신호 취급소': 'A Signal Box',
+  'B 계량소': 'B Weigh Station',
+  '← 건널목 · A 구역': '← Crossing · Site A',
+  '연결기 틈 · A / B': 'Coupler Gap · A / B',
+  '정비고 · B 구역 →': 'Shed · Site B →',
+  '연결기 틈 · A / B →': 'Coupler Gap · A / B →',
+  '← 연결기 틈 · A / B': '← Coupler Gap · A / B',
+  '← A 구역 · 신호 취급소': '← Site A · Signal Box',
+  'B 구역 · 화물 계량소 →': 'Site B · Weigh Station →',
+  'A 구역 →': 'Site A →',
+  '← B 구역': '← Site B',
+  'B 구역 →': 'Site B →',
+  '← 측선 야드': '← Siding Yard',
+  '← A 구역 · B 구역 →': '← Site A · Site B →',
+  '← B 구역 · 화물 계량소': '← Site B · Weigh Station',
+  '기관차 사업소': 'Locomotive Depot',
+  '검수고': 'Inspection Shed',
+  '유류고 · 화기 엄금': 'Fuel Store · No Open Flames',
+  '화물 창고': 'Freight Warehouse',
+  '정비고': 'Maintenance Shed',
+  '선로반 대기소': 'Track Crew Hut',
+  '화물 사무소': 'Freight Office',
+  '신호 취급소': 'Signal Box',
+  '역무동': 'Station Office',
+  '건널목 · 일단 정지': 'Level Crossing · Stop',
+  '연결기 틈\n횡단 주의': 'Coupler Gap\nCross With Care',
+  '계량 중 · 접근 금지': 'Weighing · Keep Clear',
+  '진로 제어반\n1번선 개통': 'Route Control\nTrack 1 Clear',
+  '폐색 정상': 'Block Clear',
+  '계전기 A1 · 정상': 'Relay A1 · OK',
+  '계전기 A2 · 예비': 'Relay A2 · Standby',
+  '축전지 A3': 'Battery A3',
+  '계량 단말 B\n화차 42.6 t': 'Weigh Terminal B\nWagon 42.6 t',
+  '화물 단말 B-01': 'Cargo Terminal B-01',
+  'B-02 송장 대기': 'B-02 Awaiting Waybill',
+  '화물 조차장 운전 취급실\nA 신호 취급소 · B 화물 계량소': 'Freight Yard Control Room\nA Signal Box · B Weigh Station'
+};
+const sign = (x, y, z, face, w, h, text, bg = '#18232d', fg = '#e8f1f7') => ({ type: 'sign', x, y, z, rotY: FACE[face], w, h, text, textEn: SIGN_EN[text], bg, fg });
 /** 구역 글자판: 노랑 바탕에 검은 글자. 다가오는 길에서 멀리서도 읽힌다 */
 const letter = (id, x, y, z, face, s = 1.6) => sign(x, y, z, face, s, s, id, '#ffd21f', '#111418');
 const signA = (x, y, z, face, w, h, text) => sign(x, y, z, face, w, h, text, '#0f2233', '#35e0ff');
@@ -681,9 +720,9 @@ const decorList = [
   { type: 'crateStack', x: -15, y: 0, z: 24.6, rotY: -0.15, size: 0.9, levels: 2 },
   { type: 'crateStack', x: 22.2, y: 1, z: 24.8, rotY: 0.1, size: 0.8, levels: 1 },
   { type: 'crateStack', x: 27.9, y: 0, z: 21.6, rotY: 0.25, size: 0.9, levels: 2 },
-  { type: 'banner', x: -39.45, y: 3.3, z: -7.8, rotY: FACE['+x'], w: 1.4, h: 2.8, text: '조차장', emblem: 'ring', bg: '#0d2a45', fg: '#e8f1f7' },
-  { type: 'banner', x: -39.45, y: 3.3, z: 7.8, rotY: FACE['+x'], w: 1.4, h: 2.8, text: '조차장', emblem: 'ring', bg: '#0d2a45', fg: '#e8f1f7' },
-  { type: 'banner', x: 39.45, y: 3.2, z: -7.4, rotY: FACE['-x'], w: 1.2, h: 2.4, text: '안전', emblem: 'diamond', bg: '#1b4332', fg: '#e8f1f7' }
+  { type: 'banner', x: -39.45, y: 3.3, z: -7.8, rotY: FACE['+x'], w: 1.4, h: 2.8, text: '조차장', textEn: 'Yard', emblem: 'ring', bg: '#0d2a45', fg: '#e8f1f7' },
+  { type: 'banner', x: -39.45, y: 3.3, z: 7.8, rotY: FACE['+x'], w: 1.4, h: 2.8, text: '조차장', textEn: 'Yard', emblem: 'ring', bg: '#0d2a45', fg: '#e8f1f7' },
+  { type: 'banner', x: 39.45, y: 3.2, z: -7.4, rotY: FACE['-x'], w: 1.2, h: 2.4, text: '안전', textEn: 'Safety', emblem: 'diamond', bg: '#1b4332', fg: '#e8f1f7' }
 ];
 
 /* ---------------- 스폰 ---------------- */
@@ -722,8 +761,8 @@ export default {
   id: 'railyard',
   name: '화물 조차장',
   nameEn: 'Freight Yard',
-  desc: '본선에 선 화물 열차를 건널목·연결기 틈·정비고 세 곳으로만 건널 수 있는 새벽 조차장에서 신호 취급소(A)와 화물 계량소(B)를 놓고 싸우는 폭파 미션 맵.',
-  tag: '폭파 미션',
+  desc: '본선에 선 화물 열차를 건널목·연결기 틈·정비고 세 곳으로만 건널 수 있는 새벽 조차장에서 신호 취급소(A)와 화물 계량소(B)를 놓고 싸우는 폭파 미션 맵.', descEn: 'Bomb defusal at dawn in a freight yard split by a train on the main line — cross only at the level crossing, the coupler gap or the shed — fighting over the signal box (A) and the weigh station (B).',
+  tag: '폭파 미션', tagEn: 'Bomb Defusal',
   size: { x: 80, z: 52 },
   rulesets: ['classic'],
   // 해가 동쪽에서 낮게 떠 열차 그림자가 공격 진영 쪽으로 길게 눕는다

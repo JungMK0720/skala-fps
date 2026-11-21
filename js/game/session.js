@@ -46,6 +46,9 @@ import { cardRows } from './horde/solo.js';
 import { HORDE } from './horde/rules.js';
 import { buildNavGrid } from './navgrid.js';
 import { isZombieMap } from '../maps/collision.js';
+import { t, loc } from '../core/i18n.js';
+import { maskProfanity } from '../core/profanity.js';
+import { platform } from '../platform/index.js';
 
 export const SESSION_DEFAULTS = Object.freeze({
   maxPlayers: 6,          // Supabase Realtime(transport 'supabase') 무료 한도(3:3). 방 만들기 max는 2..이 값으로 자른다
@@ -66,19 +69,19 @@ export const SESSION_DEFAULTS = Object.freeze({
   roomIdleWarnMs: 10000   // 닫기 이만큼 전에 모두에게 안내와 [계속 기다리기]
 });
 
-export const ROOM_NOTE = '무료 서버 한도 때문에 최대 6명(인원이 적을수록 더 부드러워요)';
+export const ROOM_NOTE = t('room.note');
 /** 중계 서버(transport 'relay')로 들어온 방의 첫 안내. max = 이 방의 최대 인원 */
-export const relayRoomNote = (max) => `이 방은 최대 ${max}명이에요. 사람이 많을수록 느린 기기에서는 끊길 수 있어요.`;
+export const relayRoomNote = (max) => t('room.relayNote', { max });
 /** 채팅 도배 막기: 내가 보내는 것은 5초에 4줄까지(넘으면 안내만), 받는 것은 한 사람당 5초에 6줄까지(고친 클라이언트 대비) */
 export const CHAT_LIMIT = Object.freeze({ windowMs: 5000, send: 4, receive: 6 });
-const CHAT_SLOW = '채팅을 너무 빨리 보내고 있어요. 잠시 뒤에 다시 보내 주세요.';
+const CHAT_SLOW = t('room.chatSlow');
 /** 레이 판정에서 움직이는 지형(engine/movers.js)을 빼는 옵션 */
 const STATIC_ONLY = Object.freeze({ filter: (c) => !c.dynamic });
-const TEAM_CHAT_NO_TEAM = '아직 팀이 없어 팀 채팅을 보낼 수 없어요. Tab으로 전체 채팅으로 바꿔 보내세요.';
+const TEAM_CHAT_NO_TEAM = t('room.teamChatNoTeam');
 /** 세션 제어 이벤트(room.send): { k:'prep', mid, map, mode, rs } 방장→모두 / { k:'loaded', mid } 멤버→방장 */
 export const CONTROL_EVENT = 'mx';
 
-const TEAM_NAME = Object.freeze({ owner: '블루', charterer: '레드' });
+const TEAM_NAME = Object.freeze({ owner: t('room.teamBlue'), charterer: t('room.teamRed') });
 const PHASE_ORDER = Object.freeze({ warmup: 0, loadout: 1, live: 2, roundEnd: 3, matchEnd: 4 });
 const ACTIVE = new Set(['loadout', 'live', 'roundEnd']);
 /** 무기 슬롯 → 장비 키. */
@@ -88,20 +91,20 @@ const RULE_KEYS = Object.freeze(Object.keys(DEFAULT_RULES));
 const SNAPSHOT_BUDGET = 1800;   // match.js와 같은 예산(protocol 부가 영역 2048B 안)
 
 const ERROR_TEXT = Object.freeze({
-  ROOM_FULL: '방이 가득 찼어요.',
-  ROOM_NOT_FOUND: '방을 찾을 수 없어요. 이미 닫혔을 수 있어요.',
-  JOIN_TIMEOUT: '방 응답이 없어요. 다시 시도해 주세요.',
-  JOIN_ERROR: '방에 들어가지 못했어요. 다시 시도해 주세요.',
-  TRACK_FAILED: '방 등록에 실패했어요. 잠시 후 다시 시도해 주세요.',
-  BAD_ROOM_ID: '잘못된 방 번호예요.',
-  BAD_PASSWORD: '비밀번호가 맞지 않아요.',
-  NEED_PASSWORD: '비밀번호가 필요한 방이에요.',
-  NO_CRYPTO: '이 브라우저는 비밀번호 방을 지원하지 않아요.',
-  CONNECT_TIMEOUT: '서버 연결이 늦어지고 있어요. 다시 시도해 주세요.',
-  NO_CONFIG: '멀티플레이 서버 설정이 없어요.',
-  NO_WEBSOCKET: '이 브라우저는 실시간 연결을 지원하지 않아요.',
-  CLOSED: '서버 연결이 끊겼어요. 다시 시도해 주세요.',
-  NO_NET: '멀티플레이 서버에 연결할 수 없어요.'
+  ROOM_FULL: t('room.err.roomFull'),
+  ROOM_NOT_FOUND: t('room.err.roomNotFound'),
+  JOIN_TIMEOUT: t('room.err.joinTimeout'),
+  JOIN_ERROR: t('room.err.joinError'),
+  TRACK_FAILED: t('room.err.trackFailed'),
+  BAD_ROOM_ID: t('room.err.badRoomId'),
+  BAD_PASSWORD: t('room.err.badPassword'),
+  NEED_PASSWORD: t('room.err.needPassword'),
+  NO_CRYPTO: t('room.err.noCrypto'),
+  CONNECT_TIMEOUT: t('room.err.connectTimeout'),
+  NO_CONFIG: t('room.err.noConfig'),
+  NO_WEBSOCKET: t('room.err.noWebsocket'),
+  CLOSED: t('room.err.closed'),
+  NO_NET: t('room.err.noNet')
 });
 /** 내보낸 사람에게서 오면 버리는 이벤트 */
 const BANNED_DROP = new Set(['fire', 'hitClaim', 'grenade', 'loadout', 'chat', 'drop', 'pick', 'bomb', 'respawn']);
@@ -109,22 +112,22 @@ const BANNED_DROP = new Set(['fire', 'hitClaim', 'grenade', 'loadout', 'chat', '
 const QUICK_COST = quickRespawnCost(true);
 const QUICK_WAIT_MS = 5000;
 const CLOSE_TEXT = Object.freeze({
-  'kicked:full': '방이 가득 차서 들어가지 못했어요.',
-  'kicked:cheat': '비정상 플레이가 반복돼 방장이 방에서 내보냈어요.',
-  'net-closed': '서버 연결이 끊겼어요.'
+  'kicked:full': t('room.closeFull'),
+  'kicked:cheat': t('room.closeCheat'),
+  'net-closed': t('room.closeNet')
 });
 /** 자리 비움 시간 글자: 60000 → '1분', 90000 → '1분 30초', 5000 → '5초' */
 export function idleSpan(ms) {
   const s = Math.max(1, Math.round((Number(ms) || 0) / 1000));
   const m = Math.floor(s / 60), r = s % 60;
-  return m ? (r ? `${m}분 ${r}초` : `${m}분`) : `${r}초`;
+  return m ? (r ? t('room.spanMinSec', { m, s: r }) : t('room.spanMin', { m })) : t('room.spanSec', { s: r });
 }
-const idleClosedText = (ms) => `${idleSpan(ms)} 동안 아무 활동이 없어 방을 닫았어요.`;
+const idleClosedText = (ms) => t('room.idleClosed', { span: idleSpan(ms) });
 const ABORT_TEXT = Object.freeze({
-  'host-left': '방장이 나가 경기가 종료됐어요.',
-  'map-failed': '방장이 맵을 불러오지 못해 경기가 취소됐어요.',
-  'start-failed': '경기를 시작하지 못했어요. 팀 구성을 확인해 주세요.',
-  alone: '다른 사람이 모두 나가 경기가 끝났어요.'
+  'host-left': t('room.abortHostLeft'),
+  'map-failed': t('room.abortMapFailed'),
+  'start-failed': t('room.abortStartFailed'),
+  alone: t('room.abortAlone')
 });
 
 const defaultNow = () => (globalThis.performance && performance.now ? performance.now() : Date.now());
@@ -187,7 +190,7 @@ function matchPointTeams(sc, rules) {
 }
 function errorText(e) {
   const code = e && e.code;
-  return (code && ERROR_TEXT[code]) || '연결에 문제가 생겼어요. 잠시 후 다시 시도해 주세요.';
+  return (code && ERROR_TEXT[code]) || t('room.err.generic');
 }
 const isJoinable = (snap) => !!snap && !snap.abort && (!!snap.prep || ACTIVE.has(snap.ph));
 /** 'ffa'(개인전) | 'bomb'(폭파 미션) | 'team'(팀전, 기본) */
@@ -195,7 +198,7 @@ const modeOf = (v) => (v === 'ffa' || v === 'bomb' || v === 'zombie' ? v : 'team
 /** 좀비 물량 막기(game/horde): 모두 같은 편(블루), 최대 4명, 클래식 고정 */
 const ZOMBIE_MAX = HORDE.maxPlayers;
 const isZombieMode = (m) => m === 'zombie';
-const MODE_LABEL = Object.freeze({ team: '팀전 · 5판 3선승', ffa: '개인전 · 모두가 적', bomb: '폭파 미션 · 5판 3선승', zombie: '좀비 물량 막기 · 최대 4명' });
+const MODE_LABEL = Object.freeze({ team: t('room.modeTeam'), ffa: t('room.modeFfa'), bomb: t('room.modeBomb'), zombie: t('room.modeZombie') });
 /** 팀으로 나뉘는 모드(팀전·폭파 미션) */
 const isTeamMode = (m) => m !== 'ffa';
 /** 목표 킬 안내를 이 시간 안에 다시 바꾸면 채팅에 새 줄을 더하지 않고 마지막 안내 줄을 고친다(방장이 ＋를 연달아 누를 때) */
@@ -205,7 +208,7 @@ const KILL_NOTE_MERGE_MS = 5000;
  * 그보다 늦게 온 presence로는 대기실에 앉아 있던 사람의 팀을 바꾸지 않는다
  */
 const AUTO_TEAM_RECHECK_MS = 10000;
-const killNoteText = (k) => `목표 킬이 ${k}킬로 바뀌었어요 · 먼저 ${k}킬을 채우면 우승`;
+const killNoteText = (k) => t('room.killNote', { k });
 
 /* ======================================================================
  * 규칙 · 장비 · 결과 도우미 (순수 함수, tests/session-wiring.test.mjs)
@@ -312,7 +315,7 @@ export function matchSummary(o) {
  * ==================================================================== */
 export function restoreMatch({ snapshot: source, players = [], spawns, seed, rng, mission, getPositions, floorAt } = {}) {
   const view = applySnapshot(source);
-  if (!view) throw new Error('restoreMatch: 스냅샷을 읽을 수 없어요');
+  if (!view) throw new Error('restoreMatch: 스냅샷을 읽을 수 없어요');   // i18n-ok: 개발자용 오류(화면에 안 나온다)
   const R = Object.freeze({ ...DEFAULT_RULES, ...view.rules });
   const ru = RULE_KEYS.map((k) => R[k]);
   const off = view.history.length;                         // 끝난 라운드 수(무승부 포함)
@@ -505,9 +508,9 @@ export function restoreMatch({ snapshot: source, players = [], spawns, seed, rng
 /* ======================================================================
  * 개인전(FFA) 도우미
  * ==================================================================== */
-const FFA_REASON_TEXT = Object.freeze({ kills: '목표 킬 달성', time: '시간 종료', forfeit: '상대가 모두 나감', draw: '무승부' });
+const FFA_REASON_TEXT = Object.freeze({ kills: t('room.ffaReasonKills'), time: t('room.ffaReasonTime'), forfeit: t('room.ffaReasonForfeit'), draw: t('room.draw') });
 
-/** 무기 id → 화면 이름(SK-7 저격소총). 모르면 '' */
+/** 무기 id → 화면 이름(SR-7 저격소총). 모르면 '' */
 function weaponLabel(id) {
   const d = id ? getDef(normalizeWeaponId(id) || String(id)) : null;
   return d ? String(d.name || d.short || '') : '';
@@ -554,7 +557,7 @@ export function ffaRanking(v) {
  */
 export function restoreFfaMatch({ snapshot: source, players = [], spawns, getPositions, seed, rng } = {}) {
   const view = applySnapshot(source);
-  if (!view) throw new Error('restoreFfaMatch: 스냅샷을 읽을 수 없어요');
+  if (!view) throw new Error('restoreFfaMatch: 스냅샷을 읽을 수 없어요');   // i18n-ok: 개발자용 오류(화면에 안 나온다)
   const R = { ...(view.rules || {}) };
   const carry = {};
   for (const p of view.players) {
@@ -581,8 +584,8 @@ export function createSession(options = {}) {
   const world = o.world;
   const ui = o.ui;
   const ctx = o.ctx || null;
-  if (!world || typeof world !== 'object') throw new TypeError('createSession: world가 필요합니다');
-  if (!ui || typeof ui.show !== 'function' || typeof ui.on !== 'function') throw new TypeError('createSession: ui가 필요합니다');
+  if (!world || typeof world !== 'object') throw new TypeError('createSession: world가 필요합니다');   // i18n-ok: 개발자용 오류
+  if (!ui || typeof ui.show !== 'function' || typeof ui.on !== 'function') throw new TypeError('createSession: ui가 필요합니다');   // i18n-ok: 개발자용 오류
   const now = typeof o.now === 'function' ? o.now : defaultNow;
   const maxPlayers = clampInt(o.maxPlayers, 2, 16, 6);
   const relayMaxPlayers = clampInt(o.relayMaxPlayers, 2, 16, 16);
@@ -684,7 +687,7 @@ export function createSession(options = {}) {
   function initialName() {
     const cand = [accountName(), o.playerName, call(ui, 'getPlayerName'), ctx && ctx.session && ctx.session.name];
     for (const c of cand) { const n = cleanText(c, 24); if (n) return n; }
-    return '플레이어' + Math.floor(1000 + Math.random() * 9000);
+    return t('room.playerFallback') + Math.floor(1000 + Math.random() * 9000);
   }
   /** 오프라인 때 정한 닉네임을 다시 등록한다. 결과를 기다리지 않는다(바뀌면 'account:change'로 온다) */
   function retryNickname() {
@@ -738,7 +741,7 @@ export function createSession(options = {}) {
       if (typeof src === 'function') made = await src({ playerId: pid, name: playerName });
       else if (src && typeof src.connect === 'function') made = await src.connect({ playerId: pid, name: playerName });
       else { const mod = await import('../net/index.js'); made = await mod.connect({ playerId: pid, name: playerName }); }
-      if (!made || !made.lobby || !made.me) { const e = new Error('net 연결 실패'); e.code = 'NO_NET'; throw e; }
+      if (!made || !made.lobby || !made.me) { const e = new Error('net 연결 실패'); e.code = 'NO_NET'; throw e; }   // i18n-ok: 화면에는 code로 고른 글자가 나간다
       if (disposed) { try { await made.close(); } catch (_) { /* noop */ } const e = new Error('disposed'); e.code = 'CLOSED'; throw e; }
       net = made;
       ownNet = true;
@@ -783,7 +786,7 @@ export function createSession(options = {}) {
     screen('lobby');
     try {
       const a = account();
-      if (a && a.remoteEnabled === false) { const e = new Error('Supabase 설정 없음'); e.code = 'NO_CONFIG'; throw e; }
+      if (a && a.remoteEnabled === false) { const e = new Error('Supabase 설정 없음'); e.code = 'NO_CONFIG'; throw e; }   // i18n-ok: 화면에는 code로 고른 글자가 나간다
       await ensureNet();
     } catch (e) {
       if (disposed) return api;
@@ -901,7 +904,7 @@ export function createSession(options = {}) {
       : clampInt(p && p.max, 2, roomLimit(), Math.min(8, roomLimit()));
     const ruleset = mode === 'bomb' || isZombieMode(mode) ? 'classic' : normalizeRuleset(p && p.ruleset);   // 폭파 미션·좀비는 클래식 고정
     // 이름을 안 주면 '○○의 방'(좀비 방은 '○○의 좀비 방'). 좀비 방은 맵을 안 주면 첫 좀비 전용 맵이고, 비밀번호를 안 주면 공개 방이다
-    const name = cleanText(p && p.name, 24) || (isZombieMode(mode) ? `${playerName}의 좀비 방` : `${playerName}의 방`);
+    const name = cleanText(p && p.name, 24) || (isZombieMode(mode) ? t('room.defaultZombieName', { name: playerName }) : t('room.defaultName', { name: playerName }));
     const mapId = validMapFor(ruleset, (p && p.mapId) || (isZombieMode(mode) ? '' : o.mapId), mode) || o.mapId;
     U('update', 'lobby', { error: null, loading: true });
     try {
@@ -985,11 +988,13 @@ export function createSession(options = {}) {
     pushChat({
       system: true,
       text: r.isHost()
-        ? (lastMode === 'ffa' ? '개인전 방을 열었어요. 2명 이상 모이고 모두 준비하면 시작할 수 있어요.'
-          : lastMode === 'bomb' ? '폭파 미션 방을 열었어요. 블루 팀이 먼저 공격하고 2라운드 뒤 공수를 바꿔요.'
-          : isZombieMode(lastMode) ? '좀비 물량 막기 방을 열었어요. 혼자서도 시작할 수 있고 최대 4명이 함께 막아요.'
-            : '방을 열었어요. 동료가 들어오면 팀을 나누고 준비하세요.')
-        : `${r.meta.name || '방'}에 들어왔어요 · ${RULESETS[lastRuleset].name} · ${lastMode === 'ffa' ? `개인전 · 먼저 ${lastKills}킬` : MODE_LABEL[lastMode]}`
+        ? (lastMode === 'ffa' ? t('room.openedFfa')
+          : lastMode === 'bomb' ? t('room.openedBomb')
+          : isZombieMode(lastMode) ? t('room.openedZombie')
+            : t('room.openedTeam'))
+        : (lastMode === 'ffa'
+          ? t('room.joinedFfa', { room: r.meta.name || t('room.roomFallback'), rule: loc(RULESETS[lastRuleset], 'name'), k: lastKills })
+          : t('room.joined', { room: r.meta.name || t('room.roomFallback'), rule: loc(RULESETS[lastRuleset], 'name'), mode: MODE_LABEL[lastMode] }))
     }, false);
     idleReset();
     prevHost = null;
@@ -1046,18 +1051,18 @@ export function createSession(options = {}) {
   const roomQuietPhase = () => !!room && (phase === 'room' || phase === 'results') && !hm && room.meta.status !== 'playing';
   function idleTick() {
     if (!room || leaving || !(o.roomIdleMs > 0)) return;
-    const t = now();
+    const at = now();
     if (idleCloseAt && phase === 'room') renderRoom();   // 남은 초를 1초마다 고친다
     if (!room.isHost() || !roomQuietPhase()) return;
-    const quiet = t - roomActiveAt;
+    const quiet = at - roomActiveAt;
     if (quiet >= o.roomIdleMs) { closeIdleRoom(); return; }
     const warnMs = Math.min(Math.max(0, o.roomIdleWarnMs || 0), o.roomIdleMs);
     if (!idleWarned && warnMs > 0 && quiet >= o.roomIdleMs - warnMs) {
       idleWarned = true;
       const left = o.roomIdleMs - quiet;
-      idleCloseAt = t + left;
+      idleCloseAt = at + left;
       try { room.send(CONTROL_EVENT, { k: 'idle', left: Math.round(left), ms: o.roomIdleMs }); } catch (e) { report(e, 'idle warn'); }
-      pushChat({ system: true, text: `${idleSpan(o.roomIdleMs)} 동안 아무 활동이 없어 곧 방을 닫아요. 계속하려면 [계속 기다리기]를 누르세요.` });
+      pushChat({ system: true, text: t('room.idleWarnHost', { span: idleSpan(o.roomIdleMs) }) });
     }
   }
   /** (방장) 모두에게 닫는다고 알리고 나간다. 알림은 나가는 프레임에 같이 실린다(room.leave가 남은 큐를 보낸다) */
@@ -1162,8 +1167,8 @@ export function createSession(options = {}) {
     if (!room) return;
     noteAvatars(list);
     const cur = new Map((Array.isArray(list) ? list : []).map((x) => [x.id, x.name]));
-    for (const [id, name] of cur) if (!known.has(id) && id !== me) pushChat({ system: true, text: `${name || '플레이어'}님이 들어왔어요.` }, false);
-    for (const [id, name] of known) if (!cur.has(id) && id !== me) pushChat({ system: true, text: `${name || '플레이어'}님이 나갔어요.` }, false);
+    for (const [id, name] of cur) if (!known.has(id) && id !== me) pushChat({ system: true, text: t('room.playerJoined', { name: name || t('room.playerFallback') }) }, false);
+    for (const [id, name] of known) if (!cur.has(id) && id !== me) pushChat({ system: true, text: t('room.playerLeft', { name: name || t('room.playerFallback') }) }, false);
     known = cur;
     // 들어오고 나감·팀·준비·이름·캐릭터가 바뀌면 활동이다. 핑만 바뀐 presence 갱신은 세지 않는다
     const sig = rosterSigOf(list);
@@ -1179,7 +1184,7 @@ export function createSession(options = {}) {
     // 방장이 바뀌면 자리 비움은 처음부터 센다(앞 방장의 안내는 거둔다. 새 방장이 다시 센다)
     idleReset();
     prevHost = info.prevHostId ? { id: String(info.prevHostId), at: now() } : null;
-    pushChat({ system: true, text: isMe ? '내가 새 방장이 됐어요 👑' : `${nameOf(info.hostId)}님이 방장이 됐어요 👑` }, false);
+    pushChat({ system: true, text: isMe ? t('room.meHost') : t('room.newHost', { name: nameOf(info.hostId) }) }, false);
     if (isMe) {
       if (phase === 'match' && current) {
         if (current.loaded) takeOver(); else current.pendingTakeover = true;
@@ -1191,7 +1196,7 @@ export function createSession(options = {}) {
       stopHost();   // 방장 자리를 잃었다(충돌 해소) → 새 방장의 스냅샷을 따른다
     }
     if (phase === 'match' && current && !isMe) {
-      H('center', '방장이 바뀌었어요', 2500, { sub: '새 방장이 경기를 이어 가요', tone: 'warn' });
+      H('center', t('room.hostChanged'), 2500, { sub: t('room.hostChangedSub'), tone: 'warn' });
     }
     renderRoom();
   }
@@ -1201,17 +1206,17 @@ export function createSession(options = {}) {
     const reason = String((info && info.reason) || '');
     teardownMatch();
     detachRoom();
-    enterLobby(CLOSE_TEXT[reason] || (reason.startsWith('kicked') ? '방에서 나오게 됐어요.' : '방 연결이 끊겼어요.'));
+    enterLobby(CLOSE_TEXT[reason] || (reason.startsWith('kicked') ? t('room.closeKicked') : t('room.closeLost')));
   }
 
   function onRoomConnection(e) {
     if (!e) return;
     if (e.state === 'reconnecting') {
-      if (phase === 'match') W('setHint', '연결이 불안정해요 — 다시 연결하는 중…');
-      else pushChat({ system: true, text: '연결이 불안정해요 — 다시 연결하는 중…' });
+      if (phase === 'match') W('setHint', t('room.reconnecting'));
+      else pushChat({ system: true, text: t('room.reconnecting') });
     } else if (e.state === 'connected') {
       if (phase === 'match') W('setHint', '');
-      else pushChat({ system: true, text: '다시 연결됐어요.' });
+      else pushChat({ system: true, text: t('room.reconnected') });
     }
   }
 
@@ -1237,9 +1242,9 @@ export function createSession(options = {}) {
       lastMode = m;
       pushChat({
         system: true,
-        text: m === 'ffa' ? `개인전으로 바뀌었어요 · 모두가 적 · 먼저 ${k}킬`
-          : m === 'bomb' ? '폭파 미션으로 바뀌었어요 · 공격 팀이 A·B 구역에 폭탄을 설치해요'
-            : isZombieMode(m) ? '좀비 물량 막기로 바뀌었어요 · 최대 4명이 함께 스테이지를 버텨요' : '팀전으로 바뀌었어요 · 5판 3선승'
+        text: m === 'ffa' ? t('room.switchedFfa', { k })
+          : m === 'bomb' ? t('room.switchedBomb')
+            : isZombieMode(m) ? t('room.switchedZombie') : t('room.switchedTeam')
       }, false);
     } else if (k !== lastKills && m === 'ffa') {
       noteKills(k);
@@ -1248,7 +1253,7 @@ export function createSession(options = {}) {
     const rs = roomRuleset();
     if (rs !== lastRuleset) {
       lastRuleset = rs;
-      pushChat({ system: true, text: `규칙이 ${RULESETS[rs].name}으로 바뀌었어요 · ${RULESETS[rs].desc}` }, false);
+      pushChat({ system: true, text: t('room.ruleChanged', { rule: loc(RULESETS[rs], 'name'), desc: loc(RULESETS[rs], 'desc') }) }, false);
     }
     if (phase === 'room') renderRoom();
   }
@@ -1280,13 +1285,13 @@ export function createSession(options = {}) {
     if (m === from) return;
     if (isZombieMode(m)) {
       // 좀비 물량 막기: 4명까지, 클래식 고정. 바꾸기 전 규칙·인원은 다른 모드로 돌아가면 되돌린다
-      if (room.players().length > ZOMBIE_MAX) { pushChat({ system: true, text: `좀비 물량 막기는 ${ZOMBIE_MAX}명까지예요. 인원이 줄면 바꿀 수 있어요.` }); return; }
+      if (room.players().length > ZOMBIE_MAX) { pushChat({ system: true, text: t('room.zombieMaxSwitch', { max: ZOMBIE_MAX }) }); return; }
       if (from !== 'bomb') beforeBomb = { ruleset: roomRuleset(), mapId: room.meta.mapId || null, max: room.meta.max };
       else if (beforeBomb) beforeBomb.max = room.meta.max;
       safeMeta({ mode: m, ruleset: 'classic', mapId: validMapFor('classic', room.meta.mapId, m), max: Math.min(room.meta.max || ZOMBIE_MAX, ZOMBIE_MAX) });
     } else if (m === 'bomb') {
       const mapId = validMapFor('classic', room.meta.mapId, 'bomb');
-      if (!bombMapOk(mapId)) { pushChat({ system: true, text: '폭파 미션을 할 수 있는 맵이 없어요.' }); return; }
+      if (!bombMapOk(mapId)) { pushChat({ system: true, text: t('room.noBombMap') }); return; }
       beforeBomb = { ruleset: roomRuleset(), mapId: room.meta.mapId || null };
       safeMeta({ mode: m, ruleset: 'classic', mapId });
     } else if ((from === 'bomb' || isZombieMode(from)) && beforeBomb) {
@@ -1319,7 +1324,7 @@ export function createSession(options = {}) {
   function setTeam(team) {
     if (!room || phase !== 'room' || !TEAM_IDS.includes(team) || roomMode() === 'ffa' || isZombieMode(roomMode())) return;
     const n = room.players().filter((x) => x.team === team && x.id !== me).length;
-    if (n >= teamCap()) { pushChat({ system: true, text: `${TEAM_NAME[team]} 팀이 가득 찼어요.` }); return; }
+    if (n >= teamCap()) { pushChat({ system: true, text: t('room.teamFull', { team: TEAM_NAME[team] }) }); return; }
     autoTeam = null;   // 직접 고른 팀은 늦게 온 presence로 바꾸지 않는다
     room.updateMe({ team });
     renderRoom();
@@ -1351,22 +1356,22 @@ export function createSession(options = {}) {
    * 팀 채팅은 받는 사람을 정해 보내므로 상대 팀 화면에는 전달되지 않는다.
    */
   function sendChat(text, scope) {
-    if (!room || !sync) return;
-    const t = cleanText(text, 120);
-    if (!t) return;
+    if (!room || !sync || !platform.chatAllowed) return;   // 포털이 채팅을 끄면 보내지 않는다
+    const msg = maskProfanity(cleanText(text, 120));
+    if (!msg) return;
     const teamOnly = scope === 'team' && teamChatOk();
     const myTeam = teamOnly ? myMatchTeam() : null;
     if (teamOnly && !myTeam) { pushChat({ system: true, text: TEAM_CHAT_NO_TEAM }); return; }
     if (!chatAllowed(chatSent, CHAT_LIMIT.send)) { pushChat({ system: true, text: CHAT_SLOW }); return; }
     if (teamOnly) {
       const mates = room.players().map((p) => String(p.id)).filter((id) => id !== me && matchTeamOf(id) === myTeam);
-      sync.sendChat(t, { scope: 'team', to: mates });
-      pushChat({ name: myName(), text: t, team: myTeam, me: true, scope: 'team' });
+      sync.sendChat(msg, { scope: 'team', to: mates });
+      pushChat({ name: myName(), text: msg, team: myTeam, me: true, scope: 'team' });
       return;
     }
-    sync.sendChat(t);
+    sync.sendChat(msg);
     // broadcast는 보낸 사람에게 되돌아오지 않는다 → 내 메시지는 직접 넣는다
-    pushChat({ name: myName(), text: t, team: roomMode() === 'ffa' || isZombieMode(roomMode()) ? null : myRoomTeam(), me: true });
+    pushChat({ name: myName(), text: msg, team: roomMode() === 'ffa' || isZombieMode(roomMode()) ? null : myRoomTeam(), me: true });
   }
   /** 경기 중 Enter·채팅 버튼(input:chat) → HUD 채팅 입력칸 */
   function onChatKey() {
@@ -1424,7 +1429,7 @@ export function createSession(options = {}) {
     const vp = viewPlayer(id);
     if (vp && vp.name) return vp.name;
     if (room) { const p = room.players().find((x) => x.id === id); if (p && p.name) return p.name; }
-    return known.get(id) || '플레이어';
+    return known.get(id) || t('room.playerFallback');
   }
   function myName() { return (room && room.me && room.me.name) || playerName; }
   function myRoomTeam() {
@@ -1455,16 +1460,16 @@ export function createSession(options = {}) {
     }
     if (isZombieMode(mode)) {
       // 좀비 물량 막기: 혼자서도 시작할 수 있고 4명까지
-      if (list.length > ZOMBIE_MAX) return `좀비 물량 막기는 ${ZOMBIE_MAX}명까지예요.`;
-      return notReady ? '아직 준비하지 않은 플레이어가 있어요.' : '';
+      if (list.length > ZOMBIE_MAX) return t('room.zombieMax', { max: ZOMBIE_MAX });
+      return notReady ? t('room.notReady') : '';
     }
     if (mode === 'ffa') {
-      if (list.length < 2) return '2명 이상 있어야 시작할 수 있어요.';
-      return notReady ? '아직 준비하지 않은 플레이어가 있어요.' : '';
+      if (list.length < 2) return t('room.needTwo');
+      return notReady ? t('room.notReady') : '';
     }
-    if (!n.owner || !n.charterer) return '양 팀에 1명 이상 있어야 시작할 수 있어요.';
-    if (unassigned) return '팀 배정을 기다리는 플레이어가 있어요.';
-    if (notReady) return '아직 준비하지 않은 플레이어가 있어요.';
+    if (!n.owner || !n.charterer) return t('room.needBothTeams');
+    if (unassigned) return t('room.unassigned');
+    if (notReady) return t('room.notReady');
     return '';
   }
 
@@ -1508,7 +1513,7 @@ export function createSession(options = {}) {
     if (why) { pushChat({ system: true, text: why }); return; }
     const ruleset = mode === 'bomb' || isZombieMode(mode) ? 'classic' : roomRuleset();
     const mapId = validMapFor(ruleset, room.meta.mapId || o.mapId, mode);
-    if (mode === 'bomb' && !bombMapOk(mapId)) { pushChat({ system: true, text: '이 맵에서는 폭파 미션을 할 수 없어요. 미션 맵을 골라 주세요.' }); return; }
+    if (mode === 'bomb' && !bombMapOk(mapId)) { pushChat({ system: true, text: t('room.bombMapNeeded') }); return; }
     const mid = randomId(8);
     hm = {
       mid, mapId, mode, ruleset, m: null, preparing: true, prepDeadline: Infinity, acks: new Set([me]),
@@ -1517,7 +1522,7 @@ export function createSession(options = {}) {
     // status 'playing'은 내 맵을 다 불러온 뒤(hostCreate)에 건다: net은 'playing'이면 방장 침묵 8초(대기 중 32초)로
     // 방장을 바꾸는데, 맵 빌드·셰이더 컴파일로 메인 스레드가 오래 막히면 멀쩡한 방장이 교체될 수 있다
     try { room.send(CONTROL_EVENT, { k: 'prep', mid, map: mapId, mode, rs: ruleset }); } catch (e) { report(e, 'prep'); }
-    trace('host start', mid, mapId, mode, ruleset, mode === 'ffa' ? `${roomKillTarget()}킬` : '');
+    trace('host start', mid, mapId, mode, ruleset, mode === 'ffa' ? `${roomKillTarget()}킬` : '');   // i18n-ok: 개발용 추적 기록
     enterMatch(mid, mapId, mode, ruleset);   // 방장도 같은 길로 맵을 불러온다 → 다 되면 hostCreate()
   }
 
@@ -1732,7 +1737,7 @@ export function createSession(options = {}) {
     strikes.clear(pid);
     moveGuard.reset(pid);
     trace('ban', pid, reason);
-    const text = `${nameOf(pid)}님을 내보냈어요 · 비정상 플레이가 반복됐어요`;
+    const text = t('room.banned', { name: nameOf(pid) });
     if (hm && hm.m) {
       hm.members.delete(pid);
       hm.missing.delete(pid);
@@ -1740,7 +1745,7 @@ export function createSession(options = {}) {
     }
     try { if (room && typeof room.kick === 'function') room.kick(pid, 'cheat'); } catch (err) { report(err, 'kick'); }
     pushChat({ system: true, text });
-    try { if (sync) sync.sendChat(`[방장 알림] ${text}`); } catch (err) { report(err, 'ban chat'); }
+    try { if (sync) sync.sendChat(t('room.hostNotice', { text })); } catch (err) { report(err, 'ban chat'); }
   }
 
   /** (방장) world가 계산한 폭발 피해(로컬·원격 수류탄 모두, 방장 화면 기준) → match.claimExplosion */
@@ -1804,7 +1809,7 @@ export function createSession(options = {}) {
       trace('takeover', c.mid, 'round', view.round, view.phase, view.score);
       const ev = m.start();
       publish(ev.concat(seedPicks(m, c)));
-      H('center', '방장을 이어받았어요 👑', 2500, { sub: '점수를 이어 라운드를 다시 시작해요', tone: 'warn' });
+      H('center', t('room.tookOver'), 2500, { sub: t('room.tookOverTeam'), tone: 'warn' });
     } catch (err) {
       report(err, 'takeOver');
       stopHost();
@@ -1817,7 +1822,7 @@ export function createSession(options = {}) {
     try {
       const players = room.players().slice(0, ZOMBIE_MAX).map((x) => ({ id: x.id, name: x.name }));
       const m = restoreHorde(snap, { ...hordeOpts(), players, rules: o.hordeRules || undefined });
-      if (!m) throw new Error('좀비 스냅샷을 풀 수 없어요');
+      if (!m) throw new Error('좀비 스냅샷을 풀 수 없어요');   // i18n-ok: 개발자용 오류(잡아서 경기 종료 안내로 바꾼다)
       hm = {
         mid: c.mid, mapId: c.mapId, mode: 'zombie', ruleset: 'classic', m, preparing: false, prepDeadline: 0, acks: new Set(),
         members: new Set(players.map((p) => p.id)), missing: new Map(), timer: null, lastTick: now(), lastSnapAt: -Infinity, restored: true
@@ -1826,7 +1831,7 @@ export function createSession(options = {}) {
       safeMeta({ status: 'playing' });
       trace('takeover zombie', c.mid, 'stage', m.stage, m.phase);
       publish(m.resume());
-      H('center', '방장을 이어받았어요 👑', 2500, { sub: '같은 스테이지를 이어서 막아요', tone: 'warn' });
+      H('center', t('room.tookOver'), 2500, { sub: t('room.tookOverZombie'), tone: 'warn' });
     } catch (err) {
       report(err, 'takeOverHorde');
       stopHost();
@@ -1857,7 +1862,7 @@ export function createSession(options = {}) {
       ev = ev.concat(seedPicks(m, c));
       if (ghost) ev = ev.concat(m.removePlayer(ghost));
       publish(ev);
-      if (hm && !ghost) H('center', '방장을 이어받았어요 👑', 2500, { sub: '킬 기록을 이어 모두 다시 출격해요', tone: 'warn' });
+      if (hm && !ghost) H('center', t('room.tookOver'), 2500, { sub: t('room.tookOverFfa'), tone: 'warn' });
     } catch (err) {
       report(err, 'takeOverFfa');
       stopHost();
@@ -1930,7 +1935,7 @@ export function createSession(options = {}) {
     if (p.k === 'idle') {
       const left = Math.min(Math.max(0, Number(p.left) || 0), 120000);
       idleCloseAt = left > 0 ? now() + left : 0;
-      if (left > 0) pushChat({ system: true, text: `${idleSpan(span)} 동안 아무 활동이 없어 방장이 곧 방을 닫아요. 계속하려면 [계속 기다리기]를 누르세요.` });
+      if (left > 0) pushChat({ system: true, text: t('room.idleWarn', { span: idleSpan(span) }) });
       else renderRoom();
       return;
     }
@@ -1960,7 +1965,7 @@ export function createSession(options = {}) {
     fireQ.length = 0;
     if (room) { const mine = room.players().find((x) => x.id === me); if (mine && mine.ready) room.updateMe({ ready: false }); }
     U('hide', 'loadout');
-    W('setPauseOptions', { leaveLabel: '방 나가기', note: '멀티플레이 중에는 게임이 멈추지 않아요. 나가면 이번 경기에서 빠져요.' });
+    W('setPauseOptions', { leaveLabel: t('room.leaveRoom'), note: t('room.pauseNote') });
     W('setScoreboard', scoreboardData);
     screen('match', { mapId, mode: c.mode });
     startFrames();
@@ -1982,10 +1987,9 @@ export function createSession(options = {}) {
     W('setMode', c.mode);
     if (isZombieMode(c.mode)) startHordeClient(c);   // FFA면 모든 액터가 적, 폭파 미션이면 폭탄 화면(loadMap이 'team'으로 되돌리므로 로드 뒤에)
     W('setControlsEnabled', true);
-    // 경기 채팅: HUD와 함께 보이고(loadMap이 HUD를 띄운 뒤), 휴대폰 채팅 버튼을 켠다. 줄은 enterMatch에서 비웠다
-    U('show', 'chat', { teamChat: c.mode !== 'ffa' && !isZombieMode(c.mode) });   // 팀이 있는 경기면 전체·팀 탭(Tab 키)을 쓴다
-    busEmit('chat:available', { on: true });
-    if (!c.round) W('setHint', '다른 플레이어를 기다리는 중…');
+    // 경기 채팅: HUD와 함께 보이고(loadMap이 HUD를 띄운 뒤), 휴대폰 채팅 버튼을 켠다. 줄은 enterMatch에서 비웠다. 포털이 채팅을 끄면 띄우지 않는다
+    syncMatchChat();
+    if (!c.round) W('setHint', t('room.waitingPlayers'));
     if (hm && hm.mid === c.mid && !hm.m) hostCreate();
     else if (room && !room.isHost()) sendAck(c);
     const q = c.pending;
@@ -1999,7 +2003,7 @@ export function createSession(options = {}) {
     report(err, 'world.loadMap');
     if (hm && hm.mid === c.mid) { abortMatch('map-failed'); return; }
     finishedMid = c.mid;
-    matchToRoom('맵을 불러오지 못해 이번 경기에서 빠졌어요.');
+    matchToRoom(t('room.mapFailed'));
   }
 
   function sendAck(c) {
@@ -2178,7 +2182,7 @@ export function createSession(options = {}) {
     c.horde.apply(hv, evs, now());
     if (current !== c) return;
     c.localAlive = !!(vp && vp.alive) && !!world.localAlive;
-    if (!vp || !vp.spawned) W('setHint', '관전 중 — 다음 스테이지부터 함께해요'); else W('setHint', '');
+    if (!vp || !vp.spawned) W('setHint', t('room.spectateStage')); else W('setHint', '');
     placeActors(c.view, null);
     // 일어난 동료(놓친 spawn 이벤트): 쓰러진 표시를 거둔다
     for (const p of c.view.players) { const a = actors.get(p.id); if (a && a.dead && p.alive) a.dead = false; }
@@ -2204,7 +2208,7 @@ export function createSession(options = {}) {
     const props = {
       mode: 'zombie', stage: sum.stage, cleared: sum.cleared, ms: sum.ms, mapId: c.mapId, mapName: c.mapName || undefined, meId: me,
       best: reward ? reward.best : 0, newBest: !!(reward && reward.newBest),
-      reward: reward ? { gained: reward.gained, breakdown: reward.breakdown, points: reward.points } : undefined,
+      reward: reward ? { gained: reward.gained, breakdown: reward.breakdown, points: reward.points, ...(reward.bonusToken != null ? { bonusToken: reward.bonusToken } : {}) } : undefined,
       cards: cardRows(mine ? mine.cards : []),
       players: hv.players.map((p) => ({ id: p.id, name: p.name, kills: p.kills, head: p.heads, boss: p.bossKills, damage: p.damage, downs: p.downs, cards: p.cards.length, me: p.id === me }))
     };
@@ -2215,7 +2219,7 @@ export function createSession(options = {}) {
     noteRoomActivity();
     if (wasHost || (room && room.isHost())) safeMeta({ status: 'waiting' });
     const sec = Math.floor(sum.ms / 1000);
-    pushChat({ system: true, text: `좀비 물량 막기 끝 — 스테이지 ${sum.stage}까지 버텼어요 (${Math.floor(sec / 60)}분 ${String(sec % 60).padStart(2, '0')}초)` }, false);
+    pushChat({ system: true, text: t('room.zombieOver', { stage: sum.stage, m: Math.floor(sec / 60), s: String(sec % 60).padStart(2, '0') }) }, false);
     U('show', 'results', props);
     screen('results');
   }
@@ -2236,8 +2240,8 @@ export function createSession(options = {}) {
         break;
       case 'join':
         if (e.id === me) break;
-        if (current && current.mode === 'ffa') H('center', `${e.name || '플레이어'}님 합류`, 1500, { sub: '곧 출격해요' });
-        else if (e.playing === false) H('center', `${e.name || '플레이어'}님 합류`, 1500, { sub: '다음 라운드부터 참가해요' });
+        if (current && current.mode === 'ffa') H('center', t('room.joinedMatch', { name: e.name || t('room.playerFallback') }), 1500, { sub: t('room.deploySoon') });
+        else if (e.playing === false) H('center', t('room.joinedMatch', { name: e.name || t('room.playerFallback') }), 1500, { sub: t('room.joinNextRound') });
         break;
       default: break;
     }
@@ -2272,7 +2276,7 @@ export function createSession(options = {}) {
     W('reset');
     call(ui.killfeed, 'clear');
     if (c.playing) spawnMe((spawns && spawns[me]) || fallbackSpawn(c, v));
-    else { c.localAlive = false; W('setHint', '관전 중 — 다음 라운드부터 참가해요'); }
+    else { c.localAlive = false; W('setHint', t('room.spectateRound')); }
     placeActors(v, spawns);
     const score = (ev && ev.score) || (v && v.score) || { owner: 0, charterer: 0 };
     const mp = matchPointTeams(score, v && v.rules);
@@ -2280,16 +2284,16 @@ export function createSession(options = {}) {
       // 폭파 미션: 내 진영과 목표. swapAfter 라운드가 끝난 다음 라운드에 공수 교대를 알린다
       const atk = (ev && ev.attack) || (v && v.attack) || null;
       const swap = round === ((v && v.rules && v.rules.swapAfter) || 2) + 1;
-      const side = c.team ? (c.team === atk ? '공격 · A 또는 B 구역에 폭탄을 설치하세요' : '수비 · A·B 구역을 지키세요') : '관전 중';
-      const sub = `${side}${mp.length ? ` · 매치 포인트 ${mp.map((t) => TEAM_NAME[t]).join(' · ')}` : ''}`;
-      H('center', swap ? `라운드 ${round} · 공수 교대` : `라운드 ${round}`, 2800, { sub, tone: swap ? 'warn' : mp.length === 1 ? mp[0] : undefined });
+      const side = c.team ? (c.team === atk ? t('room.sideAttack') : t('room.sideDefense')) : t('room.spectating');
+      const sub = `${side}${mp.length ? t('room.matchPointSuffix', { teams: mp.map((tm) => TEAM_NAME[tm]).join(' · ') }) : ''}`;
+      H('center', swap ? t('room.roundSwap', { round }) : t('room.round', { round }), 2800, { sub, tone: swap ? 'warn' : mp.length === 1 ? mp[0] : undefined });
       if (v) W('setBomb', bombInfo(v));
       W('sound', 'round_start');
       return;
     }
-    const sub = ev && ev.replay ? '무승부 — 같은 라운드를 다시 해요'
-      : mp.length ? `매치 포인트 · ${mp.map((t) => TEAM_NAME[t]).join(' · ')}` : '곧 시작해요 · 대기하는 동안 무기를 바꿀 수 있어요';
-    H('center', `라운드 ${round}`, 2600, { sub, tone: mp.length === 1 ? mp[0] : undefined });
+    const sub = ev && ev.replay ? t('room.replayRound')
+      : mp.length ? t('room.matchPoint', { teams: mp.map((tm) => TEAM_NAME[tm]).join(' · ') }) : t('room.startSoon');
+    H('center', t('room.round', { round }), 2600, { sub, tone: mp.length === 1 ? mp[0] : undefined });
     W('sound', 'round_start');
   }
 
@@ -2409,7 +2413,7 @@ export function createSession(options = {}) {
     const props = { weapons: pickableWeapons(c.ruleset, ownedIds()), ruleset: c.ruleset, seconds: Math.round(secs * 10) / 10, selected: c.pick, round };
     // 개인전: 아직 출격 전이라 처음 무기를 고르는 화면을 바로 띄운다.
     // 팀전·폭파 미션: 스폰 자리에서 기다리는 동안 "N 을 눌러 무기 교체!" 안내만 띄우고, N을 누르면 목록이 열린다(world.openSwap)
-    if (c.mode === 'ffa') U('show', 'loadout', { ...props, title: '개인전 · 무기 선택' });
+    if (c.mode === 'ffa') U('show', 'loadout', { ...props, title: t('room.ffaPickTitle') });
     else W('openSwap', props);
   }
 
@@ -2429,9 +2433,9 @@ export function createSession(options = {}) {
     }
     if (c.playing && c.localAlive) {
       const atk = v && v.attack;
-      const sub = c.mode !== 'bomb' ? '상대 팀을 모두 제압하세요'
-        : c.team === atk ? '공격 · 폭탄을 A 또는 B 구역에 설치하세요' : '수비 · 구역을 지키고 설치되면 해체하세요';
-      H('center', '작전 개시!', 1400, { sub });
+      const sub = c.mode !== 'bomb' ? t('room.liveTeam')
+        : c.team === atk ? t('room.liveAttack') : t('room.liveDefense');
+      H('center', t('room.go'), 1400, { sub });
     }
   }
 
@@ -2439,19 +2443,19 @@ export function createSession(options = {}) {
     const c = current;
     if (!c) return;
     const sc = e.score || { owner: 0, charterer: 0 };
-    const line = `블루 ${sc.owner | 0} : ${sc.charterer | 0} 레드`;
+    const line = t('room.scoreLine', { blue: sc.owner | 0, red: sc.charterer | 0 });
     if (e.winner === 'owner' || e.winner === 'charterer') {
       const mine = c.team && c.team === e.winner;
       // 폭파 미션: 사유(폭탄 폭파·해체·전멸·시간 종료)와 이긴 진영
       const why = c.mode === 'bomb'
-        ? `${BOMB_REASON_LABELS[e.reason] || e.reason || ''} · ${e.winner === e.attack ? '공격' : '수비'} 승`
+        ? t(e.winner === e.attack ? 'room.bombWhyAttack' : 'room.bombWhyDefense', { reason: BOMB_REASON_LABELS[e.reason] || e.reason || '' })
         : (REASON_LABELS[e.reason] || '');
-      H('center', `${TEAM_NAME[e.winner]} 팀 승리${c.team ? (mine ? ' 🏆' : '') : ''}`, 3600, {
-        sub: `${why} · ${line}${e.final ? ' · 매치 종료' : ''}`, tone: e.winner
+      H('center', `${t('room.teamWin', { team: TEAM_NAME[e.winner] })}${c.team ? (mine ? ' 🏆' : '') : ''}`, 3600, {
+        sub: `${why} · ${line}${e.final ? t('room.matchOverSuffix') : ''}`, tone: e.winner
       });
       if (c.team) W('sound', mine ? 'round_win' : 'round_lose');
     } else {
-      H('center', '무승부', 3600, { sub: `같은 라운드를 다시 해요 · ${line}`, tone: 'warn' });
+      H('center', t('room.draw'), 3600, { sub: t('room.drawReplay', { line }), tone: 'warn' });
     }
   }
 
@@ -2580,14 +2584,14 @@ export function createSession(options = {}) {
     const target = ffaTarget(v);
     if (ph === 'loadout') {
       onLoadoutPhase(1, ev, v);
-      H('center', restart ? '방장이 바뀌었어요' : '개인전', 2600, { sub: restart ? '킬 기록을 이어 모두 다시 출격해요' : `모두가 적 · 먼저 ${target}킬` });
+      H('center', restart ? t('room.hostChanged') : t('room.ffaTitle'), 2600, { sub: restart ? t('room.tookOverFfa') : t('room.ffaIntro', { k: target }) });
       W('sound', 'round_start');
     } else {
       if (!c.compact) U('hide', 'loadout');
       if (joinedLate) {
-        H('center', '개인전에 합류했어요', 2200, { sub: `곧 출격해요 · 먼저 ${target}킬 하면 우승` });
+        H('center', t('room.ffaJoined'), 2200, { sub: t('room.ffaJoinedSub', { k: target }) });
         if (c.playing) announceGear(c);   // 로드아웃을 건너뛰었다: 첫 부활 전에 계정 장비를 방장에게 알린다
-      } else H('center', '작전 개시!', 1400, { sub: `먼저 ${target}킬 하면 우승` });
+      } else H('center', t('room.go'), 1400, { sub: t('room.ffaGoSub', { k: target }) });
     }
     if (v) W('setRound', ffaInfo(v));
   }
@@ -2674,7 +2678,7 @@ export function createSession(options = {}) {
     if (!r || !r.ok) return;
     c.quickCount += 1;
     c.quickPaid += r.spent;
-    H('callout', `⚡ 즉시 부활 · −${r.spent} P`);
+    H('callout', t('room.quickRespawn', { p: r.spent }));
   }
 
   function showCompactLoadout() {
@@ -2683,7 +2687,7 @@ export function createSession(options = {}) {
     // UI가 스스로 닫았으면(hud.respawn이 비면 compact도 닫힘) 아직 죽어 있는 동안 다시 띄운다
     if (c.compact && call(ui, 'isVisible', 'loadout') !== false) return;
     c.compact = true;
-    U('show', 'loadout', { compact: true, weapons: pickableWeapons(c.ruleset, ownedIds()), ruleset: c.ruleset, seconds: 0, selected: c.pick, title: '다음 출격 무기' });
+    U('show', 'loadout', { compact: true, weapons: pickableWeapons(c.ruleset, ownedIds()), ruleset: c.ruleset, seconds: 0, selected: c.pick, title: t('room.nextWeapon') });
   }
 
   /** (FFA) 스냅샷 반영: 놓친 출격·사망 보정, 부활 대기 시간, 보호, HUD */
@@ -2807,7 +2811,7 @@ export function createSession(options = {}) {
       myTeam: c.team || undefined,
       mapId: c.mapId,
       meId: me,
-      backLabel: '방으로 돌아가기'
+      backLabel: t('room.backToRoom')
     };
   }
 
@@ -2823,7 +2827,7 @@ export function createSession(options = {}) {
     return {
       mode: 'ffa', ranking, winnerId: winnerId ? String(winnerId) : null,
       winnerName: winnerId ? (win ? win.name : nameOf(String(winnerId))) : null,
-      reason: (ev && ev.reason) || res.reason || '', target: ffaTarget(v), mapId: c.mapId, meId: me, backLabel: '방으로 돌아가기'
+      reason: (ev && ev.reason) || res.reason || '', target: ffaTarget(v), mapId: c.mapId, meId: me, backLabel: t('room.backToRoom')
     };
   }
 
@@ -2842,7 +2846,7 @@ export function createSession(options = {}) {
     recordedMids.add(c.mid);
     const res = call(a, 'recordMatch', summary);
     // 개인전 즉시 부활 값은 부활할 때 냈다. 결과 화면에는 이번 판의 순변화로 한 줄 더 보여 준다
-    return res ? withQuickRespawns({ gained: res.gained, breakdown: res.breakdown, points: res.points }, c.quickCount, c.quickPaid) : null;
+    return res ? withQuickRespawns({ gained: res.gained, breakdown: res.breakdown, points: res.points, ...(res.bonusToken != null ? { bonusToken: res.bonusToken } : {}) }, c.quickCount, c.quickPaid) : null;
   }
 
   function showResults(view, ev) {
@@ -2865,10 +2869,11 @@ export function createSession(options = {}) {
     if (wasHost || (room && room.isHost())) safeMeta({ status: 'waiting' });
     if (props.mode === 'ffa') {
       const w = props.ranking.find((r) => r.id === props.winnerId);
-      pushChat({ system: true, text: `경기 종료 — ${props.winnerName ? `${props.winnerName} 우승${w ? ` (${w.kills}킬)` : ''}` : '무승부'}${FFA_REASON_TEXT[props.reason] ? ' · ' + FFA_REASON_TEXT[props.reason] : ''}` }, false);
+      const why = FFA_REASON_TEXT[props.reason] ? ' · ' + FFA_REASON_TEXT[props.reason] : '';
+      pushChat({ system: true, text: props.winnerName ? t('room.ffaOverWin', { name: props.winnerName, kills: w ? t('room.ffaOverKills', { k: w.kills }) : '', why }) : t('room.ffaOverDraw', { why }) }, false);
     } else {
-      const label = res.winner === 'owner' || res.winner === 'charterer' ? `${TEAM_NAME[res.winner]} 팀 승리` : '무승부';
-      pushChat({ system: true, text: `경기 종료 — ${label} (블루 ${v.score.owner} : ${v.score.charterer} 레드${res.reason === 'forfeit' ? ' · 상대 팀 전원 퇴장' : ''})` }, false);
+      const label = res.winner === 'owner' || res.winner === 'charterer' ? t('room.teamWin', { team: TEAM_NAME[res.winner] }) : t('room.draw');
+      pushChat({ system: true, text: t('room.teamOver', { label, blue: v.score.owner, red: v.score.charterer, forfeit: res.reason === 'forfeit' ? t('room.forfeitSuffix') : '' }) }, false);
     }
     U('show', 'results', props);
     screen('results');
@@ -2969,6 +2974,7 @@ export function createSession(options = {}) {
         break;
       }
       case 'chat': {
+        if (!platform.chatAllowed) break;   // 포털이 채팅을 끄면 받은 줄도 보이지 않는다
         const from = String(e.from);
         let seen = chatSeen.get(from);
         if (!seen) chatSeen.set(from, (seen = []));
@@ -2977,7 +2983,7 @@ export function createSession(options = {}) {
         // 팀 채팅은 같은 팀이 보낸 것만 보여 준다. 다른 팀이나 개인전에서 온 것은 고친 클라이언트가 보낸 것이니 버린다
         if (teamOnly && (!teamChatOk() || !myMatchTeam() || matchTeamOf(from) !== myMatchTeam())) break;
         pushChat({
-          name: nameOf(e.from), text: cleanText(e.text, 120), team: roomMode() === 'ffa' ? null : roomTeamOf(e.from),
+          name: nameOf(e.from), text: maskProfanity(cleanText(e.text, 120)), team: roomMode() === 'ffa' ? null : roomTeamOf(e.from),
           ...(teamOnly ? { scope: 'team' } : null)
         });
         break;
@@ -3049,8 +3055,8 @@ export function createSession(options = {}) {
   });
   wOn('grenade', (g) => {
     if (!inRound() || current.phase !== 'live') return;
-    // 종류: 손 수류탄(없음) · 유탄 발사기 'gl' · 바주카포 'rocket' · C4 수류탄 'c4'(좀비 모드 증강, 좀비에 붙는다) · 중력건 · 말뚝건 · 투척 도끼 · 제우스의 번개
-    const kind = ['gl', 'rocket', 'c4', 'gravity', 'stake', 'axe', 'bolt'].includes(g.kind) ? g.kind : undefined;
+    // 종류: 손 수류탄(없음) · 유탄 발사기 'gl' · 바주카포 'rocket' · C4 수류탄 'c4'(좀비 모드 증강, 좀비에 붙는다) · 특이점포 · 말뚝건 · 투척 도끼 · 제우스의 번개 · 연막탄 · 섬광탄
+    const kind = ['gl', 'rocket', 'c4', 'gravity', 'stake', 'axe', 'bolt', 'smoke', 'flash'].includes(g.kind) ? g.kind : undefined;
     sync.sendGrenade({ pos: g.pos, vel: g.vel, t: localT(g.t), kind, fuse: g.fuse });
   });
   // 총은 죽은 뒤에 버리므로 살아 있는지(inRound)는 보지 않는다
@@ -3077,18 +3083,18 @@ export function createSession(options = {}) {
   function watchdog() {
     const c = current;
     if (disposed || phase !== 'match' || !c || !room) return;
-    const t = now();
+    const at = now();
     if (room.isHost()) {
-      if (hm && !hm.m && t - c.enteredAt > o.stallMs + 5000) { trace('watchdog: host map stall', c.mid); abortMatch('map-failed'); return; }
+      if (hm && !hm.m && at - c.enteredAt > o.stallMs + 5000) { trace('watchdog: host map stall', c.mid); abortMatch('map-failed'); return; }
       if (hm || c.resultsShown) return;
       if (c.loaded && c.round > 0) { trace('watchdog: takeover'); takeOver(); }
-      else if (t - c.lastDataAt > o.stallMs) { trace('watchdog: host stall', c.mid); abortMatch('host-left'); }
+      else if (at - c.lastDataAt > o.stallMs) { trace('watchdog: host stall', c.mid); abortMatch('host-left'); }
       return;
     }
-    if (t - c.lastDataAt > o.stallMs) {
+    if (at - c.lastDataAt > o.stallMs) {
       trace('watchdog: stall', c.mid);
       finishedMid = c.mid;
-      matchToRoom('방장 응답이 없어 대기실로 돌아왔어요.');
+      matchToRoom(t('room.stalled'));
     }
   }
   function startFrames() {
@@ -3203,6 +3209,25 @@ export function createSession(options = {}) {
   ];
   const bus = o.bus || (ctx && ctx.bus) || null;
   const busOffs = bus && typeof bus.on === 'function' ? [bus.on('account:change', onAccountChange), bus.on('input:chat', onChatKey)] : [];
+  // 포털 채팅 허용이 경기 중에 바뀌면 경기 채팅 칸을 켜고 끈다. 대기실은 다시 그리면 ui/room.js가 채팅 칸을 맞춘다
+  const platformOff = platform.onChange(() => {
+    if (disposed) return;
+    syncMatchChat();
+    if (phase === 'room') renderRoom();
+  });
+
+  /** 경기 채팅 칸과 휴대폰 채팅 버튼을 포털 채팅 허용에 맞춘다(맵을 다 불러온 경기에서만) */
+  function syncMatchChat() {
+    const c = current;
+    if (phase !== 'match' || !c || !c.loaded) return;
+    if (platform.chatAllowed) {
+      U('show', 'chat', { teamChat: c.mode !== 'ffa' && !isZombieMode(c.mode) });   // 팀이 있는 경기면 전체·팀 탭(Tab 키)을 쓴다
+      busEmit('chat:available', { on: true });
+    } else {
+      U('hide', 'chat');
+      busEmit('chat:available', { on: false });
+    }
+  }
 
   /* ---------------------------------------------------------------- 정리 */
   function dispose() {
@@ -3217,6 +3242,7 @@ export function createSession(options = {}) {
     for (const f of worldOffs.splice(0)) safeOff(f);
     for (const f of screenOffs.splice(0)) safeOff(f);
     for (const f of busOffs.splice(0)) safeOff(f);
+    safeOff(platformOff);
     const r = room, n = net, mine = ownNet;
     leaving = true;
     detachRoom();

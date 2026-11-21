@@ -35,6 +35,19 @@ test('CDN 모듈은 무결성 해시가 붙고, 접속은 이 사이트와 설�
   assert.ok(!/\*\.supabase\.co|\shttps:\s|\shttps:$/.test(directive('connect-src')), '다른 곳으로는 보내지 않는다');
 });
 
+test('게임 코드가 쓰는 three/addons 모듈과 그 안에서 불러오는 모듈에도 무결성 해시가 있다', () => {
+  const map = JSON.parse(html.match(/<script type="importmap">([\s\S]*?)<\/script>/)[1]);
+  const base = map.imports['three/addons/'];
+  // engine/operator-model.js: GLTFLoader(안에서 BufferGeometryUtils를 부른다)·SkeletonUtils
+  for (const file of ['loaders/GLTFLoader.js', 'utils/BufferGeometryUtils.js', 'utils/SkeletonUtils.js']) {
+    assert.match(map.integrity[base + file] || '', /^sha384-[A-Za-z0-9+/]{64}$/, file);
+  }
+  const src = readFileSync(new URL('../js/engine/operator-model.js', import.meta.url), 'utf8');
+  const used = [...src.matchAll(/from 'three\/addons\/([^']+)'/g)].map((m) => m[1]);
+  assert.ok(used.length >= 2);
+  for (const f of used) assert.ok(map.integrity[base + f], `해시 없는 모듈: ${f}`);
+});
+
 test('전송 방식 설정이 맞고, 중계 서버를 쓰면 그 주소(https·wss)가 connect-src에 있다', () => {
   const transport = (config.match(/\btransport:\s*'([a-z]+)'/) || [])[1];
   assert.ok(['supabase', 'relay'].includes(transport), `transport: ${transport}`);

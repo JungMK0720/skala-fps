@@ -6,6 +6,7 @@
  */
 import { h, setText, num, TEAMS, TEAM_KEYS, teamKey, pingText, pingClass, modeKey, modeLabel, FFA_TARGET, SIDE_NAME, bombSide } from './dom.js';
 import { makeScreen } from './parts.js';
+import { t, loc } from '../core/i18n.js';
 import { mapInfo } from './icons.js';
 
 export function normStatPlayers(p) {
@@ -15,7 +16,7 @@ export function normStatPlayers(p) {
   }
   return list.map((x) => ({
     id: x.id,
-    name: x.name || '플레이어',
+    name: x.name || t('menu.player'),
     team: teamKey(x.team),
     kills: Math.max(0, Math.floor(num(x.kills, 0))),
     deaths: Math.max(0, Math.floor(num(x.deaths, 0))),
@@ -49,7 +50,8 @@ export function rankPlayers(list) {
 
 export function createScoreboard(ctx) {
   let sig = '';
-  const title = h('h2', { class: 'sk-sb-title sk-stencil', text: '점수판' });
+  let royaleBoard = false;   // 지금 그리는 표가 배틀로얄인가(상태 칸 글자)
+  const title = h('h2', { class: 'sk-sb-title sk-stencil', text: t('menu.sbTitle') });
   const meta = h('p', { class: 'sk-sb-meta' });
   const ownerScore = h('b');
   const chScore = h('b');
@@ -58,12 +60,12 @@ export function createScoreboard(ctx) {
     h('span', { class: 't-charterer', text: ` ${TEAMS.charterer.name} ${TEAMS.charterer.emoji}` }));
   const cols = h('div', { class: 'sk-sb-cols' });
 
-  const el = h('section', { class: 'sk-screen sk-overlay sk-scoreboard', hidden: true, 'aria-label': '점수판' },
+  const el = h('section', { class: 'sk-screen sk-overlay sk-scoreboard', hidden: true, 'aria-label': t('menu.sbTitle') },
     h('div', { class: 'sk-sb-panel sk-steel' },
       h('div', { class: 'sk-hazard sk-hazard--thin', 'aria-hidden': 'true' }),
       h('header', { class: 'sk-sb-head' }, h('div', {}, title, meta), scoreLine),
       cols,
-      h('p', { class: 'sk-sb-foot', text: 'Tab에서 손을 떼면 닫혀요' })));
+      h('p', { class: 'sk-sb-foot', text: t('menu.sbFoot') })));
 
   /** role: 폭파 미션의 이번 라운드 진영('attack'|'defense'), 팀전이면 '' */
   function teamTable(team, rows, role = '') {
@@ -71,31 +73,32 @@ export function createScoreboard(ctx) {
     const alive = rows.filter((x) => x.alive).length;
     const row = (x) => h('tr', { class: (x.me ? 'is-me ' : '') + (x.alive ? '' : 'is-dead') },
       h('th', { scope: 'row', class: 'sk-sb-name' }, h('span', { text: (x.bot ? '🤖 ' : '') + x.name }),
-        x.bomb ? h('span', { class: 'sk-sb-bomb', text: '💣', title: '폭탄 소지', 'aria-label': '폭탄 소지' }) : null,
-        x.me ? h('span', { class: 'sk-tag', text: '나' }) : null),
+        x.bomb ? h('span', { class: 'sk-sb-bomb', text: '💣', title: t('menu.sbBomb'), 'aria-label': t('menu.sbBomb') }) : null,
+        x.me ? h('span', { class: 'sk-tag', text: t('menu.sbMe') }) : null),
       h('td', { class: 'num', text: x.kills }),
       h('td', { class: 'num', text: x.deaths }),
       h('td', { class: 'num', text: x.head }),
       h('td', { class: 'num' }, h('span', { class: 'sk-ping ' + pingClass(x.ping), text: pingText(x.ping) })),
-      h('td', { class: 'num sk-sb-state', text: x.alive ? '생존' : '☠ 전사' }));
+      h('td', { class: 'num sk-sb-state', text: x.alive ? t('menu.sbAlive') : t('menu.sbKia') }));
     return h('section', { class: `sk-sb-team sk-sb-team--${team}` },
       h('h3', { class: 'sk-sb-team-name' },
         h('span', { text: `${T.emoji} ${T.name}` }), h('small', { text: T.en }),
         role ? h('span', { class: 'sk-sb-side', dataset: { side: role }, text: SIDE_NAME[role] }) : null,
-        h('span', { class: 'sk-sb-team-alive', text: `생존 ${alive}/${rows.length}` })),
+        h('span', { class: 'sk-sb-team-alive', text: t('menu.sbAliveCount', { n: alive, total: rows.length }) })),
       h('table', { class: 'sk-sb-table' },
-        h('thead', {}, h('tr', {}, ['이름', '킬', '데스', '헤드샷', '핑', '상태'].map((t, i) => h('th', { scope: 'col', class: i ? 'num' : '', text: t })))),
-        h('tbody', {}, rows.length ? rows.map(row) : h('tr', {}, h('td', { colspan: 6, class: 'sk-sb-empty', text: '플레이어 없음' })))));
+        h('thead', {}, h('tr', {}, [t('menu.sbName'), t('menu.sbKills'), t('menu.sbDeaths'), t('menu.sbHeadshots'), t('menu.sbPing'), t('menu.sbState')].map((s, i) => h('th', { scope: 'col', class: i ? 'num' : '', text: s })))),
+        h('tbody', {}, rows.length ? rows.map(row) : h('tr', {}, h('td', { colspan: 6, class: 'sk-sb-empty', text: t('menu.sbNoPlayers') })))));
   }
 
   function ffaState(x) {
-    if (x.alive) return x.protect ? '🛡 보호' : '생존';
-    return x.respawnIn != null ? `☠ ${Math.ceil(x.respawnIn / 1000)}초` : '☠ 부활 대기';
+    if (x.alive) return x.protect ? t('menu.sbProtect') : t('menu.sbAlive');
+    if (royaleBoard) return t('menu.sbOut');
+    return x.respawnIn != null ? t('menu.sbRespawnIn', { s: Math.ceil(x.respawnIn / 1000) }) : t('menu.sbRespawnWait');
   }
   function ffaTable(rows) {
     const row = (x) => h('tr', { class: (x.me ? 'is-me ' : '') + (x.alive ? '' : 'is-dead') },
       h('td', { class: 'num sk-sb-rank', text: x.rank }),
-      h('th', { scope: 'row', class: 'sk-sb-name' }, h('span', { text: (x.bot ? '🤖 ' : '') + x.name }), x.me ? h('span', { class: 'sk-tag', text: '나' }) : null),
+      h('th', { scope: 'row', class: 'sk-sb-name' }, h('span', { text: (x.bot ? '🤖 ' : '') + x.name }), x.me ? h('span', { class: 'sk-tag', text: t('menu.sbMe') }) : null),
       h('td', { class: 'num', text: x.kills }),
       h('td', { class: 'num', text: x.deaths }),
       h('td', { class: 'num', text: x.head }),
@@ -103,14 +106,14 @@ export function createScoreboard(ctx) {
       h('td', { class: 'num sk-sb-state', text: ffaState(x) }));
     return h('section', { class: 'sk-sb-team sk-sb-team--ffa' },
       h('table', { class: 'sk-sb-table' },
-        h('thead', {}, h('tr', {}, ['순위', '이름', '킬', '데스', '헤드샷', '핑', '상태'].map((t, i) => h('th', { scope: 'col', class: i === 1 ? '' : 'num', text: t })))),
-        h('tbody', {}, rows.length ? rows.map(row) : h('tr', {}, h('td', { colspan: 7, class: 'sk-sb-empty', text: '플레이어 없음' })))));
+        h('thead', {}, h('tr', {}, [t('menu.sbRank'), t('menu.sbName'), t('menu.sbKills'), t('menu.sbDeaths'), t('menu.sbHeadshots'), t('menu.sbPing'), t('menu.sbState')].map((s, i) => h('th', { scope: 'col', class: i === 1 ? '' : 'num', text: s })))),
+        h('tbody', {}, rows.length ? rows.map(row) : h('tr', {}, h('td', { colspan: 7, class: 'sk-sb-empty', text: t('menu.sbNoPlayers') })))));
   }
 
   /** 좀비 물량 막기: 한 표(처치·헤드샷·보스·피해·쓰러짐·카드) */
   function zombieTable(rows) {
     const row = (x) => h('tr', { class: (x.me ? 'is-me ' : '') + (x.alive ? '' : 'is-dead') },
-      h('th', { scope: 'row', class: 'sk-sb-name' }, h('span', { text: x.name }), x.me ? h('span', { class: 'sk-tag', text: '나' }) : null),
+      h('th', { scope: 'row', class: 'sk-sb-name' }, h('span', { text: x.name }), x.me ? h('span', { class: 'sk-tag', text: t('menu.sbMe') }) : null),
       h('td', { class: 'num', text: x.kills }),
       h('td', { class: 'num', text: x.head }),
       h('td', { class: 'num', text: x.boss }),
@@ -118,11 +121,11 @@ export function createScoreboard(ctx) {
       h('td', { class: 'num', text: x.deaths }),
       h('td', { class: 'num', text: x.cards }),
       h('td', { class: 'num' }, h('span', { class: 'sk-ping ' + pingClass(x.ping), text: pingText(x.ping) })),
-      h('td', { class: 'num sk-sb-state', text: x.alive ? '생존' : '💀 쓰러짐' }));
+      h('td', { class: 'num sk-sb-state', text: x.alive ? t('menu.sbAlive') : t('menu.sbDowned') }));
     return h('section', { class: 'sk-sb-team sk-sb-team--ffa' },
       h('table', { class: 'sk-sb-table' },
-        h('thead', {}, h('tr', {}, ['이름', '처치', '헤드샷', '보스', '피해', '쓰러짐', '카드', '핑', '상태'].map((t, i) => h('th', { scope: 'col', class: i ? 'num' : '', text: t })))),
-        h('tbody', {}, rows.length ? rows.map(row) : h('tr', {}, h('td', { colspan: 9, class: 'sk-sb-empty', text: '플레이어 없음' })))));
+        h('thead', {}, h('tr', {}, [t('menu.sbName'), t('menu.sbZKills'), t('menu.sbHeadshots'), t('menu.sbBoss'), t('menu.sbDamage'), t('menu.sbDowns'), t('menu.sbCards'), t('menu.sbPing'), t('menu.sbState')].map((s, i) => h('th', { scope: 'col', class: i ? 'num' : '', text: s })))),
+        h('tbody', {}, rows.length ? rows.map(row) : h('tr', {}, h('td', { colspan: 9, class: 'sk-sb-empty', text: t('menu.sbNoPlayers') })))));
   }
 
   function render(p) {
@@ -135,29 +138,32 @@ export function createScoreboard(ctx) {
       el.classList.remove('is-crowded');
       scoreLine.hidden = true;
       const rows = (Array.isArray(p.players) ? p.players : []).map((x) => ({
-        id: x.id, name: x.name || '플레이어', kills: num(x.kills, 0) | 0, head: num(x.head, 0) | 0, boss: num(x.boss, 0) | 0, damage: num(x.damage, 0) | 0,
+        id: x.id, name: x.name || t('menu.player'), kills: num(x.kills, 0) | 0, head: num(x.head, 0) | 0, boss: num(x.boss, 0) | 0, damage: num(x.damage, 0) | 0,
         deaths: num(x.deaths, 0) | 0, cards: num(x.cards, 0) | 0, ping: x.ping, alive: x.alive !== false, me: !!x.me || (p.meId != null && x.id === p.meId)
       })).sort((a, b) => b.kills - a.kills || b.damage - a.damage);
       const m = p.mapName ? { name: p.mapName } : mapInfo(ctx.maps, p.maps, p.mapId);
-      setText(title, `🧟 좀비 물량 막기 · 스테이지 ${Math.max(1, num(p.stage, 1) | 0)}`);
-      setText(meta, [m && m.name, p.elapsed ? `생존 ${p.elapsed}` : '', p.left != null ? `남은 좀비 ${p.left}` : ''].filter(Boolean).join(' · '));
+      setText(title, t('menu.sbZombieTitle', { stage: Math.max(1, num(p.stage, 1) | 0) }));
+      setText(meta, [m && loc(m, 'name'), p.elapsed ? t('menu.sbSurvived', { time: p.elapsed }) : '', p.left != null ? t('menu.sbZombiesLeft', { n: p.left }) : ''].filter(Boolean).join(' · '));
       cols.replaceChildren(zombieTable(rows));
       return;
     }
-    const ffa = mode === 'ffa';
+    // 배틀로얄(MODES.md 15절)도 개인전 표를 쓴다. 순위 = 탈락 순서(살아 있는 사람은 공동 1위), 상태 = 생존 · 탈락
+    royaleBoard = mode === 'br';
+    const ffa = mode === 'ffa' || royaleBoard;
     el.classList.toggle('is-ffa', ffa);
     scoreLine.hidden = ffa;
     // 16인방: 줄이 많으면(개인전 10명 넘게, 팀전 한 팀 6명 넘게) 줄 높이를 줄여 Tab을 누른 채로 한눈에 들어오게 한다(스크롤할 수 없다)
     const all = normStatPlayers(p);
-    const perTeam = Math.max(0, ...TEAM_KEYS.map((t) => all.filter((x) => x.team === t).length));
+    const perTeam = Math.max(0, ...TEAM_KEYS.map((k) => all.filter((x) => x.team === k).length));
     el.classList.toggle('is-crowded', ffa ? all.length > 10 : perTeam > 6);
     if (ffa) {
       const rows = rankPlayers(all);
       const target = Math.max(1, Math.floor(num(p.target != null ? p.target : p.killTarget != null ? p.killTarget : p.score && p.score.target, FFA_TARGET)));
       const me = rows.find((x) => x.me);
       const m = p.mapName ? { name: p.mapName } : mapInfo(ctx.maps, p.maps, p.mapId);
-      setText(title, `개인전 · 목표 ${target}킬`);
-      setText(meta, [m && m.name, me ? `내 순위 ${me.rank}위 / ${rows.length}명` : `${rows.length}명`].filter(Boolean).join(' · '));
+      const left = rows.filter((x) => x.alive).length;
+      setText(title, royaleBoard ? t('menu.sbBrTitle', { n: left, total: rows.length }) : t('menu.sbFfaTitle', { target }));
+      setText(meta, [m && loc(m, 'name'), royaleBoard ? (me && !me.alive ? t('menu.sbBrPlace', { rank: me.rank }) : t('menu.sbBrGoal')) : me ? t('menu.sbMyRank', { rank: me.rank, n: rows.length }) : t('menu.players', { n: rows.length })].filter(Boolean).join(' · '));
       // 사람이 많으면(16인방) 순위를 두 칸으로 나눠 나란히 둔다. 세로 화면은 css가 다시 한 줄로 쌓는다
       const half = Math.ceil(rows.length / 2);
       cols.replaceChildren(...(rows.length > 10 ? [ffaTable(rows.slice(0, half)), ffaTable(rows.slice(half))] : [ffaTable(rows)]));
@@ -172,11 +178,11 @@ export function createScoreboard(ctx) {
     const round = p.round != null ? p.round : sc.round;
     const attack = bomb ? teamKey(p.attack != null ? p.attack : sc.attack) : '';
     const m = p.mapName ? { name: p.mapName } : mapInfo(ctx.maps, p.maps, p.mapId);
-    setText(title, bomb ? modeLabel('bomb', { target, bestOf }) : '점수판');
-    setText(meta, [m && m.name, round ? `라운드 ${round}` : '', bomb ? '' : `${bestOf}판 ${target}선승`].filter(Boolean).join(' · '));
+    setText(title, bomb ? modeLabel('bomb', { target, bestOf }) : t('menu.sbTitle'));
+    setText(meta, [m && loc(m, 'name'), round ? t('menu.sbRound', { round }) : '', bomb ? '' : t('menu.sbBestOf', { bestOf, target })].filter(Boolean).join(' · '));
     setText(ownerScore, Math.floor(num(sc.owner, 0)));
     setText(chScore, Math.floor(num(sc.charterer, 0)));
-    cols.replaceChildren(...TEAM_KEYS.map((t) => teamTable(t, players.filter((x) => x.team === t).sort(byPerformance), bombSide(t, attack))));
+    cols.replaceChildren(...TEAM_KEYS.map((k) => teamTable(k, players.filter((x) => x.team === k).sort(byPerformance), bombSide(k, attack))));
   }
 
   return makeScreen(el, { render, onHide: () => { sig = ''; } });

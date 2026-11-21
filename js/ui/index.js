@@ -45,7 +45,7 @@ const cleanName = (n) => cleanNickname(n).slice(0, NICKNAME_MAX);
  *   maps    : js/maps/index.js 모듈(MAP_LIST·MAPS) 또는 맵 목록 배열.
  */
 export function createUI(rootEl, options = {}) {
-  if (!rootEl || typeof rootEl.append !== 'function') throw new Error('createUI(rootEl): DOM 요소가 필요합니다');
+  if (!rootEl || typeof rootEl.append !== 'function') throw new Error('createUI(rootEl): DOM 요소가 필요합니다'); // i18n-ok: 개발자용 오류
   const styleLink = options.injectCss === false ? null : ensureStyles();
   const root = h('div', { class: 'sk-ui' });
   rootEl.append(root);
@@ -261,6 +261,8 @@ export function createUI(rootEl, options = {}) {
     hide,
     update,
     isVisible: (name) => !!(screens[name] && screens[name].visible),
+    /** 메뉴(작전 지휘소) 가운데 3D 대원 무대 요소(.sk-operator-stage). 3D 미리 보기 캔버스를 이 안에 붙인다 */
+    operatorStage: () => screens.menu.operatorStage,
     needsCursor: () => cursorNeeded,
     /** 포커스가 UI 텍스트 입력칸에 있는가(엔진 키 처리 무시용) */
     isTyping: () => root.contains(document.activeElement) && isTextField(document.activeElement),
@@ -273,6 +275,7 @@ export function createUI(rootEl, options = {}) {
     hud: {
       set: (p) => hud.set(p),
       setMinimapMap: (mapData) => hud.setMinimapMap(mapData),
+      setMinimapZone: (zone) => hud.setMinimapZone(zone),
       minimapFrame: (position, yaw, actors, avatars, team, mode, hordeView) =>
         hud.minimapFrame(position, yaw, actors, avatars, team, mode, hordeView),
       hitmarker: (head, kill, opts) => hud.hitmarker(head, kill, opts),

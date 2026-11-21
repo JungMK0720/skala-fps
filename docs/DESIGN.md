@@ -7,7 +7,8 @@
 
 - 빌드 없음. 브라우저 ES 모듈 + importmap(CDN). GitHub Pages(`/skala-fps/` 하위 경로)에서 돌아야 하므로 **모든 경로는 상대 경로**다. `/js/...` 같은 절대 경로 금지.
 - 런타임 npm 의존성 없음. 외부 라이브러리는 importmap의 three, cannon-es만. Supabase는 `fetch`(REST RPC)와 `js/net`의 자체 Realtime 클라이언트로 접속한다.
-- 외부 이미지 파일 금지. 도형, 캔버스 텍스처를 쓴다(연속 킬 그림도 SVG 도형, `js/ui/multikill.js`). 소리는 WebAudio 합성이 기본이고, 이모트 음원은 사용 권리를 확인한 것만 묶음(`audio/emotes/*.bin`, docs/EMOTE_BGM.md)으로 넣는다. 원본 음원 파일은 올리지 않는다.
+- 외부 이미지 파일 금지. 도형, 캔버스 텍스처를 쓴다(연속 킬 그림도 SVG 도형, `js/ui/multikill.js`). 소리는 WebAudio 합성이고, 이모트 음악도 직접 쓴 음표 표로 합성한다(docs/EMOTE_BGM.md). 외부 음원 파일은 쓰지 않는다.
+- 저장소에 들어가는 모든 자산은 `docs/ASSETS.md` 장부에 한 줄씩 적는다. 새 파일 자산은 출처 주소, 라이선스, 내려받은 날짜를 적은 뒤에만 넣는다.
 - 사람 목소리는 녹음하거나 다른 게임에서 가져오지 않는다. 연속 킬 안내 음성(`audio/voice/*.mp3`)은 `tools/make-voice.mjs`가 Windows 한국어 TTS로 합성해 다듬은 파일이다(js/fx/README.md "안내 음성").
 - **상용 게임의 맵 구조·이름·캐릭터·모델·UI·사운드를 복제하지 않는다.** 장르 관습(좁은 교전 구역, 칼전, 공중 스트레이프 가속 같은 메커니즘)은 써도 되지만 레이아웃과 이름은 직접 설계한다.
 - 사용자 문자열은 `textContent`로만 넣는다. `innerHTML`에 넣지 않는다. `alert/confirm/prompt` 금지.
@@ -76,7 +77,7 @@ HTML은 `<!DOCTYPE html>` 다음 줄에 `<!-- ... -->`, SQL은 `--`, YAML은 `#`
 | `dm_mark` | DM-4 마크스맨 | dmr/semi | 200rpm | 130 | 52 | 38 | 26 | 없음 | 15/∞ | .9 | 1500 | 3배 스코프, 스코프 오버레이 없음 |
 | `sm_vx3` | VX-3 바이퍼 | smg/auto | 950rpm | 60 | 18 | 14 | 9 | 12~40→0.55 | 32/64 | 1.05 | 600 | 기동형 |
 | `sg_bx12` | BX-12 브리처 | shotgun/semi | .85s | 20 | 14 | 10 | 7 (펠릿당, 8발) | 8~22→0.35 | 6/12 | .98 | 700 | 근거리 |
-| `sr_bolt` | SK-7 볼트 | sniper/bolt | 1.2s | 200 | 120 | 100 | **50** | 없음 | 5/10 | .85 | 0 | 4배 줌 |
+| `sr_bolt` | SR-7 볼트 | sniper/bolt | 1.2s | 200 | 120 | 100 | **50** | 없음 | 5/10 | .85 | 0 | 4배 줌 |
 | `sr_twin` | T-2 트윈옵틱 | sniper/bolt | 1.35s | 200 | 120 | 100 | **50** | 없음 | 5/∞ | .82 | 1500 | **2단 줌 4배→9배** |
 | `sr_swift` | S-3 스위프트 | sniper/bolt | .85s | 150 | 85 | 60 | 40 | 없음 | 7/14 | .95 | 1000 | 3배 줌, 경량. 몸 1발 아님 |
 | `sr_heavy` | H-50 타이탄 | sniper/bolt | 1.9s | 300 | 200 | 150 | 70 | 없음 | 4/∞ | .75 | 2500 | 5배 줌, 대물 |
@@ -121,7 +122,7 @@ arsenal.getZoom() → { ..., level, levels }             // level 0 = 줌 아님
 
 ## 4. 이동 물리 (`js/engine/movement.js`, `js/engine/player.js`, `js/engine/input.js`)
 
-플레이어만 Quake 계열 가속을 쓴다. 봇은 기존 `physics.moveCharacter` 경로 그대로.
+플레이어만 관성형 공중 가속(버니합·공중 스트레이프가 되는 고전 아레나 FPS식)을 쓴다. 봇은 기존 `physics.moveCharacter` 경로 그대로.
 
 ```js
 // movement.js (순수)
@@ -135,13 +136,15 @@ export function moveQuake(world, body, wish, dt, opt) → ev   // moveCharacter�
 - **지면**: 마찰(`FRICTION`, 입력이 없을 때만 `STOP_SPEED`) → 가속(`GROUND_ACCEL × speed`). 기존 조작감(5.2 m/s까지 약 0.1초)을 유지한다. 지면에서 `speed`보다 빠르면 마찰로 자연히 줄어든다.
 - **스페이스 홀드 = 자동 점프**: `input.state.jump`가 눌려 있으면 착지 즉시 다시 뛴다. 눌림 직후 0.12초 버퍼도 유지. 스페이스를 누르고 있는 동안에는 이모트를 시작할 수 없다.
 - **버니합**: 뛰려고 한 틱, 또는 착지 후 `HOP_GRACE` 안의 점프는 마찰을 먹지 않아 속도가 유지된다. 뛰는 틱에 걷기 속도보다 느리면 지면 가속을 한 번 받는다.
-- **공중 스트레이프**: Quake `PM_AirAccelerate` 공식. `wishspeed = min(speed, AIR_WISH_CAP)`, `add = wishspeed − vel·wishdir`, `accel = AIR_ACCEL × wishspeed × dt`. 마우스를 스트레이프 방향으로 돌리면 가속된다.
+- **공중 스트레이프**: 진행 방향 성분이 목표보다 작을 때만 더하는 공중 가속 공식. `wishspeed = min(speed, AIR_WISH_CAP)`, `add = wishspeed − vel·wishdir`, `accel = AIR_ACCEL × wishspeed × dt`. 마우스를 스트레이프 방향으로 돌리면 가속된다.
 - **느릴 때 공중 조작**: 수평 속도가 `AIR_LOW_SPEED`보다 느리면 상한을 그 값까지 올려, 제자리 점프 뒤 W로 약 2.3 m를 갈 수 있게 한다.
 - **A/D 교체 보너스**: 공중에서 `strafeSign`이 바뀔 때마다 `SWAP_BONUS`를 현재 진행 방향으로 더한다(`SWAP_BONUS_MAX`까지, 최소 간격 `SWAP_GAP`). 마우스 없이 좌우로 흔들어도 가속감을 준다.
 - **상한**: 입력으로 늘릴 수 있는 수평 속도는 `MAX_SPEED`까지. 발판으로 이미 넘은 속도는 깎지 않는다(착지 지점이 어긋나므로).
 - **계단**: `moveCharacter`의 `nearFloor`가 뛰어오르기 직전의 낮은 턱을 처리해, 스페이스를 누른 채 0.3 m 계단에서 멈추지 않는다.
 - 앉기·이모트·`frozen`·`speedScale`은 기존 동작 유지. `player:land`의 카메라 출렁임은 버니합 착지 때 줄인다. `state.speed`(수평 속력)를 쓸 수 있게 둔다. `player:jump`, `player:land`에 `hopped`가 실린다.
 - `input.js`: `KeyF` → `input:inspect` (`LOCK_KEYS`에도 추가). `input.state.jump`는 이미 있다.
+- **턱 오르기·넘기**(`engine/mantle.js`, player.js가 부른다): W + Space로 바로 앞 0.5~2.0 m 턱에 오르거나 얇은 턱을 넘는다. `findMantle(world, pos, dirX, dirZ, { floor })` → plan(`climb`|`vault`), 동작 중에는 `mantlePose`가 정한 길을 따라가며 물리를 건너뛴다. 들어 올리는 속도는 점프 초속보다 느려 부정행위 상승 검사를 넘지 않는다. bus `player:mantle { kind, height, pos }`, `player.mantling`.
+- **낙하 피해**(`engine/falldamage.js`, 배틀로얄만): `player.setFallDamage(true)`면 착지 때 `player:fall { height, damage, pos }`. 곡선·면제는 MODES.md 15절.
 
 탄퍼짐의 공중 페널티는 유지한다. 뛰면서 쏘면 부정확하다.
 
@@ -298,13 +301,14 @@ account.remoteEnabled
 ## 8. UI
 
 `createUI` 화면 추가: `nickname`(첫 실행 게이트, 닫을 수 없음), `mypage`, `shop`. `PAGES`에 포함. 메뉴 이벤트: `menu:sandbox`, `menu:multi`, `menu:mypage`, `menu:shop`.
-- **메인 메뉴**: 플레이어 카드(닉네임·포인트·마이페이지 버튼), 멀티(맨 위 큰 버튼), 연습장, 상점, 설정, 조작법.
+- **메인 메뉴 = 작전 지휘소**(docs/PRODUCT_PLAN.md 5.2): 상태 줄(운영 상태·지역·세계 표준시, 닉네임·포인트), 왼쪽 레일(연습장·좀비 물량 막기·무기고·설정·조작법·건의하기), 가운데 3D 대원 무대(`ui.operatorStage()`), 오른쪽 요원 기록(전적·요원 기록부 버튼), 아래 출격 버튼(멀티플레이).
 - **닉네임 게이트**: 입력하면 0.4초 디바운스로 `checkNickname`, 사용 가능/이미 있음/형식 오류를 바로 보여 준다.
-- **마이페이지**: 닉네임 변경(언제든, 같은 검사), 전적(킬·데스·K/D·헤드샷·반샷·경기·승), 포인트, 장비 3슬롯, 캐릭터(지금 캐릭터 초상·가진 캐릭터 고르기·캐릭터 상점 버튼), 찾은 비밀 스팟.
-- **상점**: 탭(라이플·저격·SMG/샷건·권총·근접·이모트·캐릭터), 카드(이름·가격·막대 그래프·특징), 구매/장착. 캐릭터 탭은 초상(두 팀 색으로 바꿔 보기)·설명·구매/장착이다.
+- **요원 기록부(마이페이지)**: 닉네임 변경(언제든, 같은 검사), 전적(킬·데스·K/D·헤드샷·반샷·경기·승), 포인트, 장비 3슬롯, 캐릭터(지금 캐릭터 초상·가진 캐릭터 고르기·캐릭터 상점 버튼), 찾은 비밀 스팟.
+- **무기고(상점)**: 탭(라이플·저격·SMG/샷건·권총·근접·이모트·캐릭터), 카드(이름·가격·막대 그래프·특징), 구매/장착. 캐릭터 탭은 초상(두 팀 색으로 바꿔 보기)·설명·구매/장착이다.
   초상은 게임 렌더러로 캐릭터 × 팀마다 한 번 그린 그림을 쓴다(`createAvatarPortraits`). 두 번째 WebGL 컨텍스트를 만들지 않고, 탭을 처음 열 때만 그린다.
 - **로드아웃**: `pickableWeapons(ruleset, owned)` 카드. 무기가 많으므로 작은 카드 그리드(숫자키 1~9). 카드에 스탯 요약.
-- **로비·대기실·결과**: 규칙 배지, 결과 화면 획득 포인트.
+- **작전 구역(로비)·출격 대기(대기실)·작전 결과 보고서(결과)**: 정렬되는 방 목록 표, 규칙 배지, 결과 화면의 내 작전 요약(처치·전사·K/D·헤드샷 비율)과 획득 포인트. 연습장 설정 시트는 작전 브리핑(맵 평면도·목표·위험도·인원)이다.
+- **디자인 토큰·글꼴**: `css/fps.css` `:root`의 `--sk-*` 한 벌(index.html core 화면도 같이 씀). 글꼴은 `fonts/`의 Pretendard·JetBrains Mono(OFL, 직접 호스팅). 아이콘은 `ui/icons.js`의 직접 그린 선 아이콘.
 
 HUD 추가 API
 ```js

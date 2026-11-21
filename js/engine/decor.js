@@ -23,6 +23,7 @@
 import * as THREE from 'three';
 import { GeoBatch, pipeMatrix } from './geom.js';
 import { toRad, LIMITS } from '../core/consts.js';
+import { loc } from '../core/i18n.js';
 
 const FONT = "'Pretendard','Noto Sans KR','Malgun Gothic','Apple SD Gothic Neo',system-ui,sans-serif";
 const TAU = Math.PI * 2;
@@ -437,7 +438,7 @@ export function buildDecor(list, env) {
         }
         case 'sign': {
           const w = +d.w > 0 ? +d.w : 3, h = +d.h > 0 ? +d.h : 0.8;
-          const tex = makeSignTexture(d.text, w, h, d.bg || '#0b2545', d.fg || '#ffffff');
+          const tex = makeSignTexture(loc(d, 'text'), w, h, d.bg || '#0b2545', d.fg || '#ffffff');
           const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
           const geo = new THREE.PlaneGeometry(w, h);
           const mesh = new THREE.Mesh(geo, mat);
@@ -583,10 +584,10 @@ export function buildDecor(list, env) {
           const w = +d.w > 0 ? +d.w : 1.2, h = +d.h > 0 ? +d.h : 3;
           const x = +d.x || 0, z = +d.z || 0, y = numOr(d.y, 3);
           const rot = toRad(d.rotY || 0), bg = d.bg || '#7a1f3d', fg = d.fg || '#ffe9f0', emblem = d.emblem || null;
-          const key = JSON.stringify([d.text == null ? '' : String(d.text), w, h, bg, fg, emblem]);
+          const key = JSON.stringify([loc(d, 'text') == null ? '' : String(loc(d, 'text')), w, h, bg, fg, emblem]);
           let b = banners.get(key);
           if (!b) {
-            b = { tex: makeBannerTexture(d.text, w, h, bg, fg, emblem), pos: [], nor: [], uv: [], idx: [], sway: [] };
+            b = { tex: makeBannerTexture(loc(d, 'text'), w, h, bg, fg, emblem), pos: [], nor: [], uv: [], idx: [], sway: [] };
             banners.set(key, b);
           }
           const T = makeT(x, y, z, rot);

@@ -17,10 +17,13 @@
 import { createUI } from '../ui/index.js';
 import { WEAPONS } from '../weapons/defs.js';
 import { createAvatarPortraits } from '../engine/avatars.js';
+import { createOperatorPreview } from '../engine/operator-preview.js';
 import { createWorld, setWorldContext } from './world.js';
 import { createPractice, createPracticeSetup } from './practice.js';
+import { wirePlatform } from '../platform/wire.js';
+import { t } from '../core/i18n.js';
 
-const SCREEN_LABEL = { lobby: '로비', room: '대기실', match: '멀티 경기', results: '결과' };
+const SCREEN_LABEL = { lobby: t('common.screenLobby'), room: t('common.screenRoom'), match: t('common.screenMatch'), results: t('common.screenResults') };
 
 /** 오류·안내 알림 */
 function createToast(ui) {
@@ -70,7 +73,7 @@ function createMultiFlow({ ctx, ui, world, bus }) {
     if (!sessionP) {
       sessionP = import('./session.js').then(async (mod) => {
         const make = mod.createSession || mod.default;
-        if (typeof make !== 'function') throw new Error('session.js에 createSession이 없어요');
+        if (typeof make !== 'function') throw new Error('session.js에 createSession이 없어요'); // i18n-ok: 개발자용 오류(아래 catch가 일반 안내로 바꾼다)
         const s = await make({ ctx, ui, world, settings: ctx.settings, bus, playerName: ctx.session.name, setScreens: true });
         if (s && typeof s.on === 'function') {
           s.on('exit', () => { close(); ctx.setScreen('menu'); });
@@ -95,7 +98,7 @@ function createMultiFlow({ ctx, ui, world, bus }) {
     } catch (err) {
       console.warn('[game] 멀티플레이를 열 수 없어요', err);
       close();
-      ui.update('menu', { multiDisabled: '멀티플레이를 열 수 없어요. 잠시 뒤 다시 시도해 주세요.' });
+      ui.update('menu', { multiDisabled: t('common.multiUnavailable') });
     }
   }
 
@@ -164,16 +167,29 @@ export async function install(ctx) {
   // 무기 표 전부를 등록한다: HUD(슬롯·탄약 칸)와 무기 고르기 카드가 id로 이름·아이콘을 찾는다.
   // 좀비 물량 막기 전용 무기(기관총·유탄 발사기·바주카포, zombieOnly)는 상점·마이페이지·빠른 교체 줄이 스스로 거른다(ui/shop.js·mypage.js·loadout.js). shop이 붙은 공기총·말뚝건은 판다
   ui.setWeapons(WEAPONS);
-  // 상점·마이페이지 캐릭터 초상: 게임 렌더러로 캐릭터 × 팀마다 한 번 그려 둔다(처음 보여 줄 때)
+  // 상점·마이페이지 캐릭터 초상: 같은 대원 모델을 게임 렌더러로 캐릭터 × 팀마다 한 번 그려 둔다(처음 보여 줄 때).
+  // 모델을 받기 전에는 아이콘을 보이고, 받으면 다시 연결해 열려 있는 화면도 초상으로 바꾼다
   const portraits = ctx.renderer && ctx.renderer.three ? createAvatarPortraits(ctx.renderer.three) : null;
-  if (portraits) ui.setAvatarArt((id, team) => portraits.get(id, team));
+  if (portraits) {
+    const art = (id, team) => portraits.get(id, team);
+    ui.setAvatarArt(art);
+    portraits.ready.then(() => ui.setAvatarArt(art), () => { /* 모델 오류는 맵 불러오기가 화면에 알린다 */ });
+  }
+  // 작전 지휘소 가운데 무대: 장착한 대원을 작은 전용 렌더러로 돌려 보인다(블루 팀 색). 대원은 메뉴 캡션과 같은 data-avatar를 따라간다
+  const stagePreview = ctx.renderer && typeof ui.operatorStage === 'function'
+    ? createOperatorPreview({ container: ui.operatorStage(), settings: ctx.settings, team: 'owner' })
+    : null;
   const world = await createWorld({ ctx, ui });
   const practice = createPractice({ ctx, world, ui });
+  // 시험용(&debug=1에서만): window.__skalafps.practice.run 으로 연습장 판 상태(배틀로얄 royale 등)를 읽는다
+  if (ctx.flags && ctx.flags.debug) ctx.practice = practice;
   const toast = createToast(ui);
   const gate = createGateControl({ ctx, ui });
   const multi = createMultiFlow({ ctx, ui, world, bus });
   const notices = createNotices({ ui });
   const offs = [...registerSessionScreens(ctx)];
+  // 포털: 실제 조작 중일 때만 gameplayStart, 광고 중 소리·입력 정지, SDK 음소거 우선(platform/wire.js)
+  offs.push(wirePlatform({ ctx, ui, world }));
 
   /* ---------- 연습장 ---------- */
   offs.push(ctx.registerScreen('sandbox', {
@@ -246,10 +262,10 @@ export async function install(ctx) {
     bus.on('account:change', onAccountChange),
     bus.on('account:nickname-conflict', (e) => gate.onConflict(e)),
     bus.on('account:notice', takeAccountNotice),
-    bus.on('app:error', (e) => toast.notify((e && e.message) || '오류가 났어요')),
-    bus.on('fullscreen:denied', (e) => { if (e && e.notify) toast.notify('이 브라우저 화면에서는 전체 화면을 켤 수 없어요. 앉은 채 앞으로 갈 때는 C 키를 쓰세요.'); }),
-    bus.on('map:error', (e) => toast.notify(`맵을 불러오지 못했어요: ${(e && (e.message || e.id)) || ''}`)),
-    bus.on('screen:unavailable', (e) => toast.notify(`${SCREEN_LABEL[e && e.name] || (e && e.name) || ''} 화면은 아직 준비 중이에요.`)),
+    bus.on('app:error', (e) => toast.notify((e && e.message) || t('common.error'))),
+    bus.on('fullscreen:denied', (e) => { if (e && e.notify) toast.notify(t('common.fullscreenDenied')); }),
+    bus.on('map:error', (e) => toast.notify(t('common.mapLoadFailed', { detail: (e && (e.message || e.id)) || '' }))),
+    bus.on('screen:unavailable', (e) => toast.notify(t('common.screenNotReady', { screen: SCREEN_LABEL[e && e.name] || (e && e.name) || '' }))),
     ui.on('menu:sandbox', () => openPracticeSetup()),
     ui.on('menu:zombie', () => openPracticeSetup({ mode: 'zombie' })),
     // 메뉴 좀비 '같이 하기': 로비를 열고 곧바로 공개 좀비 방을 만들어 대기실로 간다
@@ -268,13 +284,14 @@ export async function install(ctx) {
 
   return {
     provides: ['weapons', 'menu', 'hud'],
-    ui, world, practice, notices,
+    ui, world, practice, notices, stagePreview,
     dispose() {
       offs.forEach((o) => { try { o(); } catch (err) { /* ignore */ } });
       offs.length = 0;
       notices.dispose();
       toast.dispose();
       setup.dispose();
+      if (stagePreview) stagePreview.dispose();
       if (portraits) portraits.dispose();
       if (practice.active) { try { practice.exit(); } catch (err) { /* ignore */ } }
       multi.close();

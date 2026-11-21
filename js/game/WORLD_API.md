@@ -40,7 +40,8 @@ const world = await createWorld({ root, ui, settings, ctx });
 | `addActor({ id, name, team, kind:'remote'\|'bot', avatar? })` / `removeActor(id)` / `clearActors()` | 원격 플레이어·봇 아바타. `avatar` = 캐릭터 id(`core/avatar-defs.js`, 모르는 값은 기본 캐릭터). `setActorState(id, { avatar })`로 바꿔도 된다 |
 | `setActorState(id, state)` | 매 프레임(또는 틱) **보간이 끝난 상태를 그대로** 그린다(World는 다시 보간하지 않는다 → avatars 지연 0). `state = { pos:[x,y,z], yaw, pitch, alive, moving?, walking?, onGround?, hp?, slot?, weaponId? }`. `slot`·`weaponId`는 아바타의 든 무기 표시로 간다(슬롯 3이면 칼 모형). 안 주면 마지막으로 안 값(`actorFire` 포함)을 쓴다. 죽어 있던 액터가 `alive:true`로 오면 그 자리로 순간이동하며 일어선다. 걷는 액터는 3D 발소리가 난다(Shift 걷기는 조용) |
 | `actorFire({ id, weaponId, origin, dir, hitPoint?, hitKind?, victimId?, normal?, mat?, kind? })` | 원격 사격 연출: FX 섬광·예광탄·탄착·3D 총성(`def.sound`, `def.fxKind`). `hitKind:'player'`면 피격 퍼프(내가 맞은 경우는 생략). `normal/mat`이 없으면 탄착점에서 월드 레이로 찾는다. 산탄은 예광탄을 몇 줄 더 그린다(연출 전용). 칼은 어떤 칼이든 휘두르는 소리만(`kind:'stab'`이면 `heavySound`) |
-| `actorGrenade({ id, pos, vel, fuse?, t?, grenadeId? })` | 결정론 수류탄(1/120 고정 스텝)을 같은 초기값으로 시뮬레이션하고 바운스 소리·폭발 연출. `t`(ms, `performance.now()` 기준)가 과거면 그만큼 앞당겨 진행 |
+| `actorGrenade({ id, pos, vel, fuse?, t?, grenadeId? })` | 결정론 수류탄(1/120 고정 스텝)을 같은 초기값으로 시뮬레이션하고 바운스 소리·폭발 연출. `t`(ms, `performance.now()` 기준)가 과거면 그만큼 앞당겨 진행. 던진 사람 아바타는 던지는 팔 동작(`throwNade`). `actorFire`도 총이면 반동(`recoil`), 칼이면 휘두르기(`swing`)를 아바타에 건다 |
+| `actorReload({ id, duration? })` | 원격·봇 재장전 연출: 아바타가 탄창을 갈아 끼우는 팔 동작(`duration`초, 기본 2). 소리는 부르는 쪽이 낸다(연습장 봇의 `reloadStart`). 멀티 원격은 재장전 소식이 전송에 없어 아직 부르지 않는다 |
 | `actorDeath(id, info?)` | 아바타 쓰러짐. `info.dir = [x,z]`(총알 방향) |
 | `feedbackDamage({ attackerPos?, amount, head?, kill?, half?, incoming? })` | `attackerPos`가 있거나 `incoming:true`면 **내가 맞음** → 피격 방향 호. 아니면 **내가 맞힘** → `hud.hitmarker(head, kill, { half })`. `half`(match의 `halfShot`, 그 이름으로 줘도 된다)면 `hud.callout('반샷! −50', 'half')`와 소리 `half_shot`(`hit_marker` 대신, 2D). `head`면 `hud.callout('헤드샷!', 'head')`. 킬이면 `kill` 소리 |
 | `noteKill({ killer, victim, killerTeam?, victimTeam? })` → 이어진 킬 수 | 경기의 `kill` 이벤트마다 부른다(연습장·멀티 모두). **내가 살아서 적을 처치했을 때만** 연속 킬을 센다(자폭·같은 편·죽은 뒤의 킬은 0). 앞 킬과 5초 안이면 이어지고(`game/multikill.js`, 시계는 World 시뮬레이션 시각), 2킬부터 `hud.multiKill({ id, title, sub })`(그림·글자), 효과음 `multi_kill`(단계마다 `rate` +0.06, 7킬부터 `legend_kill`), 안내 음성 `audio.voice(id)`를 낸다. 내가 죽거나(`killLocal`) 판이 바뀌면(`reset`·`loadMap`·`unloadMap`) 1부터 다시 센다. `multiKillCount`는 마지막 킬까지 이어진 수 |
@@ -69,7 +70,10 @@ const world = await createWorld({ root, ui, settings, ctx });
 | `weaponDrop` | `{ dropId, weaponId, pos, mag, reserve }` | 살아 있을 때 G로 손에 든 총을 버렸거나, 총을 든 채 죽었다. `reserve`가 `Infinity`면 프리미엄 총이다 |
 | `weaponPick` | `{ dropId, weaponId }` | 주무기 탄약이 다 떨어져 닿은 총을 주웠다. 총은 이미 슬롯 1에 들어갔다 |
 | `grenade` | `{ id, grenadeId, pos:[x,y,z], vel:[x,y,z], fuse, t, kind }` | 로컬 투척 직후 — 원격은 `actorGrenade(payload)`로 같은 궤적 재생 |
+| `fallDamage` | `{ amount, height, pos }` | 배틀로얄(`setRoyale` 켜짐)에서 내가 4 m 넘게 떨어져 착지했을 때(core `player:fall`, MODES.md 15절). 연습장이 `match.claimHazard(me, amount, 'fall')`로 넣는다 |
 | `explosion` | `{ ownerId, local, grenadeId, center:{x,y,z}, victims:[{ id, dmg, dist }] }` | **모든** 수류탄 폭발(엄폐·거리 감쇠 끝난 값, 로컬 플레이어 포함). 멀티는 `local:true`만 `match.claimExplosion({ attackerId: ownerId, center, victims })`, 연습장은 전부 |
+| `smoke` | `{ ownerId, id, pos:[x,y,z] }` | 연막탄(`gr_smoke`, 종류 `smoke`) 신관이 다 됐다 — 그 자리에 연기 구름(14초). 피해 없음(`explosion`을 내지 않는다). 시선 판정은 `smokeBlocks` |
+| `flash` | `{ ownerId, id, pos:[x,y,z] }` | 섬광탄(`gr_flash`, 종류 `flash`)이 터졌다 — 내 눈은 World가 이미 판정했다(하얀 화면·귀울림). 연습장은 봇마다 `weapons/tactical.js flashIntensity`로 눈을 멀게 한다 |
 | `localDeath` | `{ id, info }` | `killLocal` 직후 |
 | `multiKill` | `{ count, id }` | `noteKill`이 연속 킬(2킬 이상)을 띄웠을 때. `id`는 `double`~`hexa`, 7킬부터 `legend` |
 | `loadoutPick` | `{ id, auto }` | UI 로드아웃에서 골랐을 때(World가 arsenal에 먼저 반영하고, `auto:false`면 같은 클릭 안에서 포인터 잠금) |
@@ -136,6 +140,8 @@ await world.loadMap(mapId, { mode, ruleset });
 | `setQuickRespawn({ cost, ok } \| null)` | 개인전 즉시 부활(MODES.md 10절). 부활 대기 패널에 "[E] 즉시 부활 · cost P"(`hud.respawn.quick = { cost, ok, touch }`)를 띄우고 E(`input:use`)를 받는다. 휴대폰은 `touch:use { on, label: '부활' }`로 버튼을 보인다(죽은 동안 아래 가운데, 발사 버튼 자리는 피한다). `ok:false`(포인트 부족)면 안내만 바뀌고 E는 알림만. 부활까지 0.7초 넘게 남았을 때만 받는다. 이벤트 `quickRespawn { cost }`로 요청을 내보내고(1.5초 안에 다시 누른 것은 무시), 확정·결제는 부르는 쪽이 한다. `spawnLocal`·`loadMap`·`unloadMap`이 지운다 |
 | `setProtect(ms \| true \| false)` | 내 보호 표시를 직접 켜고 끈다(스냅샷 `protect`를 따를 때) |
 | `setActorProtect(id, ms \| true \| false)` | 다른 사람 보호 표시 — 이름표에 🛡(적은 이름 없이 🛡만, MODES.md 11절), 시간이 지나면 저절로 꺼짐. `setActorState(id, { protect: bool })`로 줘도 된다 |
+| `setActorBlind(id, ms)` | 연습장 봇이 섬광에 눈이 멀었다 — 이름표에 💫(적도 보인다), ms 뒤 저절로 꺼짐. 0이면 끈다 |
+| `smokeBlocks(a, b)` | a→b 시선이 지금 연막탄 연기에 막히는가(벽은 보지 않는다). 연습장 봇 시야(`view.sight`)가 쓴다 |
 | `setRound({ mode:'ffa', phase, timeLeftMs, kills, rank, total, leaderName, leaderKills, target })` | FFA HUD 점수(평평한 필드 또는 `score:{...}`, 일부만 줘도 이전 값 유지) → `hud.score = { mode:'ffa', ... }`, `roundTime` = 경기 남은 시간. FFA에선 `alive`·`teamSize`를 쓰지 않는다 |
 | `setActorState(id, { crouch })` | 앉은 자세(core 아바타) + **앉은 히트박스**로 판정(`getTargets()`의 대상에 `crouch:true` — core가 안 실으면 World가 채움) + 원격 발소리 작게(1.6 m마다, Shift 걷기는 무음) |
 | `getLocalState().crouch` | 내 앉기 상태(sync → `FLAG.crouch`) |
@@ -194,7 +200,7 @@ await world.loadMap(mapId, { mode, ruleset });
 | `hordeEvent(ev)` | 연출이 필요한 방장 이벤트(skill·enrage·bossSpawn) |
 | `setHordePerks(o \| null)` | 카드 효과의 내 화면 몫 `{ mods, speed, maxSpeed, jump, pierce, maxHp }`. `mods`는 `arsenal.setMods`(탄창·연사·재장전·탄퍼짐·반동·예비 배율 등). null이면 기본값 |
 | `slowLocal(mul, ms)` | 비명·얼음 가시·붙잡힘: ms 동안 이동 속도 ×mul(0.2~1) |
-| `stunLocal(ms)` | 블리츠 평타·그랩: ms 동안 기절(움직이지도 쏘지도 못한다) |
+| `stunLocal(ms)` | 사슬꾼 평타·그랩: ms 동안 기절(움직이지도 쏘지도 못한다) |
 | `hordeLocalStatus()` → `{ slowMs, slowMul, stunMs, grabbed }` | 내 몸의 남은 느려짐 ms·배율, 남은 기절 ms, 좀비 몸에 붙잡혔는가(`HORDE.grabSlow`). 좀비 모드에서 살아 있을 때만 값이 있다. 같은 객체를 다시 쓰므로 붙잡아 두지 말 것. `horde/client.js`가 매 프레임 HUD 버프·디버프 줄(`hud.set({ status })`)에 쓴다 |
 | `pushLocal([vx, vy, vz])` | 보스 돌진·내려찍기에 밀려남, 좀비에게 맞아 밀려남(스냅샷 사람 행의 `knock`, 번호가 바뀔 때 한 번) |
 | `refillReserve()` · `refillGrenades()` · `addMagAmmo(n)` · `addReserve(n, id?)` · `addGrenades(n = 1)` | 카드·처치 보상과 바닥 보급품의 탄약. `addReserve`의 `id`를 주면 그 총에, 없으면 든 총에 넣는다 |

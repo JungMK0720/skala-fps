@@ -210,11 +210,11 @@ const decor = [
   { type: 'lantern', x: -10.1, y: 2.2, z: 0, r: 0.16, cord: 0.25, color: '#ffe2b0' },
   { type: 'lantern', x: 10.1, y: 2.2, z: 0, r: 0.16, cord: 0.25, color: '#ffe2b0' },
   // 문패
-  { type: 'sign', x: -10.1, y: 2.42, z: -4.52, rotY: PI, w: 1.9, h: 0.34, text: '분갈이실 A', bg: BLUE, fg: '#ffffff' },
-  { type: 'sign', x: -10.1, y: 2.42, z: 4.52, rotY: 0, w: 1.9, h: 0.34, text: '분갈이실 A', bg: BLUE, fg: '#ffffff' },
-  { type: 'sign', x: 10.1, y: 2.42, z: 4.52, rotY: 0, w: 1.9, h: 0.34, text: '분갈이실 B', bg: ORANGE, fg: '#ffffff' },
-  { type: 'sign', x: 10.1, y: 2.42, z: -4.52, rotY: PI, w: 1.9, h: 0.34, text: '분갈이실 B', bg: ORANGE, fg: '#ffffff' },
-  { type: 'sign', x: 0, y: 4.3, z: -9.8, rotY: 0, w: 4, h: 0.7, text: '선인장 온실', bg: '#25553a', fg: '#fff6d8' }
+  { type: 'sign', x: -10.1, y: 2.42, z: -4.52, rotY: PI, w: 1.9, h: 0.34, text: '분갈이실 A', textEn: 'Potting Shed A', bg: BLUE, fg: '#ffffff' },
+  { type: 'sign', x: -10.1, y: 2.42, z: 4.52, rotY: 0, w: 1.9, h: 0.34, text: '분갈이실 A', textEn: 'Potting Shed A', bg: BLUE, fg: '#ffffff' },
+  { type: 'sign', x: 10.1, y: 2.42, z: 4.52, rotY: 0, w: 1.9, h: 0.34, text: '분갈이실 B', textEn: 'Potting Shed B', bg: ORANGE, fg: '#ffffff' },
+  { type: 'sign', x: 10.1, y: 2.42, z: -4.52, rotY: PI, w: 1.9, h: 0.34, text: '분갈이실 B', textEn: 'Potting Shed B', bg: ORANGE, fg: '#ffffff' },
+  { type: 'sign', x: 0, y: 4.3, z: -9.8, rotY: 0, w: 4, h: 0.7, text: '선인장 온실', textEn: 'Cactus Glasshouse', bg: '#25553a', fg: '#fff6d8' }
 ];
 
 export default {
@@ -222,7 +222,9 @@ export default {
   name: '선인장 온실',
   nameEn: 'Cactus Glasshouse',
   desc: '한낮의 유리 온실. 분갈이실에서 나가면 선인장 화단과 작업대 사이로 몇 걸음 만에 맞붙는다. 가운데 분수 단상을 돌며 쫓고 쫓긴다.',
+  descEn: 'A sunny glass greenhouse. Leave the potting shed and you\'re a few steps from contact between cactus beds and benches. Chase circles around the central fountain.',
   tag: '칼전 전용',
+  tagEn: 'Knife Only',
   size: { x: 24, z: 20 },
   rulesets: ['knife'],
   theme: {
@@ -238,6 +240,6 @@ export default {
   decor,
   pads: [],
   portals: [],
-  secrets: [{ id: 'glasshouse_loft', name: '씨앗 다락', x: -10.1, y: SHED_TOP, z: 2.2, w: 3.4, h: 2, d: 4.2, points: 100, reach: 'jump' }],
+  secrets: [{ id: 'glasshouse_loft', name: '씨앗 다락', nameEn: 'Seed Loft', x: -10.1, y: SHED_TOP, z: 2.2, w: 3.4, h: 2, d: 4.2, points: 100, reach: 'jump' }],
   props: []
 };

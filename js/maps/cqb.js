@@ -343,12 +343,34 @@ const propsHalf = [
   { type: 'barrel', x: -8.7, y: 0, z: 2.3 }
 ];
 
+/** 표지 글씨의 영어 짝. 글씨가 같은 표지는 모두 같은 영어를 쓴다 */
+const SIGN_EN = {
+  '블루': 'BLUE',
+  '레드': 'RED',
+  '가운데 통로': 'Center Passage',
+  '관측탑': 'Observation Tower',
+  '이동 표적 주의': 'Caution: Moving Targets',
+  '표적실 · 출입 금지': 'Target Room · No Entry',
+  '지붕 통로 ▲': 'Roof Walkway ▲',
+  '← 1번 사로': '← Lane 1',
+  '2번 사로 →': 'Lane 2 →',
+  '1번 사로 →': 'Lane 1 →',
+  '← 2번 사로': '← Lane 2',
+  '1번 사로': 'Lane 1',
+  '2번 사로': 'Lane 2',
+  '1번 사로 통제탑': 'Lane 1 Control Tower',
+  '2번 사로 통제탑': 'Lane 2 Control Tower'
+};
+const withEn = (d) => (SIGN_EN[d.text] ? { ...d, textEn: SIGN_EN[d.text] } : d);
+
 export default {
   id: 'cqb',
   name: '근접전 훈련장',
   nameEn: 'CQB Yard',
   desc: '합판 벽과 모래주머니로 세운 야외 훈련장에서 사로 둘과 지붕 통로, 레일 위를 오가는 이동 표적대를 끼고 몇 초 만에 맞붙는다.',
+  descEn: 'A plywood-and-sandbag training yard. Two firing lanes, a roof walkway and a moving target rig on rails: contact within seconds.',
   tag: '좁은 맵',
+  tagEn: 'Small Map',
   size: { x: 30, z: 20 },
   rulesets: ['classic', 'knife'],
   theme: {
@@ -369,10 +391,10 @@ export default {
     ...rotate180(labelled({ near: '2번 사로', far: '1번 사로' })),
     ...teamDecor(TEAMS.owner),
     ...rotate180(teamDecor(TEAMS.charterer))
-  ],
+  ].map(withEn),
   pads: [...padsHalf, ...rotate180(padsHalf)],
   movers: [...sledNorth, ...rotate180(sledNorth)],
   portals: [],
-  secrets: [{ id: 'cqb_lane_tower', name: '1번 사로 통제탑', x: 1.7, y: TOWER_TOP, z: -4, w: 1.4, h: 2.5, d: 1.4, points: 100, reach: 'jump' }],
+  secrets: [{ id: 'cqb_lane_tower', name: '1번 사로 통제탑', nameEn: 'Lane 1 Control Tower', x: 1.7, y: TOWER_TOP, z: -4, w: 1.4, h: 2.5, d: 1.4, points: 100, reach: 'jump' }],
   props: [...propsHalf, ...rotate180(propsHalf)]
 };

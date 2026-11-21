@@ -1,0 +1,31 @@
+# Date: 06NOV2026
+# Author: Minkyu Jung
+# Purpose: 기록에서 지운 이모트 음원(docs/HISTORY_PURGE.md)이 다시 올라오면 실패해서 소유자에게 알린다.
+#          옛 클론에서 push하거나 옛 브랜치를 합치면 음원 파일이 기록에 되살아나므로 push·PR마다 확인한다.
+name: history-guard
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  purged-audio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 지운 음원이 기록에 없는지 확인
+        run: |
+          blobs="6d5370e1ebf76f4046f0a004d38de9f5f9ae387d a3b264007729d240285c8e6dbe7fcdc94314123f a5a488ccb0adc219009c9be8401c31cefa514001 c82b73f80621205f222294ee89f44109eb7f0f98 d071caed0cddb015de4ff5a8d5c8db08d2cd4154 e9c2afc3c2b76f1fcfbdb1e1a038c7134d6dfd25"
+          found=0
+          for b in $blobs; do
+            if git cat-file -e "$b" 2>/dev/null; then
+              echo "::error::기록에서 지운 이모트 음원($b)이 다시 들어왔습니다. docs/HISTORY_PURGE.md를 보세요."
+              found=1
+            fi
+          done
+          exit $found

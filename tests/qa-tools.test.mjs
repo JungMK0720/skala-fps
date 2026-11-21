@@ -6,6 +6,7 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { BRAND } from '../js/core/brand.js';
 import { MAX_HEIGHT, MAX_WIDTH, SAFE_FLAGS, keyInfo, withTimeout } from '../tools/qa/browser.mjs';
 import { OFFLINE_CONFIG, startServer } from '../tools/qa/server.mjs';
 import { startFakeSupabase } from '../tools/qa/fake-supabase.mjs';
@@ -18,7 +19,9 @@ describe('시험용 정적 서버', () => {
   test('/skala-fps/ 아래에서 저장소를 내려준다', async () => {
     const home = await fetch(server.base);
     assert.equal(home.status, 200);
-    assert.match(await home.text(), /<title>SKALA 작전<\/title>/);
+    const title = (await home.text()).match(/<title>([^<]*)<\/title>/)?.[1];
+    const expected = BRAND.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    assert.equal(title, expected, '정적 페이지 제목은 BRAND.name과 같다');
     const js = await fetch(`${server.base}js/main.js`);
     assert.equal(js.status, 200);
     assert.match(js.headers.get('content-type'), /javascript/);

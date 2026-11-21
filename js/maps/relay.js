@@ -38,8 +38,8 @@ const FACE = { '+x': Math.PI / 2, '-x': -Math.PI / 2, '+z': 0, '-z': Math.PI };
 
 /* ---------------- 폭파 구역 ---------------- */
 
-const SITE_A = { id: 'A', name: 'A 구역 · 서버 홀', x: 14.5, y: FLOOR_A, z: -15, w: 9, h: 3, d: 9 };
-const SITE_B = { id: 'B', name: 'B 구역 · 안테나 마당', x: 14.5, y: 0, z: 15, w: 9, h: 3, d: 9 };
+const SITE_A = { id: 'A', name: 'A 구역 · 서버 홀', nameEn: 'Site A · Server Hall', x: 14.5, y: FLOOR_A, z: -15, w: 9, h: 3, d: 9 };
+const SITE_B = { id: 'B', name: 'B 구역 · 안테나 마당', nameEn: 'Site B · Antenna Yard', x: 14.5, y: 0, z: 15, w: 9, h: 3, d: 9 };
 
 /* ---------------- 도형 도우미 ---------------- */
 
@@ -391,7 +391,40 @@ const solids = [
 
 /* ---------------- 장식 도우미 ---------------- */
 
-const sign = (x, y, z, face, w, h, text, bg = '#16222e', fg = '#e8f1f7') => ({ type: 'sign', x, y, z, rotY: FACE[face], w, h, text, bg, fg });
+/** 표지판 글자의 영어 짝(core/i18n.js loc). 한국어 글자를 그대로 열쇠로 쓴다 */
+const SIGN_EN = {
+  'A 서버 홀': 'A Server Hall',
+  'B 안테나 마당': 'B Antenna Yard',
+  '← 능선길 · A 구역': '← Ridge · Site A',
+  '진입 도로 · A / B': 'Access Road · A / B',
+  '케이블 통로 · B 구역 →': 'Cable Tunnel · Site B →',
+  '케이블 통로': 'Cable Tunnel',
+  'A 구역 →': 'Site A →',
+  '← B 구역': '← Site B',
+  '중앙 통로 →': 'Mid Passage →',
+  '← A 구역': '← Site A',
+  'B 구역 →': 'Site B →',
+  '하역장 · LOADING YARD': 'LOADING YARD',
+  '중계 기지 7호 · RELAY STATION': 'RELAY STATION 7',
+  '자재 창고': 'Supply Store',
+  '비상 발전기동': 'Backup Generators',
+  '냉각 설비': 'Cooling Plant',
+  '배전 마당': 'Switchyard',
+  '고압 위험': 'High Voltage',
+  '관제동': 'Control Building',
+  '추락 주의': 'Fall Hazard',
+  'A-01\n정상': 'A-01\nOK',
+  'A-02\n정상': 'A-02\nOK',
+  'A-03\n점검 중': 'A-03\nMaintenance',
+  '랙 A1 · 부하 72%': 'Rack A1 · Load 72%',
+  '랙 A2 · 백업': 'Rack A2 · Backup',
+  '중계 서버 A\n정상 가동': 'Relay Server A\nOnline',
+  'B-01 송신': 'B-01 TX',
+  'B-02 수신': 'B-02 RX',
+  '중계 단말 B\n송신 대기': 'Relay Terminal B\nTX Standby',
+  '중계 기지 관제실\nA 서버 홀 · B 안테나 마당': 'Relay Control Room\nA Server Hall · B Antenna Yard'
+};
+const sign = (x, y, z, face, w, h, text, bg = '#16222e', fg = '#e8f1f7') => ({ type: 'sign', x, y, z, rotY: FACE[face], w, h, text, textEn: SIGN_EN[text], bg, fg });
 /** 구역 글자판: 노랑 바탕에 검은 글자. 다가오는 길에서 멀리서도 읽힌다 */
 const letter = (id, x, y, z, face, s = 1.8) => sign(x, y, z, face, s, s, id, '#ffd21f', '#111418');
 const screen = (x, y, z, face, text, w = 0.9, h = 0.5, fg = '#35e0ff') => sign(x, y, z, face, w, h, text, '#06141c', fg);
@@ -546,8 +579,8 @@ const decorList = [
   { type: 'crateStack', x: -30, y: 0, z: 22.4, rotY: -0.2, size: 1, levels: 2 },
   { type: 'crateStack', x: -36.8, y: 0, z: -18.6, rotY: 0.3, size: 0.9, levels: 1 },
   { type: 'crateStack', x: 26.2, y: 0, z: -17.6, rotY: 0.15, size: 0.9, levels: 2 },
-  { type: 'banner', x: -37.45, y: 3.2, z: -6, rotY: FACE['+x'], w: 1.4, h: 2.8, text: '중계 7', emblem: 'ring', bg: '#0d2a45', fg: '#e8f1f7' },
-  { type: 'banner', x: -37.45, y: 3.2, z: 6, rotY: FACE['+x'], w: 1.4, h: 2.8, text: '중계 7', emblem: 'ring', bg: '#0d2a45', fg: '#e8f1f7' }
+  { type: 'banner', x: -37.45, y: 3.2, z: -6, rotY: FACE['+x'], w: 1.4, h: 2.8, text: '중계 7', textEn: 'Relay 7', emblem: 'ring', bg: '#0d2a45', fg: '#e8f1f7' },
+  { type: 'banner', x: -37.45, y: 3.2, z: 6, rotY: FACE['+x'], w: 1.4, h: 2.8, text: '중계 7', textEn: 'Relay 7', emblem: 'ring', bg: '#0d2a45', fg: '#e8f1f7' }
 ];
 
 /* ---------------- 스폰 ---------------- */
@@ -586,8 +619,8 @@ export default {
   id: 'relay',
   name: '중계 기지',
   nameEn: 'Relay Station',
-  desc: '산 정상의 통신 중계 기지. 능선길·발전기 마당·케이블 통로 세 길이 서버 홀(A)과 안테나 마당(B)으로 이어지는 폭파 미션 맵.',
-  tag: '폭파 미션',
+  desc: '산 정상의 통신 중계 기지. 능선길·발전기 마당·케이블 통로 세 길이 서버 홀(A)과 안테나 마당(B)으로 이어지는 폭파 미션 맵.', descEn: 'Bomb defusal at a mountaintop relay station: the ridge path, generator yard and cable tunnel lead to the server hall (A) and the antenna yard (B).',
+  tag: '폭파 미션', tagEn: 'Bomb Defusal',
   size: { x: 76, z: 48 },
   rulesets: ['classic'],
   // 바닥 판 아래 40 m에 구름 바다(water)를 깔아 산꼭대기 기지처럼 보이게 한다. 해는 남서쪽에서 비춰 하역장이 밝다

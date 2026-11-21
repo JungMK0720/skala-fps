@@ -196,6 +196,8 @@ export default {
 
     t.setSection('3인칭 칼 휘두르기');
     await page.waitFor('__qa.world.localAlive', 12000, { intervalMs: 50, label: '부활' });
+    // 앞 구간에서 쓰러진 봇이 되살아난 뒤에 옮긴다. 먼저 옮기면 부활 자리(멀리)로 돌아가서, 먼 대원의 애니메이션 LOD 때문에 휘두르기가 거의 안 보인다
+    await page.waitFor('__qa.run.bots[0].alive', 15000, { intervalMs: 50, label: '봇 부활' });
     await lockPointer(page);
     await page.fn((s) => {
       const qa = window.__qa;
@@ -206,12 +208,16 @@ export default {
       qa.world.setActorState(b.id, { pos: b.body.pos, yaw: b.yaw, pitch: 0, alive: true, slot: 3, weaponId: 'ml_gurkha' });
     }, spot);
     await waitTicks(page, 3);
+    await page.waitFor(`(() => { const b = __qa.run.bots[0], a = __qa.ctx.avatars.get(b.id); return !!a && Math.hypot(a.pos[0] - b.body.pos[0], a.pos[2] - b.body.pos[2]) < 0.3; })()`, 3000, { intervalMs: 30, label: '봇 모습이 가까이 옮겨짐' });
     const botId = await page.eval('__qa.run.bots[0].id');
+    // 오른손 소켓(칼을 쥔 점)의 아바타 공간 위치와 휘두르기 진행도
+    const handAt = () => page.eval(`(() => { const a = __qa.ctx.avatars.get(${JSON.stringify(botId)}), b = a.body; const p = b.socket.getWorldPosition(b.socket.position.clone()); a.root.worldToLocal(p); return { t: b.swingT, x: p.x, z: p.z }; })()`);
+    const base = await handAt();
     const swing = async (kind) => {
       await page.fn((a) => { window.__qa.world.actorFire({ id: a.id, weaponId: 'ml_gurkha', origin: [0, 1.6, 0], dir: [0, 0, -1], kind: a.kind }); }, { id: botId, kind });
       const seen = [];
       for (let i = 0; i < 6; i++) {
-        seen.push(await page.eval(`(() => { const a = __qa.ctx.avatars.get(${JSON.stringify(botId)}); return { t: a.swingT, y: a.armsPivot.rotation.y, z: a.armsPivot.position.z }; })()`));
+        seen.push(await handAt());
         if (i === 1) await t.shot(`third-person-${kind}`);
         await sleep(40);
       }
@@ -219,13 +225,13 @@ export default {
     };
     await t.shot('third-person-before');
     const cut = await swing('slash');
-    t.check(cut.some((s) => s.t >= 0) && cut.some((s) => Math.abs(s.y) > 0.05), '베면 팔이 가로로 움직인다', cut);
+    t.check(cut.some((s) => s.t >= 0) && cut.some((s) => Math.abs(s.x - base.x) > 0.05), '베면 손이 가로로 움직인다', { base, cut });
     await sleep(500);
     const stab = await swing('stab');
-    t.check(stab.some((s) => s.t >= 0) && stab.some((s) => Math.abs(s.z) > 0.01), '찌르면 팔이 앞뒤로 움직인다', stab);
+    t.check(stab.some((s) => s.t >= 0) && stab.some((s) => Math.abs(s.z - base.z) > 0.02), '찌르면 손이 앞뒤로 움직인다', { base, stab });
     await sleep(700);
-    const rest = await page.eval(`(() => { const a = __qa.ctx.avatars.get(${JSON.stringify(botId)}); return { t: a.swingT, y: a.armsPivot.rotation.y, z: a.armsPivot.position.z }; })()`);
-    t.check(rest.t < 0 && rest.y === 0 && rest.z === 0, '끝나면 자세가 돌아온다', rest);
+    const rest = await handAt();
+    t.check(rest.t < 0 && Math.abs(rest.x - base.x) < 0.03 && Math.abs(rest.z - base.z) < 0.03, '끝나면 자세가 돌아온다(서 있는 숨쉬기 흔들림 안)', { base, rest });
     t.errorsOk('3인칭 칼');
 
     t.setSection('칼전에는 버릴 총이 없다');

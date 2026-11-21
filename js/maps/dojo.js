@@ -414,8 +414,8 @@ const decor = [
     { type: 'banner', x: -12.75, y: 2.55, z, rotY: 0, w: 2, h: 1.6, bg: INDIGO, fg: PETAL, emblem: 'diamond' }
   ]),
   // 도장 현판
-  { type: 'banner', x: 0, y: 3.35, z: -13.8, rotY: 0, w: 3.4, h: 0.62, bg: INDIGO, fg: PETAL, text: '벚꽃 도장' },
-  { type: 'banner', x: 0, y: 3.35, z: 13.8, rotY: PI, w: 3.4, h: 0.62, bg: CRIMSON, fg: PETAL, text: '벚꽃 도장' },
+  { type: 'banner', x: 0, y: 3.35, z: -13.8, rotY: 0, w: 3.4, h: 0.62, bg: INDIGO, fg: PETAL, text: '벚꽃 도장', textEn: 'Sakura Dojo' },
+  { type: 'banner', x: 0, y: 3.35, z: 13.8, rotY: PI, w: 3.4, h: 0.62, bg: CRIMSON, fg: PETAL, text: '벚꽃 도장', textEn: 'Sakura Dojo' },
   // 가림막 족자: 스폰에서 팀 무늬가 보인다
   { type: 'banner', x: 0, y: 1.75, z: -16.22, rotY: PI, w: 1.2, h: 1.9, bg: INDIGO, fg: PETAL, emblem: 'blossom' },
   { type: 'banner', x: 0, y: 1.75, z: 16.22, rotY: 0, w: 1.2, h: 1.9, bg: CRIMSON, fg: PETAL, emblem: 'blade' },
@@ -461,9 +461,11 @@ export default {
   name: '벚꽃 도장',
   nameEn: 'Sakura Dojo',
   desc: '해 질 녘 벚꽃이 흩날리는 절 마당. 낮은 벽과 기둥 사이 안뜰에서 총으로도 칼로도 겨룬다. 발판으로 지붕에 오르고, 병풍 뒤를 살펴 보자.',
+  descEn: 'A temple courtyard at dusk with falling cherry blossoms. Fight with guns or blades among low walls and pillars. Jump pads reach the roofs, and check behind the folding screens.',
   size: { x: 44, z: 44 },
   rulesets: ['classic', 'knife', 'sniper'],
   tag: '통합',
+  tagEn: 'Hybrid',
   theme: {
     sky: '#f0a6bd', skyTop: '#2f2566', fog: [34, 150],
     sunDir: [-0.62, 0.36, 0.7], sunColor: '#ffb48a', sunIntensity: 0.85, ambient: 0.75, ground: 'moss'
@@ -489,8 +491,8 @@ export default {
     { x: 19.4, y: 0, z: 5.6, w: 2.2, h: 2.4, d: 0.5, to: { x: 15, y: 0, z: 4.6, rotY: PI }, color: '#ff7ac0' }
   ],
   secrets: [
-    { id: 'dojo_roof', name: '명상 지붕', x: 0, y: TOP, z: 0, w: 7.2, h: 2.6, d: 7.2, points: 100 },
-    { id: 'dojo_garden', name: '숨은 정원', x: 19.4, y: 0, z: 0, w: 3.5, h: 2.6, d: 12.4, points: 80 }
+    { id: 'dojo_roof', name: '명상 지붕', nameEn: 'Meditation Roof', x: 0, y: TOP, z: 0, w: 7.2, h: 2.6, d: 7.2, points: 100 },
+    { id: 'dojo_garden', name: '숨은 정원', nameEn: 'Hidden Garden', x: 19.4, y: 0, z: 0, w: 3.5, h: 2.6, d: 12.4, points: 80 }
   ],
   props: [
     { type: 'crate', x: -19.2, y: DECK, z: -20.2 },

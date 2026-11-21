@@ -26,6 +26,7 @@
 import {
   WEAPONS, WEAPON_IDS, PRIMARY_IDS, PARTS, getDef, normalizePart, computeDamage, isHalfShot, minShotInterval
 } from '../weapons/defs.js';
+import { t } from '../core/i18n.js';
 import { DEFAULT_RULESET, normalizeRuleset, isWeaponAllowed, pickableWeapons, defaultPick } from './modes.js';
 import { BOMB, normalizeMission, siteAt, siteContains, reach, vecOf, sideFor, otherTeam, blastDamage } from './mission.js';
 
@@ -41,17 +42,17 @@ export const SELF_EXPLOSION_SCALE = 0.5;
 
 /** roundEnd/matchEnd reason → 화면 문구 */
 export const REASON_LABELS = Object.freeze({
-  elimination: '전멸',
-  time: '시간 종료 · 생존자 수',
-  hp: '시간 종료 · 남은 체력',
-  draw: '무승부',
-  wins: '선승',
-  maxRounds: '최대 라운드 도달',
-  roundCap: '라운드 상한 도달',
-  forfeit: '상대 팀 전원 퇴장',
-  abandoned: '전원 퇴장',
-  bomb: '폭탄 폭파',       // 폭파 미션 전용(13절)
-  defuse: '폭탄 해체'
+  elimination: t('game.reason.elimination'),
+  time: t('game.reason.timeSurvivors'),
+  hp: t('game.reason.timeHp'),
+  draw: t('game.reason.draw'),
+  wins: t('game.reason.wins'),
+  maxRounds: t('game.reason.maxRounds'),
+  roundCap: t('game.reason.roundCap'),
+  forfeit: t('game.reason.forfeit'),
+  abandoned: t('game.reason.abandoned'),
+  bomb: t('game.reason.bomb'),       // 폭파 미션 전용(13절)
+  defuse: t('game.reason.defuse')
 });
 
 /** 팀전 규칙 기본값. ruleset은 숫자 표(스냅샷 ru)에 넣지 않고 따로 싣기 때문에 여기에 없다(기본 'classic') */
@@ -109,10 +110,10 @@ export const DEFAULT_FFA_RULES = Object.freeze({
 const FFA_RULE_KEYS = Object.freeze(['killTarget', 'timeLimitMs', 'respawnMs', 'spawnProtectMs', 'loadoutMs', 'hp', 'maxPlayers']);
 /** FFA matchEnd reason → 화면 문구(팀전 REASON_LABELS와 'time'·'draw' 뜻이 달라 따로 둔다) */
 export const FFA_REASON_LABELS = Object.freeze({
-  kills: '목표 킬 달성',
-  time: '시간 종료 · 킬 순위',
-  forfeit: '상대가 모두 나감',
-  draw: '무승부'
+  kills: t('game.reason.kills'),
+  time: t('game.reason.timeKills'),
+  forfeit: t('game.reason.ffaForfeit'),
+  draw: t('game.reason.draw')
 });
 /** 부활 직후 이 시간 동안은 그 사람 위치를 스폰 지점으로 본다(월드·네트워크가 아직 옮기기 전) */
 const SPAWN_FRESH_MS = 1000;
@@ -196,7 +197,7 @@ export function rulesFromDefs(defs = WEAPONS) {
 /** 무기별 판정 표(동결). 처음 불러올 때 defs에서 만든다 */
 export const WEAPON_RULES = rulesFromDefs(WEAPONS);
 
-/** 대소문자·기호를 뺀 이름 → 정식 id. 정식 id와 표시 이름(short: 'SK-7', 'KATANA')을 defs에서 만든다 */
+/** 대소문자·기호를 뺀 이름 → 정식 id. 정식 id와 표시 이름(short: 'SR-7', 'KATANA')을 defs에서 만든다 */
 const squashName = (v) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
 const WEAPON_NAMES = new Map();
 for (const id of WEAPON_IDS) {
@@ -254,7 +255,7 @@ function normId(id) {
 }
 function normName(name, fallback) {
   const clean = (v) => text(v).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, MAX_NAME);
-  return clean(name) || clean(fallback) || '플레이어';
+  return clean(name) || clean(fallback) || t('game.playerFallback');
 }
 function normVec(v) {
   if (!v || typeof v !== 'object') return null;
@@ -1265,6 +1266,38 @@ export function createMatch(opts = {}) {
     return events;
   }
 
+  /**
+   * 공격자 없는 환경 피해(배틀로얄 봉쇄 구역, MODES.md 15절). 살아 있는 victim이 amount만큼 잃는다.
+   * 자해처럼 공격자 = 피해자라 킬은 누구에게도 가지 않는다. damage·kill 이벤트에 cause를 싣는다
+   */
+  function claimHazard(idRaw, amount, cause = 'hazard') {
+    if (disposed) return [];
+    const id = normId(idRaw);
+    if (phase !== 'live') return reject('claimHazard', 'not_live', id);
+    const v = players.get(id);
+    if (!v || !isActive(v)) return [];
+    const dmg = Math.round(toNum(amount));
+    if (!(dmg > 0)) return [];
+    const events = [];
+    hurt(events, v, v, null, dmg, { part: null, kind: null, head: false, self: true });
+    const why = text(cause).slice(0, 16) || 'hazard';
+    for (const ev of events) if (ev.type === 'damage' || ev.type === 'kill') ev.cause = why;
+    return events;
+  }
+
+  /** 살아 있는 id의 체력을 amount만큼 채운다(최대 rules.hp, 배틀로얄 구급상자). → [{ type:'heal', id, amount, hp }] 또는 [] */
+  function heal(idRaw, amount) {
+    if (disposed) return [];
+    const id = normId(idRaw);
+    if (phase !== 'live') return reject('heal', 'not_live', id);
+    const v = players.get(id);
+    if (!v || !isActive(v)) return [];
+    const add = Math.min(rules.hp - v.hp, Math.max(0, Math.round(toNum(amount))));
+    if (!(add > 0)) return [];
+    v.hp += add;
+    return [{ type: 'heal', id, amount: add, hp: v.hp }];
+  }
+
   /** 팀전·FFA 공통 앞 10칸 */
   function baseRow(x) {
     const flags = (x.connected ? 1 : 0) | (x.playing ? 2 : 0) | (x.alive ? 4 : 0) | (x.bot ? 8 : 0);
@@ -1559,7 +1592,7 @@ export function createMatch(opts = {}) {
   applyCarry(o.carry);
 
   return {
-    tick, addPlayer, removePlayer, setTeam, setLoadout, start, claimHit, claimExplosion, bombIntent, respawnNow, snapshot, dispose,
+    tick, addPlayer, removePlayer, setTeam, setLoadout, start, claimHit, claimExplosion, claimHazard, heal, bombIntent, respawnNow, snapshot, dispose,
     /** 읽기 전용 뷰. 접근할 때마다 새 복사본(= applySnapshot(snapshot())) */
     get state() { return applySnapshot(snapshot()); },
     get rules() { return rules; },

@@ -2,15 +2,16 @@
  * Date: 06NOV2026
  * Author: Minkyu Jung
  * Purpose: HUD 화면. 체력·탄약·슬롯·크로스헤어·히트마커·피격 방향·타이머·스코어·킬피드·중앙 메시지·속도계·콜아웃·상단 배너·연속 킬과
- *          개인전 표시(순위, 부활 패널, 보호), 폭파 미션 표시(진영 패널, 구역 표식, 설치·해체 막대, 폭탄 소지)를 그린다.
+ *          개인전 표시(순위, 부활 패널, 보호), 폭파 미션 표시(진영 패널, 구역 표식, 설치·해체 막대, 폭탄 소지), 배틀로얄 표시(구역 패널, 미니맵 봉쇄 격자)를 그린다.
  *          hud.set()은 매 프레임 불러도 되고 값이 바뀐 곳만 DOM에 쓴다.
  */
 import { h, setText, clamp, fmtTime, num, TEAMS, TEAM_KEYS, teamKey, FFA_TARGET, SIDE_NAME, bombSide } from './dom.js';
 import { makeScreen } from './parts.js';
-import { headshotIcon, weaponInfo } from './icons.js';
+import { headshotIcon, weaponInfo, uiIcon, weaponGlyph } from './icons.js';
 import { multiKillArt, multiKillPalette, MULTI_KILL_ART } from './multikill.js';
 import { createStatusRow } from './status.js';
 import { PLAYER, MOVE } from '../core/consts.js';
+import { t as tr, isEnglish } from '../core/i18n.js';
 
 const KILLFEED_MAX = 5;
 const KILLFEED_MS = 5000;
@@ -47,9 +48,10 @@ const NO_BOMB = Object.freeze({ side: null, goal: '', status: '', tone: '', time
 export const MULTI_KILL_MS = Object.freeze({ tier: 2200, legend: 2900 });
 
 function autoTone(text) {
-  if (/매치 ?포인트|무승부|재경기|연장/.test(text)) return 'warn';
-  if (/블루/.test(text) && !/레드/.test(text)) return 'owner';
-  if (/레드/.test(text) && !/블루/.test(text)) return 'charterer';
+  if (/매치 ?포인트|무승부|재경기|연장|match point|draw|replay|overtime/i.test(text)) return 'warn'; // i18n-ok: 두 언어 배너 글자로 색을 고른다
+  const blue = /블루|\bblue\b/i.test(text), red = /레드|\bred\b/i.test(text); // i18n-ok: 두 언어 배너 글자로 색을 고른다
+  if (blue && !red) return 'owner';
+  if (red && !blue) return 'charterer';
   return '';
 }
 
@@ -79,10 +81,10 @@ export function swapPromptSpec(swap, touch = false) {
   const secs = Math.max(0, Math.ceil(num(swap.seconds, 0)));
   const name = swap.weaponName == null ? '' : String(swap.weaponName).trim();
   const main = swap.open
-    ? (touch ? '바꿀 무기를 누르세요' : '바꿀 무기를 누르세요 · N으로 닫기')
-    : (touch ? '눌러서 무기 교체!' : '을 눌러 무기 교체!');
+    ? (touch ? tr('hud.swapPick') : tr('hud.swapPickClose'))
+    : (touch ? tr('hud.swapTap') : tr('hud.swapKey'));
   const note = swap.note == null ? '' : String(swap.note).trim();
-  const sub = [name ? `지금 ${name}` : '', secs > 0 ? `${secs}초 뒤 시작` : '', note].filter(Boolean).join(' · ');
+  const sub = [name ? tr('hud.swapNow', { name }) : '', secs > 0 ? tr('hud.swapIn', { n: secs }) : '', note].filter(Boolean).join(' · ');
   return { key: touch || swap.open ? '' : 'N', main, sub };
 }
 
@@ -94,10 +96,10 @@ export function quickRespawnSpec(quick) {
   if (!quick || typeof quick !== 'object') return null;
   const cost = Math.floor(num(quick.cost, 0));
   if (!(cost > 0)) return null;
-  if (quick.ok === false) return { key: '', text: `즉시 부활 ${cost} P · 포인트 부족`, ok: false };
+  if (quick.ok === false) return { key: '', text: tr('hud.quickPoor', { cost }), ok: false };
   return quick.touch
-    ? { key: '', text: `'부활' 버튼 · ${cost} P`, ok: true }   // 휴대폰 한 줄 패널이 넓어지지 않게 짧게(버튼 글자가 '부활'이다)
-    : { key: 'E', text: `즉시 부활 · ${cost} P`, ok: true };
+    ? { key: '', text: tr('hud.quickTouch', { cost }), ok: true }   // 휴대폰 한 줄 패널이 넓어지지 않게 짧게(버튼 글자가 '부활'이다)
+    : { key: 'E', text: tr('hud.quickKey', { cost }), ok: true };
 }
 
 export function bannerSpec(o) {
@@ -126,10 +128,11 @@ function normSlot(registry, s) {
   return { id: info.id, icon: info.icon, name: info.short || info.name, full: info.name };
 }
 
-/** slots(길이 4 배열 또는 { 1:…, 4:… }) → 네 칸. 칸마다 { id, icon, name, full } 또는 null */
+/** slots(길이 4 배열 또는 { 1:…, 4:… }) → 네 칸. 배틀로얄 가방(길이 5 배열: 1·2 주무기, 3 권총, 4 근접, 5 투척)은 다섯 칸. 칸마다 { id, icon, name, full } 또는 null */
 export function normSlots(registry, list) {
   const arr = Array.isArray(list) ? list : list && typeof list === 'object' ? [1, 2, 3, 4].map((n) => list[n]) : [];
-  return [0, 1, 2, 3].map((i) => normSlot(registry, arr[i]));
+  const n = arr.length >= 5 ? 5 : 4;
+  return Array.from({ length: n }, (_, i) => normSlot(registry, arr[i]));
 }
 
 /** 폭발까지 남은 초 → 카운트다운 글자. 10초 밑은 0.1초 단위('9.8'), 그 위는 정수('35'). 둘 다 올림. 없으면 '' */
@@ -185,11 +188,11 @@ export function bombSpec(b) {
 export function createHud(ctx) {
   const st = {
     hp: null, maxHp: 100, ammo: undefined, reserve: undefined, mag: undefined, magSeen: 0, hasAmmo: false,
-    reload: null, reloading: false, slot: null, slotList: null, slotSig: '', slotSeen: [false, false, false, false],
+    reload: null, reloading: false, slot: null, slotList: null, slotSig: '', slotSeen: [false, false, false, false, false],
     weaponName: null, weaponLabel: '',
     spread: 0, spreadPx: null, fov: null, gap: -1, time: undefined, scoreSig: '', aliveSig: '',
     alive: null, size: null, team: null, centerTimer: null, hitAnim: null,
-    ffa: false, respSig: '', protect: false,
+    ffa: false, respSig: '', protect: false, royaleSig: '',
     speedOn: false, speedTenths: -1, calloutSeq: 0, bannerQueue: [], bannerTimer: null,
     // 폭파 미션: 마지막으로 그린 값(바뀔 때만 DOM에 쓴다)
     bomb: { on: false, side: null, tone: '', timerText: '', urgent: false, carrying: false, prog: false, progKind: '', progRatio: -1 },
@@ -221,7 +224,7 @@ export function createHud(ctx) {
     const score = h('b', { class: 'sk-ts-score', text: '0' });
     const pips = h('span', { class: 'sk-pips' });
     const aliveN = h('span', { class: 'sk-ts-alive-n' });
-    const mp = h('span', { class: 'sk-ts-mp', text: '매치 포인트', hidden: true });
+    const mp = h('span', { class: 'sk-ts-mp', text: tr('hud.matchPoint'), hidden: true });
     const role = h('small', { class: 'sk-ts-side', hidden: true }); // 폭파 미션: 이번 라운드 공격/수비
     const el = h('div', { class: `sk-ts sk-ts--${team}` },
       h('div', { class: 'sk-ts-row' }, h('span', { class: 'sk-ts-label' }, h('span', { class: 'sk-ts-name', text: TEAMS[team].name }), role), score),
@@ -231,7 +234,7 @@ export function createHud(ctx) {
   }
   const sides = { owner: side('owner'), charterer: side('charterer') };
   const timer = h('div', { class: 'sk-timer', text: '-:--' });
-  const tcSub = h('div', { class: 'sk-tc-sub', text: '5판 3선승' });
+  const tcSub = h('div', { class: 'sk-tc-sub', text: tr('hud.bo5') });
 
   // 개인전 스코어: "🎯 7킬 · 2위/5 · 1위 하늘 12 / 20"
   const ffaKills = h('b', { class: 'sk-ts-score', text: '0' });
@@ -240,13 +243,15 @@ export function createHud(ctx) {
   const ffaTotal = h('small', { class: 'sk-ffa-total' });
   const ffaLeader = h('span', { class: 'sk-ts-alive-n sk-ffa-leader' });
   const ffaMe = h('div', { class: 'sk-ts sk-ts--ffa sk-ffa-me' },
-    h('div', { class: 'sk-ts-row' }, h('span', { class: 'sk-ts-name', text: '🎯 내 킬' }), h('span', { class: 'sk-ffa-kv' }, ffaKills, h('small', { text: '킬' }))),
+    h('div', { class: 'sk-ts-row' }, h('span', { class: 'sk-ts-name' }, uiIcon('target', 'sk-uico--inline'), tr('hud.myKills')), h('span', { class: 'sk-ffa-kv' }, ffaKills, h('small', { text: tr('hud.killsUnit') }))),
     h('div', { class: 'sk-ts-alive' }, ffaGoal));
+  const ffaRankUnit = h('small', { text: isEnglish() ? '' : tr('hud.rankSuffix') });
+  const ffaStandName = h('span', { class: 'sk-ts-name', text: tr('hud.rank') });
   const ffaStand = h('div', { class: 'sk-ts sk-ts--ffa sk-ffa-stand' },
-    h('div', { class: 'sk-ts-row' }, h('span', { class: 'sk-ffa-kv' }, ffaRank, h('small', { text: '위' }), ffaTotal), h('span', { class: 'sk-ts-name', text: '순위' })),
+    h('div', { class: 'sk-ts-row' }, h('span', { class: 'sk-ffa-kv' }, ffaRank, ffaRankUnit, ffaTotal), ffaStandName),
     h('div', { class: 'sk-ts-alive' }, ffaLeader));
 
-  const top = h('div', { class: 'sk-top', role: 'group', 'aria-label': '라운드 스코어' },
+  const top = h('div', { class: 'sk-top', role: 'group', 'aria-label': tr('hud.ariaScore') },
     sides.owner.el, ffaMe, h('div', { class: 'sk-tc' }, timer, tcSub), ffaStand, sides.charterer.el);
 
   // 상단 배너(비밀 스팟 발견 등)
@@ -263,7 +268,7 @@ export function createHud(ctx) {
   const bombNum = h('b', { class: 'sk-bomb-num' });
   const bombTimer = h('span', { class: 'sk-bomb-timer', hidden: true },
     h('span', { class: 'sk-bomb-timer-ico', text: '💣', 'aria-hidden': 'true' }), bombNum);
-  const bombPanel = h('div', { class: 'sk-bomb', hidden: true, role: 'group', 'aria-label': '폭파 미션' },
+  const bombPanel = h('div', { class: 'sk-bomb', hidden: true, role: 'group', 'aria-label': tr('hud.ariaBomb') },
     bombSideEl, h('div', { class: 'sk-bomb-text' }, bombGoal, bombStatus), bombTimer);
   const bombMarks = h('div', { class: 'sk-bomb-marks', 'aria-hidden': 'true' });
   const markEls = new Map(); // 표식 id → { el, ico, dist, 마지막 값 }
@@ -272,9 +277,18 @@ export function createHud(ctx) {
   const bombProg = h('div', { class: 'sk-bomb-prog', hidden: true, 'aria-hidden': 'true' },
     bombProgLabel, h('div', { class: 'sk-bomb-prog-bar' }, bombProgFill));
   const bombPrompt = h('div', { class: 'sk-bomb-prompt', hidden: true });
-  const bombCarry = h('span', { class: 'sk-hp-bomb', hidden: true, text: '💣 폭탄 소지' });
+  const bombCarry = h('span', { class: 'sk-hp-bomb', hidden: true, text: tr('hud.bombCarry') });
   // 버프·디버프 줄(좀비 모드, hud.set({ status })): 체력 칸 바로 위(ui/status.js). 포인터가 잠겨 있어 설명은 title·aria-label로
   const statusRow = createStatusRow({ cls: 'sk-status' });
+  // 배틀로얄(MODES.md 15절): 점수 아래 구역 패널 — 지금 구역(안전·예고·봉쇄) · 다음 봉쇄 · 구급상자
+  const roySector = h('b', { class: 'sk-roy-sector' });
+  const royState = h('span', { class: 'sk-roy-state' });
+  const royNext = h('span', { class: 'sk-roy-next' });
+  const royKit = h('span', { class: 'sk-roy-kit' });
+  const royHealFill = h('i');
+  const royHeal = h('span', { class: 'sk-roy-heal', hidden: true }, royHealFill);
+  const royalePanel = h('div', { class: 'sk-roy', hidden: true, role: 'group', 'aria-label': tr('hud.ariaBrPanel') },
+    h('div', { class: 'sk-roy-row' }, roySector, royState), royNext, h('div', { class: 'sk-roy-row' }, royKit, royHeal));
 
   const hpNum = h('b', { class: 'sk-hp-num', text: '100' });
   const hpFill = h('i');
@@ -282,7 +296,7 @@ export function createHud(ctx) {
     statusRow.el,
     h('span', { class: 'sk-hp-ico', text: '✚', 'aria-hidden': 'true' }),
     h('div', { class: 'sk-hp-main' },
-      h('div', { class: 'sk-hp-top' }, hpNum, h('span', { class: 'sk-hp-label', text: '체력' })),
+      h('div', { class: 'sk-hp-top' }, hpNum, h('span', { class: 'sk-hp-label', text: tr('hud.hp') })),
       h('div', { class: 'sk-hp-bar' }, hpFill)),
     bombCarry);
 
@@ -303,17 +317,23 @@ export function createHud(ctx) {
   const ammoEl = h('div', { class: 'sk-ammo', hidden: true }, wpnName, ammoRow, reloadBar, ammoHint);
 
   const slotsEl = h('div', { class: 'sk-slots' });
-  const slotEls = [1, 2, 3, 4].map((n) => {
+  const slotEls = [1, 2, 3, 4, 5].map((n) => {
     const ico = h('span', { class: 'sk-slot-ico' });
-    const nm = h('span', { class: 'sk-slot-nm', text: '비어 있음' });
+    const nm = h('span', { class: 'sk-slot-nm', text: tr('hud.empty') });
     const el = h('div', { class: 'sk-slot is-empty', hidden: true }, h('kbd', { class: 'sk-slot-key', text: String(n) }), ico, nm);
     slotsEl.append(el);
     return { el, ico, nm };
   });
+  // 배틀로얄 인벤토리 패널(무기 칸 위): 가방 등급 · 주무기 두 자루와 부착물 · 계열 탄약 · 투척 · 구급상자
+  const invEl = h('div', { class: 'sk-inv', hidden: true, role: 'group', 'aria-label': tr('hud.ariaInv') });
+  // 구급상자 사용 진행 막대(가운데 아래, 폭탄 설치 막대와 같은 자리)
+  const chanLabel = h('span', { class: 'sk-bomb-prog-label' });
+  const chanFill = h('i');
+  const chanEl = h('div', { class: 'sk-bomb-prog sk-chan', hidden: true, 'aria-hidden': 'true', 'data-kind': 'heal' }, chanLabel, h('div', { class: 'sk-bomb-prog-bar' }, chanFill));
 
-  const feed = h('div', { class: 'sk-killfeed', 'aria-label': '킬피드' });
+  const feed = h('div', { class: 'sk-killfeed', 'aria-label': tr('hud.ariaFeed') });
   // Static terrain is drawn only when a map loads; the visible canvas gets moving marks each frame.
-  const minimap = h('canvas', { class: 'sk-minimap', width: MINIMAP_PX, height: MINIMAP_PX, hidden: true, 'aria-label': '미니맵' });
+  const minimap = h('canvas', { class: 'sk-minimap', width: MINIMAP_PX, height: MINIMAP_PX, hidden: true, 'aria-label': tr('hud.ariaMinimap') });
   const minimapCtx = minimap.getContext('2d');
   const minimapTerrain = document.createElement('canvas');
   minimapTerrain.width = minimapTerrain.height = MINIMAP_PX;
@@ -345,15 +365,15 @@ export function createHud(ctx) {
     h('div', { class: 'sk-rsp-top' }, rspMain, rspWpn),
     h('div', { class: 'sk-rsp-line' }, rspNum, rspTxt),
     rspQuick);
-  const protectEl = h('div', { class: 'sk-protect', hidden: true, role: 'status', text: '🛡 보호 중' });
-  // 이모트 중 하단 안내 "🕺 탱고 · 움직이면 취소"(MODES.md 4.3)
+  const protectEl = h('div', { class: 'sk-protect', hidden: true, role: 'status', text: tr('hud.protect') });
+  // 이모트 중 하단 안내 "🥁 제자리 행진 · 움직이면 취소"(MODES.md 4.3)
   const emoteEl = h('div', { class: 'sk-emote-banner', hidden: true, role: 'status' });
 
   // 순서: 설치/해체 막대 → 폭탄 안내 → 이모트 안내. css가 형제 선택자로 겹침을 푼다(안내가 뜨면 이모트 안내를 올리고, 터치 화면은 막대가 뜨면 안내를 가린다)
   const el = h('section', { class: 'sk-screen sk-hud', hidden: true, 'aria-label': 'HUD' },
-    vignette, flash, dmgs, bombMarks, xhair, hit, calloutBox, mkEl, protectEl, bombProg, top, bombPanel, bannerEl, minimap, feed, centerEl, respawnEl, specEl,
+    vignette, flash, dmgs, bombMarks, xhair, hit, calloutBox, mkEl, protectEl, bombProg, chanEl, top, bombPanel, royalePanel, bannerEl, minimap, feed, centerEl, respawnEl, specEl,
     bombPrompt, emoteEl, swapEl, hintEl, speedEl, hpEl,
-    h('div', { class: 'sk-br' }, slotsEl, ammoEl));
+    h('div', { class: 'sk-br' }, invEl, slotsEl, ammoEl));
 
   ctx.listen(window, 'resize', () => { viewH = 0; if (st.gap >= 0) applySpread(); });
 
@@ -402,6 +422,36 @@ export function createHud(ctx) {
     if (z) drawMinimapDot(z.x, z.z, z.boss ? 4 : 2, z.boss ? '#c478ff' : '#ff6662');
   }
 
+  // 배틀로얄 격자(MODES.md 15절): { grid:{x0,z0,cell,cols,rows}, closed, closing } — 칸마다 0/1. 값은 그 배열을 그대로 보고 매 프레임 그린다
+  let mmZone = null;
+  function setMinimapZone(z) { mmZone = z && z.grid ? z : null; }
+  function drawMinimapZone() {
+    const z = mmZone;
+    const g = z.grid;
+    const s = g.cell * mapScale;
+    const ox = mapX + g.x0 * mapScale, oz = mapZ + g.z0 * mapScale;
+    for (let r = 0; r < g.rows; r++) {
+      for (let c = 0; c < g.cols; c++) {
+        const i = r * g.cols + c;
+        const closed = z.closed && z.closed[i], closing = !closed && z.closing && z.closing[i];
+        if (!closed && !closing) continue;
+        minimapCtx.fillStyle = closed ? 'rgba(255, 84, 42, 0.42)' : 'rgba(255, 184, 58, 0.26)';
+        minimapCtx.fillRect(ox + c * s, oz + r * s, s, s);
+        if (closing) {
+          minimapCtx.strokeStyle = 'rgba(255, 196, 90, 0.95)';
+          minimapCtx.lineWidth = 1.5;
+          minimapCtx.strokeRect(ox + c * s + 1, oz + r * s + 1, s - 2, s - 2);
+        }
+      }
+    }
+    minimapCtx.strokeStyle = 'rgba(205, 225, 240, 0.28)';
+    minimapCtx.lineWidth = 1;
+    minimapCtx.beginPath();
+    for (let c = 0; c <= g.cols; c++) { minimapCtx.moveTo(ox + c * s, oz); minimapCtx.lineTo(ox + c * s, oz + g.rows * s); }
+    for (let r = 0; r <= g.rows; r++) { minimapCtx.moveTo(ox, oz + r * s); minimapCtx.lineTo(ox + g.cols * s, oz + r * s); }
+    minimapCtx.stroke();
+  }
+
   /** Only same-team living actors are shown; FFA never reveals opponents. */
   function minimapFrame(position, yaw, actorValuesIterable, avatars, localTeam, mode, hordeView) {
     if (!mapScale || !minimapCtx) return;
@@ -411,6 +461,7 @@ export function createHud(ctx) {
     }
     minimapCtx.clearRect(0, 0, MINIMAP_PX, MINIMAP_PX);
     minimapCtx.drawImage(minimapTerrain, 0, 0);
+    if (mmZone) drawMinimapZone();
     if (mode !== 'ffa' && teamKey(localTeam) && actorValuesIterable) {
       for (const actor of actorValuesIterable) {
         if (!actor || !actor.alive || !actor.state?.pos || actor.team !== localTeam) continue;
@@ -513,9 +564,9 @@ export function createHud(ctx) {
     ammoEl.classList.toggle('is-empty', empty);
     ammoEl.classList.toggle('is-low', low);
     let hint = '';
-    if (st.reloading || (st.reload != null && st.reload < 1)) hint = '재장전 중…';
-    else if (empty) hint = res > 0 ? 'R 재장전' : '탄약 없음';
-    else if (low && res > 0) hint = 'R 재장전';
+    if (st.reloading || (st.reload != null && st.reload < 1)) hint = tr('hud.reloading');
+    else if (empty) hint = res > 0 ? tr('hud.pressReload') : tr('hud.noAmmo');
+    else if (low && res > 0) hint = tr('hud.pressReload');
     setText(ammoHint, hint);
   }
 
@@ -526,16 +577,53 @@ export function createHud(ctx) {
     if (sig === st.slotSig) return;
     st.slotSig = sig;
     st.slotList = norm;
-    norm.forEach((s, i) => {
-      const se = slotEls[i];
-      if (s) st.slotSeen[i] = true;
-      se.el.hidden = !st.slotSeen[i];
+    // 배틀로얄 다섯 칸: 주무기 두 칸은 비어 있어도 보인다. 칸 번호 → 무기 칸(아이콘): 1·2 주무기, 3 권총, 4 근접, 5 투척
+    const royale = norm.length === 5;
+    slotEls.forEach((se, i) => {
+      const s = norm[i] || null;
+      if (s || (royale && i < 2)) st.slotSeen[i] = true;
+      se.el.hidden = i >= norm.length || !st.slotSeen[i];
       se.el.classList.toggle('is-empty', !s);
-      setText(se.ico, s ? s.icon : '');
-      setText(se.nm, s ? s.name : '비어 있음');
+      // 칸 아이콘은 무기 종류 선 아이콘(무기고와 같은 그림). 다른 모드는 칸 번호(i + 1)가 곧 무기 칸이다
+      const glyph = s ? weaponGlyph(s.id, royale ? [1, 1, 2, 3, 4][i] : i + 1) : '';
+      if (se.ico.dataset.glyph !== glyph) { se.ico.dataset.glyph = glyph; se.ico.replaceChildren(...(glyph ? [uiIcon(glyph)] : [])); }
+      setText(se.nm, s ? s.name : tr('hud.empty'));
       se.el.title = s ? s.full : '';
     });
     applyWeaponName();
+  }
+  /**
+   * 배틀로얄 인벤토리 패널. inv = { pack, tier, guns:[{ key, name, active, att:[이름] } | null ×2], ammo:[{ name, n, cap }],
+   * throws:[{ name, n }], throwN, throwCap, medkits, medkitCap } | null. 값이 바뀔 때만 다시 그린다
+   */
+  function applyInventory(inv) {
+    const sig = inv ? JSON.stringify(inv) : '';
+    if (sig === st.invSig) return;
+    st.invSig = sig;
+    invEl.hidden = !inv;
+    if (!inv) { invEl.replaceChildren(); return; }
+    const rows = [h('div', { class: 'sk-inv-head', 'data-tier': String(inv.tier) }, h('b', { text: tr('hud.invPack', { pack: inv.pack }) }))];
+    for (const g of inv.guns || []) {
+      if (!g) continue;
+      rows.push(h('div', { class: 'sk-inv-gun' + (g.active ? ' is-active' : '') },
+        h('kbd', { text: String(g.key) }), h('span', { class: 'sk-inv-name', text: g.name }),
+        h('span', { class: 'sk-inv-att', text: g.att.length ? g.att.join(' · ') : tr('hud.invNoAtt') })));
+    }
+    const ammo = (inv.ammo || []).map((a) => `${a.name} ${a.n}/${a.cap}`).join(' · ');
+    if (ammo) rows.push(h('div', { class: 'sk-inv-row', text: ammo }));
+    const thr = (inv.throws || []).map((x) => `${x.name} ${x.n}`).join(' · ');
+    rows.push(h('div', { class: 'sk-inv-row', text: tr('hud.invThrows', { n: inv.throwN, max: inv.throwCap, list: thr || '-' }) }));
+    rows.push(h('div', { class: 'sk-inv-row', text: tr('hud.invMedkits', { n: inv.medkits, max: inv.medkitCap }) }));
+    invEl.replaceChildren(...rows);
+  }
+  /** 구급상자 사용 진행 막대: { label, ratio(0~1) } | null */
+  function applyChannel(c) {
+    const on = !!c;
+    if (chanEl.hidden === on) chanEl.hidden = !on;
+    if (!on) return;
+    setText(chanLabel, c.label || '');
+    const r = Math.round(clamp(num(c.ratio, 0), 0, 1) * 1000) / 1000;
+    if (r !== st.chanRatio) { st.chanRatio = r; chanFill.style.transform = `scaleX(${r})`; }
   }
   function applySlot(n) {
     const v = Math.round(num(n, 0));
@@ -547,7 +635,7 @@ export function createHud(ctx) {
   }
   function applyWeaponName() {
     const s = st.slotList && st.slot ? st.slotList[st.slot - 1] : null;
-    st.weaponLabel = st.weaponName != null ? st.weaponName : s ? `${s.icon} ${s.full}` : '';
+    st.weaponLabel = st.weaponName != null ? st.weaponName : s ? s.full : '';
     setText(wpnName, st.weaponLabel);
     syncAmmoPanel();
   }
@@ -601,8 +689,8 @@ export function createHud(ctx) {
     st.scoreSig = sig;
     setText(sides.owner.score, o);
     setText(sides.charterer.score, c);
-    const rule = `${bomb ? '폭파 미션 · ' : ''}${bestOf}판 ${target}선승`;
-    setText(tcSub, `${rule}${round ? ` · 라운드 ${round}` : ''}`);
+    const rule = tr(bomb ? 'hud.ruleBomb' : 'hud.rule', { n: bestOf, target });
+    setText(tcSub, `${rule}${round ? ` · ${tr('hud.round', { n: round })}` : ''}`);
     const done = o >= target || c >= target;
     sides.owner.mp.hidden = done || o !== target - 1;
     sides.charterer.mp.hidden = done || c !== target - 1;
@@ -613,10 +701,10 @@ export function createHud(ctx) {
       tag.dataset.side = role;
       setText(tag, role ? SIDE_NAME[role] : '');
     }
-    top.setAttribute('aria-label', `블루 ${o} : ${c} 레드 · ${rule}${attack ? ` · ${TEAMS[attack].name} 공격` : ''}`);
+    top.setAttribute('aria-label', `${tr('hud.ariaTeamScore', { o, c, rule })}${attack ? ` · ${tr('hud.ariaAttack', { team: TEAMS[attack].name })}` : ''}`);
   }
 
-  // score: { mode:'ffa', kills, rank, total, leaderName, leaderKills, target }
+  // score: { mode:'ffa', kills, rank, total, leaderName, leaderKills, target } · 배틀로얄은 + { royale: true, survivors } (남은 인원/전체)
   function applyFfaScore(sc) {
     const kills = Math.max(0, Math.floor(num(sc.kills, 0)));
     const rank = sc.rank != null && sc.rank !== '' ? Math.max(1, Math.floor(num(sc.rank, 1))) : null;
@@ -624,19 +712,66 @@ export function createHud(ctx) {
     const target = Math.max(1, Math.floor(num(sc.target, FFA_TARGET)));
     const leaderName = sc.leaderName ? String(sc.leaderName) : '';
     const leaderKills = Math.max(0, Math.floor(num(sc.leaderKills, 0)));
-    const sig = ['ffa', kills, rank, total, target, leaderName, leaderKills].join('|');
+    const royale = !!sc.royale;
+    const left = royale && sc.survivors != null ? Math.max(0, Math.floor(num(sc.survivors, 0))) : null;
+    const sig = ['ffa', kills, rank, total, target, leaderName, leaderKills, royale, left].join('|');
     if (sig === st.scoreSig) return;
     st.scoreSig = sig;
-    const rankText = rank == null ? '-' : String(rank);
     const totalText = total == null ? '' : `/${total}`;
     setText(ffaKills, kills);
-    setText(ffaGoal, kills >= target ? '목표 달성!' : `목표까지 ${target - kills}킬`);
+    if (royale) {
+      const leftText = left == null ? '-' : String(left);
+      setText(ffaGoal, tr('hud.brGoal'));
+      setText(ffaRank, leftText);
+      setText(ffaRankUnit, isEnglish() ? '' : tr('hud.brAliveUnit'));
+      setText(ffaTotal, totalText);
+      setText(ffaStandName, tr('hud.brAlive'));
+      // rank = 탈락한 뒤의 내 최종 순위(살아 있는 동안은 0)
+      setText(ffaLeader, Number(sc.rank) > 0 ? tr('hud.brPlace', { rank: Math.floor(Number(sc.rank)) }) : tr('hud.brAvoid'));
+      ffaStand.classList.toggle('is-leader', left === 1);
+      setText(tcSub, tr('hud.brNextSeal'));
+      top.setAttribute('aria-label', tr('hud.ariaBr', { kills, left: leftText, total: totalText }));
+      return;
+    }
+    const rankText = rank == null ? '-' : String(rank);
+    setText(ffaGoal, kills >= target ? tr('hud.goalDone') : tr('hud.goalLeft', { n: target - kills }));
     setText(ffaRank, rankText);
+    setText(ffaRankUnit, isEnglish() ? '' : tr('hud.rankSuffix'));
     setText(ffaTotal, totalText);
-    setText(ffaLeader, leaderName ? `1위 ${leaderName} ${leaderKills} / ${target}` : `목표 ${target}킬`);
+    setText(ffaStandName, tr('hud.rank'));
+    const leaderText = leaderName ? tr('hud.leader', { name: leaderName, kills: leaderKills, target }) : tr('hud.goal', { n: target });
+    setText(ffaLeader, leaderText);
     ffaStand.classList.toggle('is-leader', rank === 1);
-    setText(tcSub, `개인전 · ${target}킬`);
-    top.setAttribute('aria-label', `🎯 ${kills}킬 · ${rankText}위${totalText} · ${leaderName ? `1위 ${leaderName} ${leaderKills} / ${target}` : `목표 ${target}킬`}`);
+    setText(tcSub, tr('hud.ffaRule', { n: target }));
+    top.setAttribute('aria-label', tr('hud.ariaFfa', { kills, rank: rankText, total: totalText, rest: leaderText }));
+  }
+
+  /**
+   * royale: { sector, state:'safe'|'closing'|'closed'|'out', next, medkits, medkitMax, heal(0~1|null), dps } | null — 배틀로얄 구역 패널.
+   * 봉쇄 구역 안이면 화면 가장자리를 붉게 한다(.is-zone)
+   */
+  function applyRoyale(r) {
+    const on = !!r && typeof r === 'object';
+    const state = on && ['safe', 'closing', 'closed', 'out'].includes(r.state) ? r.state : 'safe';
+    const heal = on && r.heal != null && Number.isFinite(Number(r.heal)) ? clamp(Number(r.heal), 0, 1) : null;
+    const sig = on ? [r.sector, state, r.next, r.medkits, r.medkitMax, heal == null ? '' : heal.toFixed(2), r.dps].join('|') : '';
+    if (sig === st.royaleSig) return;
+    st.royaleSig = sig;
+    royalePanel.hidden = !on;
+    el.classList.toggle('is-zone', on && state === 'closed');
+    el.classList.toggle('has-royale', on);   // 상단 배너를 패널 아래로(css)
+    if (!on) return;
+    royalePanel.dataset.state = state;
+    setText(roySector, r.sector ? tr('hud.brSector', { sector: r.sector }) : tr('hud.brOutside'));
+    const dps = Math.max(0, Math.floor(num(r.dps, 0)));
+    setText(royState, state === 'closed' ? tr('hud.brClosed', { dps }) : state === 'closing' ? tr('hud.brClosing') : tr('hud.brSafe'));
+    setText(royNext, r.next ? String(r.next) : '');
+    royNext.hidden = !r.next;
+    const kits = Math.max(0, Math.floor(num(r.medkits, 0)));
+    const kitMax = Math.max(1, Math.floor(num(r.medkitMax, 3)));
+    setText(royKit, heal == null && kits ? tr('hud.brKitUse', { n: kits, max: kitMax }) : tr('hud.brKit', { n: kits, max: kitMax }));
+    royHeal.hidden = heal == null;
+    if (heal != null) royHealFill.style.transform = `scaleX(${heal.toFixed(3)})`;
   }
 
   function weaponByName(name) {
@@ -665,18 +800,18 @@ export function createHud(ctx) {
       if (wasOn && ctx.hooks && ctx.hooks.respawnEnd) ctx.hooks.respawnEnd(); // 부활 → compact 로드아웃도 닫기
       return;
     }
-    setText(rspMain, killer ? `💀 ${killer}에게 당했어요` : '💀 전사했어요');
+    setText(rspMain, killer ? tr('hud.killedBy', { name: killer }) : tr('hud.died'));
     rspWpn.hidden = !w;
     if (w) setText(rspWpn, w.icon ? `${w.icon} ${w.name}` : w.name);
     setText(rspNum, sec > 0 ? String(sec) : '');
-    setText(rspTxt, sec > 0 ? '초 뒤 부활' : '곧 부활해요…');
+    setText(rspTxt, sec > 0 ? tr('hud.respawnSuffix') : tr('hud.respawnSoon'));
     rspQuick.hidden = !quick;
     if (quick) {
       rspQuickKey.hidden = !quick.key;
       setText(rspQuickTxt, quick.text);
       rspQuick.classList.toggle('is-off', !quick.ok);
     }
-    respawnEl.setAttribute('aria-label', `${rspMain.textContent} · ${sec > 0 ? `${sec}초 뒤 부활` : '곧 부활'}${quick ? ` · ${quick.key ? `${quick.key} ` : ''}${quick.text}` : ''}`);
+    respawnEl.setAttribute('aria-label', `${rspMain.textContent} · ${sec > 0 ? tr('hud.respawnIn', { n: sec }) : tr('hud.respawnSoonShort')}${quick ? ` · ${quick.key ? `${quick.key} ` : ''}${quick.text}` : ''}`);
   }
 
   function applyProtect(v) {
@@ -696,7 +831,7 @@ export function createHud(ctx) {
     for (const t of TEAM_KEYS) {
       const n = Math.max(0, Math.floor(num(a[t], 0)));
       const total = Math.min(8, Math.max(n, Math.floor(num(z[t], 0))));
-      setText(sides[t].aliveN, a[t] == null ? '' : `생존 ${n}`);
+      setText(sides[t].aliveN, a[t] == null ? '' : tr('hud.alive', { n }));
       sides[t].pips.replaceChildren(...Array.from({ length: total }, (_, i) => h('i', { class: i < n ? 'is-alive' : '' })));
     }
   }
@@ -834,7 +969,7 @@ export function createHud(ctx) {
     // 정보만 주는 안내(좀비 모드 살리기): 휴대폰에서 눌러도 아무 일이 없게 탭을 아래로 흘린다(css/touch.css)
     if ('hintInfo' in p) hintEl.classList.toggle('is-info', !!p.hintInfo);
     if ('swap' in p) applySwap(p.swap);
-    if ('spectate' in p) setLine(specEl, p.spectate ? `👁️ 관전 중 · ${p.spectate}` : '');
+    if ('spectate' in p) setLine(specEl, p.spectate ? tr('hud.spectating', { name: p.spectate }) : '');
     if ('crosshair' in p) xhair.hidden = p.crosshair === false;
     if ('respawn' in p) applyRespawn(p.respawn);
     if ('protect' in p) applyProtect(p.protect);
@@ -843,10 +978,16 @@ export function createHud(ctx) {
       // emote: { name, icon } | null — 아이콘이 없으면 🕺
       const e = p.emote && typeof p.emote === 'object' ? p.emote : null;
       const name = e ? String(e.name || e.id || '') : '';
-      setLine(emoteEl, name ? `${e.icon || '🕺'} ${name} · 움직이면 취소` : '');
+      setLine(emoteEl, name ? tr('hud.emote', { icon: e.icon || '🕺', name }) : '');
       el.classList.toggle('is-emote', !!name); // 이모트 중(3인칭)에는 크로스헤어·히트마커를 숨긴다
     }
     if ('bomb' in p) applyBomb(p.bomb);
+    if ('royale' in p) applyRoyale(p.royale);
+    // 배틀로얄 가방: inventory = 인벤토리 패널 값 | null, channel = 구급상자 사용 진행 { label, ratio } | null
+    if ('inventory' in p) applyInventory(p.inventory);
+    if ('channel' in p) applyChannel(p.channel);
+    // dead: 죽어서 관전 중 — 오른쪽 아래 무기 칸·탄약을 감춘다(css .sk-hud.is-down)
+    if ('dead' in p) el.classList.toggle('is-down', !!p.dead);
   }
 
   /** hitmarker(head, kill, { half }) — half: 저격 반샷(손·발) 전용 분홍 표시 */
@@ -1007,7 +1148,7 @@ export function createHud(ctx) {
         h('span', { class: 'sk-kf-ico', text: w.icon, 'aria-hidden': 'true' }),
         w.short ? h('span', { class: 'sk-kf-wn', text: w.short }) : null),
       k.head ? headshotIcon() : null,
-      half ? h('span', { class: 'sk-kf-half', text: '반샷' }) : null,
+      half ? h('span', { class: 'sk-kf-half', text: tr('hud.half') }) : null,
       h('span', { class: `sk-kf-name t-${vt}`, text: k.victim == null ? '' : k.victim }));
     feed.append(row);
     while (feed.children.length > KILLFEED_MAX) feed.firstElementChild.remove();
@@ -1032,6 +1173,7 @@ export function createHud(ctx) {
     setLine(emoteEl, '');
     el.classList.remove('is-emote');
     applyBomb(null);
+    applyRoyale(null);
     clearCallouts();
     clearBanners();
     clearMultiKill();
@@ -1041,6 +1183,8 @@ export function createHud(ctx) {
     st.slotSig = '';
     st.weaponName = null;
     applySlots(null);
+    applyInventory(null);
+    applyChannel(null);
     st.ammo = st.reserve = st.mag = undefined;
     st.magSeen = 0;
     st.reloading = false;
@@ -1050,7 +1194,7 @@ export function createHud(ctx) {
 
   const screen = makeScreen(el, { render: (_props, { patch }) => set(patch) });
   return Object.assign(screen, {
-    set, hitmarker, damageFrom, center, callout, banner, multiKill, reset, setMinimapMap, minimapFrame,
+    set, hitmarker, damageFrom, center, callout, banner, multiKill, reset, setMinimapMap, setMinimapZone, minimapFrame,
     killfeed: { push: pushKill, clear: () => feed.replaceChildren() },
   });
 }

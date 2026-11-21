@@ -62,7 +62,7 @@ export const PART_CODES = Object.freeze(['head', 'body', 'legs', 'hand', 'foot']
 /** 히트 주장 종류. 앞 순서는 전송 코드라 유지한다. yasuoSwing은 적중 없이도 검 찌르기를 알리는 의도다. */
 export const KIND_CODES = Object.freeze(['shot', 'slash', 'stab', 'grenade', 'other', 'wave', 'waveStab', 'yasuoSwing']);
 /** 수류탄 메시지의 종류 번호(g2x 9번째 칸). 0 = 손으로 던진 수류탄(칸 없음). 앞 순서는 바꾸지 않고 뒤에만 더한다 */
-export const GRENADE_KIND_CODES = Object.freeze(['', 'gl', 'rocket', 'c4', 'gravity', 'stake', 'axe', 'bolt']);
+export const GRENADE_KIND_CODES = Object.freeze(['', 'gl', 'rocket', 'c4', 'gravity', 'stake', 'axe', 'bolt', 'smoke', 'flash']);
 export const PHASE_CODES = Object.freeze(['lobby', 'warmup', 'loadout', 'live', 'roundEnd', 'matchEnd']);
 export const TEAM_CODES = Object.freeze(['owner', 'charterer']);
 export const IMPACT_CODES = Object.freeze(['none', 'world', 'player']);
@@ -362,7 +362,7 @@ function packFields(obj, keys) {
 export function encodeMatchEvent(eid, ev) {
   const e = ev && typeof ev === 'object' ? ev : {};
   const type = String(e.type || 'event').slice(0, 24);
-  const body = jsonSafe(packFields(e, MATCH_EVENT_FIELDS[type] || []), MAX_EXTRA, '경기 이벤트(' + type + ')') || [];
+  const body = jsonSafe(packFields(e, MATCH_EVENT_FIELDS[type] || []), MAX_EXTRA, '경기 이벤트(' + type + ')') || [];   // i18n-ok: 콘솔 경고용 이름
   return [eid | 0, type].concat(body);
 }
 
@@ -398,14 +398,14 @@ export function encodeMatch(mseq, snapshot, encodedEvents = []) {
       toInt(fin(p.kills)), toInt(fin(p.deaths))];
     let rest = null;
     for (const k of Object.keys(p)) if (!PLAYER_KEYS.includes(k) && p[k] !== undefined) (rest || (rest = {}))[k] = p[k];
-    if (rest) { const r = jsonSafe(rest, 1024, '경기 플레이어 부가 키'); if (r) row.push(r); }
+    if (rest) { const r = jsonSafe(rest, 1024, '경기 플레이어 부가 키'); if (r) row.push(r); }   // i18n-ok: 콘솔 경고용 이름
     players.push(row);
   }
   let rest = null;
   for (const k of Object.keys(s)) if (!SNAP_KEYS.includes(k) && s[k] !== undefined) (rest || (rest = {}))[k] = s[k];
   const a = [mseq | 0, code(s.phase || 'lobby', PHASE_CODES), toInt(fin(s.round)), toInt(fin(sc[0])), toInt(fin(sc[1])),
     ms(s.endsAt), players, encodedEvents];
-  if (rest) { const r = jsonSafe(rest, MAX_EXTRA, '경기 스냅샷 부가 키'); if (r) a.push(r); }
+  if (rest) { const r = jsonSafe(rest, MAX_EXTRA, '경기 스냅샷 부가 키'); if (r) a.push(r); }   // i18n-ok: 콘솔 경고용 이름
   return a;
 }
 
@@ -434,7 +434,7 @@ export function decodeMatch(a) {
 
 /* ------------------------------------------------------------------ 로드아웃 · 채팅 · 핑 */
 
-export function encodeLoadout(id, loadout) { return [id | 0, jsonSafe(loadout, 256, '로드아웃') || {}]; }
+export function encodeLoadout(id, loadout) { return [id | 0, jsonSafe(loadout, 256, '로드아웃') || {}]; }   // i18n-ok: 콘솔 경고용 이름
 export function decodeLoadout(a) {
   if (!Array.isArray(a) || a.length < 2 || !isNum(a[0]) || !a[1] || typeof a[1] !== 'object' || Array.isArray(a[1])) return null;
   return { id: a[0] | 0, loadout: copyKeys(a[1], {}) };

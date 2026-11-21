@@ -249,12 +249,26 @@ const propsHalf = [
   { type: 'crate', x: 10.4, y: MAT, z: -8.9, size: 0.7 }
 ];
 
+/** 표지 글씨의 영어 짝. 글씨가 같은 표지는 모두 같은 영어를 쓴다 */
+const SIGN_EN = {
+  '블루': 'BLUE',
+  '레드': 'RED',
+  '미닫이문 · 다가가면 열려요': 'Sliding doors · open as you approach',
+  '대청': 'Main Hall',
+  '사랑방': 'Guest Room',
+  '건넌방 뒷문': 'Side Room Back Door',
+  '부엌': 'Kitchen'
+};
+const withEn = (d) => (SIGN_EN[d.text] ? { ...d, textEn: SIGN_EN[d.text] } : d);
+
 export default {
   id: 'hanok',
   name: '한옥 민박',
   nameEn: 'Hanok Stay',
   desc: '마당을 방 여덟이 두른 한옥. 창호지 미닫이문이 열리기 전에는 건너편에 누가 있는지 알 수 없다.',
+  descEn: 'A hanok with eight rooms around a courtyard. You never know who\'s behind a paper sliding door until it opens.',
   tag: '좁은 맵',
+  tagEn: 'Small Map',
   size: { x: HALF_X * 2, z: HALF_Z * 2 },
   rulesets: ['classic', 'knife'],
   theme: {
@@ -274,7 +288,7 @@ export default {
     ...rotate180(labelled({ hall: '대청', room: '부엌', backA: '건넌방 뒷문', backB: '건넌방 뒷문' })),
     ...teamDecor(TEAMS.owner),
     ...rotate180(teamDecor(TEAMS.charterer))
-  ],
+  ].map(withEn),
   pads: [],
   movers: [...doorsHalf, ...rotate180(doorsHalf).map((m) => ({ ...m, id: TWIN_ID[m.id] || m.id }))],
   portals: [],

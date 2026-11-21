@@ -147,7 +147,7 @@ describe('상점 화면', () => {
     s.tab('보조무기').fire('click');
     assert.deepEqual(s.subs(), ['권총', '샷건', '좀비 전용']);
     s.sub('샷건').fire('click');
-    assert.ok(s.card(WEAPONS.sg_shorty.name), '쇼티는 보조무기 · 샷건');
+    assert.ok(s.card(WEAPONS.sg_shorty.name), '단축 산탄총은 보조무기 · 샷건');
     assert.equal(s.card(WEAPONS.sg_pump.name), undefined, '주무기 샷건은 보조무기 탭에 없다');
     s.tab('투척무기').fire('click');
     assert.deepEqual(s.subs(), ['수류탄', '좀비 전용']);
@@ -157,9 +157,34 @@ describe('상점 화면', () => {
     s.sub('좀비 전용').fire('click');
     assert.ok(s.card(WEAPONS.th_axe.name), '투척 도끼는 투척무기 · 좀비 전용');
     s.tab('근접무기').fire('click');
-    assert.ok(s.card(WEAPONS.ml_saw.name) && s.card(WEAPONS.ml_case.name), '근접무기에 전기톱·007 가방');
+    assert.ok(s.card(WEAPONS.ml_saw.name) && s.card(WEAPONS.ml_case.name), '근접무기에 전기톱·BC-7 서류 가방');
     s.shop.show({ tab: 'pistol' });
     assert.deepEqual([s.onTab(), s.onSub()], ['보조무기', '권총'], '예전 종류 이름으로 열어도 그 큰 탭·작은 탭');
+  });
+
+  test('투척무기 탭: 연막탄·섬광탄을 사서 장착하면 기본 수류탄 카드에 다시 "장착"이 보인다', (t) => {
+    const account = offlineAccount(t);
+    const s = makeShop(t, account);
+    s.shop.show({ tab: null });
+    s.tab('투척무기').fire('click');
+    const smoke = s.card(WEAPONS.gr_smoke.name), flash = s.card(WEAPONS.gr_flash.name), frag = s.card(WEAPONS.gr_frag.name);
+    assert.ok(smoke && flash, '연막탄·섬광탄 카드');
+    assert.equal(s.action(smoke).textContent, `구매 ${WEAPONS.gr_smoke.price} P`);
+    assert.equal(s.action(flash).textContent, `구매 ${WEAPONS.gr_flash.price} P`);
+    s.action(smoke).fire('click');
+    s.shop.update();
+    assert.equal(account.isOwned('gr_smoke'), true);
+    assert.equal(s.action(smoke).textContent, '장착');
+    s.action(smoke).fire('click');
+    s.shop.update();
+    assert.equal(account.loadout.grenade, 'gr_smoke');
+    assert.equal(s.action(smoke).textContent, '장착 중');
+    assert.equal(s.action(frag).hidden, false, '기본 수류탄으로 되돌릴 수 있다');
+    assert.equal(s.action(frag).textContent, '장착');
+    s.action(frag).fire('click');
+    s.shop.update();
+    assert.equal(account.loadout.grenade, 'gr_frag');
+    assert.ok(s.action(frag).hidden);
   });
 
   test('좀비 전용 무기는 어느 탭에도 구매 카드로 나오지 않는다(상점에서 파는 shop 무기만 좀비 전용 작은 탭에 나온다)', (t) => {

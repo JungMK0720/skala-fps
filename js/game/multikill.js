@@ -1,9 +1,11 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 연속 킬 규칙(순수 모듈). 내가 적을 처치한 뒤 5초 안에 또 처치하면 이어서 세고, 2킬부터 헥사 킬(6)까지 단계 이름을 붙인다.
+ * Purpose: 연속 킬 규칙(순수 모듈). 내가 적을 처치한 뒤 5초 안에 또 처치하면 이어서 세고, 2킬(더블 킬)부터 6킬(6연속 처치)까지 단계 이름을 붙인다.
  *          7킬부터는 모두 '당신은 전설입니다'다. 표시(hud.multiKill)와 소리(audio.voice)는 game/world.js가 맡는다.
  */
+
+import { t } from '../core/i18n.js';
 
 /** 앞 킬에서 이 시간(ms) 안에 다음 킬을 내면 이어진다. 딱 5초도 이어진다 */
 export const MULTI_KILL_WINDOW_MS = 5000;
@@ -13,12 +15,12 @@ export const MULTI_KILL_WINDOW_MS = 5000;
  * 음성 문장은 tools/make-voice.mjs의 VOICE_LINES에 있다(같은 id).
  */
 export const MULTI_KILL_TIERS = Object.freeze([
-  Object.freeze({ count: 2, id: 'double', title: '더블 킬!' }),
-  Object.freeze({ count: 3, id: 'triple', title: '트리플 킬!' }),
-  Object.freeze({ count: 4, id: 'quadra', title: '쿼드라 킬!' }),
-  Object.freeze({ count: 5, id: 'penta', title: '펜타 킬!' }),
-  Object.freeze({ count: 6, id: 'hexa', title: '헥사 킬!' }),
-  Object.freeze({ count: 7, id: 'legend', title: '당신은 전설입니다' })
+  Object.freeze({ count: 2, id: 'double', title: t('game.multi.double') }),
+  Object.freeze({ count: 3, id: 'triple', title: t('game.multi.triple') }),
+  Object.freeze({ count: 4, id: 'quadra', title: t('game.multi.quadra') }),
+  Object.freeze({ count: 5, id: 'penta', title: t('game.multi.penta') }),
+  Object.freeze({ count: 6, id: 'hexa', title: t('game.multi.hexa') }),
+  Object.freeze({ count: 7, id: 'legend', title: t('game.multi.legend') })
 ]);
 const TOP = MULTI_KILL_TIERS[MULTI_KILL_TIERS.length - 1];
 

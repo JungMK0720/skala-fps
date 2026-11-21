@@ -6,14 +6,17 @@
  *          게이트 아래에는 다른 기기에서 쓰던 닉네임을 구글·카카오 로그인으로 불러오는 버튼이 있다(account.online, 서버가 켜져 있을 때만).
  */
 import { h, setText } from './dom.js';
+import { t, isEnglish } from '../core/i18n.js';
+import { platform } from '../platform/index.js';
 import { makeScreen } from './parts.js';
 import { createProviderRow, onlineState, paintNote } from './online.js';
 import { NICKNAME_MAX, NICKNAME_MIN, cleanNickname } from '../account/nickname.js';
+import { BRAND } from '../core/brand.js';
 
 export const NICKNAME_CHECK_DELAY_MS = 400;
 
-const RULE_TEXT = `${NICKNAME_MIN}~${NICKNAME_MAX}자 · 한글, 영문, 숫자, _, -, 공백`;
-const OFFLINE_TAIL = '일단 저장하고 멀티 입장 때 다시 확인해요.';
+const RULE_TEXT = t('account.nameRule', { min: NICKNAME_MIN, max: NICKNAME_MAX });
+const OFFLINE_TAIL = t('account.offlineTail');
 const STATE_CLASS = { ok: 'is-ok', saved: 'is-ok', savedOffline: 'is-warn', offline: 'is-warn', bad: 'is-bad', checking: 'is-busy', saving: 'is-busy' };
 
 /**
@@ -21,7 +24,7 @@ const STATE_CLASS = { ok: 'is-ok', saved: 'is-ok', savedOffline: 'is-warn', offl
  * @param {object} ctx UI 내부 ctx (account, later, cancel)
  * @param {{ id:string, label?:string, current?:()=>string, onState?:(state:string)=>void, onSaved?:(result:object)=>void }} options
  */
-export function createNicknameField(ctx, { id, label = '닉네임', current = () => '', onState, onSaved }) {
+export function createNicknameField(ctx, { id, label = t('account.nickname'), current = () => '', onState, onSaved }) {
   let state = 'idle';
   let timer = null;
   let token = 0;              // 늦게 온 응답을 버리는 번호
@@ -29,7 +32,7 @@ export function createNicknameField(ctx, { id, label = '닉네임', current = ()
   let disposed = false;
 
   const input = h('input', {
-    id, class: 'sk-input sk-nick-input', type: 'text', maxlength: NICKNAME_MAX, placeholder: '닉네임 입력',
+    id, class: 'sk-input sk-nick-input', type: 'text', maxlength: NICKNAME_MAX, placeholder: t('account.nickPlaceholder'),
     autocomplete: 'off', spellcheck: 'false', 'aria-describedby': `${id}-status ${id}-rule`,
   });
   const statusEl = h('p', { id: `${id}-status`, class: 'sk-nick-status', role: 'status' });
@@ -78,19 +81,19 @@ export function createNicknameField(ctx, { id, label = '닉네임', current = ()
     cancelTimer();
     const name = cleanNickname(input.value);
     if (!name) { setState('idle'); return; }
-    if (name === current()) { setState('same', '지금 쓰는 닉네임이에요.'); return; }
-    setState('checking', '확인하는 중…');
+    if (name === current()) { setState('same', t('account.nickSame')); return; }
+    setState('checking', t('account.nickChecking'));
     timer = ctx.later(() => { timer = null; runCheck(); }, NICKNAME_CHECK_DELAY_MS);
   }
 
   async function save() {
     const mine = ++token;
-    setState('saving', '저장하는 중…');
+    setState('saving', t('account.nickSaving'));
     const r = await ctx.account.setNickname(input.value);
     if (disposed || mine !== token) return;
     if (!r.ok) { setState('bad', r.message); return; }
     input.value = r.name;
-    if (r.offline) setState('savedOffline', `닉네임을 저장했어요. ${r.message} 멀티 입장 때 다시 확인해요.`);
+    if (r.offline) setState('savedOffline', t('account.nickSavedOffline', { message: r.message }));
     else setState('saved', r.message);
     if (onSaved) onSaved(r);
   }
@@ -137,7 +140,7 @@ export function createNicknameField(ctx, { id, label = '닉네임', current = ()
   };
 }
 
-const SUBMIT_LABEL = { checking: '확인 중…', saving: '저장 중…' };
+const SUBMIT_LABEL = { checking: t('account.submitChecking'), saving: t('account.submitSaving') };
 
 /**
  * 첫 실행 게이트. ui.show('nickname', { conflict? }) 로 연다.
@@ -153,30 +156,33 @@ export function createNicknameGate(ctx) {
   const submitBtn = h('button', { type: 'submit', class: 'sk-btn sk-btn--primary sk-btn--big sk-nick-submit', disabled: true });
   const field = createNicknameField(ctx, {
     id: 'sk-gate-nick',
-    label: '닉네임',
+    label: t('account.nickname'),
     onState: syncSubmit,
     onSaved: () => { if (!needed()) ctx.hideSelf('nickname'); },
   });
   const form = h('form', { class: 'sk-nick-form', novalidate: true, onsubmit: (e) => { e.preventDefault(); field.submit(); } },
     field.el, submitBtn);
-  // 다른 기기에서 쓰던 닉네임을 구글·카카오 로그인으로 불러온다(account.online, 서버가 켜져 있을 때만)
-  const loginRow = createProviderRow('sk-row sk-nick-loginrow', (id) => ctx.account.online.startLogin(id));
-  const loginNote = h('p', { class: 'sk-nick-status sk-nick-loginnote', role: 'status', hidden: true });
-  const loginBox = h('div', { class: 'sk-nick-login', hidden: true },
-    h('p', { class: 'sk-nick-or', text: '다른 기기에서 쓰던 닉네임이 있나요?' }), loginRow.el, loginNote);
+  // 다른 기기에서 쓰던 닉네임을 구글·카카오 로그인으로 불러온다(account.online, 서버가 켜져 있을 때만).
+  // 포털(CrazyGames) 안에서는 바깥 로그인을 쓰지 않으므로 이 줄을 만들지 않는다. 기기 토큰 계정은 그대로 쓴다
+  const loginRow = platform.isPortal ? null : createProviderRow('sk-row sk-nick-loginrow', (id) => ctx.account.online.startLogin(id));
+  const loginNote = loginRow && h('p', { class: 'sk-nick-status sk-nick-loginnote', role: 'status', hidden: true });
+  const loginBox = loginRow && h('div', { class: 'sk-nick-login', hidden: true },
+    h('p', { class: 'sk-nick-or', text: t('account.gateHaveName') }), loginRow.el, loginNote);
   const el = h('section', { class: 'sk-screen sk-nick', hidden: true, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'sk-nick-title' },
     h('div', { class: 'sk-nick-card sk-steel' },
       h('div', { class: 'sk-hazard', 'aria-hidden': 'true' }),
       h('div', { class: 'sk-nick-body' },
-        h('p', { class: 'sk-nick-kicker', text: 'SKALA 작전' }),
+        h('p', { class: 'sk-nick-kicker', text: `${BRAND.nameEn} // ENLISTMENT` }),
+        isEnglish() ? null : h('p', { class: 'sk-nick-brand', text: BRAND.name }),   // 영어에서는 위 줄의 영어 이름이 브랜드다
         titleEl, leadEl, explain, form, loginBox)));
 
   function renderLogin() {
+    if (!loginBox) return;
     const s = onlineState(ctx);
     const on = !!s && s.status === 'ready' && s.providers.length > 0;
     loginBox.hidden = !on;
     if (!on) return;
-    loginRow.paint(s.providers.map((p) => ({ id: p.id, label: `${p.name}로 불러오기` })), { disabled: !!s.busy });
+    loginRow.paint(s.providers.map((p) => ({ id: p.id, label: t('account.loadVia', { name: p.name }) })), { disabled: !!s.busy });
     paintNote(loginNote, s, { kinds: ['login', 'logout'] });
   }
 
@@ -185,13 +191,13 @@ export function createNicknameGate(ctx) {
 
   function syncSubmit(state) {
     submitBtn.disabled = !field.canSubmit;
-    setText(submitBtn, SUBMIT_LABEL[state] || '이 닉네임으로 시작');
+    setText(submitBtn, SUBMIT_LABEL[state] || t('account.gateStart'));
   }
 
   function conflictText(p) {
     const name = ctx.account.nicknameConflict;
     if (!name) return '';
-    const message = (p.conflict && p.conflict.message) || '다른 플레이어가 먼저 등록한 닉네임이에요. 새 닉네임을 정해 주세요.';
+    const message = (p.conflict && p.conflict.message) || t('account.gateTaken');
     return `'${name}': ${message}`;
   }
 
@@ -203,10 +209,10 @@ export function createNicknameGate(ctx) {
     const text = conflictText(p);
     setText(explain, text);
     explain.hidden = !text;
-    setText(titleEl, text ? '닉네임을 다시 정해 주세요' : '닉네임을 정해 주세요');
+    setText(titleEl, text ? t('account.gateTitleRetry') : t('account.gateTitle'));
     setText(leadEl, text
-      ? '멀티플레이에서 다른 플레이어에게 보이는 이름이에요.'
-      : '게임에서 쓸 이름이에요. 정한 뒤에도 마이페이지에서 언제든 바꿀 수 있어요.');
+      ? t('account.gateLeadRetry')
+      : t('account.gateLead'));
     renderLogin();
     if (first) field.reset(ctx.account.nicknameConflict || '');
   }

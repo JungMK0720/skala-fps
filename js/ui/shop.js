@@ -1,7 +1,7 @@
 /*
  * Date: 06NOV2026
  * Author: Minkyu Jung
- * Purpose: 상점. 무기는 큰 탭(주무기·보조무기·근접무기·투척무기) 아래 def.category로 나눈 작은 탭으로 보여 주고, 무기 카드(이름·가격·막대·스탯·구매/장착), 이모트 탭(휠 8칸 장착·구매·미리 듣기)을 보여 준다.
+ * Purpose: 상점 = 무기고(ARMORY). 큰 탭에 선 아이콘을 붙인다. 무기는 큰 탭(주무기·보조무기·근접무기·투척무기) 아래 def.category로 나눈 작은 탭으로 보여 주고, 무기 카드(이름·가격·막대·스탯·구매/장착), 이모트 탭(휠 8칸 장착·구매·미리 듣기)을 보여 준다.
  *          포인트는 계정이 바뀔 때마다 바로 갱신한다. 이벤트: shop:back, shop:preview { id }, ui:sound { name:'purchase' }.
  *          카드는 다시 만들지 않고 고쳐서 키보드 포커스를 잃지 않는다.
  *          캐릭터 탭: 초상(ui.setAvatarArt로 받은 그림, 없으면 아이콘)·구매·장착. 초상은 탭을 처음 열 때 그린다.
@@ -10,32 +10,37 @@
  */
 import { h, btn, fmtPoints, setText } from './dom.js';
 import { avatarArtEl, barMeters, makeScreen, normWeapon, pointsBadge } from './parts.js';
+import { uiIcon, weaponGlyph } from './icons.js';
 import { onlineState, orderStatusText, paintNote } from './online.js';
-import { PREMIUM_PRICE } from '../weapons/defs.js';
+import { DEFAULT_LOADOUT, PREMIUM_PRICE } from '../weapons/defs.js';
 import { EMOTES, EMOTE_WHEEL, TEAMS, TEAM_IDS } from '../core/consts.js';
 import { AVATARS, DEFAULT_AVATAR } from '../core/avatar-defs.js';
+import { t, loc, fmtNum, getLang } from '../core/i18n.js';
+import { platform } from '../platform/index.js';
 
 /** 무기 큰 탭. 무기는 슬롯으로 나누고 투척 장비는 별도 탭에 모은다 */
-const GROUPS = Object.freeze([['primary', '주무기'], ['secondary', '보조무기'], ['melee', '근접무기'], ['throw', '투척무기']]);
+const GROUPS = Object.freeze([['primary', t('shop.tab.primary')], ['secondary', t('shop.tab.secondary')], ['melee', t('shop.tab.melee')], ['throw', t('shop.tab.throw')]]);
 /** 큰 탭 안의 작은 탭(def.category) 이름과 순서 */
-const SUB_LABELS = { rifle: '라이플', sniper: '저격', smg: 'SMG', pistol: '권총', shotgun: '샷건', lmg: '기관총', melee: '근접', grenade: '수류탄', launcher: '좀비 전용' };
+const SUB_LABELS = { rifle: t('shop.sub.rifle'), sniper: t('shop.sub.sniper'), smg: 'SMG', pistol: t('shop.sub.pistol'), shotgun: t('shop.sub.shotgun'), lmg: t('shop.sub.lmg'), melee: t('shop.sub.melee'), grenade: t('shop.sub.grenade'), launcher: t('shop.sub.launcher') };
 /** 이모트 탭 id. 무기 category와 겹치지 않는다 */
 export const EMOTE_TAB = 'emote';
 /** 캐릭터 탭 id */
 export const AVATAR_TAB = 'avatar';
 /** 코인(테스트 결제) 탭 id. 서버(account.online)가 켜져 있을 때만 보인다 */
 export const COIN_TAB = 'coins';
-const won = (n) => `${Number(n || 0).toLocaleString('ko-KR')}원`;
-const count = (n) => Number(n || 0).toLocaleString('ko-KR');
+const won = (n) => t('shop.won', { n: fmtNum(n) });
+const count = (n) => fmtNum(n);
 /** 캐릭터 구매가 닫혀 있을 때 안내(account.avatarShop) */
-const CLOSED_NOTE = '캐릭터 구매는 서버 업데이트 뒤에 열려요. 기본 캐릭터와 이미 가진 캐릭터는 지금도 입을 수 있어요.';
-const CHECKING_NOTE = '캐릭터 구매를 열 수 있는지 서버에 확인하고 있어요.';
+const CLOSED_NOTE = t('shop.av.closed');
+const CHECKING_NOTE = t('shop.av.checking');
 /** 서버 가격표에 아직 없는 물건(account.canSell이 false)을 사려 할 때 */
-export const NOT_READY_NOTE = '이 물건은 서버 업데이트 뒤에 살 수 있어요. 포인트는 그대로예요.';
+export const NOT_READY_NOTE = t('shop.notReady');
 /** 계정이 지금 팔 수 있는 물건인가. canSell이 없는 옛 계정 대역은 판다고 본다 */
 const sellable = (a, id) => typeof a.canSell !== 'function' || a.canSell(id);
-/** 상점에서 다루는 슬롯과 계정 장비 칸. 기본 수류탄 카드에는 구매/장착 동작이 없다. */
+/** 상점에서 다루는 슬롯과 계정 장비 칸. 기본 수류탄 카드는 장착 중이면 동작이 없고, 연막탄·섬광탄을 장착했을 때만 '장착'이 보인다. */
 const SLOT_KEYS = { 1: 'primary', 2: 'secondary', 3: 'melee', 4: 'grenade' };
+/** 큰 탭 → 선 아이콘 이름 */
+const TAB_GLYPH = Object.freeze({ primary: 'rifle', secondary: 'pistol', melee: 'knife', throw: 'grenade', emote: 'emote', avatar: 'helmet', coins: 'coin' });
 const groupOf = (d) => (d.slot === 4 ? 'throw' : SLOT_KEYS[d.slot]);
 
 export function createShop(ctx) {
@@ -51,22 +56,22 @@ export function createShop(ctx) {
   let slot = 0;               // 이모트 탭에서 고른 휠 칸(0 = 12시)
 
   const points = pointsBadge('sk-points--big');
-  const tabsEl = h('div', { class: 'sk-tabs', role: 'tablist', 'aria-label': '상점 종류' });
-  const subTabsEl = h('div', { class: 'sk-tabs sk-subtabs', role: 'tablist', 'aria-label': '무기 종류', hidden: true });
+  const tabsEl = h('div', { class: 'sk-tabs', role: 'tablist', 'aria-label': t('shop.aria.tabs') });
+  const subTabsEl = h('div', { class: 'sk-tabs sk-subtabs', role: 'tablist', 'aria-label': t('shop.aria.subtabs'), hidden: true });
   const subBreak = h('span', { class: 'sk-shop-break', 'aria-hidden': 'true', hidden: true });
-  const grid = h('div', { class: 'sk-shop-grid', role: 'tabpanel', 'aria-label': '상품 목록' });
+  const grid = h('div', { class: 'sk-shop-grid', role: 'tabpanel', 'aria-label': t('shop.aria.grid') });
   const note = h('p', { class: 'sk-shop-note', role: 'status' });
-  const backBtn = btn('← 메뉴', () => ctx.emit('shop:back', {}), 'sk-btn--ghost');
+  const backBtn = btn([uiIcon('back'), h('span', { text: t('shop.back') })], () => ctx.emit('shop:back', {}), 'sk-btn--ghost');
 
-  const el = h('section', { class: 'sk-screen sk-page sk-shop', hidden: true, tabindex: '-1', 'aria-label': '상점' },
+  const el = h('section', { class: 'sk-screen sk-page sk-shop', hidden: true, tabindex: '-1', 'aria-label': t('shop.title') },
     h('div', { class: 'sk-page-inner' },
       h('header', { class: 'sk-bar' },
         backBtn,
         h('div', { class: 'sk-bar-title' },
-          h('h1', { class: 'sk-h1 sk-stencil', text: '상점' }),
-          h('p', { class: 'sk-bar-sub', text: `경기와 비밀 스팟으로 모은 포인트로 무기·이모트·캐릭터를 사서 장착해요. ${fmtPoints(PREMIUM_PRICE)} 이상인 프리미엄 총은 예비 탄약이 무제한이에요.` })),
+          h('p', { class: 'sk-kicker', text: 'ARMORY // SUPPLY', 'aria-hidden': 'true' }),
+          h('h1', { class: 'sk-h1 sk-stencil', text: t('shop.title') }),
+          h('p', { class: 'sk-bar-sub', text: t('shop.sub', { price: fmtPoints(PREMIUM_PRICE) }) })),
         points.el),
-      h('div', { class: 'sk-hazard sk-hazard--thin', 'aria-hidden': 'true' }),
       // 작은 탭 줄은 큰 탭 아래 새 줄(sk-shop-break)에 둔다. 같은 sk-shop-bar 안이라 휴대폰에서도 함께 위에 붙어 있다
       h('div', { class: 'sk-shop-bar' }, tabsEl, note, subBreak, subTabsEl),
       grid));
@@ -81,7 +86,7 @@ export function createShop(ctx) {
 
   // ---------- 코인 (account.online) ----------
   const registered = () => !!ctx.account && ctx.account.remoteEnabled && ctx.account.hasNickname() && !ctx.account.nicknamePending;
-  const coinAvailable = (s) => !!s && s.status === 'ready' && (s.pay.enabled || s.coinsEnabled);
+  const coinAvailable = (s) => !platform.isPortal && !!s && s.status === 'ready' && (s.pay.enabled || s.coinsEnabled);
   const coinPriceFor = (id) => {
     const online = ctx.account && ctx.account.online;
     return online && typeof online.coinPrice === 'function' ? online.coinPrice(id) : null;
@@ -89,75 +94,77 @@ export function createShop(ctx) {
 
   /** 이모트·캐릭터 카드의 "코인으로 사기" 버튼 */
   function coinButton(getCard) {
+    if (platform.isPortal) return null;   // CrazyGames 안에서는 외부 결제를 열 수 없다
     return h('button', { type: 'button', class: 'sk-btn sk-btn--ghost sk-coin-buy', hidden: true, onclick: () => buyWithCoins(getCard()) });
   }
 
   function paintCoinButton(card, owned) {
+    if (!card.coinBtn) return;
     const s = onlineState(ctx);
     const price = coinPriceFor(card.id);
     const show = !owned && price != null && !!s && s.status === 'ready' && s.coinsEnabled && registered();
     card.coinBtn.hidden = !show;
     if (!show) return;
     const short = s.coins == null ? price : Math.max(0, price - s.coins);
-    setText(card.coinBtn, `코인 ${count(price)}개로 사기`);
+    setText(card.coinBtn, t('shop.coin.buy', { n: count(price) }));
     card.coinBtn.disabled = !!s.busy || short > 0;
-    card.coinBtn.title = short > 0 ? `코인이 ${count(short)}개 모자라요` : '';
+    card.coinBtn.title = short > 0 ? t('shop.coin.short', { n: count(short) }) : '';
   }
 
   async function buyWithCoins(card) {
-    const name = (card.e || card.a || {}).name || '';
+    const name = loc(card.e || card.a || {}, 'name') || '';
     const r = await ctx.account.online.buyWithCoins(card.id);
     if (r.ok) {
       ctx.emit('ui:sound', { name: 'purchase' });
-      say(`${name}을(를) 코인 ${count(r.spent)}개로 샀어요. 남은 코인 ${count(r.coins)}개.`);
+      say(t('shop.coin.bought', { name, spent: count(r.spent), coins: count(r.coins) }));
     } else {
       const s = onlineState(ctx);
-      say((s && s.message && s.message.text) || '코인으로 사지 못했어요.');
+      say((s && s.message && s.message.text) || t('shop.coin.failed'));
     }
     paintAll();
   }
 
   const coinBalance = h('b', { class: 'sk-coin-balance' });
-  const coinTest = h('span', { class: 'sk-coin-test', text: '테스트 결제' });
+  const coinTest = h('span', { class: 'sk-coin-test', text: t('shop.coin.test') });
   const coinDesc = h('p', { class: 'sk-lo-tagline sk-coin-desc' });
   const coinNote = h('p', { class: 'sk-nick-status sk-coin-note', role: 'status', hidden: true });
-  const coinBox = h('section', { class: 'sk-av-box sk-steel sk-coin-box', 'aria-label': '내 코인' },
+  const coinBox = h('section', { class: 'sk-av-box sk-steel sk-coin-box', 'aria-label': t('shop.coin.mine') },
     h('div', { class: 'sk-av-boxtext' },
-      h('h3', { class: 'sk-shop-name' }, '내 코인 · ', coinBalance, ' ', coinTest),
+      h('h3', { class: 'sk-shop-name' }, t('shop.coin.mine') + ' · ', coinBalance, ' ', coinTest),
       coinDesc, coinNote));
   const ordersList = h('div', { class: 'sk-coin-orders' });
-  const ordersBox = h('section', { class: 'sk-av-box sk-steel sk-coin-ordersbox', 'aria-label': '구매 내역' },
+  const ordersBox = h('section', { class: 'sk-av-box sk-steel sk-coin-ordersbox', 'aria-label': t('shop.coin.orders') },
     h('div', { class: 'sk-coin-ordershead' },
-      h('h3', { class: 'sk-shop-name', text: '구매 내역' }),
-      btn('새로 고침', () => ctx.account.online.refresh(), 'sk-btn--sm sk-btn--ghost')),
+      h('h3', { class: 'sk-shop-name', text: t('shop.coin.orders') }),
+      btn(t('shop.coin.refresh'), () => ctx.account.online.refresh(), 'sk-btn--sm sk-btn--ghost')),
     ordersList);
   const productCards = new Map();   // 상품 id → { el, action }
   let productKey = '';
   let ordersKey = '';
 
   function buildProductCard(p) {
-    const action = h('button', { type: 'button', class: 'sk-btn sk-btn--primary sk-shop-action', text: '충전하기',
+    const action = h('button', { type: 'button', class: 'sk-btn sk-btn--primary sk-shop-action', text: t('shop.coin.topUp'),
       onclick: () => ctx.account.online.buyCoins(p.id) });
     const el = h('article', { class: 'sk-shop-card sk-steel sk-coin-card', 'aria-label': p.name },
       h('header', { class: 'sk-shop-head' },
-        h('span', { class: 'sk-lo-ico', text: '🪙', 'aria-hidden': 'true' }),
+        h('span', { class: 'sk-lo-ico', 'aria-hidden': 'true' }, uiIcon('coin')),
         h('div', { class: 'sk-shop-names' },
           h('h3', { class: 'sk-shop-name', text: p.name }),
-          h('p', { class: 'sk-lo-tagline', text: `코인 ${count(p.coins)}개 · 실제로 돈이 나가지 않는 테스트 결제` })),
+          h('p', { class: 'sk-lo-tagline', text: t('shop.coin.productTag', { n: count(p.coins) }) })),
         h('span', { class: 'sk-shop-state', text: won(p.amount) })),
       h('footer', { class: 'sk-shop-foot' }, action));
     return { el, action };
   }
 
   function orderRow(o, s) {
-    const at = o.at ? new Date(o.at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+    const at = o.at ? new Date(o.at).toLocaleString(getLang() === 'en' ? 'en-US' : 'ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
     return h('div', { class: `sk-coin-order is-${String(o.status).toLowerCase()}` },
-      h('span', { class: 'sk-coin-order-name', text: `코인 ${count(o.coins)}개` }),
+      h('span', { class: 'sk-coin-order-name', text: t('shop.coin.n', { n: count(o.coins) }) }),
       h('span', { class: 'sk-coin-order-amount', text: won(o.amount) }),
       h('span', { class: 'sk-coin-order-status', text: orderStatusText(o.status) }),
       h('span', { class: 'sk-coin-order-date', text: at }),
-      o.refundable ? btn('환불', () => ctx.account.online.refund(o.orderId), 'sk-btn--sm sk-btn--ghost sk-coin-refund',
-        { title: `코인 ${count(o.coins)}개를 빼고 테스트 결제를 취소해요. ${s.pay.refundDays}일 안, 그 코인을 쓰지 않았을 때만 돼요.` }) : null);
+      o.refundable ? btn(t('shop.coin.refund'), () => ctx.account.online.refund(o.orderId), 'sk-btn--sm sk-btn--ghost sk-coin-refund',
+        { title: t('shop.coin.refundTip', { n: count(o.coins), days: s.pay.refundDays }) }) : null);
   }
 
   function paintCoins() {
@@ -165,13 +172,12 @@ export function createShop(ctx) {
     const tab = tabs.find((t) => t.id === COIN_TAB);
     if (tab) tab.el.hidden = !coinAvailable(s);
     if (!s || s.status !== 'ready') return;
-    setText(coinBalance, s.coins == null ? '—' : `${count(s.coins)}개`);
+    setText(coinBalance, s.coins == null ? '—' : t('shop.coin.balance', { n: count(s.coins) }));
     coinTest.hidden = !s.pay.test;
     let desc;
-    if (!registered()) desc = '닉네임이 서버에 등록된 뒤에 코인을 쓸 수 있어요.';
-    else if (!s.pay.enabled) desc = '지금은 충전을 열지 않았어요. 가진 코인으로 이모트·캐릭터는 살 수 있어요.';
-    else desc = `토스페이먼츠 테스트 결제로 코인을 충전하고, 이모트·캐릭터 탭에서 코인으로 꾸미기를 살 수 있어요(무기는 팔지 않아요). `
-      + `테스트 결제라 실제로 돈이 나가지 않아요. 24시간에 ${s.pay.dailyLimit}번까지 충전할 수 있고, 코인을 쓰지 않은 주문은 ${s.pay.refundDays}일 안에 환불돼요.`;
+    if (!registered()) desc = t('shop.coin.needNick');
+    else if (!s.pay.enabled) desc = t('shop.coin.payClosed');
+    else desc = t('shop.coin.desc', { limit: s.pay.dailyLimit, days: s.pay.refundDays });
     setText(coinDesc, desc);
     paintNote(coinNote, s, { kinds: ['pay', 'refund', 'coins'] });
 
@@ -183,13 +189,13 @@ export function createShop(ctx) {
       if (tabId === COIN_TAB) showTab(COIN_TAB);
     }
     for (const c of productCards.values()) {
-      setText(c.action, s.busy === 'pay' ? '여는 중…' : '충전하기');
+      setText(c.action, s.busy === 'pay' ? t('shop.coin.opening') : t('shop.coin.topUp'));
       c.action.disabled = !!s.busy || !s.pay.enabled || !registered();
     }
     const ok = s.orders.map((o) => `${o.orderId}:${o.status}:${o.refundable}`).join('|');
     if (ok !== ordersKey) {
       ordersKey = ok;
-      ordersList.replaceChildren(...(s.orders.length ? s.orders.map((o) => orderRow(o, s)) : [h('p', { class: 'sk-set-hint', text: '아직 구매 내역이 없어요.' })]));
+      ordersList.replaceChildren(...(s.orders.length ? s.orders.map((o) => orderRow(o, s)) : [h('p', { class: 'sk-set-hint', text: t('shop.coin.noOrders') })]));
     }
     for (const b of ordersList.querySelectorAll('button')) b.disabled = !!s.busy;
   }
@@ -202,34 +208,39 @@ export function createShop(ctx) {
     const action = h('button', { type: 'button', class: 'sk-btn sk-shop-action', onclick: () => act(card) });
     const articleEl = h('article', { class: 'sk-shop-card sk-steel', 'aria-label': w.name },
       h('header', { class: 'sk-shop-head' },
-        h('span', { class: 'sk-lo-ico', text: w.icon, 'aria-hidden': 'true' }),
+        h('span', { class: 'sk-lo-ico', 'aria-hidden': 'true' }, uiIcon(weaponGlyph(w.id, w.slot))),
         h('div', { class: 'sk-shop-names' },
           h('h3', { class: 'sk-shop-name', text: w.name },
-            w.premium ? h('span', { class: 'sk-premium', text: '프리미엄' }) : null),
+            w.premium ? h('span', { class: 'sk-premium', text: t('shop.premium') }) : null),
           w.tagline ? h('p', { class: 'sk-lo-tagline', text: w.tagline }) : null),
         state),
       w.bars.length ? barMeters(w.bars, 'sk-shop-bars') : null,
       w.stats.length ? h('dl', { class: 'sk-shop-stats' },
         w.stats.map((s) => h('div', { class: 'sk-shop-stat' }, h('dt', { text: s.label }), h('dd', { text: s.value })))) : null,
       h('footer', { class: 'sk-shop-foot' }, need, action));
-    const card = { id: def.id, w, slotKey: def.id === 'gr_frag' ? null : SLOT_KEYS[def.slot] || null, el: articleEl, state, need, action };
+    const card = { id: def.id, w, slotKey: SLOT_KEYS[def.slot] || null, issued: def.id === DEFAULT_LOADOUT.grenade, el: articleEl, state, need, action };
     return card;
   }
 
   function paintCard(card) {
     const a = ctx.account;
-    // 수류탄은 모두에게 기본으로 주는 무기라 사거나 장착하지 않는다
+    // 기본 수류탄은 모두에게 주는 무기라 사지 않는다. 연막탄·섬광탄을 장착했을 때만 '장착'으로 되돌릴 수 있다(투척 칸이 비어 있으면 기본 수류탄)
+    if (card.issued && (a.loadout[card.slotKey] || card.id) === card.id) {
+      card.action.hidden = true;
+      setText(card.state, t('shop.issued')); setText(card.need, ''); card.el.classList.add('is-owned'); card.el.classList.add('is-equipped');
+      return;
+    }
     card.action.hidden = !card.slotKey;
-    if (!card.slotKey) { setText(card.state, '기본 지급'); setText(card.need, ''); card.el.classList.add('is-owned'); return; }
+    if (!card.slotKey) return;
     const owned = a.isOwned(card.id);
     const equipped = owned && a.loadout[card.slotKey] === card.id;
     const closed = !owned && !sellable(a, card.id);   // 서버 가격표에 아직 없다
     const short = owned || closed ? 0 : Math.max(0, card.w.price - a.profile.points);
     card.el.classList.toggle('is-owned', owned);
     card.el.classList.toggle('is-equipped', equipped);
-    setText(card.state, equipped ? '장착 중' : owned ? '보유' : fmtPoints(card.w.price));
-    setText(card.need, short ? `${fmtPoints(short)} 더 필요해요` : '');
-    setText(card.action, equipped ? '장착 중' : owned ? '장착' : closed ? '구매 준비 중' : `구매 ${fmtPoints(card.w.price)}`);
+    setText(card.state, equipped ? t('shop.equipped') : owned ? t('shop.owned') : fmtPoints(card.w.price));
+    setText(card.need, short ? t('shop.need', { p: fmtPoints(short) }) : '');
+    setText(card.action, equipped ? t('shop.equipped') : owned ? t('shop.equip') : closed ? t('shop.soon') : t('shop.buy', { p: fmtPoints(card.w.price) }));
     card.action.disabled = equipped || closed || short > 0;
     card.action.classList.toggle('sk-btn--primary', !owned && !closed && !short);
     card.action.classList.toggle('sk-btn--ghost', equipped);
@@ -239,21 +250,21 @@ export function createShop(ctx) {
     const r = ctx.account.buy(card.id);
     if (r.ok) {
       ctx.emit('ui:sound', { name: 'purchase' });
-      say(`${card.w.name}을(를) 샀어요. 남은 포인트 ${fmtPoints(r.points)}.`);
+      say(t('shop.w.bought', { name: card.w.name, p: fmtPoints(r.points) }));
     } else if (r.reason === 'points') {
-      say(`포인트가 모자라요. ${fmtPoints(card.w.price - r.points)} 더 필요해요.`);
+      say(t('shop.shortPts', { p: fmtPoints(card.w.price - r.points) }));
     } else if (r.reason === 'owned') {
-      say(`${card.w.name}은(는) 이미 가지고 있어요.`);
+      say(t('shop.w.owned', { name: card.w.name }));
     } else if (r.reason === 'closed') {
       say(NOT_READY_NOTE);
     } else {
-      say('이 무기는 살 수 없어요.');
+      say(t('shop.w.cantBuy'));
     }
   }
 
   function equip(card) {
     const r = ctx.account.equip(card.slotKey, card.id);
-    say(r.ok ? `${card.w.name}을(를) 장착했어요.` : '이 무기는 장착할 수 없어요.');
+    say(r.ok ? t('shop.w.equipped', { name: card.w.name }) : t('shop.w.cantEquip'));
   }
 
   function act(card) {
@@ -267,7 +278,7 @@ export function createShop(ctx) {
     const w = ctx.account && ctx.account.emoteWheel;
     return Array.isArray(w) ? w : [];
   };
-  const emoteName = (id) => (EMOTES.find((e) => e.id === id) || { name: '' }).name;
+  const emoteName = (id) => loc(EMOTES.find((e) => e.id === id) || { name: '' }, 'name');
 
   const chips = Array.from({ length: EMOTE_WHEEL.SLOTS }, (_, i) => {
     const ico = h('span', { class: 'sk-emo-slot-ico', 'aria-hidden': 'true' });
@@ -277,26 +288,26 @@ export function createShop(ctx) {
     h('span', { class: 'sk-emo-slot-num', text: String(i + 1) }), ico, name);
     return { i, el: chipEl, ico, name };
   });
-  const wheelBox = h('section', { class: 'sk-emo-wheelbox sk-steel', 'aria-label': '내 이모트 휠' },
+  const wheelBox = h('section', { class: 'sk-emo-wheelbox sk-steel', 'aria-label': t('shop.emo.myWheel') },
     h('header', { class: 'sk-emo-wheelhead' },
-      h('h3', { class: 'sk-shop-name', text: '내 이모트 휠' }),
-      h('p', { class: 'sk-lo-tagline', text: '칸을 고른 뒤 아래 이모트에서 넣기를 누르세요. 1번이 12시, 시계 방향이에요. 경기에서 B를 누르면 이 순서로 나와요.' })),
-    h('div', { class: 'sk-emo-slots', role: 'radiogroup', 'aria-label': '휠 칸' }, ...chips.map((c) => c.el)));
+      h('h3', { class: 'sk-shop-name', text: t('shop.emo.myWheel') }),
+      h('p', { class: 'sk-lo-tagline', text: t('shop.emo.wheelTip') })),
+    h('div', { class: 'sk-emo-slots', role: 'radiogroup', 'aria-label': t('shop.emo.slots') }, ...chips.map((c) => c.el)));
 
   function buildEmoteCard(e) {
     const state = h('span', { class: 'sk-shop-state' });
     const need = h('p', { class: 'sk-shop-need' });
     const action = h('button', { type: 'button', class: 'sk-btn sk-shop-action', onclick: () => actEmote(card) });
     const coinBtn = coinButton(() => card);
-    const preview = h('button', { type: 'button', class: 'sk-btn sk-btn--ghost sk-emo-preview', text: '▶ 듣기', title: `${e.name} 미리 듣기`,
-      onclick: () => { ctx.emit('shop:preview', { id: e.id }); say(`${e.name} 미리 듣는 중…`); } });
-    const articleEl = h('article', { class: 'sk-shop-card sk-steel sk-emo-card', 'aria-label': e.name },
+    const preview = h('button', { type: 'button', class: 'sk-btn sk-btn--ghost sk-emo-preview', title: t('shop.emo.previewTip', { name: loc(e, 'name') }),
+      onclick: () => { ctx.emit('shop:preview', { id: e.id }); say(t('shop.emo.previewing', { name: loc(e, 'name') })); } }, uiIcon('play'), t('shop.emo.listen'));
+    const articleEl = h('article', { class: 'sk-shop-card sk-steel sk-emo-card', 'aria-label': loc(e, 'name') },
       h('header', { class: 'sk-shop-head' },
         h('span', { class: 'sk-lo-ico', text: e.icon, 'aria-hidden': 'true' }),
         h('div', { class: 'sk-shop-names' },
-          h('h3', { class: 'sk-shop-name', text: e.name },
-            e.price ? null : h('span', { class: 'sk-emo-free', text: '기본' })),
-          e.desc ? h('p', { class: 'sk-lo-tagline', text: e.desc }) : null),
+          h('h3', { class: 'sk-shop-name', text: loc(e, 'name') },
+            e.price ? null : h('span', { class: 'sk-emo-free', text: t('shop.free') })),
+          e.desc ? h('p', { class: 'sk-lo-tagline', text: loc(e, 'desc') }) : null),
         state),
       h('footer', { class: 'sk-shop-foot' }, need, h('div', { class: 'sk-emo-actions' }, preview, action), coinBtn));
     const card = { id: e.id, e, el: articleEl, state, need, action, preview, coinBtn };
@@ -313,9 +324,9 @@ export function createShop(ctx) {
     const n = slot + 1;
     card.el.classList.toggle('is-owned', owned);
     card.el.classList.toggle('is-equipped', at >= 0);
-    setText(card.state, at >= 0 ? `휠 ${at + 1}번` : owned ? '보유' : fmtPoints(card.e.price));
-    setText(card.need, short ? `${fmtPoints(short)} 더 필요해요` : '');
-    setText(card.action, !owned ? (closed ? '구매 준비 중' : `구매 ${fmtPoints(card.e.price)}`) : here ? `${n}번 칸에 있음` : at >= 0 ? `${n}번 칸과 바꾸기` : `${n}번 칸에 넣기`);
+    setText(card.state, at >= 0 ? t('shop.emo.onWheel', { n: at + 1 }) : owned ? t('shop.owned') : fmtPoints(card.e.price));
+    setText(card.need, short ? t('shop.need', { p: fmtPoints(short) }) : '');
+    setText(card.action, !owned ? (closed ? t('shop.soon') : t('shop.buy', { p: fmtPoints(card.e.price) })) : here ? t('shop.emo.inSlot', { n }) : at >= 0 ? t('shop.emo.swap', { n }) : t('shop.emo.set', { n }));
     card.action.disabled = here || closed || short > 0;
     card.action.classList.toggle('sk-btn--primary', !here && !closed && !short);
     card.action.classList.toggle('sk-btn--ghost', here);
@@ -326,11 +337,11 @@ export function createShop(ctx) {
     for (const c of chips) {
       const e = EMOTES.find((x) => x.id === wheel[c.i]);
       setText(c.ico, e ? e.icon : '');
-      setText(c.name, e ? e.name : '빈 칸');
+      setText(c.name, e ? loc(e, 'name') : t('shop.emo.empty'));
       const on = c.i === slot;
       c.el.classList.toggle('is-on', on);
       c.el.setAttribute('aria-checked', on ? 'true' : 'false');
-      c.el.title = `${c.i + 1}번 칸: ${e ? e.name : '빈 칸'}`;
+      c.el.title = t('shop.emo.slotTip', { n: c.i + 1, name: e ? loc(e, 'name') : t('shop.emo.empty') });
     }
   }
 
@@ -341,42 +352,43 @@ export function createShop(ctx) {
       const r = a.buy(card.id);
       if (r.ok) {
         ctx.emit('ui:sound', { name: 'purchase' });
-        say(`${card.e.name}을(를) 샀어요. 남은 포인트 ${fmtPoints(r.points)}. 넣을 칸을 고르고 한 번 더 누르세요.`);
+        say(t('shop.emo.bought', { name: loc(card.e, 'name'), p: fmtPoints(r.points) }));
       } else if (r.reason === 'points') {
-        say(`포인트가 모자라요. ${fmtPoints((card.e.price || 0) - r.points)} 더 필요해요.`);
+        say(t('shop.shortPts', { p: fmtPoints((card.e.price || 0) - r.points) }));
       } else if (r.reason === 'closed') {
         say(NOT_READY_NOTE);
       } else {
-        say('이 이모트는 살 수 없어요.');
+        say(t('shop.emo.cantBuy'));
       }
     } else if (typeof a.equipEmote === 'function') {
       const before = wheelOf();
       const from = before.indexOf(card.id);
       const out = before[slot];
       const r = a.equipEmote(slot, card.id);
-      if (!r.ok) say('이 이모트는 넣을 수 없어요.');
-      else if (from >= 0 && from !== slot) say(`${from + 1}번과 ${n}번 칸을 바꿨어요.`);
-      else say(`${n}번 칸에 ${card.e.name}을(를) 넣었어요${out && out !== card.id ? ` (${emoteName(out)} 뺌)` : ''}.`);
+      if (!r.ok) say(t('shop.emo.cantSet'));
+      else if (from >= 0 && from !== slot) say(t('shop.emo.swapped', { a: from + 1, b: n }));
+      else if (out && out !== card.id) say(t('shop.emo.setReplaced', { n, name: loc(card.e, 'name'), old: emoteName(out) }));
+      else say(t('shop.emo.setDone', { n, name: loc(card.e, 'name') }));
     }
     paintAll();
   }
 
   // ---------- 캐릭터 탭: 지금 캐릭터 + 팀 색 보기 + 캐릭터 카드 ----------
   const avatarNow = () => (ctx.account && ctx.account.loadout && ctx.account.loadout.avatar) || DEFAULT_AVATAR;
-  const avName = (id) => (AVATARS.find((a) => a.id === id) || AVATARS[0]).name;
+  const avName = (id) => loc(AVATARS.find((a) => a.id === id) || AVATARS[0], 'name');
   const nowName = h('b', { class: 'sk-av-now' });
   const teamBtns = TEAM_IDS.map((team) => {
     const el = h('button', { type: 'button', class: 'sk-btn sk-seg-btn sk-av-team', role: 'radio', 'aria-checked': 'false', 'data-team': team,
-      onclick: () => { artTeam = team; paintAll(); } }, h('span', { class: 'sk-av-dot', style: `background:${TEAMS[team].light}`, 'aria-hidden': 'true' }), `${TEAMS[team].name} 팀`);
+      onclick: () => { artTeam = team; paintAll(); } }, h('span', { class: 'sk-av-dot', style: `background:${TEAMS[team].light}`, 'aria-hidden': 'true' }), t('shop.av.team', { team: loc(TEAMS[team], 'name') }));
     return { team, el };
   });
   const shopNote = h('p', { class: 'sk-av-closed', role: 'status', hidden: true });
-  const avBox = h('section', { class: 'sk-av-box sk-steel', 'aria-label': '내 캐릭터' },
+  const avBox = h('section', { class: 'sk-av-box sk-steel', 'aria-label': t('shop.av.mine') },
     h('div', { class: 'sk-av-boxtext' },
-      h('h3', { class: 'sk-shop-name' }, '지금 캐릭터 · ', nowName),
-      h('p', { class: 'sk-lo-tagline', text: '모양만 다르고 몸 크기와 맞는 판정은 모두 같아요. 전투복과 표식은 팀 색이라 어느 캐릭터든 팀이 잘 보여요.' }),
+      h('h3', { class: 'sk-shop-name' }, t('shop.av.now') + ' · ', nowName),
+      h('p', { class: 'sk-lo-tagline', text: t('shop.av.tip') }),
       shopNote),
-    h('div', { class: 'sk-seg sk-av-teams', role: 'radiogroup', 'aria-label': '초상 팀 색' }, ...teamBtns.map((b) => b.el)));
+    h('div', { class: 'sk-seg sk-av-teams', role: 'radiogroup', 'aria-label': t('shop.av.teamColor') }, ...teamBtns.map((b) => b.el)));
 
   function buildAvatarCard(a) {
     const art = avatarArtEl(a);
@@ -384,14 +396,14 @@ export function createShop(ctx) {
     const need = h('p', { class: 'sk-shop-need' });
     const action = h('button', { type: 'button', class: 'sk-btn sk-shop-action', onclick: () => actAvatar(card) });
     const coinBtn = coinButton(() => card);
-    const articleEl = h('article', { class: 'sk-shop-card sk-steel sk-av-card', 'aria-label': a.name, 'data-avatar': a.id },
+    const articleEl = h('article', { class: 'sk-shop-card sk-steel sk-av-card', 'aria-label': loc(a, 'name'), 'data-avatar': a.id },
       art.el,
       h('div', { class: 'sk-av-body' },
         h('header', { class: 'sk-shop-head' },
           h('div', { class: 'sk-shop-names' },
-            h('h3', { class: 'sk-shop-name', text: a.name },
-              a.price ? null : h('span', { class: 'sk-emo-free', text: '기본' })),
-            h('p', { class: 'sk-lo-tagline', text: a.desc })),
+            h('h3', { class: 'sk-shop-name', text: loc(a, 'name') },
+              a.price ? null : h('span', { class: 'sk-emo-free', text: t('shop.free') })),
+            h('p', { class: 'sk-lo-tagline', text: loc(a, 'desc') })),
           state),
         h('footer', { class: 'sk-shop-foot' }, need, action, coinBtn)));
     const card = { id: a.id, a, art, el: articleEl, state, need, action, coinBtn };
@@ -409,9 +421,9 @@ export function createShop(ctx) {
     const short = owned || closed ? 0 : Math.max(0, (card.a.price || 0) - a.profile.points);
     card.el.classList.toggle('is-owned', owned);
     card.el.classList.toggle('is-equipped', equipped);
-    setText(card.state, equipped ? '장착 중' : owned ? '보유' : fmtPoints(card.a.price));
-    setText(card.need, short ? `${fmtPoints(short)} 더 필요해요` : '');
-    setText(card.action, equipped ? '장착 중' : owned ? '장착' : closed ? '구매 준비 중' : `구매 ${fmtPoints(card.a.price)}`);
+    setText(card.state, equipped ? t('shop.equipped') : owned ? t('shop.owned') : fmtPoints(card.a.price));
+    setText(card.need, short ? t('shop.need', { p: fmtPoints(short) }) : '');
+    setText(card.action, equipped ? t('shop.equipped') : owned ? t('shop.equip') : closed ? t('shop.soon') : t('shop.buy', { p: fmtPoints(card.a.price) }));
     card.action.disabled = equipped || closed || short > 0;
     card.action.classList.toggle('sk-btn--primary', !owned && !closed && !short);
     card.action.classList.toggle('sk-btn--ghost', equipped);
@@ -421,22 +433,22 @@ export function createShop(ctx) {
 
   function actAvatar(card) {
     const a = ctx.account;
-    const name = card.a.name;
+    const name = loc(card.a, 'name');
     if (!a.isOwned(card.id)) {
       const r = a.buy(card.id);
       if (r.ok) {
         ctx.emit('ui:sound', { name: 'purchase' });
-        say(`${name}을(를) 샀어요. 남은 포인트 ${fmtPoints(r.points)}. 장착을 누르면 바로 입어요.`);
+        say(t('shop.av.bought', { name, p: fmtPoints(r.points) }));
       } else if (r.reason === 'points') {
-        say(`포인트가 모자라요. ${fmtPoints((card.a.price || 0) - r.points)} 더 필요해요.`);
+        say(t('shop.shortPts', { p: fmtPoints((card.a.price || 0) - r.points) }));
       } else if (r.reason === 'closed') {
         say(CLOSED_NOTE);
       } else {
-        say('이 캐릭터는 살 수 없어요.');
+        say(t('shop.av.cantBuy'));
       }
     } else {
       const r = typeof a.equipAvatar === 'function' ? a.equipAvatar(card.id) : { ok: false };
-      say(r.ok ? `${name}을(를) 장착했어요. 경기에서 다른 사람에게도 이 모습으로 보여요.` : '이 캐릭터는 장착할 수 없어요.');
+      say(r.ok ? t('shop.av.equipped', { name }) : t('shop.av.cantEquip'));
     }
     paintAll();
   }
@@ -553,9 +565,10 @@ export function createShop(ctx) {
     if (!emoCards.size) for (const e of EMOTES) emoCards.set(e.id, buildEmoteCard(e));
     if (!avCards.size) for (const a of AVATARS) avCards.set(a.id, buildAvatarCard(a));
     const groups = GROUPS.filter(([g]) => defs.some((d) => groupOf(d) === g));
-    const label = Object.fromEntries([...groups, [EMOTE_TAB, '이모트'], [AVATAR_TAB, '캐릭터'], [COIN_TAB, '코인']]);
+    const label = Object.fromEntries([...groups, [EMOTE_TAB, t('shop.tab.emote')], [AVATAR_TAB, t('shop.tab.avatar')], [COIN_TAB, t('shop.tab.coins')]]);
     tabs = [...groups.map(([g]) => g), EMOTE_TAB, AVATAR_TAB, COIN_TAB].map((id) => {
-      const tabEl = h('button', { type: 'button', class: 'sk-tab', role: 'tab', 'data-tab': id, onclick: () => showTab(id), text: label[id] });
+      const tabEl = h('button', { type: 'button', class: 'sk-tab', role: 'tab', 'data-tab': id, onclick: () => showTab(id) },
+        TAB_GLYPH[id] ? uiIcon(TAB_GLYPH[id], 'sk-tab-ico') : null, label[id]);
       return { id, el: tabEl };
     });
     tabsEl.replaceChildren(...tabs.map((t) => t.el));

@@ -158,6 +158,8 @@ ctx.registerScreen('match', {
 | `fullscreen:change` | `{ active }` — 전체 화면에 들어가고 나올 때(main.js) |
 | `player:spawn` | `{ state, point }` |
 | `player:jump` / `player:land` | `{ pos }` / `{ pos, speed, mat }` |
+| `player:mantle` | `{ kind:'climb'\|'vault', height, pos }` — 턱 오르기·넘기 시작(engine/mantle.js, W + Space로 0.5~2.0 m 턱) |
+| `player:fall` | `{ height, damage, pos }` — 낙하 피해가 있는 착지(`player.setFallDamage(true)`일 때만, 배틀로얄. engine/falldamage.js) |
 | `player:step` | `{ pos, speed, quiet, crouch, mat }` — 발소리(걷기 1.95 m, Shift·앉아서 1.5 m마다, Shift·앉음이면 `quiet:true`) |
 | `player:crouch` | `{ crouch }` — 로컬 플레이어가 앉거나 일어섰을 때 |
 | `player:damage` | `{ amount, hp, from?, part?, weapon?, dir? }` |
@@ -272,7 +274,7 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
   - `deathDir:[x,z]`, `respawned:true`(부활), `teleport:true`(보간하지 않음)
 - `update(now, dt)`: `now − 100 ms`(NET.INTERP_DELAY_MS) 시점으로 보간한다(위치는 선형, yaw는 최단 각). 최신 스냅샷을 넘어서면 150 ms까지만 외삽한다.
 - `getTargets()`: **화면에 보이는(보간된) 위치·yaw·자세**로 만든 히트 대상 `[{ id, pos, yaw, alive:true, crouch(0..1), team, name }]`이다. 쓰러진 아바타는 빠진다. `crouch`는 자세 전환 비율이라 히트박스가 보이는 자세와 맞는다.
-- `get(id).kill({ dir })`: 피 없이 총알 방향으로 쓰러진다(0.65 s). `.revive()`.
+- `get(id).kill({ dir })`: 피 없이 총알 방향으로 쓰러진다(Death 클립 약 1.04 s). 바닥에 누운 채 1.9 s 있다가 1 s 동안 땅으로 0.6 m 가라앉고, 그 뒤 부활할 때까지 숨긴다(`engine/corpse.js`). 쓰러진 순간부터 히트 대상·이름표에서 빠진다. `.revive()`.
 - `.setHeld(object3d)`: 손 소켓에 3인칭 무기 모델을 끼운다(총구 = -Z).
 - `teleport(id, state)`, `setLocalTeam(team)`(아군 이름표는 이름이 벽 너머로도 보인다. 적 이름표에는 닉네임이 없고, 상태 표시 `badge`(🛡 부활 보호)가 있을 때만 그 글자가 35 m 안에서 보인다. 규칙은 `engine/nametag.js`), `setDelay(ms)`.
 - `add(id, { name, team, avatar, badge })`: `badge`는 이름표 앞 상태 표시(World가 정한다: 🛡 보호 · 💣 폭탄을 든 아군).
@@ -413,17 +415,17 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 
   | code | id | 이름 | 길이 | bpm | 가격 |
   |---|---|---|---|---|---|
-  | 1 | `takeL` | L을 가져가 🫵 | 반복 | 123.1 | 기본 |
-  | 2 | `veggie` | 야채 🥬 | 반복 | 82.8 | 기본 |
-  | 3 | `sideToSide` | 사이드 스텝 ↔️ | 반복 | 129.7 | 기본 |
-  | 4 | `crissCross` | 크리스 크로스 ❌ | 반복 | 109.1 | 기본 |
-  | 5 | `tango` | 탱고 💃 | 반복 | 96 | 기본 |
+  | 1 | `takeL` | 작전 성공 ✊ | 반복 | 120 | 기본 |
+  | 2 | `veggie` | 무전 확인 📻 | 반복 | 100 | 기본 |
+  | 3 | `sideToSide` | 경계 이동 👀 | 반복 | 116 | 기본 |
+  | 4 | `crissCross` | 몸풀기 🤸 | 반복 | 96 | 기본 |
+  | 5 | `tango` | 제자리 행진 🥁 | 반복 | 112 | 기본 |
   | 6 | `salute` | 경례 🫡 | 2.5초 | — | 기본 |
   | 7 | `wave` | 손 흔들기 👋 | 2.5초 | — | 기본 |
   | 8 | `cheer` | 환호 박수 👏 | 반복 | 128 | 기본 |
-  | 9 | `creamCheese` | 크림치즈 허니 🍯 | 반복 | 166.7 | 기본 |
-  | 10 | `fromYou` | 당신에게서 💌 | 반복 | 72.7 | 600 P |
-  | 11 | `selfie` | 셀카 🤳 | 반복 | 92.3 | 400 P |
+  | 9 | `creamCheese` | 수신호 ✋ | 반복 | 104 | 기본 |
+  | 10 | `fromYou` | 쌍안경 정찰 🔭 | 반복 | 84 | 600 P |
+  | 11 | `selfie` | 깃발 흔들기 🚩 | 반복 | 92 | 400 P |
 
 - 그 밖의 export:
   - `EMOTE_IDS`
@@ -478,17 +480,21 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
   - `player.thirdPerson`(0..1), `player.viewMode`, bus `player:view { mode:'third'|'first' }`로 알 수 있다. 3인칭이면 뷰모델·크로스헤어를 숨긴다(core 임시 총·기본 HUD는 이미 숨김).
   - 3인칭 중에도 `player.getEye()`는 1인칭 눈 위치를 돌려준다.
 
-### 아바타 (`engine/avatars.js` + `engine/emoteanim.js`)
-- 평소 몸은 메시 4개 그대로다.
-- **이모트 중일 때만** 관절 리그로 바꾼다.
-  - 구성: 몸통(등에 멘 총 포함)·머리·위팔·아래팔·손(주먹/편 손/'L')·허벅지·정강이, 메시 12개.
-  - 캐릭터 부품도 리그에 붙는다: 머리 장비는 머리, 조끼·등짐은 몸통, 어깨 보호대·완장은 위팔, 팔 보호대는 아래팔, 무릎·정강이 판은 정강이.
-  - 평소 draw call은 늘지 않는다.
+### 아바타 (`engine/avatars.js` + `engine/operator-model.js` + `engine/emoteanim.js`)
+- 몸은 뼈대 있는 GLB 대원 모델이다(`assets/models/operators/operators.glb`, Quaternius Ultimate Modular Men SWAT, CC0. 출처는 같은 폴더 `LICENSE.md`).
+  - `createAvatars`가 부팅 때 받기 시작하고, 맵 로드의 `prewarm`이 다 받기를 기다린다. 받지 못하면 `prewarm`이 이유를 담아 던져 맵 불러오기가 실패로 끝난다(예전 상자 인물로 대신하지 않는다).
+  - 대원 × 팀마다 몸·머리 장비·팀 강조 장비를 한 지오메트리로 굽고(위치·뼈 속성은 두 팀이 같이 쓰고 색만 다르다), 아바타마다 뼈대만 복제한다.
+  - 그리기 호출: 몸 1 + 든 무기 1 + 이름표 1(+ AI 안경 1). 대원 1명 삼각형 6,400~7,900개.
+  - 먼 대원·화면 밖 대원은 몸 동작을 2~6 프레임에 한 번 계산한다(위치·히트박스는 매 프레임).
+- 동작: 이동은 모델 클립(Idle·Walk·Run·Run_Back·Run_Left·Run_Right)을 로컬 속도로 섞는다. 상체 조준(pitch), 총 든 두 팔(IK), 앉기(엉덩이 내리기 + 다리 IK, 앉아 걷기), 칼 휘두르기·반동·재장전·투척은 뼈를 직접 돌린다. 쓰러짐은 Death 클립을 맞은 방향으로 돌려 재생하고 끝 자세에서 멈춘다.
+  - 매 갱신 뼈를 덮어쓰기 전 자세로 되돌린 뒤 클립을 얹는다: 클립이 움직이는 뼈는 지난 갱신의 클립 자세(mixer.update 직후 적어 둔 값), 나머지는 쉬는 자세. AnimationMixer는 섞은 값이 지난 갱신과 같으면 뼈에 쓰지 않으므로, 쉬는 자세(T자)로 되돌리면 끝에서 멈춘 Death 클립이 T자로 서 있게 된다(예전 버그).
+  - `avatar.swing(kind)`·`recoil()`·`reload(sec)`·`throwNade()`. World는 `actorFire`(반동·칼)·`actorGrenade`(투척)·`actorReload`(봇 재장전)에서 부른다.
+  - 3인칭 무기는 오른손목 뼈의 소켓에 붙는다(`setHeld(obj)`의 obj도 소켓 기준, 총구 = -Z).
+- 이모트: `emoteanim.js` 포즈(리그 약속)를 뼈 회전으로 옮긴다. 리그에서 손이 머리·다른 손에 닿는 자세는 이 몸 크기에 맞게 손목 목표를 고쳐 IK로 놓는다. 이모트 중에는 총을 등에 멘다.
 - 원격 액터:
-  - `avatars.push(id, t, { …, emote: 번호 })` → 처음부터 재생한다(반복형은 계속).
-  - 0이 되면 0.15초에 걸쳐 평소(총 든) 자세로 돌아온 뒤 평소 메시로 돌아간다.
-  - 번호 대신 id 문자열도 받는다. 죽으면 리그를 바로 끈다.
-- 히트박스(`getTargets`)는 이모트 중에도 서 있는 그대로다.
+  - `avatars.push(id, t, { …, emote: 번호 })` → 처음부터 재생한다(반복형은 계속). 0이 되면 0.15초에 걸쳐 총 든 자세로 돌아온다.
+  - 번호 대신 id 문자열도 받는다. 죽으면 이모트를 바로 끈다.
+- 히트박스(`getTargets`)는 이모트 중에도 서 있는 그대로다. 모델은 머리 중심 1.62 m·몸통·다리가 `HITBOX`와 겹치게 놓았다. 손 구(`HITBOX.HANDS`·`HITBOX_CROUCH.HANDS`)는 이 모델이 총을 든 자세에서 잰 손바닥 위치다(모델이 기준. 총 든 자세를 바꾸면 다시 재서 고친다).
 - 내 몸:
   - `avatars.setLocalBody(player.getBodyState())`로 그린다. core main.js가 매 프레임 부르므로 World가 할 일은 없다.
   - `{ visible, pos, yaw, team, name, emote, crouch, avatar }`를 받는다. 히트 대상·목록에는 들어가지 않는다. `avatar`(내 캐릭터)는 game World가 계정 장비로 채운다.
@@ -500,7 +506,7 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
 
 ### 미리 준비 (첫 이모트·첫 등장 끊김 방지)
 - `ctx.loadMap(id)`은 맵을 만든 뒤 다음 순서로 준비한다. 모두 로딩 화면 뒤에서 일어나서 화면에는 보이지 않는다.
-  1. `avatars.prewarm(fn)`이 모든 캐릭터 × 두 팀의 평소 몸(앉은 다리 포함)과 이모트 리그 부품(손 모양 3종)을 장면에 잠깐 넣는다. 늦게 들어온 사람이 처음 보는 캐릭터여도 끊기지 않는다(재질은 하나라 셰이더는 그대로 한 벌).
+  1. `avatars.prewarm(fn)`이 대원 모델을 기다린 뒤(못 받으면 던진다) 모든 대원 × 두 팀 몸 지오메트리(뼈대 하나에 묶음)와 든 무기 6종·AI 안경을 장면에 잠깐 넣는다. 늦게 들어온 사람이 처음 보는 대원이어도 끊기지 않는다(재질은 하나라 셰이더는 뼈대용·일반용 두 벌).
   2. `compileAsync`로 셰이더를 컴파일한다.
   3. 프러스텀 컬링을 끈 채 1픽셀 가위(scissor)로 한 번 그린다. GPU 버퍼와 그리기 상태(그림자 패스 포함)가 이때 준비된다.
 - 품질(그림자 켬·끔)이 바뀌면 bus `renderer:quality`를 받아 `avatars.compileWarm(three, camera)`로 셰이더만 다시 준비한다. 이 일은 `applyPendingQuality`가 부르는 안전한 때에 함께 치러진다.
