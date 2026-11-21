@@ -47,6 +47,7 @@ import { mapIcon } from '../ui/icons.js';
 import { t, loc, isEnglish } from '../core/i18n.js';
 import { createRoyaleRun } from './br/solo.js';
 import { BR, BR_MATCH, brMapData, spreadSpawns } from './br/rules.js';
+import { MEDKIT, botChannelInput } from './br/medkit.js';
 
 export const PRACTICE_DEFAULTS = Object.freeze({ mapId: 'alley', mode: 'ffa', ruleset: 'classic', size: 2, ffaBots: 5, brBots: BR.defaultBots, difficulty: 'normal', timeScale: 1 });
 /** 규칙을 고르면 먼저 선택되는 맵 */
@@ -534,9 +535,9 @@ export function createPractice({ ctx, world, ui }) {
         carrierName: b.carrier ? nameOf(b.carrier) : '', actorName: b.action ? nameOf(b.action.id) : ''
       });
     }
-    function hear(origin, shooterId, team) {
+    function hear(origin, shooterId, team, quiet = false) {
       const info = ffa ? { id: shooterId } : { id: shooterId, team };
-      for (const b of bots) if (b.alive && b.id !== shooterId && (!royale || royale.canHear(b))) b.brain.hearShot(origin, info);
+      for (const b of bots) if (b.alive && b.id !== shooterId && (!royale || royale.canHear(b, origin, quiet))) b.brain.hearShot(origin, info);
     }
 
     /* ---------- 이벤트 → 화면 ---------- */
@@ -910,7 +911,7 @@ export function createPractice({ ctx, world, ui }) {
     }));
     offs.push(world.on('fire', (f) => {
       const d = getDef(f.weaponId);
-      if (!d || d.kind !== 'melee') hear(f.origin, me.id, me.team);   // 칼은 소리가 멀리 가지 않는다
+      if (!d || d.kind !== 'melee') hear(f.origin, me.id, me.team, !!f.quiet);   // 칼은 소리가 멀리 가지 않는다 · 배틀로얄 소염기는 가까이서만
     }));
     offs.push(world.on('loadoutPick', (p) => {
       if (p && p.id) { lastPick = p.id; apply(match.setLoadout(me.id, p.id)); }
@@ -1035,7 +1036,9 @@ export function createPractice({ ctx, world, ui }) {
       if (wantCrouch && !b.crouch) b.crouch = true;
       else if (!wantCrouch && b.crouch && room()) b.crouch = false;
       if (b.edge.jump && b.crouch) b.edge.jump = false;
-      const speed = (b.crouch ? CROUCH_SPEED : c.walk ? PLAYER.SLOW_WALK : PLAYER.WALK) * a.getMoveMul();
+      // 배틀로얄 구급상자 사용 중: 걷기 40%, 사격·조준·재장전·교체 없음(br/medkit.js)
+      const healing = !!royale && royale.botBusy(b);
+      const speed = (b.crouch ? CROUCH_SPEED : c.walk ? PLAYER.SLOW_WALK : PLAYER.WALK) * a.getMoveMul() * (healing ? MEDKIT.walkMul : 1);
       let f = clamp(num(c.forward, 0), -1, 1), s = clamp(num(c.strafe, 0), -1, 1);
       const len = Math.hypot(f, s);
       if (len > 1) { f /= len; s /= len; }
@@ -1066,6 +1069,7 @@ export function createPractice({ ctx, world, ui }) {
         reloadPressed: b.edge.reload, slot: b.edge.slot, wheel: 0
       };
       b.edge.reload = false; b.edge.slot = null;
+      if (healing) botChannelInput(wi);
       const evs = a.update(dt, wi, { speed: hs, onGround: b.body.onGround, walking: !!c.walk, crouch: b.crouch });
       for (const ev of evs) botWeaponEvent(b, ev);
       if (b.alive) {

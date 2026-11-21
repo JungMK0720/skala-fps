@@ -56,6 +56,17 @@ function reticle() {
   return svg('svg', { viewBox: '-100 -100 200 200', class: 'sk-scope-svg', 'aria-hidden': 'true', focusable: 'false' }, parts);
 }
 
+/** 부착 조준경(배틀로얄 4·6배율) 레티클: 가운데 꺾쇠(^)와 점, 아래 짧은 거리 눈금 두 개, 가는 바깥 십자 */
+function opticReticle() {
+  const line = (d, w, cls = '') => svg('path', { d, 'stroke-width': w, class: 'sk-ret-line' + (cls ? ' ' + cls : '') });
+  return svg('svg', { viewBox: '-100 -100 200 200', class: 'sk-scope-svg sk-optic-svg', 'aria-hidden': 'true', focusable: 'false' }, [
+    line('M-100 0 H-46 M46 0 H100 M0 46 V100', 1.6),
+    line('M-7 6 L0 -1 L7 6', 1.1, 'sk-ret-chevron'),
+    line('M-4 14 H4 M-3 22 H3', 0.6),
+    svg('circle', { cx: 0, cy: -1, r: 0.9, class: 'sk-ret-dot' })
+  ]);
+}
+
 /** "×9 ●●" 표시 하나. 렌즈 위와 크로스헤어 옆에 하나씩 둔다 */
 function zoomTag(cls) {
   const text = h('b', { class: 'sk-zoom-num' });
@@ -87,9 +98,10 @@ function drawTag(tag, label, level, levels) {
 export function createScope(ctx) {
   let amount = 0;
   let aiming = false;
+  let ret = '';
   const lensTag = zoomTag('sk-scope-zoom');
   const adsTag = zoomTag('sk-ads');
-  const lens = h('div', { class: 'sk-scope-lens' }, reticle(), lensTag.el);
+  const lens = h('div', { class: 'sk-scope-lens' }, reticle(), opticReticle(), lensTag.el);
   const overlay = h('div', { class: 'sk-scope', hidden: true }, lens);
   // 조준 표시는 오버레이가 꺼져 있어도 보여야 하므로 .sk-scope 바깥에 둔다
   const el = h('div', { class: 'sk-scope-root', 'aria-hidden': 'true' }, overlay, adsTag.el);
@@ -106,6 +118,9 @@ export function createScope(ctx) {
       drawTag(lensTag, r.label, r.level, r.levels);
       drawTag(adsTag, r.label, r.level, r.levels);
       setHidden(lensTag.el, !r.label);
+      // 레티클 모양: 'optic'(부착 조준경) | 그 밖 = 저격 스코프
+      const want = opts && typeof opts === 'object' && opts.reticle === 'optic' ? 'optic' : '';
+      if (want !== ret) { ret = want; if (ret) overlay.dataset.ret = ret; else delete overlay.dataset.ret; }
     } else if (v <= 0.001) aiming = false;
     setHidden(adsTag.el, !aiming || v >= ADS_FADE_END);
     if (Math.abs(v - amount) < 0.001 && (v > 0.001) === !overlay.hidden) return;

@@ -128,10 +128,11 @@ function normSlot(registry, s) {
   return { id: info.id, icon: info.icon, name: info.short || info.name, full: info.name };
 }
 
-/** slots(길이 4 배열 또는 { 1:…, 4:… }) → 네 칸. 칸마다 { id, icon, name, full } 또는 null */
+/** slots(길이 4 배열 또는 { 1:…, 4:… }) → 네 칸. 배틀로얄 가방(길이 5 배열: 1·2 주무기, 3 권총, 4 근접, 5 투척)은 다섯 칸. 칸마다 { id, icon, name, full } 또는 null */
 export function normSlots(registry, list) {
   const arr = Array.isArray(list) ? list : list && typeof list === 'object' ? [1, 2, 3, 4].map((n) => list[n]) : [];
-  return [0, 1, 2, 3].map((i) => normSlot(registry, arr[i]));
+  const n = arr.length >= 5 ? 5 : 4;
+  return Array.from({ length: n }, (_, i) => normSlot(registry, arr[i]));
 }
 
 /** 폭발까지 남은 초 → 카운트다운 글자. 10초 밑은 0.1초 단위('9.8'), 그 위는 정수('35'). 둘 다 올림. 없으면 '' */
@@ -187,7 +188,7 @@ export function bombSpec(b) {
 export function createHud(ctx) {
   const st = {
     hp: null, maxHp: 100, ammo: undefined, reserve: undefined, mag: undefined, magSeen: 0, hasAmmo: false,
-    reload: null, reloading: false, slot: null, slotList: null, slotSig: '', slotSeen: [false, false, false, false],
+    reload: null, reloading: false, slot: null, slotList: null, slotSig: '', slotSeen: [false, false, false, false, false],
     weaponName: null, weaponLabel: '',
     spread: 0, spreadPx: null, fov: null, gap: -1, time: undefined, scoreSig: '', aliveSig: '',
     alive: null, size: null, team: null, centerTimer: null, hitAnim: null,
@@ -316,13 +317,19 @@ export function createHud(ctx) {
   const ammoEl = h('div', { class: 'sk-ammo', hidden: true }, wpnName, ammoRow, reloadBar, ammoHint);
 
   const slotsEl = h('div', { class: 'sk-slots' });
-  const slotEls = [1, 2, 3, 4].map((n) => {
+  const slotEls = [1, 2, 3, 4, 5].map((n) => {
     const ico = h('span', { class: 'sk-slot-ico' });
     const nm = h('span', { class: 'sk-slot-nm', text: tr('hud.empty') });
     const el = h('div', { class: 'sk-slot is-empty', hidden: true }, h('kbd', { class: 'sk-slot-key', text: String(n) }), ico, nm);
     slotsEl.append(el);
     return { el, ico, nm };
   });
+  // 배틀로얄 인벤토리 패널(무기 칸 위): 가방 등급 · 주무기 두 자루와 부착물 · 계열 탄약 · 투척 · 구급상자
+  const invEl = h('div', { class: 'sk-inv', hidden: true, role: 'group', 'aria-label': tr('hud.ariaInv') });
+  // 구급상자 사용 진행 막대(가운데 아래, 폭탄 설치 막대와 같은 자리)
+  const chanLabel = h('span', { class: 'sk-bomb-prog-label' });
+  const chanFill = h('i');
+  const chanEl = h('div', { class: 'sk-bomb-prog sk-chan', hidden: true, 'aria-hidden': 'true', 'data-kind': 'heal' }, chanLabel, h('div', { class: 'sk-bomb-prog-bar' }, chanFill));
 
   const feed = h('div', { class: 'sk-killfeed', 'aria-label': tr('hud.ariaFeed') });
   // Static terrain is drawn only when a map loads; the visible canvas gets moving marks each frame.
@@ -364,9 +371,9 @@ export function createHud(ctx) {
 
   // 순서: 설치/해체 막대 → 폭탄 안내 → 이모트 안내. css가 형제 선택자로 겹침을 푼다(안내가 뜨면 이모트 안내를 올리고, 터치 화면은 막대가 뜨면 안내를 가린다)
   const el = h('section', { class: 'sk-screen sk-hud', hidden: true, 'aria-label': 'HUD' },
-    vignette, flash, dmgs, bombMarks, xhair, hit, calloutBox, mkEl, protectEl, bombProg, top, bombPanel, royalePanel, bannerEl, minimap, feed, centerEl, respawnEl, specEl,
+    vignette, flash, dmgs, bombMarks, xhair, hit, calloutBox, mkEl, protectEl, bombProg, chanEl, top, bombPanel, royalePanel, bannerEl, minimap, feed, centerEl, respawnEl, specEl,
     bombPrompt, emoteEl, swapEl, hintEl, speedEl, hpEl,
-    h('div', { class: 'sk-br' }, slotsEl, ammoEl));
+    h('div', { class: 'sk-br' }, invEl, slotsEl, ammoEl));
 
   ctx.listen(window, 'resize', () => { viewH = 0; if (st.gap >= 0) applySpread(); });
 
@@ -570,18 +577,53 @@ export function createHud(ctx) {
     if (sig === st.slotSig) return;
     st.slotSig = sig;
     st.slotList = norm;
-    norm.forEach((s, i) => {
-      const se = slotEls[i];
-      if (s) st.slotSeen[i] = true;
-      se.el.hidden = !st.slotSeen[i];
+    // 배틀로얄 다섯 칸: 주무기 두 칸은 비어 있어도 보인다. 칸 번호 → 무기 칸(아이콘): 1·2 주무기, 3 권총, 4 근접, 5 투척
+    const royale = norm.length === 5;
+    slotEls.forEach((se, i) => {
+      const s = norm[i] || null;
+      if (s || (royale && i < 2)) st.slotSeen[i] = true;
+      se.el.hidden = i >= norm.length || !st.slotSeen[i];
       se.el.classList.toggle('is-empty', !s);
-      // 칸 아이콘은 무기 종류 선 아이콘(무기고와 같은 그림). 칸 번호(i + 1)가 곧 무기 칸이다
-      const glyph = s ? weaponGlyph(s.id, i + 1) : '';
+      // 칸 아이콘은 무기 종류 선 아이콘(무기고와 같은 그림). 다른 모드는 칸 번호(i + 1)가 곧 무기 칸이다
+      const glyph = s ? weaponGlyph(s.id, royale ? [1, 1, 2, 3, 4][i] : i + 1) : '';
       if (se.ico.dataset.glyph !== glyph) { se.ico.dataset.glyph = glyph; se.ico.replaceChildren(...(glyph ? [uiIcon(glyph)] : [])); }
       setText(se.nm, s ? s.name : tr('hud.empty'));
       se.el.title = s ? s.full : '';
     });
     applyWeaponName();
+  }
+  /**
+   * 배틀로얄 인벤토리 패널. inv = { pack, tier, guns:[{ key, name, active, att:[이름] } | null ×2], ammo:[{ name, n, cap }],
+   * throws:[{ name, n }], throwN, throwCap, medkits, medkitCap } | null. 값이 바뀔 때만 다시 그린다
+   */
+  function applyInventory(inv) {
+    const sig = inv ? JSON.stringify(inv) : '';
+    if (sig === st.invSig) return;
+    st.invSig = sig;
+    invEl.hidden = !inv;
+    if (!inv) { invEl.replaceChildren(); return; }
+    const rows = [h('div', { class: 'sk-inv-head', 'data-tier': String(inv.tier) }, h('b', { text: tr('hud.invPack', { pack: inv.pack }) }))];
+    for (const g of inv.guns || []) {
+      if (!g) continue;
+      rows.push(h('div', { class: 'sk-inv-gun' + (g.active ? ' is-active' : '') },
+        h('kbd', { text: String(g.key) }), h('span', { class: 'sk-inv-name', text: g.name }),
+        h('span', { class: 'sk-inv-att', text: g.att.length ? g.att.join(' · ') : tr('hud.invNoAtt') })));
+    }
+    const ammo = (inv.ammo || []).map((a) => `${a.name} ${a.n}/${a.cap}`).join(' · ');
+    if (ammo) rows.push(h('div', { class: 'sk-inv-row', text: ammo }));
+    const thr = (inv.throws || []).map((x) => `${x.name} ${x.n}`).join(' · ');
+    rows.push(h('div', { class: 'sk-inv-row', text: tr('hud.invThrows', { n: inv.throwN, max: inv.throwCap, list: thr || '-' }) }));
+    rows.push(h('div', { class: 'sk-inv-row', text: tr('hud.invMedkits', { n: inv.medkits, max: inv.medkitCap }) }));
+    invEl.replaceChildren(...rows);
+  }
+  /** 구급상자 사용 진행 막대: { label, ratio(0~1) } | null */
+  function applyChannel(c) {
+    const on = !!c;
+    if (chanEl.hidden === on) chanEl.hidden = !on;
+    if (!on) return;
+    setText(chanLabel, c.label || '');
+    const r = Math.round(clamp(num(c.ratio, 0), 0, 1) * 1000) / 1000;
+    if (r !== st.chanRatio) { st.chanRatio = r; chanFill.style.transform = `scaleX(${r})`; }
   }
   function applySlot(n) {
     const v = Math.round(num(n, 0));
@@ -941,6 +983,9 @@ export function createHud(ctx) {
     }
     if ('bomb' in p) applyBomb(p.bomb);
     if ('royale' in p) applyRoyale(p.royale);
+    // 배틀로얄 가방: inventory = 인벤토리 패널 값 | null, channel = 구급상자 사용 진행 { label, ratio } | null
+    if ('inventory' in p) applyInventory(p.inventory);
+    if ('channel' in p) applyChannel(p.channel);
     // dead: 죽어서 관전 중 — 오른쪽 아래 무기 칸·탄약을 감춘다(css .sk-hud.is-down)
     if ('dead' in p) el.classList.toggle('is-down', !!p.dead);
   }
@@ -1138,6 +1183,8 @@ export function createHud(ctx) {
     st.slotSig = '';
     st.weaponName = null;
     applySlots(null);
+    applyInventory(null);
+    applyChannel(null);
     st.ammo = st.reserve = st.mag = undefined;
     st.magSeen = 0;
     st.reloading = false;
