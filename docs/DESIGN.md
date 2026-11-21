@@ -143,6 +143,8 @@ export function moveQuake(world, body, wish, dt, opt) → ev   // moveCharacter�
 - **계단**: `moveCharacter`의 `nearFloor`가 뛰어오르기 직전의 낮은 턱을 처리해, 스페이스를 누른 채 0.3 m 계단에서 멈추지 않는다.
 - 앉기·이모트·`frozen`·`speedScale`은 기존 동작 유지. `player:land`의 카메라 출렁임은 버니합 착지 때 줄인다. `state.speed`(수평 속력)를 쓸 수 있게 둔다. `player:jump`, `player:land`에 `hopped`가 실린다.
 - `input.js`: `KeyF` → `input:inspect` (`LOCK_KEYS`에도 추가). `input.state.jump`는 이미 있다.
+- **턱 오르기·넘기**(`engine/mantle.js`, player.js가 부른다): W + Space로 바로 앞 0.5~2.0 m 턱에 오르거나 얇은 턱을 넘는다. `findMantle(world, pos, dirX, dirZ, { floor })` → plan(`climb`|`vault`), 동작 중에는 `mantlePose`가 정한 길을 따라가며 물리를 건너뛴다. 들어 올리는 속도는 점프 초속보다 느려 부정행위 상승 검사를 넘지 않는다. bus `player:mantle { kind, height, pos }`, `player.mantling`.
+- **낙하 피해**(`engine/falldamage.js`, 배틀로얄만): `player.setFallDamage(true)`면 착지 때 `player:fall { height, damage, pos }`. 곡선·면제는 MODES.md 15절.
 
 탄퍼짐의 공중 페널티는 유지한다. 뛰면서 쏘면 부정확하다.
 

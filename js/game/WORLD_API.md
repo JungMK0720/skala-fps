@@ -70,6 +70,7 @@ const world = await createWorld({ root, ui, settings, ctx });
 | `weaponDrop` | `{ dropId, weaponId, pos, mag, reserve }` | 살아 있을 때 G로 손에 든 총을 버렸거나, 총을 든 채 죽었다. `reserve`가 `Infinity`면 프리미엄 총이다 |
 | `weaponPick` | `{ dropId, weaponId }` | 주무기 탄약이 다 떨어져 닿은 총을 주웠다. 총은 이미 슬롯 1에 들어갔다 |
 | `grenade` | `{ id, grenadeId, pos:[x,y,z], vel:[x,y,z], fuse, t, kind }` | 로컬 투척 직후 — 원격은 `actorGrenade(payload)`로 같은 궤적 재생 |
+| `fallDamage` | `{ amount, height, pos }` | 배틀로얄(`setRoyale` 켜짐)에서 내가 4 m 넘게 떨어져 착지했을 때(core `player:fall`, MODES.md 15절). 연습장이 `match.claimHazard(me, amount, 'fall')`로 넣는다 |
 | `explosion` | `{ ownerId, local, grenadeId, center:{x,y,z}, victims:[{ id, dmg, dist }] }` | **모든** 수류탄 폭발(엄폐·거리 감쇠 끝난 값, 로컬 플레이어 포함). 멀티는 `local:true`만 `match.claimExplosion({ attackerId: ownerId, center, victims })`, 연습장은 전부 |
 | `localDeath` | `{ id, info }` | `killLocal` 직후 |
 | `multiKill` | `{ count, id }` | `noteKill`이 연속 킬(2킬 이상)을 띄웠을 때. `id`는 `double`~`hexa`, 7킬부터 `legend` |

@@ -291,7 +291,7 @@ export function createRoyaleRun(host) {
     if (out.has(id)) return;
     out.add(id);
     heals.delete(id);
-    deaths.push({ id, at: zoneT(), cause: ev.cause === 'zone' ? 'zone' : 'fight' });
+    deaths.push({ id, at: zoneT(), cause: ev.cause === 'zone' || ev.cause === 'fall' ? ev.cause : 'fight' });
     const b = bots.find((x) => x.id === id);
     if (b) { dropBotLoot(b); if (b.royLoot) claims.delete(b.royLoot.id); }
     if (id === me.id) {
@@ -299,7 +299,8 @@ export function createRoyaleRun(host) {
       const place = placeOf(me.id);
       myResult = { place, survivedMs: zoneT() };
       world.setRoyale({ watch: ev.killer !== ev.victim ? ev.killer : null, hud: null });
-      if (ui) ui.hud.center(t('game.br.outTitle', { place, total }), 5000, { sub: ev.cause === 'zone' ? t('game.br.outZone') : t('game.br.outKilled', { name: nameOf(ev.killer) }), tone: 'warn' });
+      const outSub = ev.cause === 'zone' ? t('game.br.outZone') : ev.cause === 'fall' ? t('game.br.outFall') : t('game.br.outKilled', { name: nameOf(ev.killer) });
+      if (ui) ui.hud.center(t('game.br.outTitle', { place, total }), 5000, { sub: outSub, tone: 'warn' });
       world.setHint(t('game.br.outHint'));
       if (host.onEliminated) host.onEliminated(myResult);
     }

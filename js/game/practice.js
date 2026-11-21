@@ -30,6 +30,7 @@ import { AVATAR_IDS } from '../core/avatar-defs.js';
 import { moveCharacter, traceShot, lineOfSight, findFloor, overlapsCapsule, getGroundY } from '../engine/physics.js';
 import { stepTriggers } from '../engine/triggers.js';
 import { carryBody } from '../engine/movers.js';
+import { FALL, createFallTracker } from '../engine/falldamage.js';
 import { createArsenal, shotDirection, dirFromYawPitch } from '../weapons/logic.js';
 import { getDef } from '../weapons/defs.js';
 import { throwVelocity } from '../weapons/grenade.js';
@@ -667,6 +668,7 @@ export function createPractice({ ctx, world, ui }) {
       b.body.pos[0] = x; b.body.pos[1] = y; b.body.pos[2] = z;
       b.body.vel[0] = b.body.vel[1] = b.body.vel[2] = 0;
       b.body.onGround = true;
+      if (b.fall) b.fall.reset(y);
       b.yaw = num(s.rotY, 0); b.pitch = 0;
     }
 
@@ -737,12 +739,14 @@ export function createPractice({ ctx, world, ui }) {
     }
 
     function onDamage(ev) {
-      // 봉쇄 구역 피해(cause 'zone')는 공격한 사람이 없다: 피격 방향 표시를 띄우지 않고 봇도 돌아보지 않는다
-      const zoneHit = ev.cause === 'zone';
+      // 봉쇄 구역 피해(cause 'zone')와 낙하 피해('fall')는 공격한 사람이 없다: 피격 방향 표시를 띄우지 않고 봇도 돌아보지 않는다
+      const zoneHit = ev.cause === 'zone' || ev.cause === 'fall';
       const ap = zoneHit ? null : ev.center ? [ev.center.x, ev.center.y, ev.center.z] : posOf(ev.attacker);
       if (ev.victim === me.id) {
         world.setLocalHp(ev.hp);
         world.feedbackDamage({ attackerPos: ap ? ap.slice() : null, amount: ev.amount, head: !!ev.head, half: !!ev.halfShot, incoming: true });
+        // 낙하 피해는 방향이 없으니 크로스헤어 아래 글자로 알린다(죽었으면 킬피드 '🪂 낙하'가 대신한다)
+        if (ev.cause === 'fall' && ui && ev.hp > 0) ui.hud.callout(t('game.br.fallHit', { n: Math.round(ev.amount) }), 'half');
       } else {
         const b = botById.get(ev.victim);
         if (b) {
@@ -765,6 +769,7 @@ export function createPractice({ ctx, world, ui }) {
     function onKill(ev) {
       if (ui) {
         if (ev.cause === 'zone') ui.killfeed.push({ killer: '', victim: ev.victimName, weaponId: 'zone', weaponName: t('game.br.zoneName'), weaponIcon: '⛔', weaponShort: t('game.br.zoneShort'), mode: 'ffa' });
+        else if (ev.cause === 'fall') ui.killfeed.push({ killer: '', victim: ev.victimName, weaponId: 'fall', weaponName: t('game.br.fallName'), weaponIcon: '🪂', weaponShort: t('game.br.fallShort'), mode: 'ffa' });
         else ui.killfeed.push({ killer: ev.killerName, victim: ev.victimName, weaponId: ev.weaponId, head: ev.head, killerTeam: ffa ? null : ev.killerTeam, victimTeam: ffa ? null : ev.victimTeam });
       }
       world.noteKill({ killer: ev.killer, victim: ev.victim, killerTeam: ev.killerTeam, victimTeam: ev.victimTeam });   // 연속 킬(내 킬만 센다)
@@ -915,6 +920,11 @@ export function createPractice({ ctx, world, ui }) {
     offs.push(world.on('loadoutPick', (p) => {
       if (p && p.id) { lastPick = p.id; apply(match.setLoadout(me.id, p.id)); }
     }));
+    // 배틀로얄 낙하 피해: core player가 잰 피해(engine/falldamage.js) → 공격자 없는 환경 피해
+    offs.push(world.on('fallDamage', (x) => {
+      if (!royale || !x || phase !== 'live' || !meAlive()) return;
+      apply(match.claimHazard(me.id, x.amount, 'fall'));
+    }));
     // 개인전 즉시 부활: 부활 대기 중 E(휴대폰 '부활' 버튼). 경기가 받아 주면(내 spawn에 instant) 그때 계정에서 낸다
     function offerQuick() {
       const acc = ctx.account;
@@ -1047,16 +1057,30 @@ export function createPractice({ ctx, world, ui }) {
       // 발판으로 날아가는 동안에는 입력을 넣지 않는다(공중 조작이 궤적을 깎아 착지점을 놓친다)
       if (b.padFlight) { if (b.body.onGround) b.padFlight = false; else { wish.x = 0; wish.z = 0; } }
       if (map.world.movers && !map.world.movers.empty) carryBody(map.world, b.body);   // 움직이는 지형 위의 봇도 같이 간다
+      const bp = b.body.pos, wasGround = b.body.onGround, px = bp[0], py = bp[1], pz = bp[2];
       moveCharacter(map.world, b.body, wish, dt, b.crouch ? { height: CROUCH_H } : undefined);
+      // 배틀로얄: 걸어가다 피해를 입을 높이(낙하 피해가 시작되는 4 m 초과)로 떨어지려 하면 그 자리에 멈춘다.
+      // navgrid 뛰어내리기 간선은 3.2 m까지라 길 찾기는 이런 낙하를 고르지 않는다. 밀리거나 모서리를 긁을 때의 사고만 막는다
+      if (royale && wasGround && !b.body.onGround && !wish.jump && py - getGroundY(map.world, bp[0], bp[2], py, PLAYER.RADIUS - 0.01) > FALL.SAFE) {
+        bp[0] = px; bp[1] = py; bp[2] = pz;
+        b.body.vel[0] = b.body.vel[1] = b.body.vel[2] = 0;
+        b.body.onGround = true;
+      }
       // 봇도 발판을 탄다. 비밀 스팟과 포털은 사람 몫이라 결과를 쓰지 않는다
       if (map.world.triggers) {
         const fired = stepTriggers(map.world, b.body, b.crouch ? CROUCH_H : PLAYER.HEIGHT, b.trig, dt);
         if (fired.pad) {
+          if (b.fall) b.fall.exempt('pad');
           // 목표가 있거나 옆으로 보내는 발판은 궤적을 그대로 탄다. 제자리 발판(수직 발사)은 공중에서 움직여 벗어난다
           b.padFlight = !!fired.pad.target || Math.hypot(b.body.vel[0], b.body.vel[2]) > 1;
           b.brain.onLaunch();
           world.sound('pad_boost', { pos: [b.body.pos[0], b.body.pos[1], b.body.pos[2]] });
         }
+      }
+      // 배틀로얄 낙하 피해(engine/falldamage.js): 사람과 같은 곡선
+      if (royale) {
+        const fr = (b.fall || (b.fall = createFallTracker(bp[1]))).step(bp[1], b.body.onGround, wasGround);
+        if (fr && fr.damage > 0 && live && b.alive) apply(match.claimHazard(b.id, fr.damage, 'fall'));
       }
       if (b.body.pos[1] < -30) placeBot(b, spawnOf.get(b.id) || map.spawns[b.team || 'owner'][0]);
       // 무기

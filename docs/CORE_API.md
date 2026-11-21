@@ -158,6 +158,8 @@ ctx.registerScreen('match', {
 | `fullscreen:change` | `{ active }` — 전체 화면에 들어가고 나올 때(main.js) |
 | `player:spawn` | `{ state, point }` |
 | `player:jump` / `player:land` | `{ pos }` / `{ pos, speed, mat }` |
+| `player:mantle` | `{ kind:'climb'\|'vault', height, pos }` — 턱 오르기·넘기 시작(engine/mantle.js, W + Space로 0.5~2.0 m 턱) |
+| `player:fall` | `{ height, damage, pos }` — 낙하 피해가 있는 착지(`player.setFallDamage(true)`일 때만, 배틀로얄. engine/falldamage.js) |
 | `player:step` | `{ pos, speed, quiet, crouch, mat }` — 발소리(걷기 1.95 m, Shift·앉아서 1.5 m마다, Shift·앉음이면 `quiet:true`) |
 | `player:crouch` | `{ crouch }` — 로컬 플레이어가 앉거나 일어섰을 때 |
 | `player:damage` | `{ amount, hp, from?, part?, weapon?, dir? }` |
