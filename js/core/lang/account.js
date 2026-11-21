@@ -109,6 +109,8 @@ export default {
   'account.submitSaving': ['저장 중…', 'Saving…'],
   'account.gateHaveName': ['다른 기기에서 쓰던 닉네임이 있나요?', 'Already have a nickname on another device?'],
   'account.loadVia': ['{name}로 불러오기', 'Load via {name}'],
+  'account.provider.google': ['구글', 'Google'],
+  'account.provider.kakao': ['카카오', 'Kakao'],
   'account.gateStart': ['이 닉네임으로 시작', 'Start with This Name'],
   'account.gateTaken': ['다른 플레이어가 먼저 등록한 닉네임이에요. 새 닉네임을 정해 주세요.', 'Another player registered this nickname first. Please pick a new one.'],
   'account.gateTitleRetry': ['닉네임을 다시 정해 주세요', 'Choose a New Nickname'],

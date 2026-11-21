@@ -156,7 +156,7 @@ export default {
   'game.brief.crew': ['인원', 'Players'],
   'game.brief.rule': ['규칙', 'Rules'],
   'game.brief.classicOnly': ['{mode}은 클래식 규칙만 써요', '{mode} uses Classic rules only'],
-  'game.brief.botN': ['봇 {n}', '{n} Bots'],
+  'game.brief.botN': ['봇 {n}', 'Bots: {n}'],
   'game.brief.hintFfa': ['개인전 · 모두가 적 · 먼저 20킬(5분) · 죽으면 3초 뒤 부활(1.5초 보호). Esc로 일시정지.', 'Free-for-All · Everyone is an enemy · First to 20 kills (5 min) · Respawn after 3s (1.5s protection). Esc to pause.'],
   'game.brief.hintTeam': ['5판 3선승 · 라운드 2분 · 나와 아군 봇은 블루 팀, 적 봇은 레드 팀이에요. Esc로 일시정지.', 'Best of 5 · 2-min rounds · You and ally bots are Blue, enemy bots are Red. Esc to pause.'],
   'game.brief.hintBomb': ['공격은 A·B 구역에 폭탄 설치(E 3초) → 35초 뒤 폭발, 수비는 해체(E 5초) · 5판 3선승 · 라운드 1:40 · 2라운드 뒤 공수 교대. 나와 아군 봇은 블루 팀이에요.', 'Attackers plant at A/B (E 3s) → explodes after 35s; defenders defuse (E 5s) · Best of 5 · 1:40 rounds · Sides switch after round 2. You and ally bots are Blue.'],

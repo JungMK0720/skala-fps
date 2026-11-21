@@ -15,6 +15,8 @@ import {
 } from './oauth.js';
 
 const TICKET_MS = 9 * 60 * 1000;   // 서버의 로그인 표는 10분짜리다. 화면에서 기다리는 표는 조금 일찍 버린다
+/** 제공자 id → 화면 이름 키(js/core/lang/account.js). 모르는 제공자는 서버가 보낸 이름을 그대로 쓴다 */
+const PROVIDER_NAME_KEYS = Object.freeze({ google: 'account.provider.google', kakao: 'account.provider.kakao' });
 
 const ERRORS = {
   network: t('account.errNetwork'),
@@ -132,7 +134,8 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
     if (disposed) return;
     if (r && r.ok) {
       providers = (r.login && Array.isArray(r.login.providers) ? r.login.providers : []).filter(validProvider).map((p) => ({
-        id: p.id, name: p.name, authorizeUrl: p.authorizeUrl, clientId: p.clientId,
+        // 서버는 한국어 이름을 보낸다. 아는 제공자는 화면 언어의 이름으로 바꾼다(언어를 바꾸면 페이지를 다시 읽으므로 한 번만 정하면 된다)
+        id: p.id, name: PROVIDER_NAME_KEYS[p.id] ? t(PROVIDER_NAME_KEYS[p.id]) : p.name, authorizeUrl: p.authorizeUrl, clientId: p.clientId,
         scope: typeof p.scope === 'string' ? p.scope : 'openid', params: p.params && typeof p.params === 'object' ? { ...p.params } : {}
       }));
       const pp = r.pay && typeof r.pay === 'object' ? r.pay : {};
