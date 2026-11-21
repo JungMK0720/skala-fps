@@ -20,7 +20,8 @@ crons = ["*/10 * * * *"]
 
 [vars]
 # 브라우저 Origin 허용 목록(중계 서버와 같은 규칙, ':*'는 모든 포트). 게임 주소를 도메인으로 옮기면 여기에 더한다
-ALLOWED_ORIGINS = "https://jungmk0720.github.io,http://localhost:*,http://127.0.0.1:*"
+# https://*.game-files.crazygames.com = CrazyGames에 올린 게임 파일이 열리는 주소(docs/PORTAL.md)
+ALLOWED_ORIGINS = "https://jungmk0720.github.io,https://*.game-files.crazygames.com,http://localhost:*,http://127.0.0.1:*"
 SUPABASE_URL = "https://tvsoacvbjvggqdgnzijc.supabase.co"
 # 한 사람이 24시간에 마칠 수 있는 테스트 결제 수, 환불할 수 있는 날 수
 PAY_DAILY_LIMIT = "3"

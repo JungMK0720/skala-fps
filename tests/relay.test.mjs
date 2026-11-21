@@ -90,6 +90,15 @@ describe('중계 규칙', () => {
     for (const origin of gameOrigins) assert.ok(!R.originAllowed(origin + '.evil.example'), '허용 호스트를 접두사로 쓰는 가짜 Origin은 거부한다');
     assert.ok(R.originAllowed('https://a.example', 'https://a.example, https://b.example'));
     assert.ok(!R.originAllowed('https://c.example', 'https://a.example,https://b.example'));
+    // CrazyGames에 올린 게임 파일: https://<게임>.game-files.crazygames.com 만, 같은 scheme·기본 포트
+    assert.ok(R.originAllowed('https://skala-ops.game-files.crazygames.com'));
+    assert.ok(R.originAllowed('https://a.b.game-files.crazygames.com'));
+    assert.ok(!R.originAllowed('https://game-files.crazygames.com'), '하위 도메인만');
+    assert.ok(!R.originAllowed('http://skala-ops.game-files.crazygames.com'), 'https만');
+    assert.ok(!R.originAllowed('https://skala-ops.game-files.crazygames.com:8443'), '기본 포트만');
+    assert.ok(!R.originAllowed('https://evilgame-files.crazygames.com'));
+    assert.ok(!R.originAllowed('https://x.game-files.crazygames.com.evil.example'));
+    assert.ok(!R.originAllowed('https://www.crazygames.com'), '게임 파일 주소가 아닌 CrazyGames 페이지는 허용하지 않는다');
   });
 
   test('들어온 글자: 크기, JSON, 모양, ref를 검사한다', () => {

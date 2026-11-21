@@ -53,7 +53,7 @@ export const LIMITS = Object.freeze({
 });
 
 /** 브라우저 Origin 허용 목록의 기본값. wrangler.toml의 ALLOWED_ORIGINS가 있으면 그것을 쓴다 */
-export const DEFAULT_ORIGINS = 'https://jungmk0720.github.io,http://localhost:*,http://127.0.0.1:*';
+export const DEFAULT_ORIGINS = 'https://jungmk0720.github.io,https://*.game-files.crazygames.com,http://localhost:*,http://127.0.0.1:*';
 
 /* ---------------- 허브 이름 ---------------- */
 
@@ -75,6 +75,7 @@ export function isKey(v) {
 
 /**
  * Origin 검사. 목록은 쉼표로 나누고, 'http://localhost:*'처럼 끝이 ':*'이면 모든 포트를 허용한다.
+ * 'https://*.game-files.crazygames.com'처럼 '://*.'이 있으면 그 도메인의 하위 도메인을 허용한다(CrazyGames에 올린 게임 파일의 주소).
  * Origin이 없는 요청(브라우저가 아닌 node 시험·도구)은 통과시킨다. 브라우저는 WebSocket을 열 때 항상 Origin을 보낸다.
  */
 export function originAllowed(origin, list = DEFAULT_ORIGINS) {
@@ -86,6 +87,13 @@ export function originAllowed(origin, list = DEFAULT_ORIGINS) {
     if (entry.endsWith(':*')) {
       const base = entry.slice(0, -1);
       if (origin.startsWith(base) && /^\d{1,5}$/.test(origin.slice(base.length))) return true;
+    }
+    if (entry.includes('://*.')) {
+      // 'https://*.game-files.crazygames.com': 그 도메인의 하위 도메인(깊이 상관없음), 같은 scheme, 기본 포트만
+      const [scheme, suffix] = entry.split('://*.');
+      let u = null;
+      try { u = new URL(origin); } catch (e) { u = null; }
+      if (u && u.protocol === scheme + ':' && !u.port && u.origin === origin && u.hostname.endsWith('.' + suffix.toLowerCase())) return true;
     }
   }
   return false;
