@@ -272,7 +272,7 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
   - `deathDir:[x,z]`, `respawned:true`(부활), `teleport:true`(보간하지 않음)
 - `update(now, dt)`: `now − 100 ms`(NET.INTERP_DELAY_MS) 시점으로 보간한다(위치는 선형, yaw는 최단 각). 최신 스냅샷을 넘어서면 150 ms까지만 외삽한다.
 - `getTargets()`: **화면에 보이는(보간된) 위치·yaw·자세**로 만든 히트 대상 `[{ id, pos, yaw, alive:true, crouch(0..1), team, name }]`이다. 쓰러진 아바타는 빠진다. `crouch`는 자세 전환 비율이라 히트박스가 보이는 자세와 맞는다.
-- `get(id).kill({ dir })`: 피 없이 총알 방향으로 쓰러진다(0.65 s). `.revive()`.
+- `get(id).kill({ dir })`: 피 없이 총알 방향으로 쓰러진다(Death 클립 약 1.04 s). 바닥에 누운 채 1.9 s 있다가 1 s 동안 땅으로 0.6 m 가라앉고, 그 뒤 부활할 때까지 숨긴다(`engine/corpse.js`). 쓰러진 순간부터 히트 대상·이름표에서 빠진다. `.revive()`.
 - `.setHeld(object3d)`: 손 소켓에 3인칭 무기 모델을 끼운다(총구 = -Z).
 - `teleport(id, state)`, `setLocalTeam(team)`(아군 이름표는 이름이 벽 너머로도 보인다. 적 이름표에는 닉네임이 없고, 상태 표시 `badge`(🛡 부활 보호)가 있을 때만 그 글자가 35 m 안에서 보인다. 규칙은 `engine/nametag.js`), `setDelay(ms)`.
 - `add(id, { name, team, avatar, badge })`: `badge`는 이름표 앞 상태 표시(World가 정한다: 🛡 보호 · 💣 폭탄을 든 아군).
@@ -484,7 +484,8 @@ pixelRatio는 최대 1.5다. 톤매핑은 Neutral이고, 표지판·이름표는
   - 대원 × 팀마다 몸·머리 장비·팀 강조 장비를 한 지오메트리로 굽고(위치·뼈 속성은 두 팀이 같이 쓰고 색만 다르다), 아바타마다 뼈대만 복제한다.
   - 그리기 호출: 몸 1 + 든 무기 1 + 이름표 1(+ AI 안경 1). 대원 1명 삼각형 6,400~7,900개.
   - 먼 대원·화면 밖 대원은 몸 동작을 2~6 프레임에 한 번 계산한다(위치·히트박스는 매 프레임).
-- 동작: 이동은 모델 클립(Idle·Walk·Run·Run_Back·Run_Left·Run_Right)을 로컬 속도로 섞는다. 상체 조준(pitch), 총 든 두 팔(IK), 앉기(엉덩이 내리기 + 다리 IK, 앉아 걷기), 칼 휘두르기·반동·재장전·투척은 뼈를 직접 돌린다. 쓰러짐은 Death 클립을 맞은 방향으로 돌려 재생한다.
+- 동작: 이동은 모델 클립(Idle·Walk·Run·Run_Back·Run_Left·Run_Right)을 로컬 속도로 섞는다. 상체 조준(pitch), 총 든 두 팔(IK), 앉기(엉덩이 내리기 + 다리 IK, 앉아 걷기), 칼 휘두르기·반동·재장전·투척은 뼈를 직접 돌린다. 쓰러짐은 Death 클립을 맞은 방향으로 돌려 재생하고 끝 자세에서 멈춘다.
+  - 매 갱신 뼈를 쉬는 자세로 되돌린 뒤 클립을 얹는다. AnimationMixer는 섞은 값이 지난 갱신과 같으면 뼈에 쓰지 않으므로(끝에서 멈춘 Death 클립이 T자로 서 있던 원인) `forceMixerWrite`로 언제나 쓰게 한다.
   - `avatar.swing(kind)`·`recoil()`·`reload(sec)`·`throwNade()`. World는 `actorFire`(반동·칼)·`actorGrenade`(투척)·`actorReload`(봇 재장전)에서 부른다.
   - 3인칭 무기는 오른손목 뼈의 소켓에 붙는다(`setHeld(obj)`의 obj도 소켓 기준, 총구 = -Z).
 - 이모트: `emoteanim.js` 포즈(리그 약속)를 뼈 회전으로 옮긴다. 리그에서 손이 머리·다른 손에 닿는 자세는 이 몸 크기에 맞게 손목 목표를 고쳐 IK로 놓는다. 이모트 중에는 총을 등에 멘다.

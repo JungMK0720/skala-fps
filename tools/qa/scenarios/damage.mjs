@@ -119,6 +119,34 @@ async function shootPart(t, page, id, part, { ads = true, handIndex = 0 } = {}) 
   return { ...res, dist: aim ? aim.dist : 0 };
 }
 
+/** 페이지에서: 표적 봇 아바타의 쓰러진 몸 상태. headY = 발 원점 기준 머리 뼈 높이(m) */
+function corpseView() {
+  const qa = window.__qa;
+  const id = qa.run.bots[0].id;
+  const a = qa.ctx.avatars.get(id);
+  if (!a || !a.body) return null;
+  const v = a.root.position.clone();
+  a.body.bones.Head.getWorldPosition(v);
+  return {
+    t: a.death ? a.death.t : null, headY: v.y - a.pos[1], shown: a.root.visible, tag: a.tag.visible,
+    target: qa.ctx.avatars.getTargets().some((x) => x.id === id)
+  };
+}
+
+/**
+ * 쓰러진 몸은 바닥에 누워 있다가(쓰러짐 동작이 끝난 뒤에도 서 있으면 안 된다) 3초 안에 가라앉아 숨는다.
+ * 히트 대상·이름표에서는 바로 빠진다. 끝에서 멈춘 쓰러짐 동작이 T자로 서 있던 버그(engine/operator-model.js forceMixerWrite)를 본다
+ */
+async function checkCorpse(t, page) {
+  await page.waitFor('(() => { const a = __qa.ctx.avatars.get(__qa.run.bots[0].id); return !a.death || a.death.t >= 1.5; })()', 5000, { intervalMs: 30, label: '쓰러짐 동작 끝' });
+  const lying = await page.fn(corpseView);
+  t.check(lying && lying.t !== null && lying.headY < 0.6 && lying.shown && !lying.tag && !lying.target, '쓰러진 몸은 바닥에 누워 있고 히트 대상·이름표에서 빠진다', lying);
+  await page.waitFor('(() => { const a = __qa.ctx.avatars.get(__qa.run.bots[0].id); return !a.death || a.death.t >= 2.95; })()', 5000, { intervalMs: 20, label: '쓰러진 몸 사라짐' });
+  const gone = await page.fn(corpseView);
+  if (gone && gone.t !== null) t.check(!gone.shown && !gone.target, '쓰러진 몸은 3초 안에 사라진다', gone);
+  else t.note('쓰러진 몸이 사라지기 전에 표적이 부활했다(사라짐 검사 건너뜀)');
+}
+
 export default {
   name: 'damage',
   title: '부위별 피해, 라이플 헤드 1발, 저격 반샷 표시, 칼, 수류탄, 피격과 부활',
@@ -142,7 +170,10 @@ export default {
       t.check(computeDamage(id, 'head', far.dist) === WEAPONS[id].damage.head, `${id}: 머리 피해는 거리 감쇠가 없다`);
       t.check(r.kill && r.kill.head === true, `${id}: 먼 거리 머리 1발 킬`, r.kill);
       t.check((await page.eval(`__qa.text('.sk-killfeed')`)).length > 0, `${id}: 킬피드가 뜬다`);
-      if (id === 'ar_std') await t.shot('rifle-head-kill');
+      if (id === 'ar_std') {
+        await t.shot('rifle-head-kill');
+        await checkCorpse(t, page);
+      }
       await readyTarget(page, far);
     }
 

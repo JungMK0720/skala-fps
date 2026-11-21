@@ -38,6 +38,23 @@ export const MODEL_SHIFT_Z = 0.065;
 /** 모델 안의 동작 이름(tools/models/build-operators.mjs KEEP_CLIPS) */
 const CLIPS = Object.freeze({ idle: 'Idle', walk: 'Walk', run: 'Run', back: 'Run_Back', left: 'Run_Left', right: 'Run_Right', death: 'Death' });
 
+/** forceMixerWrite가 비교 칸에 넣는 값. 섞기에서 0을 곱해도 유한하게 남도록 Infinity·NaN이 아닌 큰 수 */
+const MIXER_STALE = 1e30;
+/**
+ * AnimationMixer는 이번에 섞은 값이 지난 갱신과 같으면 뼈에 쓰지 않는다(three r170 PropertyMixer.apply가 accu0·accu1을 비교).
+ * 몸은 매 갱신 resetPose로 뼈를 쉬는 자세(T자)로 되돌린 뒤 클립을 얹으므로, 값이 멈춘 클립 — 끝에서 멈춘 쓰러짐 동작(clampWhenFinished) —
+ * 은 뼈에 쓰이지 않고 T자로 선 채 남는다(쓰러진 몸이 서 있던 버그). 비교하는 두 칸의 첫 값을 어긋나게 해 언제나 쓰게 한다.
+ * 버퍼 배치 [incoming | accu0 | accu1 | orig | …](valueSize 칸씩). 이번 갱신의 칸은 섞기가 덮어쓰고, 다른 칸이 어긋난 값으로 남는다.
+ */
+function forceMixerWrite(mixer) {
+  const list = mixer._bindings;
+  for (let i = 0, n = mixer._nActiveBindings; i < n; i++) {
+    const pm = list[i], s = pm.valueSize;
+    pm.buffer[s] = MIXER_STALE;
+    pm.buffer[2 * s] = MIXER_STALE;
+  }
+}
+
 /* ---------------- 총 든 자세(아바타 공간, 서 있고 조준 0) ----------------
  * 오른손은 총 손잡이, 왼손은 총몸 아래를 받친다. 이 모델은 팔이 짧아(어깨~손목 0.40 m) 예전 상자 인물보다 손이 몸에 가깝다.
  */
@@ -537,6 +554,7 @@ export class OperatorBody {
     }
     this.act.death.setEffectiveWeight(this.deathW);
     this.resetPose();
+    forceMixerWrite(this.mixer);
     this.mixer.update(this.dead ? dt : 0);
 
     if (live > 0.001) {

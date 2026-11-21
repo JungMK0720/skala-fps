@@ -261,6 +261,18 @@ export default {
       await eventually(t, host, `__qa.text('.sk-killfeed').includes('손님')`, '방장 킬피드');
       await eventually(t, guest, `__qa.text('.sk-killfeed').includes('방장')`, '손님 킬피드');
       t.check(+(await guest.eval(`__qa.text('.sk-hp-num')`)) === 0, '손님 HUD 체력 0');
+      // 방장 화면의 손님 몸: 원격 쓰러짐도 바닥에 누워 있고(서 있으면 산 사람처럼 보인다) 히트 대상·이름표에서 빠진다
+      await host.waitFor(`(() => { const a = __qa.ctx.avatars.list().find((x) => x.name.includes('손님')); return !a || !a.death || a.death.t >= 1.5; })()`, 5000, { intervalMs: 30, label: '원격 쓰러짐 동작 끝' });
+      const remoteCorpse = await host.fn(() => {
+        const qa = window.__qa;
+        const a = qa.ctx.avatars.list().find((x) => x.name.includes('손님'));
+        if (!a || !a.body || !a.death) return null;
+        const v = a.root.position.clone();
+        a.body.bones.Head.getWorldPosition(v);
+        return { t: a.death.t, headY: v.y - a.pos[1], tag: a.tag.visible, target: qa.ctx.avatars.getTargets().some((x) => x.id === a.id) };
+      });
+      if (remoteCorpse) t.check(remoteCorpse.headY < 0.6 && !remoteCorpse.tag && !remoteCorpse.target, '방장 화면에서 쓰러진 손님은 바닥에 누워 있고 히트 대상·이름표에서 빠진다', remoteCorpse);
+      else t.note('원격 쓰러짐 확인 전에 다음 라운드가 시작됐다');
       await t.shot('host-killed-guest');
 
       t.setSection('손님이 쏜다');

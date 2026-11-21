@@ -11,6 +11,7 @@
  *   avatars.update(now, dt)                  // 매 프레임: now − delay(100 ms) 시점으로 보간 → 몸·히트박스 갱신(먼 대원은 몸 동작을 덜 자주)
  *   avatars.getTargets()                     // raycastPlayers용 [{ id, pos, yaw, alive, crouch(0..1), team, name }] (보간된 화면 위치·자세)
  *   avatars.get(id).kill({ dir:[x,z] }) / .revive() / .setHeld(object3d) / .setName() / .setTeam() / .setAvatar(id)
+ *                                            // kill: 쓰러짐 동작 → 누운 채 잠깐 → 땅으로 가라앉아 약 3초 뒤 숨김(engine/corpse.js), 히트 대상·이름표에서 빠진다
  *   avatars.get(id).swing(kind) / .recoil() / .reload(sec) / .throwNade()   // 칼 휘두르기 · 사격 반동 · 재장전 · 투척
  *   avatars.setLocalTeam(team)               // 아군 이름표는 벽 너머로도 보임. 적(개인전은 모두)은 이름을 숨기고 상태 표시만 35 m 안에서
  *   avatars.setLocalBody({ visible, pos, yaw, team, name, emote, crouch, slot, weaponId, avatar })  // 3인칭(이모트) 때 내 몸 (player.getBodyState())
@@ -37,6 +38,7 @@ import { tagText, tagShown } from './nametag.js';
 import { OPERATOR_IDS } from './operator-look.js';
 import { heldGeometry, heldKeyOf, droppedGunGeometry, glassesGeometry, HELD_KEYS } from './operator-gear.js';
 import { OperatorBody, loadOperators, operatorsReady } from './operator-model.js';
+import { corpseState } from './corpse.js';
 
 const FONT = "'Pretendard','Noto Sans KR','Malgun Gothic','Apple SD Gothic Neo',system-ui,sans-serif";
 
@@ -102,7 +104,8 @@ class Avatar {
     this.heldKey = 'gun';
     this.held = null;              // 무기 담당의 3인칭 모형(setHeld)
     this.aiGlasses = false;
-    this.death = null;             // { t, dir:[x,z] } 쓰러진 때와 방향(월드)
+    this.death = null;             // { t, dir:[x,z] } 쓰러진 때와 방향(월드). 몸은 engine/corpse.js 시간표대로 누웠다가 가라앉아 숨는다
+    this.corpse = { sink: 0, shown: true };
     this.lastPos = null;
     this.vel = [0, 0];             // 로컬 속도(m/s, 부드럽게)
     this.isLocal = false;          // 3인칭 때의 내 몸
@@ -235,7 +238,9 @@ class Avatar {
     const ct = this.crouchTarget ? 1 : 0, cstep = dt / PLAYER.CROUCH_TIME;
     if (!this.death) this.crouch = this.crouch < ct ? Math.min(ct, this.crouch + cstep) : Math.max(ct, this.crouch - cstep);
     const ck = this.crouch * this.crouch * (3 - 2 * this.crouch);
-    this.root.position.set(this.pos[0], this.pos[1], this.pos[2]);
+    // 쓰러진 몸: 누운 채 잠깐 있다가 땅으로 가라앉고, 다 가라앉으면 부활할 때까지 숨긴다(살아 있는 사람처럼 보이지 않게)
+    const corpse = this.death ? corpseState(this.death.t, this.corpse) : null;
+    this.root.position.set(this.pos[0], this.pos[1] - (corpse ? corpse.sink : 0), this.pos[2]);
     this.root.rotation.y = this.yaw;
 
     // 실제 이동(보간된 위치 차이) → 로컬 속도. 순간이동(큰 점프)은 무시한다
@@ -251,7 +256,7 @@ class Avatar {
     this.lastPos[0] = this.pos[0]; this.lastPos[1] = this.pos[1]; this.lastPos[2] = this.pos[2];
     this.tag.position.y = 2.18 - 0.5 * ck;
 
-    if (this.body) {
+    if (this.body && (!corpse || corpse.shown)) {
       this.body.setHeldKey(this.heldKey);
       // 애니메이션 LOD: 먼 대원·화면 밖 대원은 몇 프레임에 한 번(밀린 시간을 한꺼번에) 계산한다
       const cam = this.mgr.camera && this.mgr.camera.position;
@@ -276,7 +281,7 @@ class Avatar {
       dist: cam ? Math.hypot(cam.x - this.pos[0], cam.z - this.pos[2]) : 0
     });
     if (this.tag.visible !== show) this.tag.visible = show;
-    this.root.visible = this.visible;
+    this.root.visible = this.visible && (!corpse || corpse.shown);
   }
 
   dispose() {
