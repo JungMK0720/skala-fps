@@ -6,7 +6,9 @@
  */
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BR, BR_PHASES, BR_MOVE, buildSchedule, createZone, zoneDps, rollLoot, placements, sectorName, sectorAt, normalizeGrid, brMapData, LOOT_COMMON_GUNS, LOOT_RARE_GUNS } from '../js/game/br/rules.js';
+import { BR, BR_PHASES, BR_MOVE, buildSchedule, createZone, zoneDps, rollLoot, placements, sectorName, sectorAt, normalizeGrid, brMapData, spreadSpawns, LOOT_COMMON_GUNS, LOOT_RARE_GUNS } from '../js/game/br/rules.js';
+import { MAP_LIST, getMap } from '../js/maps/index.js';
+import { mapsForMode as lobbyMaps } from '../js/ui/lobby.js';
 import { getDef } from '../js/weapons/defs.js';
 import { createMatch } from '../js/game/match.js';
 import { createDrops } from '../js/game/drops.js';
@@ -176,6 +178,25 @@ describe('이동: 배틀로얄은 버니합이 이어지지 않는다', () => {
     assert.ok(ffa > PLAYER.WALK + 1, `ffa ${ffa}`);
     assert.ok(br <= BR_MOVE.MAX_SPEED + 1e-6, `br ${br}`);
     assert.ok(BR_MOVE.MAX_SPEED < PLAYER.WALK + 1);
+  });
+});
+
+describe('출발 지점', () => {
+  test('인원 수만큼 서로 가장 먼 곳을 고른다(12명: 하버타운에서 두 사람 사이 35 m 넘게)', () => {
+    const b = brMapData(getMap('harbortown'));
+    const pick = spreadSpawns(b.spawns, 12, 7);
+    assert.equal(pick.length, 12);
+    assert.deepEqual(pick, spreadSpawns(b.spawns, 12, 7));
+    let min = Infinity;
+    for (let i = 0; i < pick.length; i++) for (let j = i + 1; j < pick.length; j++) min = Math.min(min, Math.hypot(pick[i][0] - pick[j][0], pick[i][2] - pick[j][2]));
+    assert.ok(min > 35, `가장 가까운 두 출발 지점 ${min.toFixed(1)} m`);
+  });
+});
+
+describe('멀티 방 맵 목록', () => {
+  test('배틀로얄 전용 맵은 멀티 방(팀전·개인전·폭파 미션) 목록에 없고, br 칸이 있는 일반 맵은 남는다', () => {
+    for (const mode of ['team', 'ffa', 'bomb']) assert.ok(!lobbyMaps(MAP_LIST, mode, 'classic').some((m) => m.brOnly), mode);
+    assert.ok(lobbyMaps(MAP_LIST, 'team', 'classic').some((m) => m.id === 'tankfarm'));
   });
 });
 

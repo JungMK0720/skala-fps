@@ -45,7 +45,7 @@ import { h, btn } from '../ui/dom.js';
 import { sheet, createModal, mapCard } from '../ui/parts.js';
 import { mapIcon } from '../ui/icons.js';
 import { createRoyaleRun } from './br/solo.js';
-import { BR, BR_MATCH, brMapData } from './br/rules.js';
+import { BR, BR_MATCH, brMapData, spreadSpawns } from './br/rules.js';
 
 export const PRACTICE_DEFAULTS = Object.freeze({ mapId: 'alley', mode: 'ffa', ruleset: 'classic', size: 2, ffaBots: 5, brBots: BR.defaultBots, difficulty: 'normal', timeScale: 1 });
 /** 규칙을 고르면 먼저 선택되는 맵 */
@@ -247,6 +247,8 @@ export function createPractice({ ctx, world, ui }) {
     const brData = opts.mode === 'br' ? brMapData(info.data) : null;
     if (opts.mode === 'br' && !brData) opts.mode = 'ffa';
     const royal = !!brData;
+    // 배틀로얄 시드: 봉쇄 일정·보급품·출발 지점을 정한다(주소 &seed=N이면 그 판을 다시 볼 수 있다)
+    const brSeed = royal ? (opts.seed >>> 0) || ((rng() * 4294967296) >>> 0) : 0;
     if (royal) opts.ruleset = 'classic';
     const ffa = opts.mode === 'ffa' || royal;     // 배틀로얄은 개인전 엔진(팀 없음)에 부활만 없다
     const bombMode = opts.mode === 'bomb';
@@ -334,8 +336,8 @@ export function createPractice({ ctx, world, ui }) {
         ...(bomb ? { mode: 'bomb' } : royal ? { mode: 'ffa', ruleset: 'classic', ...BR_MATCH } : { mode: opts.mode, ruleset: rs.id, killTarget: opts.killTarget }),
         ...(opts.loadoutSec > 0 ? { loadoutMs: opts.loadoutSec * 1000 } : null)
       },
-      // 배틀로얄 출발 지점: 맵의 br.spawns(방향은 무작위). match.js FFA 스폰 고르기가 사람끼리 멀리 떨어뜨린다
-      players, spawns: royal ? { owner: [], charterer: [], ffa: brData.spawns.map((p) => ({ x: p[0], y: p[1], z: p[2], rotY: Math.round((rng() * 2 - 1) * Math.PI * 1000) / 1000 })) } : map.spawns,
+      // 배틀로얄 출발 지점: 맵의 br.spawns 중 인원 수만큼 서로 가장 먼 곳(방향은 무작위). 사람마다 한 곳씩 쓴다
+      players, spawns: royal ? { owner: [], charterer: [], ffa: spreadSpawns(brData.spawns, players.length, brSeed).map((p) => ({ x: p[0], y: p[1], z: p[2], rotY: Math.round((rng() * 2 - 1) * Math.PI * 1000) / 1000 })) } : map.spawns,
       mission: mission || undefined, chooseCarrier,
       getPositions: () => {
         const o = {};
@@ -349,7 +351,7 @@ export function createPractice({ ctx, world, ui }) {
     for (const b of bots) world.addActor({ id: b.id, name: b.name, team: b.team, kind: 'bot', avatar: b.avatar });
     // 배틀로얄(MODES.md 15절): 봉쇄·보급품·순위·봇 목표. 개인전 엔진의 이벤트 길(apply)로 피해·회복·탈락을 넣는다
     const royale = royal ? createRoyaleRun({
-      ctx, world, ui, data: info.data, opts, me, bots, match, nameOf,
+      ctx, world, ui, data: info.data, opts, me, bots, match, nameOf, seed: brSeed,
       apply: (evs) => apply(evs),
       simMs: () => simMs,
       meAlive: () => meAlive(),
@@ -402,7 +404,8 @@ export function createPractice({ ctx, world, ui }) {
           slot: a.getWeapon().slot, ammo: a.getAmmo(), weapon: a.getWeapon(), zoom: a.getZoom().progress,
           recoil: a.getRecoilKick(), grenades: a.getAmmo('gr_frag').mag
         },
-        enemies, allies, nav, los,
+        // 배틀로얄 초반: 봇은 가까운 적·자기를 쏜 적만 본다(royale.visibleEnemies) — 처음부터 맵을 가로질러 싸우지 않게
+        enemies: royale ? royale.visibleEnemies(b, enemies) : enemies, allies, nav, los,
         objective: bomb ? objectiveFor(b) : royale ? royale.objectiveFor(b) : null
       };
     }
@@ -532,7 +535,7 @@ export function createPractice({ ctx, world, ui }) {
     }
     function hear(origin, shooterId, team) {
       const info = ffa ? { id: shooterId } : { id: shooterId, team };
-      for (const b of bots) if (b.alive && b.id !== shooterId) b.brain.hearShot(origin, info);
+      for (const b of bots) if (b.alive && b.id !== shooterId && (!royale || royale.canHear(b))) b.brain.hearShot(origin, info);
     }
 
     /* ---------- 이벤트 → 화면 ---------- */
@@ -741,7 +744,11 @@ export function createPractice({ ctx, world, ui }) {
         world.feedbackDamage({ attackerPos: ap ? ap.slice() : null, amount: ev.amount, head: !!ev.head, half: !!ev.halfShot, incoming: true });
       } else {
         const b = botById.get(ev.victim);
-        if (b) { b.hp = ev.hp; endBotEmote(b); if (ap) b.brain.onDamage({ from: ap.slice(), amount: ev.amount }); }
+        if (b) {
+          b.hp = ev.hp; endBotEmote(b);
+          if (ap) b.brain.onDamage({ from: ap.slice(), amount: ev.amount });
+          if (royale && !zoneHit) royale.noteHurt(b, ev.attacker);
+        }
       }
       if (ev.attacker === me.id && ev.victim !== me.id) {
         if (ev.halfShot) myHalfShots++;

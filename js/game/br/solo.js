@@ -16,6 +16,13 @@ const BOT_LOOT_GIVEUP_MS = 20000;    // 이만큼 가도 못 주우면 그 보�
 const BOT_ROAM_MS = 22000;           // 안전 구역 안에서 다음 자리로 옮기는 간격
 const BOT_HEAL_HP = 60;              // 봇이 구급상자를 쓰는 체력(교전이 없을 때)
 const SPOT_JITTER = 0.6;
+const SPREAD_CAP = 60;               // 봇 자리 고르기: 다른 사람과 이만큼(m) 넘게 떨어지면 똑같이 좋다
+// 속도 조절(봇, 12명 판이 6~9분 가게): 먼저 싸울 수 있는 거리를 봉쇄 단계마다 늘린다.
+// k번째 봉쇄 전까지 ENGAGE[k-1] m(둘째 봉쇄 전 0 = 먼저 쏘지 않는다), 넷째 봉쇄 뒤에는 제한 없음.
+// 주무기가 없으면(권총뿐) PISTOL_RANGE를 넘지 않는다. 자기를 쏜 적은 HURT_MS 동안 거리와 상관없이 본다
+const ENGAGE = Object.freeze([0, 0, 12, 25]);
+const PISTOL_RANGE = 15;
+const HURT_MS = 4000;
 
 /** 칸 목록 → 'B-2, C-3 외 4곳' */
 function sectorList(grid, list) {
@@ -34,7 +41,7 @@ export function createRoyaleRun(host) {
   const br = brMapData(host.data);
   if (!br) return null;
   const grid = br.grid;
-  const seed = (opts.seed >>> 0) || ((Date.now() ^ 0x2545f491) >>> 0);
+  const seed = (host.seed >>> 0) || (opts.seed >>> 0) || ((Date.now() ^ 0x2545f491) >>> 0);
   const rng = mulberry32(seed ^ 0x68e31da4);
   // 마지막 안전 칸 후보: 보급품이나 출발 지점이 있는 칸(걸을 수 있는 곳)
   const anchors = [...br.loot.map((l) => l.pos), ...br.spawns];
@@ -182,20 +189,24 @@ export function createRoyaleRun(host) {
   }
 
   /* ---------- 봇 목표 (BOTS_API 12절 view.objective) ---------- */
-  function nearestAnchor(p, set) {
-    let best = null, bd = Infinity;
+  /**
+   * set 칸의 지점 중 다른 사람(그 사람이 가는 자리 또는 지금 자리)과 가장 떨어진 곳. nearW만큼 내 자리에서 가까운 쪽을 더 쳐준다.
+   * 봇이 같은 지점에 몰려 있다가 싸울 거리가 풀리자마자 한꺼번에 쓰러지지 않게 안전 구역 안에 흩어 둔다
+   */
+  function spacedAnchor(b, set, nearW) {
+    const others = [host.myPos()];
+    for (const o of bots) if (o !== b && o.alive) others.push(o.royRoam ? o.royRoam.pos : o.body.pos);
+    const p = b.body.pos;
+    let best = null, bs = -Infinity;
     for (const i of set) {
       for (const a of anchorsBySector.get(i) || []) {
-        const d = Math.hypot(a[0] - p[0], a[2] - p[2]) + Math.abs(a[1] - p[1]) * 2;
-        if (d < bd) { bd = d; best = a; }
+        let sep = SPREAD_CAP;
+        for (const q of others) sep = Math.min(sep, Math.hypot(a[0] - q[0], a[2] - q[2]));
+        const s = sep - nearW * Math.hypot(a[0] - p[0], a[2] - p[2]) + rng() * 2;
+        if (s > bs) { bs = s; best = a; }
       }
     }
     return best;
-  }
-  function randomAnchor(set) {
-    const pool = [];
-    for (const i of set) for (const a of anchorsBySector.get(i) || []) pool.push(a);
-    return pool.length ? pool[Math.floor(rng() * pool.length)] : null;
   }
   const allSectors = [...anchorsBySector.keys()].filter((i) => i >= 0);
   function lootGoal(b) {
@@ -231,8 +242,13 @@ export function createRoyaleRun(host) {
     const sec = sectorAt(grid, p[0], p[2]);
     const danger = zone.overtime ? false : sec < 0 ? zone.phase > 0 : !!(zone.closed[sec] || zone.closing[sec]);
     if (targetSet && danger) {
-      const a = nearestAnchor(p, targetSet);
-      if (a) { b.royRoam = null; return { pos: a, radius: 3, hold: true, urgent: !!(sec >= 0 && zone.closed[sec]) }; }
+      // 다음 안전 구역 안으로: 이미 고른 자리가 그 안이면 그대로, 아니면 가까우면서 다른 사람과 떨어진 지점
+      const keep = b.royRoam && targetSet.includes(sectorAt(grid, b.royRoam.pos[0], b.royRoam.pos[2]));
+      if (!keep) {
+        const a = spacedAnchor(b, targetSet, 0.5);
+        b.royRoam = a ? { pos: a, until: host.simMs() + BOT_ROAM_MS } : null;
+      }
+      if (b.royRoam) return { pos: b.royRoam.pos, radius: 3, hold: true, urgent: !!(sec >= 0 && zone.closed[sec]) };
     }
     const d = lootGoal(b);
     if (d) return { pos: d.pos, radius: 0.5, hold: true };
@@ -240,7 +256,7 @@ export function createRoyaleRun(host) {
     const now = host.simMs();
     const roamSec = b.royRoam ? sectorAt(grid, b.royRoam.pos[0], b.royRoam.pos[2]) : -1;
     if (!b.royRoam || now >= b.royRoam.until || !set.includes(roamSec)) {
-      const a = randomAnchor(set);
+      const a = spacedAnchor(b, set, 0.15);
       b.royRoam = a ? { pos: [a[0] + (rng() - 0.5) * SPOT_JITTER, a[1], a[2] + (rng() - 0.5) * SPOT_JITTER], until: now + BOT_ROAM_MS * (0.6 + rng() * 0.8) } : null;
     }
     return b.royRoam ? { pos: b.royRoam.pos, radius: 2.5, hold: true } : null;
@@ -274,7 +290,7 @@ export function createRoyaleRun(host) {
     if (out.has(id)) return;
     out.add(id);
     heals.delete(id);
-    deaths.push({ id, at: zoneT() });
+    deaths.push({ id, at: zoneT(), cause: ev.cause === 'zone' ? 'zone' : 'fight' });
     const b = bots.find((x) => x.id === id);
     if (b) { dropBotLoot(b); if (b.royLoot) claims.delete(b.royLoot.id); }
     if (id === me.id) {
@@ -289,6 +305,32 @@ export function createRoyaleRun(host) {
     apply(match.removePlayer(id));
   }
   function placeOf(id) { return placements(ids, deaths).get(id) || total; }
+
+  /* ---------- 초반 속도 조절 ---------- */
+  /** 지금 봇이 먼저 싸울 수 있는 거리(m) */
+  function engageRange(t) {
+    const P = schedule.phases;
+    for (let k = 0; k < ENGAGE.length; k++) if (t < P[k].closeAt) return ENGAGE[k];
+    return Infinity;
+  }
+  /** 봇 b가 지금 볼 적(brain view.enemies): 봉쇄 단계에 따른 거리 안의 적 + 자기를 쏜 적 */
+  function visibleEnemies(b, list) {
+    if (liveAt < 0) return list;
+    const hurt = b.royHurtBy && host.simMs() - b.royHurtAt < HURT_MS ? b.royHurtBy : null;
+    let range = engageRange(zoneT());
+    if (b.arsenal.isSlotEmpty(1)) range = Math.min(range, PISTOL_RANGE);
+    if (range === Infinity) return list;
+    const p = b.body.pos;
+    return list.filter((e) => e.id === hurt || (e.pos && Math.hypot(e.pos[0] - p[0], e.pos[2] - p[2]) <= range));
+  }
+  /** 총소리를 따라갈 수 있는가: 싸움 거리 제한이 풀린 뒤(넷째 봉쇄 뒤)에만, 권총뿐이면 아니다. 그 전에는 소리를 쫓아 몰려들지 않는다 */
+  function canHear(b) {
+    return liveAt >= 0 && engageRange(zoneT()) === Infinity && !b.arsenal.isSlotEmpty(1);
+  }
+  function noteHurt(b, attacker) {
+    if (!attacker || attacker === b.id) return;
+    b.royHurtBy = attacker; b.royHurtAt = host.simMs();
+  }
 
   /** 결과·점수판 줄: 순위(탈락 순서) · 킬 · 헤드샷 · 생존 시간. 살아 있는 사람은 alive */
   function ranking() {
@@ -343,6 +385,13 @@ export function createRoyaleRun(host) {
     get myResult() { return myResult; },
     get aliveCount() { return aliveCount(); },
     get myMedkits() { return myMedkits; },
+    visibleEnemies,
+    canHear,
+    noteHurt,
+    /** 탈락 기록 [{ id, at(봉쇄 시계 ms) }] 사본(시험용) */
+    get deaths() { return deaths.map((d) => ({ ...d })); },
+    /** 봉쇄 시계(ms, live 시작부터) */
+    get clock() { return zoneT(); },
     /** 처음 출격 전에 한 번: 보급품을 놓고 봉쇄 연출을 켠다 */
     prepare() {
       placeLoot();

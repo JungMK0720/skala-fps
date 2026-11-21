@@ -179,6 +179,8 @@ export async function install(ctx) {
     : null;
   const world = await createWorld({ ctx, ui });
   const practice = createPractice({ ctx, world, ui });
+  // 시험용(&debug=1에서만): window.__skalafps.practice.run 으로 연습장 판 상태(배틀로얄 royale 등)를 읽는다
+  if (ctx.flags && ctx.flags.debug) ctx.practice = practice;
   const toast = createToast(ui);
   const gate = createGateControl({ ctx, ui });
   const multi = createMultiFlow({ ctx, ui, world, bus });

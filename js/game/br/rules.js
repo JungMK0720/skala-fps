@@ -277,6 +277,26 @@ export function placements(ids, deaths) {
   return out;
 }
 
+/**
+ * 출발 지점 중 n곳을 서로 가장 멀리 떨어지게 고른다(먼 점 차례로 고르기). 첫 점은 시드로 정한다.
+ * 사람마다 한 곳씩 쓰므로 출발하자마자 마주치지 않는다. → [[x,y,z], …] (지점이 n보다 적으면 모두)
+ */
+export function spreadSpawns(points, n, seed = 0) {
+  const list = (Array.isArray(points) ? points : []).filter((p) => Array.isArray(p) && p.length >= 3);
+  if (list.length <= n) return list.map((p) => p.slice(0, 3));
+  const out = [list[Math.floor(mulberry32(seed ^ 0x1b873593)() * list.length)]];
+  const best = list.map((p) => Math.hypot(p[0] - out[0][0], p[2] - out[0][2]));
+  while (out.length < n) {
+    let k = -1;
+    for (let i = 0; i < list.length; i++) if (best[i] > 0 && (k < 0 || best[i] > best[k])) k = i;
+    if (k < 0) break;
+    const q = list[k];
+    out.push(q);
+    for (let i = 0; i < list.length; i++) best[i] = Math.min(best[i], Math.hypot(list[i][0] - q[0], list[i][2] - q[2]));
+  }
+  return out.map((p) => p.slice(0, 3));
+}
+
 /* ============================================================ 이동 */
 
 /**
