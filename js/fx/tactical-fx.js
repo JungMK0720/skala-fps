@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import { SMOKE, flashWhiteout } from '../weapons/tactical.js';
 
-const PUFFS = 30;                  // 구름 하나의 스프라이트 수
+const PUFFS = 44;                  // 구름 하나의 스프라이트 수(옅은 덩어리를 겹쳐 부피를 만든다)
 const MAX_CLOUDS = 8;              // 동시에 그리는 구름 상한(넘으면 오래된 것부터 안 그린다)
 const BURST_LIFE = 0.32;           // 섬광 번쩍임 시간(초)
 const RO = 8;                      // 연기 그리기 순서(수류탄 연출보다 뒤)
@@ -36,13 +36,22 @@ function puffTexture() {
     g.fillStyle = gr;
     g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
   };
-  blob(64, 64, 62, 0.85);
+  blob(64, 64, 52, 0.8);
   let s = 7;
   const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
-  for (let i = 0; i < 9; i++) {
-    const a = rnd() * Math.PI * 2, d = 12 + rnd() * 22;
-    blob(64 + Math.cos(a) * d, 64 + Math.sin(a) * d, 20 + rnd() * 16, 0.35 + rnd() * 0.3);
+  for (let i = 0; i < 10; i++) {
+    const a = rnd() * Math.PI * 2, d = 6 + rnd() * 18;
+    blob(64 + Math.cos(a) * d, 64 + Math.sin(a) * d, 14 + rnd() * 14, 0.25 + rnd() * 0.3);
   }
+  // 둥근 가리개: 가운데는 그대로, 바깥 절반에서 0까지 → 네모 테두리나 잘린 가장자리가 없다
+  g.globalCompositeOperation = 'destination-in';
+  const mask = g.createRadialGradient(64, 64, 0, 64, 64, 63);
+  mask.addColorStop(0, 'rgba(255,255,255,1)');
+  mask.addColorStop(0.45, 'rgba(255,255,255,0.85)');
+  mask.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = mask;
+  g.fillRect(0, 0, 128, 128);
+  g.globalCompositeOperation = 'source-over';
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -111,7 +120,7 @@ export function createTacticalFx({ scene, container } = {}) {
       group.add(sp);
       const rf = 0.15 + 0.8 * Math.sqrt(rnd());
       // 바깥 덩어리는 작고 옅어 가장자리가 뭉게뭉게 보인다
-      puffs.push({ s: sp, m, u, rf, sz: (0.75 + rnd() * 0.55) * (1.1 - rf * 0.45), a: rf > 0.7 ? 0.62 : 0.92, spin: (rnd() - 0.5) * 0.25, ph: rnd() * 6.28 });
+      puffs.push({ s: sp, m, u, rf, sz: (0.6 + rnd() * 0.7) * (1.1 - rf * 0.45), a: rf > 0.7 ? 0.42 : 0.68, spin: (rnd() - 0.5) * 0.25, ph: rnd() * 6.28 });
     }
     root.add(group);
     const c = { group, puffs };
