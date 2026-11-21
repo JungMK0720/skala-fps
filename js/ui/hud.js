@@ -937,6 +937,8 @@ export function createHud(ctx) {
     }
     if ('bomb' in p) applyBomb(p.bomb);
     if ('royale' in p) applyRoyale(p.royale);
+    // dead: 죽어서 관전 중 — 오른쪽 아래 무기 칸·탄약을 감춘다(css .sk-hud.is-down)
+    if ('dead' in p) el.classList.toggle('is-down', !!p.dead);
   }
 
   /** hitmarker(head, kill, { half }) — half: 저격 반샷(손·발) 전용 분홍 표시 */

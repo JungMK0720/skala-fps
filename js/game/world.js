@@ -302,6 +302,13 @@ function buildWorld(ctx, opts) {
   let quick = null;                               // 개인전 즉시 부활(E): { cost, ok }. 세션·연습장이 죽을 때 정하고 spawnLocal이 지운다
   let quickSentAt = -Infinity;                    // 이번 죽음에서 마지막으로 즉시 부활을 요청한 시각(ms)
   let quickTouch = false;                         // 휴대폰 '부활' 버튼(touch:use)을 보이고 있는가
+  let royaleTouch = '';                           // 배틀로얄 휴대폰 버튼(touch:use) 글자: '치료'(구급상자) · '결과'(탈락 뒤) · ''(숨김)
+  /** 배틀로얄 휴대폰 버튼: 살아 있고 구급상자가 있으면 '치료', 탈락했으면 '결과'. 누르면 input:use(br/solo.js가 E와 같이 받는다) */
+  function syncRoyaleTouch(label) {
+    if (label === royaleTouch) return;
+    royaleTouch = label;
+    bus.emit('touch:use', { on: !!label, label: label || '치료' });
+  }
   let protectUntil = 0;                           // 내 보호(무적) 표시가 끝나는 시각(ms)
   let pausedAt = 0;                               // 시뮬레이션을 멈춘 시각(ms). 멈춘 동안 부활·보호 표시 시계도 멈춘다
   const displayNow = () => (simPaused ? pausedAt : performance.now());
@@ -366,6 +373,7 @@ function buildWorld(ctx, opts) {
       arsenal.setAllowedSlots(rulesetOf(ruleset).slots);
       player.setMoveTuning(null);
       setRoyaleZone(null);
+      syncRoyaleTouch('');
       return;
     }
     if (!royale) {
@@ -2240,6 +2248,8 @@ function buildWorld(ctx, opts) {
     if (!simPaused && rnd.timeLeftMs != null) rnd.elapsed += dt * 1000;   // 멀티는 일시정지 화면이 떠도 시간이 흐른다
     const alive = local.spawned && local.alive;
     const p = alive ? arsenal.getHud(R.baseFov) : { crosshair: false };
+    // 죽어서 관전 중이면 오른쪽 아래 무기 칸·탄약을 감춘다
+    p.dead = local.spawned && !alive;
     // 이모트 중: 크로스헤어 숨김 + hud.emote(이름·아이콘). 휠 화면은 UI 'emotes'
     const em = alive && emoteLocal ? emoteInfo(emoteLocal) : null;
     if (em || (alive && thirdAmount() > 0.01)) p.crosshair = false;
@@ -2270,6 +2280,7 @@ function buildWorld(ctx, opts) {
     }
     p.bomb = mode === 'bomb' ? bombView.hud() : null;
     p.royale = royale ? royale.hud : null;
+    if (royale) syncRoyaleTouch(!input.touchMode || !local.spawned ? '' : alive ? (royale.medkits > 0 ? '치료' : '') : '결과');
     p.hint = lockHint() || hordeHint || pickHint() || customHint || '';
     // 살리기 안내는 읽기만 하는 줄이다: 휴대폰에서 이 줄을 눌러도 총 버리기(줍기 안내용 탭)가 되지 않게 ui/hud.js가 표시한다
     p.hintInfo = !lockHint() && !!hordeHint;
