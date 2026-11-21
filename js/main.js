@@ -39,6 +39,8 @@ import { createSandbox } from './engine/sandbox.js';
 import { createDevGun } from './engine/devgun.js';
 import { createFallbackMenu, createFallbackHud } from './engine/fallback-ui.js';
 import { buildMap } from './maps/builder.js';
+import { t, applyDocumentLang } from './core/i18n.js';
+import { platform } from './platform/index.js';
 
 const params = new URLSearchParams(location.search);
 const FLAGS = {
@@ -63,7 +65,7 @@ function sessionId() {
 }
 
 /** 닉네임 게이트를 지나기 전에 쓰는 임시 이름 */
-const temporaryName = () => '플레이어' + Math.floor(100 + Math.random() * 900);
+const temporaryName = () => t('common.playerPrefix') + Math.floor(100 + Math.random() * 900);
 
 const nextFrame = () => new Promise((res) => {
   let done = false;
@@ -78,7 +80,7 @@ function fatal(msg, err) {
   const box = document.createElement('div');
   box.className = 'core-fatal';
   const h = document.createElement('h2');
-  h.textContent = '게임을 시작할 수 없어요';
+  h.textContent = t('common.fatalTitle');
   const p = document.createElement('p');
   p.textContent = msg;
   box.append(h, p);
@@ -176,7 +178,7 @@ function createScreenMachine() {
       try { await handler.enter(enterParams, from); }
       catch (err) {
         console.error(`[screen] ${name}.enter 실패`, err);
-        bus.emit('app:error', { message: `${name} 화면을 열지 못했어요: ${(err && err.message) || err}` });
+        bus.emit('app:error', { message: t('common.screenOpenFailed', { screen: name, detail: (err && err.message) || err }) });
         if (name !== 'menu') await go('menu');
         return false;
       }
@@ -229,6 +231,7 @@ function fullscreenControls(app) {
 function wireFullscreen(ctx) {
   const { settings } = ctx;
   if (FLAGS.touch) return;   // 휴대폰은 engine/touch.js가 가로 고정과 함께 다룬다
+  if (platform.isPortal) return;   // CrazyGames는 전체 화면을 사이트가 제공하고 게임 안 전체 화면 단추를 금지한다(문서: gameplay 요건)
   /** 전체 화면을 켠다. 거절되면 설정을 되돌려 화면의 표시와 실제 상태가 어긋나지 않게 한다 */
   const enter = (notify) => ctx.enterFullscreen().then((ok) => {
     if (ok || ctx.isFullscreen()) return;
@@ -385,6 +388,11 @@ function wireTeardown(ctx, machine, fallback) {
 }
 
 async function boot() {
+  applyDocumentLang();
+  // 포털 SDK는 부팅 첫머리에서 초기화한다(문서: 로딩 화면에서 init). 3초 넘게 걸리거나 막히면 기다리지 않고 SDK 없이 뜬다(platform/index.js)
+  const platformReady = platform.init();
+  if (platform.isPortal) await Promise.race([platformReady, new Promise((res) => setTimeout(res, 3000))]);
+  platform.loadingStart();
   const app = document.getElementById('pc-app');
   const view = document.getElementById('pc-view');
   const uiRoot = document.getElementById('pc-ui');
@@ -393,7 +401,7 @@ async function boot() {
 
   let renderer;
   try { renderer = createRenderer({ container: view, settings, bus, preferLow: FLAGS.touch }); }
-  catch (err) { fatal('3D(WebGL)를 쓸 수 없어요. 브라우저의 하드웨어 가속을 켜거나 다른 브라우저로 열어 주세요.', err); return; }
+  catch (err) { fatal(t('common.fatalWebgl'), err); return; }
 
   const input = createInput({ element: renderer.domElement, bus, settings, touch: FLAGS.touch });
   input.setEnabled(false);
@@ -496,8 +504,9 @@ async function boot() {
   loop.start();
   bus.emit('app:ready', { ctx });
   await machine.set('menu');
+  platformReady.then(() => platform.loadingStop());
   if (FLAGS.sandbox) await machine.set('sandbox', { mapId: FLAGS.sandbox });
   return ctx;
 }
 
-boot().catch((err) => fatal('초기화 중 오류가 났어요.', err));
+boot().catch((err) => fatal(t('common.fatalBoot'), err));

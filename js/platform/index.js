@@ -66,6 +66,8 @@ function createAdBlocker() {
       });
       document.body.append(el);
     },
+    /** 광고가 실제로 시작되면 SDK가 자기 화면을 띄우므로 우리 글자는 지운다(판은 남겨 입력을 막는다) */
+    quiet() { if (el) el.textContent = ''; },
     hide() { if (el) { el.remove(); el = null; } }
   };
 }
@@ -93,7 +95,7 @@ export function createPlatform(impl, opt = {}) {
     try {
       console.info(`[platform] ${type} ad requested`);
       result = await impl.requestAd(type, {
-        start: () => { try { hooks.pause(type); } catch (e) { console.error(e); } },
+        start: () => { if (blocker.quiet) blocker.quiet(); try { hooks.pause(type); } catch (e) { console.error(e); } },
         end: () => { try { hooks.resume(type); } catch (e) { console.error(e); } }
       });
     } catch (err) {

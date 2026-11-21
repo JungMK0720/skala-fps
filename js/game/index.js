@@ -20,8 +20,10 @@ import { createAvatarPortraits } from '../engine/avatars.js';
 import { createOperatorPreview } from '../engine/operator-preview.js';
 import { createWorld, setWorldContext } from './world.js';
 import { createPractice, createPracticeSetup } from './practice.js';
+import { wirePlatform } from '../platform/wire.js';
+import { t } from '../core/i18n.js';
 
-const SCREEN_LABEL = { lobby: '로비', room: '대기실', match: '멀티 경기', results: '결과' };
+const SCREEN_LABEL = { lobby: t('common.screenLobby'), room: t('common.screenRoom'), match: t('common.screenMatch'), results: t('common.screenResults') };
 
 /** 오류·안내 알림 */
 function createToast(ui) {
@@ -71,7 +73,7 @@ function createMultiFlow({ ctx, ui, world, bus }) {
     if (!sessionP) {
       sessionP = import('./session.js').then(async (mod) => {
         const make = mod.createSession || mod.default;
-        if (typeof make !== 'function') throw new Error('session.js에 createSession이 없어요');
+        if (typeof make !== 'function') throw new Error('session.js에 createSession이 없어요'); // i18n-ok: 개발자용 오류(아래 catch가 일반 안내로 바꾼다)
         const s = await make({ ctx, ui, world, settings: ctx.settings, bus, playerName: ctx.session.name, setScreens: true });
         if (s && typeof s.on === 'function') {
           s.on('exit', () => { close(); ctx.setScreen('menu'); });
@@ -96,7 +98,7 @@ function createMultiFlow({ ctx, ui, world, bus }) {
     } catch (err) {
       console.warn('[game] 멀티플레이를 열 수 없어요', err);
       close();
-      ui.update('menu', { multiDisabled: '멀티플레이를 열 수 없어요. 잠시 뒤 다시 시도해 주세요.' });
+      ui.update('menu', { multiDisabled: t('common.multiUnavailable') });
     }
   }
 
@@ -184,6 +186,8 @@ export async function install(ctx) {
   const multi = createMultiFlow({ ctx, ui, world, bus });
   const notices = createNotices({ ui });
   const offs = [...registerSessionScreens(ctx)];
+  // 포털: 실제 조작 중일 때만 gameplayStart, 광고 중 소리·입력 정지, SDK 음소거 우선(platform/wire.js)
+  offs.push(wirePlatform({ ctx, ui, world }));
 
   /* ---------- 연습장 ---------- */
   offs.push(ctx.registerScreen('sandbox', {
@@ -256,10 +260,10 @@ export async function install(ctx) {
     bus.on('account:change', onAccountChange),
     bus.on('account:nickname-conflict', (e) => gate.onConflict(e)),
     bus.on('account:notice', takeAccountNotice),
-    bus.on('app:error', (e) => toast.notify((e && e.message) || '오류가 났어요')),
-    bus.on('fullscreen:denied', (e) => { if (e && e.notify) toast.notify('이 브라우저 화면에서는 전체 화면을 켤 수 없어요. 앉은 채 앞으로 갈 때는 C 키를 쓰세요.'); }),
-    bus.on('map:error', (e) => toast.notify(`맵을 불러오지 못했어요: ${(e && (e.message || e.id)) || ''}`)),
-    bus.on('screen:unavailable', (e) => toast.notify(`${SCREEN_LABEL[e && e.name] || (e && e.name) || ''} 화면은 아직 준비 중이에요.`)),
+    bus.on('app:error', (e) => toast.notify((e && e.message) || t('common.error'))),
+    bus.on('fullscreen:denied', (e) => { if (e && e.notify) toast.notify(t('common.fullscreenDenied')); }),
+    bus.on('map:error', (e) => toast.notify(t('common.mapLoadFailed', { detail: (e && (e.message || e.id)) || '' }))),
+    bus.on('screen:unavailable', (e) => toast.notify(t('common.screenNotReady', { screen: SCREEN_LABEL[e && e.name] || (e && e.name) || '' }))),
     ui.on('menu:sandbox', () => openPracticeSetup()),
     ui.on('menu:zombie', () => openPracticeSetup({ mode: 'zombie' })),
     // 메뉴 좀비 '같이 하기': 로비를 열고 곧바로 공개 좀비 방을 만들어 대기실로 간다
