@@ -59,9 +59,9 @@ function passes(rank, ns) {
 function describeObject(value, depth, path) {
   if (typeof value.message === 'string' && typeof value.stack === 'string') return value.stack || `${value.name}: ${value.message}`;
   if (value instanceof Map || value instanceof Set) return `${value.constructor.name}(${value.size})`;
-  if (path.includes(value)) return '[순환]';
+  if (path.includes(value)) return '[순환]'; // i18n-ok: 개발용 로그 버퍼
   const isList = Array.isArray(value) || ArrayBuffer.isView(value);
-  if (depth >= MAX_DEPTH) return isList ? `[${value.length}개]` : '{…}';
+  if (depth >= MAX_DEPTH) return isList ? `[${value.length}개]` : '{…}'; // i18n-ok: 개발용 로그 버퍼
   const nextPath = [...path, value];
   const keys = Object.keys(value);
   const items = keys.slice(0, MAX_ITEMS).map((k) => (isList ? '' : `${k}: `) + describe(value[k], depth + 1, nextPath));
@@ -72,7 +72,7 @@ function describeObject(value, depth, path) {
 /** 값 하나를 버퍼에 넣을 글자로 바꾼다. JSON.stringify는 쓰지 않는다: three.js 객체의 toJSON이 장면 전체를 직렬화한다 */
 function describe(value, depth = 0, path = []) {
   if (typeof value === 'string') return depth ? JSON.stringify(value) : value;
-  if (typeof value === 'function') return `[함수 ${value.name || '이름 없음'}]`;
+  if (typeof value === 'function') return `[함수 ${value.name || '이름 없음'}]`; // i18n-ok: 개발용 로그 버퍼
   if (value === null || typeof value !== 'object') return String(value);
   return describeObject(value, depth, path);
 }
@@ -80,7 +80,7 @@ function describe(value, depth = 0, path = []) {
 function toText(args) {
   const parts = [];
   for (const arg of args) {
-    try { parts.push(describe(arg)); } catch { parts.push('[출력 불가]'); }
+    try { parts.push(describe(arg)); } catch { parts.push('[출력 불가]'); } // i18n-ok: 개발용 로그 버퍼
   }
   const text = parts.join(' ');
   return text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + '…' : text;

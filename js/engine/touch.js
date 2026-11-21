@@ -9,6 +9,7 @@
  *          떼면 use(false)이고, 누르는 중에 숨으면 그 자리에서 뗀다.
  */
 import { EMOTE_WHEEL } from '../core/consts.js';
+import { t as tr } from '../core/i18n.js';
 import { TOUCH, isStickSide, knobOffset, stickState, wheelTapAt } from './touch-logic.js';
 
 /**
@@ -16,15 +17,15 @@ import { TOUCH, isStickSide, knobOffset, stickState, wheelTapAt } from './touch-
  * 죽은 동안에는 act 가운데 use만 남는다: 개인전 즉시 부활 '부활' 버튼이 아래 가운데에 뜬다. 발사 버튼 자리는 피한다(css/touch.css)
  */
 const BUTTONS = [
-  ['fire', '발사', 'act'],
-  ['zoom', '조준', 'act'],
-  ['jump', '점프', 'act'],
-  ['reload', '장전', 'act'],
-  ['crouch', '앉기', 'act'],
-  ['use', '설치', 'act'],
-  ['chat', '채팅', 'top'],
-  ['emote', '이모트', 'top'],
-  ['score', '점수', 'top'],
+  ['fire', tr('engine.touch.fire'), 'act'],
+  ['zoom', tr('engine.touch.zoom'), 'act'],
+  ['jump', tr('engine.touch.jump'), 'act'],
+  ['reload', tr('engine.touch.reload'), 'act'],
+  ['crouch', tr('engine.touch.crouch'), 'act'],
+  ['use', tr('engine.touch.use'), 'act'],
+  ['chat', tr('engine.touch.chat'), 'top'],
+  ['emote', tr('engine.touch.emote'), 'top'],
+  ['score', tr('engine.touch.score'), 'top'],
   ['pause', 'Ⅱ', 'top'],
 ];
 
@@ -53,7 +54,7 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
   const stickKnob = make('div', 'pc-stick-knob', stickBase);
   const rotate = make('div', 'pc-rotate', root);
   make('div', 'pc-rotate-ico', rotate, '📱');
-  make('div', 'pc-rotate-txt', rotate, '휴대폰을 가로로 돌려 주세요');
+  make('div', 'pc-rotate-txt', rotate, tr('engine.touch.rotate'));
 
   const buttons = new Map();
   for (const [act, label, group] of BUTTONS) {
@@ -306,7 +307,7 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
       const on = !!(e && e.on);
       const b = buttons.get('zoom');
       b.classList.toggle('is-aimfire', on);
-      b.textContent = on ? '조준 사격' : '조준';
+      b.textContent = on ? tr('engine.touch.aimFire') : tr('engine.touch.zoom');
     }),
     bus.on('screen:change', (e) => {
       document.documentElement.classList.toggle('pc-ingame', !!(e && gameScreens.has(e.to)));
@@ -321,7 +322,7 @@ export function createTouchControls({ input, bus, canvas, root, gameScreens }) {
     bus.on('touch:use', (e) => {
       const b = buttons.get('use');
       const on = !!(e && e.on);
-      const label = e && typeof e.label === 'string' && e.label ? e.label : '설치';
+      const label = e && typeof e.label === 'string' && e.label ? e.label : tr('engine.touch.use');
       if (b.textContent !== label) b.textContent = label;
       if (b.hidden !== on) return;
       b.hidden = !on;

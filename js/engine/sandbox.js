@@ -18,6 +18,7 @@
  */
 import { PLAYER, NET, EMOTES } from '../core/consts.js';
 import { AVATAR_IDS } from '../core/avatar-defs.js';
+import { t } from '../core/i18n.js';
 import { overlapsCapsule, lineOfSight, findFloor } from './physics.js';
 
 const MAX_DUMMIES = 8;
@@ -83,7 +84,7 @@ export function createSandbox(ctx) {
     const dist = Math.hypot(dx, dz);
     const d = {
       id: 'dummy-' + (i + 1),
-      name: `더미 ${i + 1} · ${Math.round(dist)}m`,
+      name: t('engine.sandbox.dummy', { n: i + 1, dist: Math.round(dist) }),
       bx: s.x, by: s.y, bz: s.z, x: s.x, y: s.y, z: s.z, yaw,
       mode: 'stand', ax: 0, az: 0, range: 0, phase: R() * 6, speed: 0.9 + R() * 0.5,
       hp: PLAYER.HP, alive: true, moving: false, crouch: false, bobT: R() * 4, respawnAt: 0, sendT: R() * SEND_DT, dist

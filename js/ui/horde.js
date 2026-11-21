@@ -7,23 +7,28 @@
  */
 import { h, setText, num, clamp } from './dom.js';
 import { makeScreen } from './parts.js';
+import { t } from '../core/i18n.js';
 
 const PHASE_TEXT = Object.freeze({
-  prep: (p) => `작전 준비 · ${p.time}초 뒤 1스테이지 · 무기는 지금만 고를 수 있어요`,
-  wave: (p) => `${p.bosses && p.bosses.length ? `보스 ${p.bosses.length}마리 · ` : ''}남은 좀비 ${p.left}${p.pickedText ? ` · 증강 고르는 중: ${p.pickedText}` : ''}`,
-  cards: (p) => `${p.pickWhy === 'chest' ? '보물 상자!' : '레벨 업!'} · 증강 고르는 중(게임 멈춤)`,
-  break: (p) => `다음 스테이지까지 ${p.time}초`,
-  over: () => '전멸 · 작전 종료'
+  prep: (p) => t('horde.hud.prep', { secs: p.time }),
+  wave: (p) => [
+    p.bosses && p.bosses.length ? t('horde.hud.bosses', { n: p.bosses.length }) : '',
+    t('horde.hud.left', { n: p.left }),
+    p.pickedText ? t('horde.hud.pickingWho', { names: p.pickedText }) : ''
+  ].filter(Boolean).join(' · '),
+  cards: (p) => t(p.pickWhy === 'chest' ? 'horde.hud.cardsChest' : 'horde.hud.cardsLevel'),
+  break: (p) => t('horde.hud.break', { secs: p.time }),
+  over: () => t('horde.hud.over')
 });
 
 export function createHordeHud(ctx) {
   void ctx;
   const stageNum = h('b', { class: 'sk-hz-stage-n', text: '1' });
-  const stageLbl = h('span', { class: 'sk-hz-stage-l', text: '스테이지' });
+  const stageLbl = h('span', { class: 'sk-hz-stage-l', text: t('horde.hud.stage') });
   const line = h('span', { class: 'sk-hz-line' });
   const clock = h('span', { class: 'sk-hz-clock' });
   const bossBox = h('div', { class: 'sk-hz-bosses' });
-  const teamBox = h('ul', { class: 'sk-hz-team', 'aria-label': '동료' });
+  const teamBox = h('ul', { class: 'sk-hz-team', 'aria-label': t('horde.mate') });
   const warn = h('div', { class: 'sk-hz-warn', hidden: true });
   const field = h('div', { class: 'sk-hz-field', hidden: true, 'aria-hidden': 'true' });
   const fieldText = h('span', { class: 'sk-hz-field-text' });
@@ -33,7 +38,7 @@ export function createHordeHud(ctx) {
   const lvText = h('b', { class: 'sk-hz-lv', text: 'Lv 1' });
   const xpFill = h('i', { class: 'sk-hz-xpfill' });
   const xpText = h('span', { class: 'sk-hz-xpnum' });
-  const xpRow = h('div', { class: 'sk-hz-xp', 'aria-label': '팀 레벨과 경험치' }, lvText, h('span', { class: 'sk-hz-xpbar' }, xpFill), xpText);
+  const xpRow = h('div', { class: 'sk-hz-xp', 'aria-label': t('horde.hud.xpAria') }, lvText, h('span', { class: 'sk-hz-xpbar' }, xpFill), xpText);
   const top = h('div', { class: 'sk-hz-top sk-steel' },
     h('div', { class: 'sk-hz-stage' }, h('span', { class: 'sk-hz-ico', text: '🧟', 'aria-hidden': 'true' }), stageLbl, stageNum),
     stageTime,
@@ -42,7 +47,7 @@ export function createHordeHud(ctx) {
   const reviveText = h('span', { class: 'sk-hz-revive-t' });
   const reviveFill = h('i');
   const revive = h('div', { class: 'sk-hz-revive', hidden: true }, reviveText, h('span', { class: 'sk-hz-revive-bar' }, reviveFill));
-  const el = h('section', { class: 'sk-screen sk-hz', hidden: true, 'aria-label': '좀비 물량 막기 상황', 'aria-live': 'off' },
+  const el = h('section', { class: 'sk-screen sk-hz', hidden: true, 'aria-label': t('horde.hud.aria'), 'aria-live': 'off' },
     field, top, xpRow, bossBox, teamBox, warn, revive);
 
   const bossRows = [];
@@ -67,9 +72,9 @@ export function createHordeHud(ctx) {
    */
   const downText = (x) => {
     const r = reviveOf(x);
-    if (r != null) return `살리는 중 ${Math.round(r * 100)}%`;
-    if (!x.canRevive) return x.noAutoRevive ? '동료가 살려야 부활' : '다음 스테이지에 부활';
-    return x.me ? '동료가 살릴 수 있어요' : '곁에서 3초 눌러 살리기';
+    if (r != null) return t('horde.hud.reviving', { pct: Math.round(r * 100) });
+    if (!x.canRevive) return t(x.noAutoRevive ? 'horde.hud.needMate' : 'horde.hud.nextStage');
+    return t(x.me ? 'horde.hud.mateCan' : 'horde.hud.holdRevive');
   };
 
   let teamSig = '';
@@ -84,7 +89,7 @@ export function createHordeHud(ctx) {
       const rev = reviveOf(x);
       const r = rev != null ? rev : clamp(num(x.hp, 0) / Math.max(1, num(x.maxHp, 100)), 0, 1);
       return h('li', { class: 'sk-hz-mate' + (x.me ? ' is-me' : '') + (x.alive ? '' : ' is-down') + (rev != null ? ' is-reviving' : '') },
-        h('span', { class: 'sk-hz-mname', text: `${x.alive ? '' : '💀 '}${x.name}${x.me ? ' (나)' : ''}${x.picking ? ' · 증강 고르는 중 🛡' : x.invuln ? ' 🛡' : ''}` }),
+        h('span', { class: 'sk-hz-mname', text: `${x.alive ? '' : '💀 '}${x.me ? t('horde.hud.meName', { name: x.name }) : x.name}${x.picking ? ` · ${t('horde.hud.picking')} 🛡` : x.invuln ? ' 🛡' : ''}` }),
         h('span', { class: 'sk-hz-mbar' }, h('i', { style: { transform: `scaleX(${r.toFixed(3)})` } }), x.shield > 0 ? h('b', { class: 'sk-hz-shield', style: { width: `${clamp(x.shield / Math.max(1, num(x.maxHp, 100)), 0, 1) * 100}%` } }) : null),
         h('span', { class: 'sk-hz-mhp', text: x.alive ? String(Math.max(0, Math.round(num(x.hp, 0)))) : downText(x) }));
     }));
@@ -103,7 +108,7 @@ export function createHordeHud(ctx) {
     setText(reviveText, rv.text || '');
     reviveFill.style.transform = `scaleX(${clamp(num(rv.frac, 0), 0, 1).toFixed(3)})`;
   }
-  const FIELD_TEXT = Object.freeze({ acid: '산성 장판', fire: '화염 장판', web: '거미줄 장판', frost: '빙결 장판', shock: '감전 장판' });
+  const FIELD_TEXT = Object.freeze({ acid: t('horde.field.acid'), fire: t('horde.field.fire'), web: t('horde.field.web'), frost: t('horde.field.frost'), shock: t('horde.field.shock') });
   let fieldKind = null;
   function renderField(kind) {
     const label = FIELD_TEXT[kind] || '';
@@ -111,7 +116,7 @@ export function createHordeHud(ctx) {
     fieldKind = label ? kind : null;
     field.hidden = !label;
     field.className = `sk-hz-field${label ? ` is-${kind}` : ''}`;
-    setText(fieldText, label ? `${label} 안에 있어요` : '');
+    setText(fieldText, label ? t('horde.hud.inField', { name: label }) : '');
   }
 
 
@@ -121,11 +126,11 @@ export function createHordeHud(ctx) {
     const time = Math.max(0, Math.ceil(num(p.timeLeft, 0)));
     const fmt = PHASE_TEXT[phase] || PHASE_TEXT.wave;
     setText(line, fmt({ ...p, time, left: Math.max(0, num(p.left, 0) | 0) }));
-    setText(clock, p.elapsed ? `생존 ${p.elapsed}` : '');
+    setText(clock, p.elapsed ? t('horde.hud.survived', { time: p.elapsed }) : '');
     // 스테이지 남은 시간: 웨이브·증강 고르기 중에만, 10초 아래면 빨갛게
     const st = p.stageLeft == null ? null : Math.max(0, Math.ceil(num(p.stageLeft, 0)));
     stageTime.hidden = st == null || (phase !== 'wave' && phase !== 'cards');
-    setText(stageTime, st == null ? '' : `⏱ ${st}초`);
+    setText(stageTime, st == null ? '' : t('horde.hud.stageTime', { secs: st }));
     stageTime.classList.toggle('is-urgent', st != null && st <= 10 && phase === 'wave');
     const xp = p.xp && typeof p.xp === 'object' ? p.xp : null;
     xpRow.hidden = !xp || phase === 'over';
@@ -142,7 +147,7 @@ export function createHordeHud(ctx) {
       const r = bossRow(i);
       r.row.hidden = false;
       const frac = clamp(num(b.hpFrac, 0), 0, 1);
-      setText(r.name, `${b.icon || '👑'} ${b.name || '보스'}${b.enraged ? ' · 분노' : ''}`);
+      setText(r.name, `${b.icon || '👑'} ${b.enraged ? t('horde.hud.enraged', { name: b.name || t('horde.bossFallback') }) : b.name || t('horde.bossFallback')}`);
       setText(r.pct, `${Math.ceil(frac * 100)}%`);
       setText(r.skill, b.skill ? `⚠ ${b.skill}` : '');
       r.fill.style.transform = `scaleX(${frac.toFixed(3)})`;

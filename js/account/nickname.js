@@ -4,19 +4,20 @@
  * Purpose: 닉네임 정규화와 형식 검사(순수 함수). supabase/schema.sql의 fps_clean_name, fps_name_error와 규칙이 정확히 같아야 한다.
  *          규칙을 바꾸면 두 파일을 함께 고친다. tests/account.test.mjs가 글자 단위로 대조한다.
  */
+import { t } from '../core/i18n.js';
 
 export const NICKNAME_MIN = 2;
 export const NICKNAME_MAX = 12;
 /** 정규식 대괄호 안에 들어갈 허용 글자. 눈에 보이지 않는 한글 채움 문자(U+3164)는 이 범위 밖이다. */
-export const NICKNAME_CHARSET = '0-9A-Za-zㄱ-ㅎㅏ-ㅣ가-힣 _-';
+export const NICKNAME_CHARSET = '0-9A-Za-zㄱ-ㅎㅏ-ㅣ가-힣 _-'; // i18n-ok: 정규식 허용 글자(서버와 같은 규칙)
 /**
  * 공백으로 치는 글자. JS의 \s와 같은 목록을 그대로 적어 Postgres의 로캘에 좌우되지 않게 한다.
  * 안 보이는 글자는 \u로 적는다. schema.sql을 SQL Editor에 붙여 넣을 때 줄바꿈 U+2028 같은 글자는 편집기가 지우거나 바꿀 수 있다.
  */
 export const NICKNAME_SPACES = String.raw`\f\n\r\t\v \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff`;
-export const RESERVED_NICKNAMES = Object.freeze(['admin', '관리자', '운영자', 'system', 'gm', 'null', 'undefined']);
+export const RESERVED_NICKNAMES = Object.freeze(['admin', '관리자', '운영자', 'system', 'gm', 'null', 'undefined']); // i18n-ok: 막는 이름 목록(서버와 같은 규칙)
 /** 봇 표시와 헷갈리지 않게 막는 꼬리표 */
-export const BOT_SUFFIX = ' 봇';
+export const BOT_SUFFIX = ' 봇'; // i18n-ok: 봇 이름 꼬리표(서버와 같은 규칙)
 
 const SPACES_RE = new RegExp('[' + NICKNAME_SPACES + ']+', 'g');
 const EDGE_SPACE_RE = /^ | $/g;
@@ -41,10 +42,10 @@ export function validateNickname(raw) {
   const name = cleanNickname(raw);
   const length = Array.from(name).length;
   if (length < NICKNAME_MIN || length > NICKNAME_MAX) {
-    return refuse(name, 'format', `닉네임은 ${NICKNAME_MIN}~${NICKNAME_MAX}자로 입력해 주세요.`);
+    return refuse(name, 'format', t('account.nameLength', { min: NICKNAME_MIN, max: NICKNAME_MAX }));
   }
-  if (!NAME_RE.test(name)) return refuse(name, 'format', '닉네임에는 한글, 영문, 숫자, _, -, 공백만 쓸 수 있어요.');
-  if (RESERVED_NICKNAMES.includes(name.toLowerCase())) return refuse(name, 'reserved', '이 닉네임은 쓸 수 없어요.');
-  if (name.endsWith(BOT_SUFFIX)) return refuse(name, 'reserved', `'${BOT_SUFFIX}'으로 끝나는 닉네임은 쓸 수 없어요.`);
-  return { ok: true, name, message: '사용할 수 있는 형식이에요.' };
+  if (!NAME_RE.test(name)) return refuse(name, 'format', t('account.nameChars'));
+  if (RESERVED_NICKNAMES.includes(name.toLowerCase())) return refuse(name, 'reserved', t('account.nameReserved'));
+  if (name.endsWith(BOT_SUFFIX)) return refuse(name, 'reserved', t('account.nameBotSuffix', { suffix: BOT_SUFFIX }));
+  return { ok: true, name, message: t('account.nameFormatOk') };
 }

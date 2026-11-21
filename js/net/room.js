@@ -33,6 +33,7 @@
 import { NET } from '../core/consts.js';
 import { roomSecret } from './secret.js';
 import { Emitter, netError, plainFields, randomId, sanitizeName } from './realtime.js';
+import { t } from '../core/i18n.js';
 import { TokenBucket, frameCost, autoTopology, clampHz, DEFAULT_BUDGET } from './limits.js';
 import { lobbyEntry } from './lobby.js';
 
@@ -91,7 +92,7 @@ export class Room extends Emitter {
     const room = new Room(net, id, { ...(topology ? { topology } : {}), ...(secret ? { secret } : {}) });
     const meta = room._meta;
     meta.locked = !!secret;
-    meta.name = sanitizeName(name, 32) || (net.me.name + '의 방');
+    meta.name = sanitizeName(name, 32) || t('net.defaultRoom', { name: net.me.name });
     meta.mapId = sanitizeName(mapId, 32) || 'jetty';
     meta.max = Math.max(2, Math.min(16, max | 0 || 8));
     meta.topo = room.opt.topology;
@@ -115,7 +116,7 @@ export class Room extends Emitter {
   }
 
   static async join(net, roomId, opts = {}) {
-    if (!ROOM_ID_RE.test(String(roomId || ''))) throw netError('BAD_ROOM_ID', '잘못된 방 ID입니다');
+    if (!ROOM_ID_RE.test(String(roomId || ''))) throw netError('BAD_ROOM_ID', t('net.badRoomId'));
     const { password, ...rest } = opts || {};
     const secret = await roomSecret(String(roomId), password);
     const room = new Room(net, String(roomId), { ...rest, ...(secret ? { secret } : {}) });
@@ -137,8 +138,8 @@ export class Room extends Emitter {
         const ids = room._presenceIds();
         // 비밀번호 방은 비밀번호가 틀리면 다른(빈) 채널에 들어가므로 아무도 없다
         if (!ids.length) {
-          if (hint && hint.locked) throw secret ? netError('BAD_PASSWORD', '비밀번호가 맞지 않습니다') : netError('NEED_PASSWORD', '비밀번호가 필요한 방입니다');
-          throw netError('ROOM_NOT_FOUND', '방을 찾을 수 없습니다');
+          if (hint && hint.locked) throw secret ? netError('BAD_PASSWORD', t('net.badPassword')) : netError('NEED_PASSWORD', t('net.needPassword'));
+          throw netError('ROOM_NOT_FOUND', t('net.roomNotFound'));
         }
         if (!room._hostId || !ids.includes(room._hostId)) room._hostId = room._earliest(ids);
         room._term = Math.max(room._term, 1);
@@ -146,7 +147,7 @@ export class Room extends Emitter {
       const others = new Set(room._presenceIds());
       for (const [id] of room._roster) others.add(id);
       others.delete(net.me.id);
-      if (others.size >= room._meta.max) throw netError('ROOM_FULL', '방이 가득 찼습니다');
+      if (others.size >= room._meta.max) throw netError('ROOM_FULL', t('net.roomFull'));
       // 기존 인원보다 늦은 joinedAt을 보장(시계가 늦은 PC가 방장을 빼앗지 않도록)
       let maxJ = 0;
       for (const id of others) maxJ = Math.max(maxJ, room._joinedAtOf(id, 0));
@@ -276,7 +277,7 @@ export class Room extends Emitter {
     this._checkEvent(event);
     if (this._closed) return false;
     const to = String(playerId || '');
-    if (!to) throw new TypeError('sendTo: playerId 필요');
+    if (!to) throw new TypeError('sendTo: playerId 필요'); // i18n-ok: 개발용 인자 오류
     if (to === this._meId) {
       // 자기 자신: 다음 틱에 로컬 전달
       queueMicrotask(() => { if (!this._closed) this.emit('message', { from: this._meId, event, payload, to, t: Math.round(this.now()), fromHost: this.isHost() }); });
@@ -372,7 +373,7 @@ export class Room extends Emitter {
 
   _checkEvent(event) {
     if (typeof event !== 'string' || !EVENT_RE.test(event)) {
-      throw new TypeError('event는 1~64자 문자열이며 "_"로 시작할 수 없습니다: ' + event);
+      throw new TypeError('event는 1~64자 문자열이며 "_"로 시작할 수 없습니다: ' + event); // i18n-ok: 개발용 인자 오류
     }
   }
 
@@ -842,7 +843,7 @@ export class Room extends Emitter {
       new Promise((resolve) => { timer = setTimeout(() => resolve('timeout'), ms); })
     ]).then((st) => {
       clearTimeout(timer);
-      if (st !== 'ok') throw netError('TRACK_FAILED', 'presence 등록 실패: ' + st);
+      if (st !== 'ok') throw netError('TRACK_FAILED', t('net.trackFailed', { status: st }));
     });
   }
 

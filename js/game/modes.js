@@ -39,15 +39,15 @@ export function normalizeKillTarget(v) {
  */
 export const RULESETS = Object.freeze({
   classic: Object.freeze({
-    id: 'classic', name: '클래식', icon: '🔫', desc: '모든 무기를 쓰는 기본 규칙',
+    id: 'classic', name: '클래식', nameEn: 'Classic', icon: '🔫', desc: '모든 무기를 쓰는 기본 규칙', descEn: 'Standard rules with every weapon',
     slots: Object.freeze([1, 2, 3, 4]), pickSlot: 1, primaryKinds: null, defaultPick: 'ar_std'
   }),
   knife: Object.freeze({
-    id: 'knife', name: '칼전', icon: '🗡️', desc: '칼만 쓰는 근접전. 총과 수류탄은 없다',
+    id: 'knife', name: '칼전', nameEn: 'Knives Only', icon: '🗡️', desc: '칼만 쓰는 근접전. 총과 수류탄은 없다', descEn: 'Melee only. No guns, no grenades',
     slots: Object.freeze([3]), pickSlot: 3, primaryKinds: null, defaultPick: 'ml_knife'
   }),
   sniper: Object.freeze({
-    id: 'sniper', name: '스나전', icon: '🎯', desc: '저격총과 칼만 쓰는 규칙',
+    id: 'sniper', name: '스나전', nameEn: 'Snipers Only', icon: '🎯', desc: '저격총과 칼만 쓰는 규칙', descEn: 'Sniper rifles and knives only',
     slots: Object.freeze([1, 3]), pickSlot: 1, primaryKinds: Object.freeze(['sniper']), defaultPick: 'sr_bolt'
   })
 });

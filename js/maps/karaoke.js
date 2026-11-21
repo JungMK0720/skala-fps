@@ -189,12 +189,33 @@ const propsHalf = [
   { type: 'crate', x: 4.6, y: 0, z: -7.5, size: 0.7 }
 ];
 
+/** 표지 글씨의 영어 짝. 글씨가 같은 표지는 모두 같은 영어를 쓴다 */
+const SIGN_EN = {
+  '블루': 'BLUE',
+  '레드': 'RED',
+  '♪ 노래를 예약하세요': '♪ Queue a song',
+  '♪ 다음 곡 준비 중': '♪ Next song loading',
+  '♪ 100점에 도전!': '♪ Go for 100!',
+  '자동문 · 가까이 오면 열려요': 'Auto doors · open as you approach',
+  '음료 자판기 →': 'Drinks →',
+  '코인 노래방': 'Coin Karaoke',
+  '1번 방': 'Room 1',
+  '2번 방': 'Room 2',
+  '3번 방': 'Room 3',
+  '4번 방': 'Room 4',
+  '5번 방': 'Room 5',
+  '6번 방': 'Room 6'
+};
+const withEn = (d) => (SIGN_EN[d.text] ? { ...d, textEn: SIGN_EN[d.text] } : d);
+
 export default {
   id: 'karaoke',
   name: '코인 노래방',
   nameEn: 'Coin Karaoke',
   desc: '네온 복도가 방 여섯을 두른 노래방. 가까이 가면 열리는 자동문 뒤에 누가 있는지 문이 열려야 보인다.',
+  descEn: 'A coin karaoke with six rooms ringed by neon halls. You only see who\'s behind an auto door once it slides open.',
   tag: '좁은 맵',
+  tagEn: 'Small Map',
   size: { x: HALF_X * 2, z: HALF_Z * 2 },
   rulesets: ['classic', 'knife'],
   theme: {
@@ -215,7 +236,7 @@ export default {
     ...rotate180(labelled({ rooms: [6, 5, 4], side: 6 })),
     ...teamDecor(TEAMS.owner),
     ...rotate180(teamDecor(TEAMS.charterer))
-  ],
+  ].map(withEn),
   pads: [],
   movers: [...doorsNorth, ...rotate180(doorsNorth).map((m) => ({ ...m, id: SOUTH_ID[m.id] || m.id }))],
   portals: [],

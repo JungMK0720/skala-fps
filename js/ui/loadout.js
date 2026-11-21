@@ -11,14 +11,15 @@ import { h, setText, isTextField } from './dom.js';
 import { barMeters, createChoiceRow, makeScreen, normWeapon, summaryChips } from './parts.js';
 import { uiIcon, weaponGlyph } from './icons.js';
 import { pickableWeapons, rulesetOf } from '../game/modes.js';
+import { t, loc } from '../core/i18n.js';
 
-const EXTRA_SLOTS = [['secondary', 2, '보조'], ['melee', 3, '근접'], ['grenade', 4, '투척']];
+const EXTRA_SLOTS = [['secondary', 2, t('weapons.lo.slotSecondary')], ['melee', 3, t('weapons.lo.slotMelee')], ['grenade', 4, t('weapons.lo.slotGrenade')]];
 const NUMBER_KEYS = 9;
 /** 무기가 이보다 많으면 compact 패널은 이름만 보여 준다 */
 const COMPACT_DETAIL_MAX = 4;
 
 const keyLabel = (i) => (i < NUMBER_KEYS ? String(i + 1) : '');
-const numberKeyHint = (n) => (n > 1 ? `1~${Math.min(n, NUMBER_KEYS)} 키` : '1 키');
+const numberKeyHint = (n) => (n > 1 ? t('weapons.lo.keysRange', { max: Math.min(n, NUMBER_KEYS) }) : t('weapons.lo.keyOne'));
 
 export function createLoadout(ctx) {
   let p = {};
@@ -28,7 +29,7 @@ export function createLoadout(ctx) {
 
   const title = h('h2', { class: 'sk-lo-title sk-stencil' });
   const sub = h('p', { class: 'sk-lo-sub' });
-  const count = h('div', { class: 'sk-lo-count', role: 'timer', 'aria-label': '남은 시간' });
+  const count = h('div', { class: 'sk-lo-count', role: 'timer', 'aria-label': t('weapons.lo.timeLeft') });
   const barFill = h('i');
   const cards = h('div', { class: 'sk-lo-cards' });
   const extras = h('div', { class: 'sk-lo-extras', hidden: true });
@@ -42,17 +43,17 @@ export function createLoadout(ctx) {
     foot);
 
   // compact: 화면을 덮지 않는 하단 작은 패널(개인전에서 죽어 있는 동안 다음 무기 고르기). 커서를 요구하지 않는다.
-  const cTitle = h('b', { class: 'sk-lc-title', text: '다음 출격 무기' });
+  const cTitle = h('b', { class: 'sk-lc-title', text: t('weapons.lo.nextTitle') });
   const cHint = h('span', { class: 'sk-lc-hint' });
   const cCount = h('span', { class: 'sk-lc-count', hidden: true });
-  const cCards = h('div', { class: 'sk-lc-cards', role: 'radiogroup', 'aria-label': '다음 무기' });
+  const cCards = h('div', { class: 'sk-lc-cards', role: 'radiogroup', 'aria-label': t('weapons.lo.nextWeapon') });
   const cNote = h('p', { class: 'sk-lc-note', role: 'status' });
   const compactEl = h('div', { class: 'sk-lc sk-steel', hidden: true },
     h('div', { class: 'sk-lc-head' }, cTitle, cHint, cCount),
     cCards,
     cNote);
 
-  const el = h('section', { class: 'sk-screen sk-overlay sk-loadout', hidden: true, role: 'dialog', 'aria-label': '무기 선택' },
+  const el = h('section', { class: 'sk-screen sk-overlay sk-loadout', hidden: true, role: 'dialog', 'aria-label': t('weapons.lo.select') },
     fullEl, compactEl);
 
   let compact = false;
@@ -105,12 +106,12 @@ export function createLoadout(ctx) {
     const cur = picked || defaultId();
     const detail = weapons.length <= COMPACT_DETAIL_MAX;
     compactEl.classList.toggle('is-many', !detail);
-    setText(cHint, `${numberKeyHint(weapons.length)} 또는 클릭`);
+    setText(cHint, t('weapons.lo.keysOrClick', { keys: numberKeyHint(weapons.length) }));
     cCards.replaceChildren(...(weapons.length
       ? weapons.map((w, i) => compactCard(w, i, w.id === cur, detail))
-      : [h('p', { class: 'sk-lo-empty', text: '무기 정보를 불러오지 못했어요.' })]));
+      : [h('p', { class: 'sk-lo-empty', text: t('weapons.lo.loadFail') })]));
     const cw = weapons.find((w) => w.id === cur);
-    setText(cNote, userPicked && cw ? `다음 부활에 ${cw.name}(으)로 나가요.` : cw ? `지금 선택: ${cw.name}` : '');
+    setText(cNote, userPicked && cw ? t('weapons.lo.nextSpawn', { name: cw.name }) : cw ? t('weapons.lo.current', { name: cw.name }) : '');
     cNote.classList.toggle('is-picked', userPicked);
   }
 
@@ -125,7 +126,7 @@ export function createLoadout(ctx) {
   function card(w, i, sel) {
     return h('button', { type: 'button', class: 'sk-lo-card' + (sel ? ' is-sel' : ''), title: w.name, onclick: () => pick(w.id, false) },
       h('span', { class: 'sk-lo-head' },
-        keyLabel(i) ? h('kbd', { class: 'sk-key', text: keyLabel(i), title: `${i + 1}번 키` }) : null,
+        keyLabel(i) ? h('kbd', { class: 'sk-key', text: keyLabel(i), title: t('weapons.lo.keyN', { n: i + 1 }) }) : null,
         h('span', { class: 'sk-lo-ico', 'aria-hidden': 'true' }, uiIcon(weaponGlyph(w.id, w.slot))),
         h('span', { class: 'sk-lo-names' },
           h('span', { class: 'sk-lo-name', text: w.name }),
@@ -137,7 +138,7 @@ export function createLoadout(ctx) {
   // ---------- 보조·근접·투척 빠른 교체 ----------
   const extraRows = EXTRA_SLOTS.map(([key, slot, label]) => {
     const row = createChoiceRow({
-      label: `${label} 바꾸기`,
+      label: t('weapons.lo.change', { slot: label }),
       onPick: (id) => {
         if (p.free) {
           p.current = { ...(p.current || {}), [key]: id };
@@ -169,7 +170,7 @@ export function createLoadout(ctx) {
       // 좀비 전용 무기(유탄 발사기·바주카포)는 증강으로만 얻으므로 빠른 교체 줄에 넣지 않는다. 상점에서 파는 좀비 전용 무기(shop)는 좀비 모드 창(free)에만 넣는다
       const list = [...ctx.weapons.values()].filter((w) => w.slot === r.slot && (!w.zombieOnly || (w.shop && p.free)) && (p.free || a.isOwned(w.id)));
       const sel = p.free ? (p.current && p.current[r.key]) || null : a.loadout[r.key];
-      r.row.set(list.map((w) => ({ id: w.id, label: w.short || w.name, glyph: weaponGlyph(w.id, w.slot), title: w.name })), sel);
+      r.row.set(list.map((w) => ({ id: w.id, label: w.short || loc(w, 'name'), glyph: weaponGlyph(w.id, w.slot), title: loc(w, 'name') })), sel);
     }
     extras.hidden = !shown;
   }
@@ -182,7 +183,7 @@ export function createLoadout(ctx) {
     const left = endAt - performance.now();
     const n = Math.max(0, Math.ceil(left / 1000));
     setText(count, String(n));
-    setText(cCount, `${n}초`);
+    setText(cCount, t('weapons.lo.secs', { n }));
     el.classList.toggle('is-urgent', left <= 2000);
     if (left > 0) return;
     if (p.swap) closeSwap('time', false);                           // 교체 창: 고르지 않았으면 들고 있던 무기 그대로
@@ -218,8 +219,8 @@ export function createLoadout(ctx) {
 
   function headline() {
     if (p.title) return p.title;
-    const what = p.swap ? '무기 교체' : '무기 선택';
-    return p.round ? `라운드 ${p.round} · ${what}` : what;
+    const what = p.swap ? t('weapons.lo.swap') : t('weapons.lo.select');
+    return p.round ? t('weapons.lo.roundTitle', { round: p.round, what }) : what;
   }
 
   /** 교체 창을 고르지 않고 닫는다. relock = 키로 닫았다(그 키 입력으로 포인터를 다시 잠글 수 있다) */
@@ -233,17 +234,17 @@ export function createLoadout(ctx) {
     const def = defaultId();
     setText(title, headline());
     setText(sub, p.swap
-      ? `무기를 누르면 바로 바뀌어요 · ${numberKeyHint(weapons.length)}도 돼요 · N 또는 Esc로 닫기`
-      : `카드를 누르거나 ${numberKeyHint(weapons.length)}로 고르세요`);
+      ? t('weapons.lo.swapSub', { keys: numberKeyHint(weapons.length) })
+      : t('weapons.lo.pickSub', { keys: numberKeyHint(weapons.length) }));
     cards.replaceChildren(...(weapons.length
       ? weapons.map((w, i) => card(w, i, w.id === def))
-      : [h('p', { class: 'sk-lo-empty', text: '무기 정보를 불러오지 못했어요.' })]));
+      : [h('p', { class: 'sk-lo-empty', text: t('weapons.lo.loadFail') })]));
     const dw = weapons.find((w) => w.id === def);
     const timed = Number(secs) > 0 && Number.isFinite(Number(secs));
     const touch = document.documentElement.classList.contains('pc-touch');
     setText(foot, p.foot ? String(p.foot) : p.swap
-      ? `라운드가 시작되기 전까지 ${touch ? '안내를 다시 눌러' : 'N으로 다시 열어'} 몇 번이든 바꿀 수 있어요.`
-      : dw && timed ? `시간 안에 고르지 않으면 ${dw.name}(으)로 출격해요.` : '');
+      ? (touch ? t('weapons.lo.swapFootTouch') : t('weapons.lo.swapFoot'))
+      : dw && timed ? t('weapons.lo.autoDeploy', { name: dw.name }) : '');
   }
 
   function render(props, { fresh, patch }) {
@@ -252,14 +253,14 @@ export function createLoadout(ctx) {
     compact = !!p.compact;
     el.classList.toggle('is-compact', compact);
     el.setAttribute('role', compact ? 'region' : 'dialog');
-    el.setAttribute('aria-label', compact ? '다음 무기 선택' : '무기 선택');
+    el.setAttribute('aria-label', compact ? t('weapons.lo.selectNext') : t('weapons.lo.select'));
     fullEl.hidden = compact;
     compactEl.hidden = !compact;
     // ammo: 무기 id → '탄' 칸에 대신 쓸 글자(좀비 물량 막기는 예비 3배·프리미엄도 유한이라 표의 값과 다르다)
     weapons = weaponRefs().map((w) => {
       const n = normWeapon(ctx.weapons, w);
       const text = p.ammo && typeof p.ammo === 'object' ? p.ammo[n.id] : null;
-      if (text) n.summary = n.summary.map((r) => (r.label === '탄' ? { ...r, value: String(text) } : r));
+      if (text) n.summary = n.summary.map((r) => (r.key === 'ammo' || r.label === '탄' ? { ...r, value: String(text) } : r)); // i18n-ok: parts.js 탄약 칸 식별(key 없을 때)
       return n;
     });
     // 전체 화면은 seconds 생략 시 5초, compact는 생략 시 타이머 없음

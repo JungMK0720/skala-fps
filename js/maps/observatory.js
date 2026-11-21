@@ -43,8 +43,8 @@ const FACE = { '+x': Math.PI / 2, '-x': -Math.PI / 2, '+z': 0, '-z': Math.PI };
 
 /* ---------------- 폭파 구역 ---------------- */
 
-const SITE_A = { id: 'A', name: 'A 구역 · 돔 제어실', x: 15.5, y: 0, z: -18, w: 9, h: 3, d: 9 };
-const SITE_B = { id: 'B', name: 'B 구역 · 축전실', x: 14.7, y: 0, z: 19, w: 9, h: 3, d: 9 };
+const SITE_A = { id: 'A', name: 'A 구역 · 돔 제어실', nameEn: 'Site A · Dome Control', x: 15.5, y: 0, z: -18, w: 9, h: 3, d: 9 };
+const SITE_B = { id: 'B', name: 'B 구역 · 축전실', nameEn: 'Site B · Battery Room', x: 14.7, y: 0, z: 19, w: 9, h: 3, d: 9 };
 
 /* ---------------- 도형 도우미 ---------------- */
 
@@ -413,7 +413,48 @@ const solids = [
 
 /* ---------------- 장식 도우미 ---------------- */
 
-const sign = (x, y, z, face, w, h, text, bg = '#2b2118', fg = '#f6ead2') => ({ type: 'sign', x, y, z, rotY: FACE[face], w, h, text, bg, fg });
+/** 표지판 글자의 영어 짝(core/i18n.js loc). 한국어 글자를 그대로 열쇠로 쓴다 */
+const SIGN_EN = {
+  '돔 제어실': 'Dome Control',
+  '축전실': 'Battery Room',
+  '← 참호길 · A 구역': '← Trench · Site A',
+  '중앙 안뜰 · A / B': 'Courtyard · A / B',
+  '수로 터널 · B 구역': 'Canal Tunnel · Site B',
+  '북 아치 · A 방면': 'North Arch · To A',
+  '남 아치 · B 방면': 'South Arch · To B',
+  '북쪽 골목 · 돔 제어실 →': 'North Alley · Dome Control →',
+  '← 남쪽 골목 · 축전실': '← South Alley · Battery Room',
+  'A 구역 →': 'Site A →',
+  '← B 구역': '← Site B',
+  '← 회랑 계단': '← Gallery Stairs',
+  'B 구역 →': 'Site B →',
+  '← A 안문': '← A Inner Gate',
+  'B 안문 →': 'B Inner Gate →',
+  '사막 관측소 · DESERT OBSERVATORY': 'DESERT OBSERVATORY',
+  '정비 격납고': 'Maintenance Hangar',
+  '주기장 · MOTOR POOL': 'MOTOR POOL',
+  '중앙 안뜰': 'Central Courtyard',
+  '오늘 밤 관측\n맑음 · 달 없음': 'Tonight\'s Viewing\nClear · No Moon',
+  '매표소 · 닫힘': 'Tickets · Closed',
+  '관측 준비동': 'Prep Building',
+  '급수동': 'Water Works',
+  '인버터동': 'Inverter House',
+  '숙소동': 'Quarters',
+  '태양광 밭 · 출입 금지': 'Solar Field · No Entry',
+  '고압 위험': 'High Voltage',
+  '추락 주의': 'Fall Hazard',
+  'A-01\n정상': 'A-01\nOK',
+  'A-02\n점검 중': 'A-02\nMaintenance',
+  '랙 A1 · 부하 64%': 'Rack A1 · Load 64%',
+  '랙 A2 · 백업': 'Rack A2 · Backup',
+  '돔 구동\n정상': 'Dome Drive\nOK',
+  '망원경 제어 A\n추적 대기': 'Telescope Control A\nTracking Standby',
+  'B-01 방전': 'B-01 Discharging',
+  'B-02 충전': 'B-02 Charging',
+  '축전 관리 B\n충전 82%': 'Battery Control B\nCharge 82%',
+  '관측소 상황판\nA 돔 제어실 · B 축전실': 'Observatory Status\nA Dome Control · B Battery Room'
+};
+const sign = (x, y, z, face, w, h, text, bg = '#2b2118', fg = '#f6ead2') => ({ type: 'sign', x, y, z, rotY: FACE[face], w, h, text, textEn: SIGN_EN[text], bg, fg });
 /** 구역 글자판: 노랑 바탕에 검은 글자. 다가오는 길에서 멀리서도 읽힌다 */
 const letter = (id, x, y, z, face, s = 1.8) => sign(x, y, z, face, s, s, id, '#ffd21f', '#111418');
 const screen = (x, y, z, face, text, w = 0.9, h = 0.5, fg = '#35e0ff') => sign(x, y, z, face, w, h, text, '#06141c', fg);
@@ -605,10 +646,10 @@ const decorList = [
   { type: 'crateStack', x: -33, y: 0, z: 23.2, rotY: -0.15, size: 1, levels: 2 },
   { type: 'crateStack', x: 27.8, y: 0, z: 19.8, rotY: 0.1, size: 0.9, levels: 2 },
   { type: 'crateStack', x: 30.1, y: 0.02, z: 7.3, rotY: 0.25, size: 0.8, levels: 1 },
-  { type: 'banner', x: -10.6, y: 3, z: -1.2, rotY: FACE['-x'], w: 1.2, h: 2.6, text: '관측소', emblem: 'ring', bg: '#7a3b12', fg: '#ffe9c7' },
-  { type: 'banner', x: -10.6, y: 3, z: 1.2, rotY: FACE['-x'], w: 1.2, h: 2.6, text: '관측소', emblem: 'ring', bg: '#7a3b12', fg: '#ffe9c7' },
-  { type: 'banner', x: -38.5, y: 2.6, z: -3.6, rotY: FACE['+x'], w: 1.2, h: 2.4, text: '탐사대', emblem: 'diamond', bg: '#1f3a4d', fg: '#f6ead2' },
-  { type: 'banner', x: -38.5, y: 2.6, z: 3.6, rotY: FACE['+x'], w: 1.2, h: 2.4, text: '탐사대', emblem: 'diamond', bg: '#1f3a4d', fg: '#f6ead2' }
+  { type: 'banner', x: -10.6, y: 3, z: -1.2, rotY: FACE['-x'], w: 1.2, h: 2.6, text: '관측소', textEn: 'Observatory', emblem: 'ring', bg: '#7a3b12', fg: '#ffe9c7' },
+  { type: 'banner', x: -10.6, y: 3, z: 1.2, rotY: FACE['-x'], w: 1.2, h: 2.6, text: '관측소', textEn: 'Observatory', emblem: 'ring', bg: '#7a3b12', fg: '#ffe9c7' },
+  { type: 'banner', x: -38.5, y: 2.6, z: -3.6, rotY: FACE['+x'], w: 1.2, h: 2.4, text: '탐사대', textEn: 'Expedition', emblem: 'diamond', bg: '#1f3a4d', fg: '#f6ead2' },
+  { type: 'banner', x: -38.5, y: 2.6, z: 3.6, rotY: FACE['+x'], w: 1.2, h: 2.4, text: '탐사대', textEn: 'Expedition', emblem: 'diamond', bg: '#1f3a4d', fg: '#f6ead2' }
 ];
 
 /* ---------------- 스폰 ---------------- */
@@ -647,8 +688,8 @@ export default {
   id: 'observatory',
   name: '사막 관측소',
   nameEn: 'Desert Observatory',
-  desc: '참호길·중앙 안뜰·수로 터널 세 길이 돔 제어실(A)과 축전실(B)로 이어지는 사막 천문 관측소의 폭파 미션 맵.',
-  tag: '폭파 미션',
+  desc: '참호길·중앙 안뜰·수로 터널 세 길이 돔 제어실(A)과 축전실(B)로 이어지는 사막 천문 관측소의 폭파 미션 맵.', descEn: 'Bomb defusal at a desert observatory: the trench path, central courtyard and canal tunnel lead to the dome control room (A) and the battery room (B).',
+  tag: '폭파 미션', tagEn: 'Bomb Defusal',
   size: { x: 78, z: 50 },
   rulesets: ['classic'],
   // 해 질 녘: 해가 남서쪽에 낮게 걸려 주기장과 안뜰 서쪽 담이 금빛으로 물든다

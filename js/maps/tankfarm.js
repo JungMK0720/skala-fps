@@ -26,6 +26,7 @@ export default {
   name: '탱크 팜',
   nameEn: 'Tank Farm',
   desc: '정유공장 옆 원유 저장기지 — 방유제(Dike)로 나뉜 탱크 8기 사이 중거리전, 파이프랙 교량·탱크 플랫폼 저격, 펌프하우스 실내전. 쇼어 레이트·얼리지(Ullage) 표지를 찾아보자.',
+  descEn: 'A crude oil terminal next to a refinery: mid-range fights between eight tanks split by dikes, sniping from the pipe-rack bridge and tank platforms, and close quarters in the pump house. Look for the shore rate and ullage signs.',
   size: { x: 130, z: 100 },
   theme: { sky: '#e6c79c', skyTop: '#46637f', fog: [55, 200], sunDir: [0.45, 0.75, -0.4], sunColor: '#ffe0b5', ambient: 0.5 },
   spawns: {
@@ -338,8 +339,8 @@ export default {
     { type: 'sign', x: -28.44, y: 1.8, z: -32.1, rotY: 1.5708, w: 2.8, h: 0.6, text: 'DIKE DRAIN VALVE · KEEP CLOSED', bg: '#c1121f', fg: '#ffffff' },
     { type: 'sign', x: 28.44, y: 1.8, z: 32.1, rotY: -1.5708, w: 2.8, h: 0.6, text: 'DIKE DRAIN VALVE · KEEP CLOSED', bg: '#c1121f', fg: '#ffffff' },
     // ── 북 — 트럭 출하장(로딩 베이) · 계량실 · 계근대 (선주 스폰 쪽)
-    { type: 'sign', x: 0, y: 5.9, z: -38.94, rotY: 0, w: 8, h: 1, text: 'TRUCK LOADING BAY · 출하장', bg: '#0b2545', fg: '#ffffff' },
-    { type: 'sign', x: 0, y: 2.9, z: -33.44, rotY: 0, w: 5, h: 0.7, text: 'METERING ROOM · 계량실', bg: '#0b2545', fg: '#ffffff' },
+    { type: 'sign', x: 0, y: 5.9, z: -38.94, rotY: 0, w: 8, h: 1, text: 'TRUCK LOADING BAY · 출하장', textEn: 'TRUCK LOADING BAY', bg: '#0b2545', fg: '#ffffff' },
+    { type: 'sign', x: 0, y: 2.9, z: -33.44, rotY: 0, w: 5, h: 0.7, text: 'METERING ROOM · 계량실', textEn: 'METERING ROOM', bg: '#0b2545', fg: '#ffffff' },
     { type: 'sign', x: 0, y: 2.5, z: -38.14, rotY: 0, w: 4.6, h: 0.6, text: 'B/L vs SHORE FIGURE ±0.3 %', bg: '#14213d', fg: '#ffffff' },
     { type: 'sign', x: -42, y: 2.6, z: -38.94, rotY: 0, w: 4, h: 0.6, text: 'WEIGHBRIDGE', bg: '#0b2545', fg: '#ffffff' },
     { type: 'pipe', from: [-21, 1.2, -44.9], to: [-21, 4.8, -44.9], r: 0.1, mat: 'steel' },
@@ -356,11 +357,11 @@ export default {
     { type: 'pipe', from: [21, 4.8, -42], to: [21, 3.3, -42], r: 0.1, mat: 'steel' },
     { type: 'flare', x: 61, y: 1, z: -46 },
     // ── 남 — 펌프하우스(실내 교전, 문 5개) · 소방 펌프장 · MCC · 드럼 창고 (용선자 스폰 쪽)
-    { type: 'sign', x: 0, y: 4.1, z: 32.94, rotY: 3.1416, w: 5.5, h: 1, text: 'PUMP HOUSE · 펌프하우스', bg: '#0b2545', fg: '#ffffff' },
+    { type: 'sign', x: 0, y: 4.1, z: 32.94, rotY: 3.1416, w: 5.5, h: 1, text: 'PUMP HOUSE · 펌프하우스', textEn: 'PUMP HOUSE', bg: '#0b2545', fg: '#ffffff' },
     { type: 'sign', x: -6.3, y: 2.4, z: 32.94, rotY: 3.1416, w: 4.6, h: 0.8, text: 'SHORE RATE 8,000 m³/h', bg: '#1b4332', fg: '#ffffff' },
-    { type: 'sign', x: 0, y: 4.1, z: 43.06, rotY: 0, w: 5.5, h: 1, text: 'PUMP HOUSE · 펌프하우스', bg: '#0b2545', fg: '#ffffff' },
+    { type: 'sign', x: 0, y: 4.1, z: 43.06, rotY: 0, w: 5.5, h: 1, text: 'PUMP HOUSE · 펌프하우스', textEn: 'PUMP HOUSE', bg: '#0b2545', fg: '#ffffff' },
     { type: 'sign', x: 0, y: 3.2, z: 42.54, rotY: 3.1416, w: 5, h: 0.7, text: 'P-201~204 SHORE PUMPS', bg: '#14213d', fg: '#ffffff' },
-    { type: 'sign', x: 20.5, y: 3, z: 36.94, rotY: 3.1416, w: 6.5, h: 0.8, text: 'FIRE PUMP STATION · 소방 펌프장', bg: '#9b2226', fg: '#ffffff' },
+    { type: 'sign', x: 20.5, y: 3, z: 36.94, rotY: 3.1416, w: 6.5, h: 0.8, text: 'FIRE PUMP STATION · 소방 펌프장', textEn: 'FIRE PUMP STATION', bg: '#9b2226', fg: '#ffffff' },
     { type: 'sign', x: 34, y: 4.5, z: 37.44, rotY: 3.1416, w: 3, h: 0.7, text: 'FIRE WATER', bg: '#9b2226', fg: '#ffffff' },
     { type: 'sign', x: -20.5, y: 3, z: 36.94, rotY: 3.1416, w: 5, h: 0.7, text: 'MCC · SUBSTATION 6.6 kV', bg: '#3d405b', fg: '#ffffff' },
     { type: 'pipe', from: [-7.6, 1.4, 36.9], to: [-7.6, 5.6, 36.9], r: 0.18, mat: 'pipe' },

@@ -187,12 +187,26 @@ const propsHalf = [
   { type: 'crate', x: -1.4, y: 0, z: 10.2 }
 ];
 
+/** 표지 글씨의 영어 짝. 글씨가 같은 표지는 모두 같은 영어를 쓴다 */
+const SIGN_EN = {
+  '블루': 'BLUE',
+  '레드': 'RED',
+  '안전 제일': 'Safety First',
+  '안전모 착용': 'Hard Hats Required',
+  '재개발 예정 구역 · 관계자 외 출입 금지': 'Redevelopment Zone · Authorized Personnel Only',
+  '자재 적치장': 'Material Yard',
+  '흙 · 골재 운반': 'Soil · Aggregate'
+};
+const withEn = (d) => (SIGN_EN[d.text] ? { ...d, textEn: SIGN_EN[d.text] } : d);
+
 export default {
   id: 'lot',
   name: '재개발 공터',
   nameEn: 'Vacant Lot',
   desc: '울타리로 둘러친 흙바닥 공터. 흙더미와 흄관, 덤프트럭 말고는 가릴 것이 없는 개활지에서 맞붙는다.',
+  descEn: 'A fenced dirt lot. Open ground with nothing to hide behind but dirt mounds, concrete pipes and a dump truck.',
   tag: '좁은 맵',
+  tagEn: 'Small Map',
   size: { x: HALF_X * 2, z: HALF_Z * 2 },
   rulesets: ['classic', 'knife'],
   theme: {
@@ -210,10 +224,10 @@ export default {
     ...rotate180(decorHalf),
     ...teamDecor(TEAMS.owner),
     ...rotate180(teamDecor(TEAMS.charterer))
-  ],
+  ].map(withEn),
   pads: [],
   movers: [],
   portals: [],
-  secrets: [{ id: 'lot_truck_bed', name: '덤프트럭 짐칸', x: -6, y: BED, z: 8, w: 3.6, h: 2.2, d: 2, points: 100, reach: 'jump' }],
+  secrets: [{ id: 'lot_truck_bed', name: '덤프트럭 짐칸', nameEn: 'Dump Truck Bed', x: -6, y: BED, z: 8, w: 3.6, h: 2.2, d: 2, points: 100, reach: 'jump' }],
   props: [...propsHalf, ...rotate180(propsHalf)]
 };

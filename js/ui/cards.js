@@ -9,6 +9,7 @@
  */
 import { h, btn, setText, num } from './dom.js';
 import { makeScreen } from './parts.js';
+import { t } from '../core/i18n.js';
 
 /** 카드가 처음 뜬 뒤 잠그는 시간(ms). 그동안 누른 클릭·터치·숫자 키는 카드를 고르지 않는다(숫자 키는 게임의 무기 교체로 간다) */
 export const CARD_ARM_MS = 1000;
@@ -61,14 +62,14 @@ export function createCardPicker(ctx) {
     pick(state.sel);
   }, 'sk-btn--primary sk-cd-confirm', { onmousedown: noFocus });
   const wait = h('p', { class: 'sk-cd-wait', role: 'status' });
-  const perks = h('ul', { class: 'sk-cd-perks', 'aria-label': '지금까지 오른 능력치' });
+  const perks = h('ul', { class: 'sk-cd-perks', 'aria-label': t('horde.pick.perksAria') });
   const panel = h('div', { class: 'sk-cd-panel', tabindex: '-1' },
     h('header', { class: 'sk-cd-head' }, h('div', {}, title, sub), timer),
     armBar,
     grid,
     h('footer', { class: 'sk-cd-foot' }, rerollBtn, wait, confirmBtn),
     perks);
-  const el = h('section', { class: 'sk-screen sk-overlay sk-cards', hidden: true, role: 'dialog', 'aria-modal': 'true', 'aria-label': '증강 고르기' }, panel);
+  const el = h('section', { class: 'sk-screen sk-overlay sk-cards', hidden: true, role: 'dialog', 'aria-modal': 'true', 'aria-label': t('horde.pick.aria') }, panel);
   const state = { picked: false, ids: [], sig: '', mine: null, sel: null, p: {} };
   let armTimer = 0, holdTimer = 0;
   rerollBtn.style.setProperty('--cd-hold-ms', `${REROLL_HOLD_MS}ms`);
@@ -81,11 +82,11 @@ export function createCardPicker(ctx) {
       h('b', { class: 'sk-cd-name', text: c.name }),
       h('span', { class: 'sk-cd-tier', text: c.tierName || '' }),
       h('span', { class: 'sk-cd-desc', text: c.desc || '' }),
-      owned ? h('span', { class: 'sk-cd-owned', text: `가진 수 ${owned}` }) : null
+      owned ? h('span', { class: 'sk-cd-owned', text: t('horde.pick.owned', { n: owned }) }) : null
     ];
     return h('button', {
       type: 'button', class: `sk-cd-card sk-cd--${c.tier || 'common'}` + (state.mine === c.id ? ' is-picked' : ''), role: 'listitem',
-      style: { '--cd-color': c.color || '#c9d4e0' }, disabled: state.picked, 'aria-label': `${i + 1}번 ${c.name} · ${c.tierName || ''} · ${c.desc || ''}`,
+      style: { '--cd-color': c.color || '#c9d4e0' }, disabled: state.picked, 'aria-label': t('horde.pick.cardAria', { n: i + 1, name: c.name, tier: c.tierName || '', desc: c.desc || '' }),
       // 잠금이 풀린 뒤 새로 누른 클릭만 '선택'한다(쏘던 클릭을 떼며 고르지 않게). 정하는 것은 [확인]
       onclick: (e) => { if (gate.clickOk(e ? e.detail : 0)) select(c.id); else if (e) e.stopPropagation(); },   // 막힌 클릭은 단추 소리도 내지 않는다
       // 마우스·손가락으로 눌러도 포커스를 가져가지 않는다. 쏘던 클릭이 카드에 포커스를 주면 뒤이은 점프(Space)가 그 카드를 누른다
@@ -107,7 +108,7 @@ export function createCardPicker(ctx) {
 
   function renderConfirm() {
     const c = state.sel && Array.isArray(state.p.cards) ? state.p.cards.find((x) => x.id === state.sel) : null;
-    setText(confirmBtn, c ? `✔ 확인 · ${c.name}` : '✔ 확인');
+    setText(confirmBtn, c ? t('horde.pick.confirmName', { name: c.name }) : t('horde.pick.confirm'));
     confirmBtn.disabled = !!state.picked || !c;
   }
 
@@ -151,9 +152,9 @@ export function createCardPicker(ctx) {
 
   function renderSub() {
     const p = state.p;
-    setText(sub, p.picked ? '고른 증강은 바로 적용돼요'
-      : gate.armed() ? `카드를 누르고(숫자 키 1~4) [확인]을 누르세요${p.sub ? ` · ${p.sub}` : ''}`
-        : '잠깐! 쏘던 클릭으로 잘못 고르지 않게 잠시 잠가 뒀어요');
+    setText(sub, p.picked ? t('horde.pick.applied')
+      : gate.armed() ? (p.sub ? t('horde.pick.howSub', { sub: p.sub }) : t('horde.pick.how'))
+        : t('horde.pick.locked'));
   }
 
   function render(p, info = {}) {
@@ -176,18 +177,18 @@ export function createCardPicker(ctx) {
         else if (before !== ids.join()) arm(CARD_REARM_MS);
       }
     }
-    setText(title, p.title || '증강을 고르세요');
+    setText(title, p.title || t('horde.pick.title'));
     renderSub();
     renderConfirm();
     const secs = Math.max(0, Math.ceil(num(p.seconds, 0)));
-    setText(timer, secs ? `⏳ ${secs}초` : '');
+    setText(timer, secs ? t('horde.pick.timer', { secs }) : '');
     timer.classList.toggle('is-urgent', secs > 0 && secs <= 5);
     const rr = Math.max(0, num(p.rerolls, 0) | 0);
-    setText(rerollBtn, `🔄 다시 뽑기 (${rr})`);
+    setText(rerollBtn, t('horde.pick.reroll', { n: rr }));
     rerollBtn.disabled = !!p.picked || rr <= 0;
     if (rerollBtn.disabled) holdStop();
     const more = Math.max(0, num(p.more, 0) | 0);
-    setText(wait, `R 길게 누르기: 다시 뽑기${more ? ` · 이어서 ${more}개 더` : ''}`);
+    setText(wait, more ? t('horde.pick.holdMore', { n: more }) : t('horde.pick.hold'));
     const rows = Array.isArray(p.perks) ? p.perks : [];
     perks.hidden = !rows.length;
     perks.replaceChildren(...rows.map((r) => h('li', {}, h('span', { text: r.label }), h('b', { text: r.value }))));

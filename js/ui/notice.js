@@ -5,6 +5,7 @@
  *          메뉴·로비·경기 어느 화면 위에나 뜨고, 클릭을 가로채지 않는다. 떠 있는 동안 경기 HUD의 윗줄을 그 높이만큼 내린다.
  */
 import { h } from './dom.js';
+import { t } from '../core/i18n.js';
 
 /** 띠가 떠 있는 시간의 범위(ms). 공지를 보내는 쪽이 정한 시간을 이 안으로 자른다 */
 export const NOTICE_SHOW = Object.freeze({ min: 3000, max: 3600000, def: 30000 });
@@ -21,7 +22,7 @@ const cleanText = (v) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007
 export function createNoticeBanner(ctx) {
   const text = h('span', { class: 'sk-notice-text' });
   const el = h('div', { class: 'sk-notice', role: 'status', 'aria-live': 'polite', hidden: true },
-    h('span', { class: 'sk-notice-tag', text: '공지' }), text);
+    h('span', { class: 'sk-notice-tag', text: t('menu.noticeTag') }), text);
   let current = null;      // { id, text, until }
   let hideTimer = null, animTimer = null;
 

@@ -26,6 +26,7 @@
 import {
   WEAPONS, WEAPON_IDS, PRIMARY_IDS, PARTS, getDef, normalizePart, computeDamage, isHalfShot, minShotInterval
 } from '../weapons/defs.js';
+import { t } from '../core/i18n.js';
 import { DEFAULT_RULESET, normalizeRuleset, isWeaponAllowed, pickableWeapons, defaultPick } from './modes.js';
 import { BOMB, normalizeMission, siteAt, siteContains, reach, vecOf, sideFor, otherTeam, blastDamage } from './mission.js';
 
@@ -41,17 +42,17 @@ export const SELF_EXPLOSION_SCALE = 0.5;
 
 /** roundEnd/matchEnd reason → 화면 문구 */
 export const REASON_LABELS = Object.freeze({
-  elimination: '전멸',
-  time: '시간 종료 · 생존자 수',
-  hp: '시간 종료 · 남은 체력',
-  draw: '무승부',
-  wins: '선승',
-  maxRounds: '최대 라운드 도달',
-  roundCap: '라운드 상한 도달',
-  forfeit: '상대 팀 전원 퇴장',
-  abandoned: '전원 퇴장',
-  bomb: '폭탄 폭파',       // 폭파 미션 전용(13절)
-  defuse: '폭탄 해체'
+  elimination: t('game.reason.elimination'),
+  time: t('game.reason.timeSurvivors'),
+  hp: t('game.reason.timeHp'),
+  draw: t('game.reason.draw'),
+  wins: t('game.reason.wins'),
+  maxRounds: t('game.reason.maxRounds'),
+  roundCap: t('game.reason.roundCap'),
+  forfeit: t('game.reason.forfeit'),
+  abandoned: t('game.reason.abandoned'),
+  bomb: t('game.reason.bomb'),       // 폭파 미션 전용(13절)
+  defuse: t('game.reason.defuse')
 });
 
 /** 팀전 규칙 기본값. ruleset은 숫자 표(스냅샷 ru)에 넣지 않고 따로 싣기 때문에 여기에 없다(기본 'classic') */
@@ -109,10 +110,10 @@ export const DEFAULT_FFA_RULES = Object.freeze({
 const FFA_RULE_KEYS = Object.freeze(['killTarget', 'timeLimitMs', 'respawnMs', 'spawnProtectMs', 'loadoutMs', 'hp', 'maxPlayers']);
 /** FFA matchEnd reason → 화면 문구(팀전 REASON_LABELS와 'time'·'draw' 뜻이 달라 따로 둔다) */
 export const FFA_REASON_LABELS = Object.freeze({
-  kills: '목표 킬 달성',
-  time: '시간 종료 · 킬 순위',
-  forfeit: '상대가 모두 나감',
-  draw: '무승부'
+  kills: t('game.reason.kills'),
+  time: t('game.reason.timeKills'),
+  forfeit: t('game.reason.ffaForfeit'),
+  draw: t('game.reason.draw')
 });
 /** 부활 직후 이 시간 동안은 그 사람 위치를 스폰 지점으로 본다(월드·네트워크가 아직 옮기기 전) */
 const SPAWN_FRESH_MS = 1000;
@@ -254,7 +255,7 @@ function normId(id) {
 }
 function normName(name, fallback) {
   const clean = (v) => text(v).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, MAX_NAME);
-  return clean(name) || clean(fallback) || '플레이어';
+  return clean(name) || clean(fallback) || t('game.playerFallback');
 }
 function normVec(v) {
   if (!v || typeof v !== 'object') return null;

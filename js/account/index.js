@@ -51,6 +51,7 @@ import { START_POINTS, clampPoints, isAvatarId, isEmoteId, matchReward, priceOf,
 import { nicknameKey, validateNickname } from './nickname.js';
 import { createRemote } from './remote.js';
 import { FEEDBACK_MESSAGES, feedbackInfo, feedbackResult, normalizeFeedbackItems, validateFeedback } from './feedback.js';
+import { t } from '../core/i18n.js';
 import { createOnline } from './online.js';
 import {
   LOADOUT_SLOTS, PROFILE_KEY, TOKEN_KEY, createStore, defaultProfile, generateToken, isSecretId, mergeProfiles, normalizeOwned,
@@ -69,10 +70,10 @@ export const REFRESH_INTERVAL_MS = 60000;
 export const REFRESH_MIN_MS = 10000;
 
 const MESSAGE = Object.freeze({
-  offline: '오프라인이라 중복 확인을 못 했어요.',
-  available: '사용할 수 있는 닉네임이에요.',
-  saved: '닉네임을 저장했어요.',
-  loading: '다른 탭에서 바꾼 계정을 불러오는 중이에요. 잠시 뒤 다시 시도해 주세요.'
+  offline: t('account.nameOffline'),
+  available: t('account.nameAvailable'),
+  saved: t('account.nameSaved'),
+  loading: t('account.nameLoading')
 });
 
 /**
@@ -80,9 +81,9 @@ const MESSAGE = Object.freeze({
  * 거절이 아니라 잠시 뒤 다시 시도할 실패로 다룬다(로컬에 두고 재시도).
  */
 const REFUSALS = new Map([
-  ['NAME_TAKEN', { reason: 'taken', message: '이미 사용 중인 닉네임이에요.' }],
-  ['NAME_INVALID', { reason: 'format', message: '닉네임 형식이 맞지 않아요.' }],
-  ['NAME_RESERVED', { reason: 'reserved', message: '이 닉네임은 쓸 수 없어요.' }]
+  ['NAME_TAKEN', { reason: 'taken', message: t('account.nameTaken') }],
+  ['NAME_INVALID', { reason: 'format', message: t('account.nameInvalid') }],
+  ['NAME_RESERVED', { reason: 'reserved', message: t('account.nameReserved') }]
 ]);
 
 const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
@@ -327,7 +328,7 @@ export function createAccount({
         return offlineResult(name);
       }
       conflictName = name;
-      emit('account:nickname-conflict', { name, reason: refusal.reason, message: `${refusal.message} 새 닉네임을 정해 주세요.` });
+      emit('account:nickname-conflict', { name, reason: refusal.reason, message: t('account.nameConflict', { message: refusal.message }) });
       return { ok: false, name, offline: false, ...refusal };
     });
   }

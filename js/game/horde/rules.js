@@ -5,6 +5,7 @@
  *          스테이지는 40초씩 시간으로 넘어가고(다 잡으면 남은 1초당 경험치 1을 받고 바로 넘어간다), 팀 경험치가 차면 레벨이 올라 증강을 고른다.
  *          three.js·DOM에 의존하지 않는 순수 모듈이라 방장 시뮬레이션(director.js)과 node 시험이 그대로 쓴다.
  */
+import { t } from '../../core/i18n.js';
 
 /** 모드 id. 방 메타·연습장 설정·경기 스냅샷 gm에 같은 값을 쓴다 */
 export const HORDE_MODE = 'zombie';
@@ -80,9 +81,9 @@ export const HORDE = Object.freeze({
  * 코드 2·3은 예전 탄약 상자·수류탄 자리라 비워 둔다.
  */
 export const LOOT_TYPES = Object.freeze({
-  mag: Object.freeze({ id: 'mag', code: 1, name: '탄창', icon: '🧷', color: 0xd8b24a }),
-  med: Object.freeze({ id: 'med', code: 4, name: '구급 상자', icon: '➕', color: 0x20bd63 }),
-  chest: Object.freeze({ id: 'chest', code: 5, name: '보물 상자', icon: '🎁', color: 0xe0a428 })
+  mag: Object.freeze({ id: 'mag', code: 1, name: t('horde.loot.mag'), icon: '🧷', color: 0xd8b24a }),
+  med: Object.freeze({ id: 'med', code: 4, name: t('horde.loot.med'), icon: '➕', color: 0x20bd63 }),
+  chest: Object.freeze({ id: 'chest', code: 5, name: t('horde.loot.chest'), icon: '🎁', color: 0xe0a428 })
 });
 const LOOT_BY_CODE = new Map(Object.values(LOOT_TYPES).map((l) => [l.code, l]));
 export const lootByCode = (code) => LOOT_BY_CODE.get(code | 0) || null;
@@ -124,39 +125,39 @@ export function frostSlowMs(slow, rules = HORDE) {
  */
 export const ZOMBIE_TYPES = Object.freeze({
   walker: Object.freeze({
-    id: 'walker', code: 1, name: '워커', hp: 100, speed: 2.3, damage: 12, attackMs: 1100, windupMs: 380, range: 1.3,
+    id: 'walker', code: 1, name: t('horde.zombie.walker'), hp: 100, speed: 2.3, damage: 12, attackMs: 1100, windupMs: 380, range: 1.3,
     radius: 0.35, scale: 1, from: 1, weight: 10, color: 0x6f8f4e, cloth: 0x4d4a3e
   }),
   runner: Object.freeze({
-    id: 'runner', code: 2, name: '러너', hp: 65, speed: 5.0, damage: 9, attackMs: 800, windupMs: 260, range: 1.2,
+    id: 'runner', code: 2, name: t('horde.zombie.runner'), hp: 65, speed: 5.0, damage: 9, attackMs: 800, windupMs: 260, range: 1.2,
     radius: 0.33, scale: 0.92, from: 3, weight: 6, color: 0xa3b85c, cloth: 0x6b3a3a
   }),
   brute: Object.freeze({
-    id: 'brute', code: 3, name: '브루트', hp: 420, speed: 1.9, damage: 26, attackMs: 1500, windupMs: 520, range: 1.7,
+    id: 'brute', code: 3, name: t('horde.zombie.brute'), hp: 420, speed: 1.9, damage: 26, attackMs: 1500, windupMs: 520, range: 1.7,
     radius: 0.45, scale: 1.35, from: 6, weight: 2, color: 0x5b6b3a, cloth: 0x3b4252
   }),
   spitter: Object.freeze({
-    id: 'spitter', code: 4, name: '산성 좀비', hp: 85, speed: 2.4, damage: 8, attackMs: 1200, windupMs: 400, range: 1.3,
+    id: 'spitter', code: 4, name: t('horde.zombie.spitter'), hp: 85, speed: 2.4, damage: 8, attackMs: 1200, windupMs: 400, range: 1.3,
     radius: 0.35, scale: 1, from: 11, weight: 2, color: 0x8fc23a, cloth: 0x2f5d50,
     ranged: Object.freeze({ every: 3200, speed: 15, dmg: 13, keep: 8, range: 24, windupMs: 500 })
   }),
   bomber: Object.freeze({
-    id: 'bomber', code: 5, name: '폭발 좀비', hp: 70, speed: 4.1, damage: 0, attackMs: 1000, windupMs: 450, range: 1.5,
+    id: 'bomber', code: 5, name: t('horde.zombie.bomber'), hp: 70, speed: 4.1, damage: 0, attackMs: 1000, windupMs: 450, range: 1.5,
     radius: 0.38, scale: 1.08, from: 10, weight: 2, color: 0xc9a227, cloth: 0x7a3f12,
     explode: Object.freeze({ radius: 3.8, dmg: 34 })
   }),
   crawler: Object.freeze({
-    id: 'crawler', code: 6, name: '크롤러', hp: 55, speed: 4.0, damage: 8, attackMs: 900, windupMs: 300, range: 1.15,
+    id: 'crawler', code: 6, name: t('horde.zombie.crawler'), hp: 55, speed: 4.0, damage: 8, attackMs: 900, windupMs: 300, range: 1.15,
     radius: 0.33, scale: 0.9, from: 12, weight: 3, color: 0x7d6f5a, cloth: 0x3d3328, low: true
   }),
   flyer: Object.freeze({
-    id: 'flyer', code: 7, name: '비행 좀비', hp: 85, speed: 4.5, damage: 10, attackMs: 1000, windupMs: 300, range: 1.4,
+    id: 'flyer', code: 7, name: t('horde.zombie.flyer'), hp: 85, speed: 4.5, damage: 10, attackMs: 1000, windupMs: 300, range: 1.4,
     radius: 0.3, scale: 0.72, from: 20, weight: 2, color: 0x9aabd2, cloth: 0x41476c, flying: true,
     ranged: Object.freeze({ every: 3300, speed: 17, dmg: 12, keep: 7, range: 20, windupMs: 450 })
   }),
   // 사슬꾼: 30스테이지부터 가끔. 20초마다 그랩(맞으면 사슬꾼 앞으로 끌려간다), 평타에 맞으면 기절하며 공중에 뜬다
   grabber: Object.freeze({
-    id: 'grabber', code: 8, name: '사슬꾼', hp: 700, speed: 2.4, damage: 14, attackMs: 1400, windupMs: 450, range: 1.6,
+    id: 'grabber', code: 8, name: t('horde.zombie.grabber'), hp: 700, speed: 2.4, damage: 14, attackMs: 1400, windupMs: 450, range: 1.6,
     radius: 0.45, scale: 1.3, from: 30, weight: 0.8, color: 0xd2a63a, cloth: 0x5a4a3a,
     // 그랩: 예고(0.7초) 동안 겨눈 쪽 바닥에 선이 뜨고, 갈고리는 18 m/s로 곧게 날아 사슬과 함께 보인다(20 m면 약 1.1초). 선 밖으로 비켜서면 피한다
     grab: Object.freeze({ every: 20000, range: 20, speed: 18, windupMs: 700, dmg: 8 }),
@@ -165,7 +166,7 @@ export const ZOMBIE_TYPES = Object.freeze({
   }),
   // 마녀: 40스테이지부터. 포물선으로 저주 물약을 던진다. 맞으면 10초 동안 회복 불가
   witch: Object.freeze({
-    id: 'witch', code: 9, name: '마녀', hp: 160, speed: 2.6, damage: 9, attackMs: 1200, windupMs: 400, range: 1.3,
+    id: 'witch', code: 9, name: t('horde.zombie.witch'), hp: 160, speed: 2.6, damage: 9, attackMs: 1200, windupMs: 400, range: 1.3,
     radius: 0.34, scale: 0.95, from: 40, weight: 1.2, color: 0x7b4f9e, cloth: 0x2a1b3a,
     ranged: Object.freeze({ every: 4500, speed: 12, dmg: 6, keep: 9, range: 22, windupMs: 600, kind: 'curse', arc: true, noHealMs: 10000 })
   })

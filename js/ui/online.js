@@ -5,6 +5,7 @@
  *          제공자 버튼 줄(제공자 목록이 바뀔 때만 다시 만들어 키보드 포커스를 잃지 않는다), 주문 상태 이름.
  */
 import { h, setText } from './dom.js';
+import { t } from '../core/i18n.js';
 
 /** account.online.state. 옛 계정 대역(online이 없는 계정)이면 null */
 export function onlineState(ctx) {
@@ -15,11 +16,11 @@ export function onlineState(ctx) {
 export const TONE_CLASS = Object.freeze({ ok: 'is-ok', warn: 'is-warn', bad: 'is-bad' });
 
 const BUSY_TEXT = Object.freeze({
-  login: '로그인하는 중…',
-  logout: '로그아웃하는 중…',
-  pay: '결제 페이지를 여는 중…',
-  refund: '환불하는 중…',
-  coins: '코인으로 사는 중…'
+  login: t('account.busyLogin'),
+  logout: t('account.busyLogout'),
+  pay: t('account.busyPay'),
+  refund: t('account.busyRefund'),
+  coins: t('account.busyCoins')
 });
 
 /** 상태 줄 하나를 결과 문구로 칠한다. busy가 있으면 진행 중 문구가 앞선다 */
@@ -56,7 +57,7 @@ export function createProviderRow(cls, onPick) {
   };
 }
 
-const ORDER_STATUS = Object.freeze({ DONE: '완료', CANCELING: '환불 중', CANCELED: '환불함', FAILED: '실패' });
+const ORDER_STATUS = Object.freeze({ DONE: t('account.orderDone'), CANCELING: t('account.orderCanceling'), CANCELED: t('account.orderCanceled'), FAILED: t('account.orderFailed') });
 export const orderStatusText = (s) => ORDER_STATUS[s] || s;
 
 export const providerLabel = (state, id) => ((state && state.providers.find((p) => p.id === id)) || { name: id }).name;

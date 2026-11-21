@@ -16,18 +16,20 @@ import { createFeedbackPanel, readFeedbackLocal } from './feedback.js';
 import { latestReplyAt } from '../account/feedback.js';
 import { BRAND } from '../core/brand.js';
 import { AVATARS, DEFAULT_AVATAR, avatarById } from '../core/avatar-defs.js';
+import { t, loc, fmtNum } from '../core/i18n.js';
 
-const MULTI_SUB = '방을 만들거나 참가해요';
+const MULTI_SUB = t('menu.multiSub');
 // 레일 버튼의 설명은 한 줄 안에 들어가게 짧게 쓴다
-const FEEDBACK_SUB = '운영자에게 바로';
-const FEEDBACK_NEW = '새 답이 왔어요';
+const FEEDBACK_SUB = t('menu.feedbackSub');
+const FEEDBACK_NEW = t('menu.feedbackNew');
 const REPLY_CHECK_MS = 5 * 60 * 1000;
 const CLOCK_MS = 10 * 1000;
-const NO_SERVER_NOTE = '온라인 서버가 설정되지 않아 멀티플레이를 쓸 수 없어요. 연습장과 무기고는 그대로 쓸 수 있어요.';
-const ZOMBIE_ROOM_SUB = '로비에 바로 보이는 좀비 방을 만들어요 · 최대 4명';
-const ZOMBIE_SOLO_SUB = '증강을 고르는 동안 게임이 멈춰요';
+const NO_SERVER_NOTE = t('menu.noServerNote');
+const ZOMBIE_ROOM_SUB = t('menu.zombieRoomSub');
+const ZOMBIE_SOLO_SUB = t('menu.zombieSoloSub');
+const UNAVAILABLE = t('menu.unavailable');
 /** 상태 줄의 지역 이름(중계 서버가 있는 곳) */
-const REGION = '서울';
+const REGION = t('menu.region');
 
 /** 레일 버튼: 아이콘 + 이름 + 짧은 설명. en은 오른쪽 끝의 작은 영문 라벨, lead는 아이콘 앞에 붙는 요소(출격 버튼의 DEPLOY 표시) */
 function menuBtn(icon, label, sub, onClick, cls = '', en = '', lead = null) {
@@ -68,12 +70,12 @@ export function dossierRows(stats) {
   const n = (k) => Math.max(0, Number(s[k]) || 0);
   const matches = n('matches');
   return [
-    ['경기', n('matches').toLocaleString('ko-KR')],
-    ['승률', matches ? `${Math.round((n('wins') / matches) * 100)}%` : '—'],
+    [t('menu.statMatches'), fmtNum(n('matches'))],
+    [t('menu.statWinRate'), matches ? `${Math.round((n('wins') / matches) * 100)}%` : '—'],
     ['K/D', (n('kills') / Math.max(1, n('deaths'))).toFixed(2)],
-    ['킬', n('kills').toLocaleString('ko-KR')],
-    ['헤드샷', n('headshots').toLocaleString('ko-KR')],
-    ['작전 시간', fmtPlayTime(n('secondsPlayed'))],
+    [t('menu.statKills'), fmtNum(n('kills'))],
+    [t('menu.statHeadshots'), fmtNum(n('headshots'))],
+    [t('menu.statPlayTime'), fmtPlayTime(n('secondsPlayed'))],
   ];
 }
 
@@ -98,17 +100,17 @@ export function createMenu(ctx) {
         subEl));
     return { el, subEl, action };
   }
-  const zombieRoom = zombieOpt('squad', '같이 하기 · 공개 방 만들기', ZOMBIE_ROOM_SUB, 'menu:zombieRoom', 'sk-zpick-opt--room');
-  const zombieSolo = zombieOpt('solo', '혼자 하기', ZOMBIE_SOLO_SUB, 'menu:zombie');
+  const zombieRoom = zombieOpt('squad', t('menu.zombieRoom'), ZOMBIE_ROOM_SUB, 'menu:zombieRoom', 'sk-zpick-opt--room');
+  const zombieSolo = zombieOpt('solo', t('menu.zombieSolo'), ZOMBIE_SOLO_SUB, 'menu:zombie');
   /** 시트를 먼저 닫고(포커스가 메뉴로 돌아온 뒤) 고른 쪽을 알린다 */
-  const zombieOk = btn('확인', () => { modal.close(); start(zombiePick); }, 'sk-btn--primary sk-zpick-ok');
+  const zombieOk = btn(t('menu.ok'), () => { modal.close(); start(zombiePick); }, 'sk-btn--primary sk-zpick-ok');
   const zombieNote = h('p', { class: 'sk-zpick-note', role: 'status', hidden: true });
   const zombieSheet = sheet({
-    title: '좀비 물량 막기',
+    title: t('menu.zombieTitle'),
     kicker: 'HORDE DEFENSE',
     onClose: () => modal.close(),
     cls: 'sk-zpick',
-    body: [h('div', { class: 'sk-zpick-opts', role: 'radiogroup', 'aria-label': '좀비 물량 막기 방식' }, zombieRoom.el, zombieSolo.el), zombieNote, zombieOk],
+    body: [h('div', { class: 'sk-zpick-opts', role: 'radiogroup', 'aria-label': t('menu.zombieModeAria') }, zombieRoom.el, zombieSolo.el), zombieNote, zombieOk],
   });
   function paintZombiePick() {
     for (const o of [zombieRoom, zombieSolo]) {
@@ -128,7 +130,7 @@ export function createMenu(ctx) {
   function syncZombieSheet(block) {
     zombieBlock = block;
     zombieRoom.el.disabled = !!block;
-    setText(zombieRoom.subEl, block ? '지금은 쓸 수 없어요' : ZOMBIE_ROOM_SUB);
+    setText(zombieRoom.subEl, block ? UNAVAILABLE : ZOMBIE_ROOM_SUB);
     setText(zombieNote, typeof block === 'string' ? block : '');
     zombieNote.hidden = !zombieNote.textContent;
     if (block && zombiePick === 'menu:zombieRoom') zombiePick = 'menu:zombie';
@@ -136,25 +138,25 @@ export function createMenu(ctx) {
   }
 
   // ---------- 상태 줄: ● 운영 중 // 서울 // 시각 Z · 대원 이름 · 포인트 ----------
-  const liveText = h('span', { class: 'sk-cmd-live-text', text: '운영 중' });
+  const liveText = h('span', { class: 'sk-cmd-live-text', text: t('menu.live') });
   const live = h('span', { class: 'sk-cmd-live' }, h('i', { class: 'sk-cmd-dot', 'aria-hidden': 'true' }), liveText);
   const clock = h('time', { class: 'sk-cmd-clock' });
   const nameText = h('strong', { class: 'sk-name-text' });
   const points = pointsBadge('sk-points--strip');
 
   // ---------- 출격(멀티플레이)과 레일 버튼 ----------
-  const multiBtn = menuBtn('globe', '멀티플레이', MULTI_SUB, () => start('menu:multi'), 'sk-menu-btn--main sk-deploy', '',
+  const multiBtn = menuBtn('globe', t('menu.multi'), MULTI_SUB, () => start('menu:multi'), 'sk-menu-btn--main sk-deploy', '',
     h('span', { class: 'sk-deploy-kicker', 'aria-hidden': 'true' }, h('span', { text: 'DEPLOY' }), h('span', { class: 'sk-deploy-arrow' }, uiIcon('deploy'))));
-  const sandboxBtn = menuBtn('target', '연습장', '맵과 모드, 봇을 골라 연습해요', () => start('menu:sandbox'), 'sk-menu-btn--wide', 'RANGE');
+  const sandboxBtn = menuBtn('target', t('menu.sandbox'), t('menu.sandboxSub'), () => start('menu:sandbox'), 'sk-menu-btn--wide', 'RANGE');
   // 같이 하기(공개 좀비 방) · 혼자 하기(좀비 모드를 고른 연습장 시트)를 고르는 시트를 연다. 글에 '연습장'을 넣지 않는다(QA가 글로 버튼을 찾는다)
-  const zombieBtn = menuBtn('skull', '좀비 물량 막기', '몰려오는 좀비를 버텨요', openZombieSheet, 'sk-menu-btn--wide sk-menu-btn--zombie', 'HORDE');
-  const shopBtn = menuBtn('armory', '무기고', '포인트로 장비 사기', () => start('menu:shop'), 'sk-menu-btn--sub', 'ARMORY');
-  const settingsBtn = menuBtn('gear', '설정', '감도·줌·볼륨', () => {
+  const zombieBtn = menuBtn('skull', t('menu.zombieTitle'), t('menu.zombieSub'), openZombieSheet, 'sk-menu-btn--wide sk-menu-btn--zombie', 'HORDE');
+  const shopBtn = menuBtn('armory', t('menu.shop'), t('menu.shopSub'), () => start('menu:shop'), 'sk-menu-btn--sub', 'ARMORY');
+  const settingsBtn = menuBtn('gear', t('menu.settings'), t('menu.settingsSub'), () => {
     settingsPanel.refresh();
     modal.open(settingsPanel.el);
   }, 'sk-menu-btn--sub', 'SETUP');
-  const controlsBtn = menuBtn('keys', '조작법', document.documentElement.classList.contains('pc-touch') ? '터치 조작·이동' : '키 배치·이동 기술', () => modal.open(controlsPanel.el), 'sk-menu-btn--sub', 'KEYS');
-  const feedbackBtn = menuBtn('mail', '건의하기', FEEDBACK_SUB, () => {
+  const controlsBtn = menuBtn('keys', t('menu.controls'), document.documentElement.classList.contains('pc-touch') ? t('menu.controlsSubTouch') : t('menu.controlsSub'), () => modal.open(controlsPanel.el), 'sk-menu-btn--sub', 'KEYS');
+  const feedbackBtn = menuBtn('mail', t('menu.feedback'), FEEDBACK_SUB, () => {
     feedbackPanel.refresh();
     modal.open(feedbackPanel.el);
   }, 'sk-menu-btn--sub', 'COMMS');
@@ -172,11 +174,11 @@ export function createMenu(ctx) {
 
   // ---------- 오른쪽 요원 기록: 전적(계정이 있을 때) ----------
   const dossierList = h('dl', { class: 'sk-cmd-stats' });
-  const dossierEmpty = h('p', { class: 'sk-note', text: '이 기기에 저장된 요원 기록이 없어요.' });
-  const myPageBtn = btn([uiIcon('file'), h('span', { text: '요원 기록부' })], () => start('menu:mypage'), 'sk-player-mypage');
-  const dossier = h('aside', { class: 'sk-cmd-dossier sk-steel', 'aria-label': '요원 기록' },
+  const dossierEmpty = h('p', { class: 'sk-note', text: t('menu.dossierEmpty') });
+  const myPageBtn = btn([uiIcon('file'), h('span', { text: t('menu.myPage') })], () => start('menu:mypage'), 'sk-player-mypage');
+  const dossier = h('aside', { class: 'sk-cmd-dossier sk-steel', 'aria-label': t('menu.dossier') },
     h('p', { class: 'sk-kicker', text: 'DOSSIER' }),
-    h('h2', { class: 'sk-cmd-h2', text: '요원 기록' }),
+    h('h2', { class: 'sk-cmd-h2', text: t('menu.dossier') }),
     dossierList, dossierEmpty, myPageBtn);
 
   // 운영자의 새 답 표시
@@ -195,19 +197,19 @@ export function createMenu(ctx) {
       .catch(() => { /* 다음 확인 때 다시 */ });
   }
 
-  const el = h('section', { class: 'sk-screen sk-page sk-menu', hidden: true, 'aria-label': '작전 지휘소' },
+  const el = h('section', { class: 'sk-screen sk-page sk-menu', hidden: true, 'aria-label': t('menu.commandAria') },
     h('div', { class: 'sk-cmd' },
       h('header', { class: 'sk-cmd-strip' },
         h('div', { class: 'sk-cmd-sys' }, live, h('span', { class: 'sk-cmd-sep', text: '//', 'aria-hidden': 'true' }),
           h('span', { text: REGION }), h('span', { class: 'sk-cmd-sep', text: '//', 'aria-hidden': 'true' }), clock),
         h('div', { class: 'sk-brand' },
-          h('h1', { class: 'sk-brand-title', text: BRAND.name }),
+          h('h1', { class: 'sk-brand-title', text: loc(BRAND, 'name') }),
           h('span', { class: 'sk-brand-en sk-mono', text: `${BRAND.nameEn} // COMMAND`, 'aria-hidden': 'true' })),
-        h('section', { class: 'sk-player', 'aria-label': '대원' },
+        h('section', { class: 'sk-player', 'aria-label': t('menu.operatorAria') },
           h('span', { class: 'sk-name-ico' }, uiIcon('user')),
           nameText,
           points.el)),
-      h('nav', { class: 'sk-menu-nav', 'aria-label': '메뉴' },
+      h('nav', { class: 'sk-menu-nav', 'aria-label': t('menu.navAria') },
         multiBtn.el,
         h('div', { class: 'sk-cmd-rail' },
           h('p', { class: 'sk-kicker sk-kicker-dim', text: 'OPERATIONS' }),
@@ -231,7 +233,7 @@ export function createMenu(ctx) {
     const a = ctx.account;
     const av = avatarById(a && a.loadout && a.loadout.avatar) || avatarById(DEFAULT_AVATAR);
     const idx = Math.max(0, AVATARS.findIndex((x) => x.id === av.id));
-    setText(stageName, av.name);
+    setText(stageName, loc(av, 'name'));
     setText(stageUnit, `UNIT ${String(idx + 1).padStart(2, '0')}`);
     operatorStage.dataset.avatar = av.id;
   }
@@ -244,7 +246,7 @@ export function createMenu(ctx) {
 
   function render(p) {
     const profile = ctx.account ? ctx.account.profile : null;
-    const name = (profile && profile.nickname) || p.name || ctx.playerName || '플레이어';
+    const name = (profile && profile.nickname) || p.name || ctx.playerName || t('menu.player');
     ctx.setPlayerName(name);
     setText(nameText, ctx.playerName);
     points.el.hidden = !profile;
@@ -260,8 +262,8 @@ export function createMenu(ctx) {
     multiBtn.el.disabled = !!block;
     multiBtn.el.classList.toggle('is-locked', !!block);
     multiBtn.iconBox.replaceChildren(uiIcon(block ? 'lock' : 'globe'));
-    setText(multiBtn.subEl, block ? '지금은 쓸 수 없어요' : MULTI_SUB);
-    setText(liveText, block ? '오프라인' : '운영 중');
+    setText(multiBtn.subEl, block ? UNAVAILABLE : MULTI_SUB);
+    setText(liveText, block ? t('menu.offline') : t('menu.live'));
     el.classList.toggle('is-offline', !!block);
     setText(multiNote, typeof block === 'string' ? block : '');
     multiNote.hidden = !multiNote.textContent;

@@ -215,7 +215,7 @@ function shortBladeClips({ heavy = 'stab', push = 0, idle: idleK = null } = {}) 
  * @param {'owner'|'charterer'|null} [opts.team]
  */
 export function createViewmodel(camera, opts = {}) {
-  if (!camera || !camera.isCamera) throw new Error('createViewmodel(camera): three.js 카메라가 필요합니다');
+  if (!camera || !camera.isCamera) throw new Error('createViewmodel(camera): three.js 카메라가 필요합니다'); // i18n-ok: 개발자용 오류
   const hasDOM = typeof document !== 'undefined' && typeof document.createElement === 'function';
   const lookCam = opts.lookCamera && opts.lookCamera.isObject3D ? opts.lookCamera : camera;
   const S = num(opts.scale, 1) > 0 ? num(opts.scale, 1) : 1;

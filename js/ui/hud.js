@@ -11,6 +11,7 @@ import { headshotIcon, weaponInfo, uiIcon, weaponGlyph } from './icons.js';
 import { multiKillArt, multiKillPalette, MULTI_KILL_ART } from './multikill.js';
 import { createStatusRow } from './status.js';
 import { PLAYER, MOVE } from '../core/consts.js';
+import { t as tr, isEnglish } from '../core/i18n.js';
 
 const KILLFEED_MAX = 5;
 const KILLFEED_MS = 5000;
@@ -47,9 +48,10 @@ const NO_BOMB = Object.freeze({ side: null, goal: '', status: '', tone: '', time
 export const MULTI_KILL_MS = Object.freeze({ tier: 2200, legend: 2900 });
 
 function autoTone(text) {
-  if (/매치 ?포인트|무승부|재경기|연장/.test(text)) return 'warn';
-  if (/블루/.test(text) && !/레드/.test(text)) return 'owner';
-  if (/레드/.test(text) && !/블루/.test(text)) return 'charterer';
+  if (/매치 ?포인트|무승부|재경기|연장|match point|draw|replay|overtime/i.test(text)) return 'warn'; // i18n-ok: 두 언어 배너 글자로 색을 고른다
+  const blue = /블루|\bblue\b/i.test(text), red = /레드|\bred\b/i.test(text); // i18n-ok: 두 언어 배너 글자로 색을 고른다
+  if (blue && !red) return 'owner';
+  if (red && !blue) return 'charterer';
   return '';
 }
 
@@ -79,10 +81,10 @@ export function swapPromptSpec(swap, touch = false) {
   const secs = Math.max(0, Math.ceil(num(swap.seconds, 0)));
   const name = swap.weaponName == null ? '' : String(swap.weaponName).trim();
   const main = swap.open
-    ? (touch ? '바꿀 무기를 누르세요' : '바꿀 무기를 누르세요 · N으로 닫기')
-    : (touch ? '눌러서 무기 교체!' : '을 눌러 무기 교체!');
+    ? (touch ? tr('hud.swapPick') : tr('hud.swapPickClose'))
+    : (touch ? tr('hud.swapTap') : tr('hud.swapKey'));
   const note = swap.note == null ? '' : String(swap.note).trim();
-  const sub = [name ? `지금 ${name}` : '', secs > 0 ? `${secs}초 뒤 시작` : '', note].filter(Boolean).join(' · ');
+  const sub = [name ? tr('hud.swapNow', { name }) : '', secs > 0 ? tr('hud.swapIn', { n: secs }) : '', note].filter(Boolean).join(' · ');
   return { key: touch || swap.open ? '' : 'N', main, sub };
 }
 
@@ -94,10 +96,10 @@ export function quickRespawnSpec(quick) {
   if (!quick || typeof quick !== 'object') return null;
   const cost = Math.floor(num(quick.cost, 0));
   if (!(cost > 0)) return null;
-  if (quick.ok === false) return { key: '', text: `즉시 부활 ${cost} P · 포인트 부족`, ok: false };
+  if (quick.ok === false) return { key: '', text: tr('hud.quickPoor', { cost }), ok: false };
   return quick.touch
-    ? { key: '', text: `'부활' 버튼 · ${cost} P`, ok: true }   // 휴대폰 한 줄 패널이 넓어지지 않게 짧게(버튼 글자가 '부활'이다)
-    : { key: 'E', text: `즉시 부활 · ${cost} P`, ok: true };
+    ? { key: '', text: tr('hud.quickTouch', { cost }), ok: true }   // 휴대폰 한 줄 패널이 넓어지지 않게 짧게(버튼 글자가 '부활'이다)
+    : { key: 'E', text: tr('hud.quickKey', { cost }), ok: true };
 }
 
 export function bannerSpec(o) {
@@ -221,7 +223,7 @@ export function createHud(ctx) {
     const score = h('b', { class: 'sk-ts-score', text: '0' });
     const pips = h('span', { class: 'sk-pips' });
     const aliveN = h('span', { class: 'sk-ts-alive-n' });
-    const mp = h('span', { class: 'sk-ts-mp', text: '매치 포인트', hidden: true });
+    const mp = h('span', { class: 'sk-ts-mp', text: tr('hud.matchPoint'), hidden: true });
     const role = h('small', { class: 'sk-ts-side', hidden: true }); // 폭파 미션: 이번 라운드 공격/수비
     const el = h('div', { class: `sk-ts sk-ts--${team}` },
       h('div', { class: 'sk-ts-row' }, h('span', { class: 'sk-ts-label' }, h('span', { class: 'sk-ts-name', text: TEAMS[team].name }), role), score),
@@ -231,7 +233,7 @@ export function createHud(ctx) {
   }
   const sides = { owner: side('owner'), charterer: side('charterer') };
   const timer = h('div', { class: 'sk-timer', text: '-:--' });
-  const tcSub = h('div', { class: 'sk-tc-sub', text: '5판 3선승' });
+  const tcSub = h('div', { class: 'sk-tc-sub', text: tr('hud.bo5') });
 
   // 개인전 스코어: "🎯 7킬 · 2위/5 · 1위 하늘 12 / 20"
   const ffaKills = h('b', { class: 'sk-ts-score', text: '0' });
@@ -240,13 +242,13 @@ export function createHud(ctx) {
   const ffaTotal = h('small', { class: 'sk-ffa-total' });
   const ffaLeader = h('span', { class: 'sk-ts-alive-n sk-ffa-leader' });
   const ffaMe = h('div', { class: 'sk-ts sk-ts--ffa sk-ffa-me' },
-    h('div', { class: 'sk-ts-row' }, h('span', { class: 'sk-ts-name' }, uiIcon('target', 'sk-uico--inline'), ' 내 킬'), h('span', { class: 'sk-ffa-kv' }, ffaKills, h('small', { text: '킬' }))),
+    h('div', { class: 'sk-ts-row' }, h('span', { class: 'sk-ts-name' }, uiIcon('target', 'sk-uico--inline'), tr('hud.myKills')), h('span', { class: 'sk-ffa-kv' }, ffaKills, h('small', { text: tr('hud.killsUnit') }))),
     h('div', { class: 'sk-ts-alive' }, ffaGoal));
   const ffaStand = h('div', { class: 'sk-ts sk-ts--ffa sk-ffa-stand' },
-    h('div', { class: 'sk-ts-row' }, h('span', { class: 'sk-ffa-kv' }, ffaRank, h('small', { text: '위' }), ffaTotal), h('span', { class: 'sk-ts-name', text: '순위' })),
+    h('div', { class: 'sk-ts-row' }, h('span', { class: 'sk-ffa-kv' }, ffaRank, (isEnglish() ? null : h('small', { text: tr('hud.rankSuffix') })), ffaTotal), h('span', { class: 'sk-ts-name', text: tr('hud.rank') })),
     h('div', { class: 'sk-ts-alive' }, ffaLeader));
 
-  const top = h('div', { class: 'sk-top', role: 'group', 'aria-label': '라운드 스코어' },
+  const top = h('div', { class: 'sk-top', role: 'group', 'aria-label': tr('hud.ariaScore') },
     sides.owner.el, ffaMe, h('div', { class: 'sk-tc' }, timer, tcSub), ffaStand, sides.charterer.el);
 
   // 상단 배너(비밀 스팟 발견 등)
@@ -263,7 +265,7 @@ export function createHud(ctx) {
   const bombNum = h('b', { class: 'sk-bomb-num' });
   const bombTimer = h('span', { class: 'sk-bomb-timer', hidden: true },
     h('span', { class: 'sk-bomb-timer-ico', text: '💣', 'aria-hidden': 'true' }), bombNum);
-  const bombPanel = h('div', { class: 'sk-bomb', hidden: true, role: 'group', 'aria-label': '폭파 미션' },
+  const bombPanel = h('div', { class: 'sk-bomb', hidden: true, role: 'group', 'aria-label': tr('hud.ariaBomb') },
     bombSideEl, h('div', { class: 'sk-bomb-text' }, bombGoal, bombStatus), bombTimer);
   const bombMarks = h('div', { class: 'sk-bomb-marks', 'aria-hidden': 'true' });
   const markEls = new Map(); // 표식 id → { el, ico, dist, 마지막 값 }
@@ -272,7 +274,7 @@ export function createHud(ctx) {
   const bombProg = h('div', { class: 'sk-bomb-prog', hidden: true, 'aria-hidden': 'true' },
     bombProgLabel, h('div', { class: 'sk-bomb-prog-bar' }, bombProgFill));
   const bombPrompt = h('div', { class: 'sk-bomb-prompt', hidden: true });
-  const bombCarry = h('span', { class: 'sk-hp-bomb', hidden: true, text: '💣 폭탄 소지' });
+  const bombCarry = h('span', { class: 'sk-hp-bomb', hidden: true, text: tr('hud.bombCarry') });
   // 버프·디버프 줄(좀비 모드, hud.set({ status })): 체력 칸 바로 위(ui/status.js). 포인터가 잠겨 있어 설명은 title·aria-label로
   const statusRow = createStatusRow({ cls: 'sk-status' });
 
@@ -282,7 +284,7 @@ export function createHud(ctx) {
     statusRow.el,
     h('span', { class: 'sk-hp-ico', text: '✚', 'aria-hidden': 'true' }),
     h('div', { class: 'sk-hp-main' },
-      h('div', { class: 'sk-hp-top' }, hpNum, h('span', { class: 'sk-hp-label', text: '체력' })),
+      h('div', { class: 'sk-hp-top' }, hpNum, h('span', { class: 'sk-hp-label', text: tr('hud.hp') })),
       h('div', { class: 'sk-hp-bar' }, hpFill)),
     bombCarry);
 
@@ -305,15 +307,15 @@ export function createHud(ctx) {
   const slotsEl = h('div', { class: 'sk-slots' });
   const slotEls = [1, 2, 3, 4].map((n) => {
     const ico = h('span', { class: 'sk-slot-ico' });
-    const nm = h('span', { class: 'sk-slot-nm', text: '비어 있음' });
+    const nm = h('span', { class: 'sk-slot-nm', text: tr('hud.empty') });
     const el = h('div', { class: 'sk-slot is-empty', hidden: true }, h('kbd', { class: 'sk-slot-key', text: String(n) }), ico, nm);
     slotsEl.append(el);
     return { el, ico, nm };
   });
 
-  const feed = h('div', { class: 'sk-killfeed', 'aria-label': '킬피드' });
+  const feed = h('div', { class: 'sk-killfeed', 'aria-label': tr('hud.ariaFeed') });
   // Static terrain is drawn only when a map loads; the visible canvas gets moving marks each frame.
-  const minimap = h('canvas', { class: 'sk-minimap', width: MINIMAP_PX, height: MINIMAP_PX, hidden: true, 'aria-label': '미니맵' });
+  const minimap = h('canvas', { class: 'sk-minimap', width: MINIMAP_PX, height: MINIMAP_PX, hidden: true, 'aria-label': tr('hud.ariaMinimap') });
   const minimapCtx = minimap.getContext('2d');
   const minimapTerrain = document.createElement('canvas');
   minimapTerrain.width = minimapTerrain.height = MINIMAP_PX;
@@ -345,7 +347,7 @@ export function createHud(ctx) {
     h('div', { class: 'sk-rsp-top' }, rspMain, rspWpn),
     h('div', { class: 'sk-rsp-line' }, rspNum, rspTxt),
     rspQuick);
-  const protectEl = h('div', { class: 'sk-protect', hidden: true, role: 'status', text: '🛡 보호 중' });
+  const protectEl = h('div', { class: 'sk-protect', hidden: true, role: 'status', text: tr('hud.protect') });
   // 이모트 중 하단 안내 "🥁 제자리 행진 · 움직이면 취소"(MODES.md 4.3)
   const emoteEl = h('div', { class: 'sk-emote-banner', hidden: true, role: 'status' });
 
@@ -513,9 +515,9 @@ export function createHud(ctx) {
     ammoEl.classList.toggle('is-empty', empty);
     ammoEl.classList.toggle('is-low', low);
     let hint = '';
-    if (st.reloading || (st.reload != null && st.reload < 1)) hint = '재장전 중…';
-    else if (empty) hint = res > 0 ? 'R 재장전' : '탄약 없음';
-    else if (low && res > 0) hint = 'R 재장전';
+    if (st.reloading || (st.reload != null && st.reload < 1)) hint = tr('hud.reloading');
+    else if (empty) hint = res > 0 ? tr('hud.pressReload') : tr('hud.noAmmo');
+    else if (low && res > 0) hint = tr('hud.pressReload');
     setText(ammoHint, hint);
   }
 
@@ -534,7 +536,7 @@ export function createHud(ctx) {
       // 칸 아이콘은 무기 종류 선 아이콘(무기고와 같은 그림). 칸 번호(i + 1)가 곧 무기 칸이다
       const glyph = s ? weaponGlyph(s.id, i + 1) : '';
       if (se.ico.dataset.glyph !== glyph) { se.ico.dataset.glyph = glyph; se.ico.replaceChildren(...(glyph ? [uiIcon(glyph)] : [])); }
-      setText(se.nm, s ? s.name : '비어 있음');
+      setText(se.nm, s ? s.name : tr('hud.empty'));
       se.el.title = s ? s.full : '';
     });
     applyWeaponName();
@@ -603,8 +605,8 @@ export function createHud(ctx) {
     st.scoreSig = sig;
     setText(sides.owner.score, o);
     setText(sides.charterer.score, c);
-    const rule = `${bomb ? '폭파 미션 · ' : ''}${bestOf}판 ${target}선승`;
-    setText(tcSub, `${rule}${round ? ` · 라운드 ${round}` : ''}`);
+    const rule = tr(bomb ? 'hud.ruleBomb' : 'hud.rule', { n: bestOf, target });
+    setText(tcSub, `${rule}${round ? ` · ${tr('hud.round', { n: round })}` : ''}`);
     const done = o >= target || c >= target;
     sides.owner.mp.hidden = done || o !== target - 1;
     sides.charterer.mp.hidden = done || c !== target - 1;
@@ -615,7 +617,7 @@ export function createHud(ctx) {
       tag.dataset.side = role;
       setText(tag, role ? SIDE_NAME[role] : '');
     }
-    top.setAttribute('aria-label', `블루 ${o} : ${c} 레드 · ${rule}${attack ? ` · ${TEAMS[attack].name} 공격` : ''}`);
+    top.setAttribute('aria-label', `${tr('hud.ariaTeamScore', { o, c, rule })}${attack ? ` · ${tr('hud.ariaAttack', { team: TEAMS[attack].name })}` : ''}`);
   }
 
   // score: { mode:'ffa', kills, rank, total, leaderName, leaderKills, target }
@@ -632,13 +634,14 @@ export function createHud(ctx) {
     const rankText = rank == null ? '-' : String(rank);
     const totalText = total == null ? '' : `/${total}`;
     setText(ffaKills, kills);
-    setText(ffaGoal, kills >= target ? '목표 달성!' : `목표까지 ${target - kills}킬`);
+    setText(ffaGoal, kills >= target ? tr('hud.goalDone') : tr('hud.goalLeft', { n: target - kills }));
     setText(ffaRank, rankText);
     setText(ffaTotal, totalText);
-    setText(ffaLeader, leaderName ? `1위 ${leaderName} ${leaderKills} / ${target}` : `목표 ${target}킬`);
+    const leaderText = leaderName ? tr('hud.leader', { name: leaderName, kills: leaderKills, target }) : tr('hud.goal', { n: target });
+    setText(ffaLeader, leaderText);
     ffaStand.classList.toggle('is-leader', rank === 1);
-    setText(tcSub, `개인전 · ${target}킬`);
-    top.setAttribute('aria-label', `🎯 ${kills}킬 · ${rankText}위${totalText} · ${leaderName ? `1위 ${leaderName} ${leaderKills} / ${target}` : `목표 ${target}킬`}`);
+    setText(tcSub, tr('hud.ffaRule', { n: target }));
+    top.setAttribute('aria-label', tr('hud.ariaFfa', { kills, rank: rankText, total: totalText, rest: leaderText }));
   }
 
   function weaponByName(name) {
@@ -667,18 +670,18 @@ export function createHud(ctx) {
       if (wasOn && ctx.hooks && ctx.hooks.respawnEnd) ctx.hooks.respawnEnd(); // 부활 → compact 로드아웃도 닫기
       return;
     }
-    setText(rspMain, killer ? `💀 ${killer}에게 당했어요` : '💀 전사했어요');
+    setText(rspMain, killer ? tr('hud.killedBy', { name: killer }) : tr('hud.died'));
     rspWpn.hidden = !w;
     if (w) setText(rspWpn, w.icon ? `${w.icon} ${w.name}` : w.name);
     setText(rspNum, sec > 0 ? String(sec) : '');
-    setText(rspTxt, sec > 0 ? '초 뒤 부활' : '곧 부활해요…');
+    setText(rspTxt, sec > 0 ? tr('hud.respawnSuffix') : tr('hud.respawnSoon'));
     rspQuick.hidden = !quick;
     if (quick) {
       rspQuickKey.hidden = !quick.key;
       setText(rspQuickTxt, quick.text);
       rspQuick.classList.toggle('is-off', !quick.ok);
     }
-    respawnEl.setAttribute('aria-label', `${rspMain.textContent} · ${sec > 0 ? `${sec}초 뒤 부활` : '곧 부활'}${quick ? ` · ${quick.key ? `${quick.key} ` : ''}${quick.text}` : ''}`);
+    respawnEl.setAttribute('aria-label', `${rspMain.textContent} · ${sec > 0 ? tr('hud.respawnIn', { n: sec }) : tr('hud.respawnSoonShort')}${quick ? ` · ${quick.key ? `${quick.key} ` : ''}${quick.text}` : ''}`);
   }
 
   function applyProtect(v) {
@@ -698,7 +701,7 @@ export function createHud(ctx) {
     for (const t of TEAM_KEYS) {
       const n = Math.max(0, Math.floor(num(a[t], 0)));
       const total = Math.min(8, Math.max(n, Math.floor(num(z[t], 0))));
-      setText(sides[t].aliveN, a[t] == null ? '' : `생존 ${n}`);
+      setText(sides[t].aliveN, a[t] == null ? '' : tr('hud.alive', { n }));
       sides[t].pips.replaceChildren(...Array.from({ length: total }, (_, i) => h('i', { class: i < n ? 'is-alive' : '' })));
     }
   }
@@ -836,7 +839,7 @@ export function createHud(ctx) {
     // 정보만 주는 안내(좀비 모드 살리기): 휴대폰에서 눌러도 아무 일이 없게 탭을 아래로 흘린다(css/touch.css)
     if ('hintInfo' in p) hintEl.classList.toggle('is-info', !!p.hintInfo);
     if ('swap' in p) applySwap(p.swap);
-    if ('spectate' in p) setLine(specEl, p.spectate ? `👁️ 관전 중 · ${p.spectate}` : '');
+    if ('spectate' in p) setLine(specEl, p.spectate ? tr('hud.spectating', { name: p.spectate }) : '');
     if ('crosshair' in p) xhair.hidden = p.crosshair === false;
     if ('respawn' in p) applyRespawn(p.respawn);
     if ('protect' in p) applyProtect(p.protect);
@@ -845,7 +848,7 @@ export function createHud(ctx) {
       // emote: { name, icon } | null — 아이콘이 없으면 🕺
       const e = p.emote && typeof p.emote === 'object' ? p.emote : null;
       const name = e ? String(e.name || e.id || '') : '';
-      setLine(emoteEl, name ? `${e.icon || '🕺'} ${name} · 움직이면 취소` : '');
+      setLine(emoteEl, name ? tr('hud.emote', { icon: e.icon || '🕺', name }) : '');
       el.classList.toggle('is-emote', !!name); // 이모트 중(3인칭)에는 크로스헤어·히트마커를 숨긴다
     }
     if ('bomb' in p) applyBomb(p.bomb);
@@ -1009,7 +1012,7 @@ export function createHud(ctx) {
         h('span', { class: 'sk-kf-ico', text: w.icon, 'aria-hidden': 'true' }),
         w.short ? h('span', { class: 'sk-kf-wn', text: w.short }) : null),
       k.head ? headshotIcon() : null,
-      half ? h('span', { class: 'sk-kf-half', text: '반샷' }) : null,
+      half ? h('span', { class: 'sk-kf-half', text: tr('hud.half') }) : null,
       h('span', { class: `sk-kf-name t-${vt}`, text: k.victim == null ? '' : k.victim }));
     feed.append(row);
     while (feed.children.length > KILLFEED_MAX) feed.firstElementChild.remove();

@@ -66,7 +66,7 @@ export function loadOperators(url = OPERATOR_MODEL_URL) {
       .then((gltf) => (template = buildTemplate(gltf)))
       .catch((err) => {
         loadPromise = null;
-        const e = new Error(`대원 모델을 불러오지 못했어요(${url}): ${(err && err.message) || err}`);
+        const e = new Error(`대원 모델을 불러오지 못했어요(${url}): ${(err && err.message) || err}`); // i18n-ok: 개발자용 오류(화면에 나오지 않는다)
         e.cause = err;
         throw e;
       });
@@ -84,9 +84,9 @@ function buildTemplate(gltf) {
   scene.updateMatrixWorld(true);
   const prims = [];
   scene.traverse((o) => { if (o.isSkinnedMesh) prims.push(o); });
-  if (!prims.length) throw new Error('뼈대가 있는 메시가 없어요');
+  if (!prims.length) throw new Error('뼈대가 있는 메시가 없어요'); // i18n-ok: 개발자용 오류(화면에 나오지 않는다)
   const skeleton = prims[0].skeleton;
-  for (const p of prims) if (p.skeleton.bones.length !== skeleton.bones.length) throw new Error('메시마다 뼈대가 달라요');
+  for (const p of prims) if (p.skeleton.bones.length !== skeleton.bones.length) throw new Error('메시마다 뼈대가 달라요'); // i18n-ok: 개발자용 오류(화면에 나오지 않는다)
   skeleton.pose();
   scene.updateMatrixWorld(true);
   const armature = skeleton.bones[0].parent;   // CharacterArmature
@@ -102,7 +102,7 @@ function buildTemplate(gltf) {
     av.decompose(pos, q, s);
     rest.set(b.name, { av, pos, q, scale: s.x, lpos: b.position.clone(), lq: b.quaternion.clone(), lscale: b.scale.clone() });
   });
-  const R = (n) => { const r = rest.get(n); if (!r) throw new Error('뼈가 없어요: ' + n); return r; };
+  const R = (n) => { const r = rest.get(n); if (!r) throw new Error('뼈가 없어요: ' + n); return r; }; // i18n-ok: 개발자용 오류(화면에 나오지 않는다)
 
   // 아바타 공간 몸 부품(재질 이름별)
   const parts = new Map();
@@ -175,7 +175,7 @@ function buildTemplate(gltf) {
   const clips = {};
   for (const [k, name] of Object.entries(CLIPS)) {
     const clip = gltf.animations.find((a) => a.name === name);
-    if (!clip) throw new Error('동작이 없어요: ' + name);
+    if (!clip) throw new Error('동작이 없어요: ' + name); // i18n-ok: 개발자용 오류(화면에 나오지 않는다)
     clips[k] = clip;
   }
 
@@ -256,7 +256,7 @@ function shapeOf(tpl, id) {
   const solid = (hex) => new THREE.Color(hex);
   for (const [base, mat, slot] of partsOf(look)) {
     const p = tpl.parts.get(base + '/' + mat);
-    if (!p) throw new Error(`모델에 부품이 없어요: ${base}/${mat}`);
+    if (!p) throw new Error(`모델에 부품이 없어요: ${base}/${mat}`); // i18n-ok: 개발자용 오류(화면에 나오지 않는다)
     const team = slot === 'accent' ? 1 : slot === 'uniform' ? 2 : 0;
     const color = new Float32Array(p.count * 3);
     const c = solid(colorOf(look, 'owner', slot));
@@ -274,7 +274,7 @@ function shapeOf(tpl, id) {
   const gear = gearOf(look.kit, { accent: ACCENT_KEY, uniform: UNIFORM_KEY, strobe: STROBE_KEY, gear: new THREE.Color(colorOf(look, 'owner', 'gear')).getHex() });
   for (const [bone, geo] of gear) {
     const bi = tpl.boneIndex.get(bone);
-    if (bi === undefined) throw new Error('장비를 붙일 뼈가 없어요: ' + bone);
+    if (bi === undefined) throw new Error('장비를 붙일 뼈가 없어요: ' + bone); // i18n-ok: 개발자용 오류(화면에 나오지 않는다)
     const n = geo.attributes.position.count;
     const si = new Uint8Array(n * 4), sw = new Float32Array(n * 4), team = new Uint8Array(n);
     const col = geo.attributes.color.array;

@@ -152,17 +152,17 @@ export function toRad(v) {
  * id는 저장된 휠·구매 기록과 서버 가격표에 묶여 있어 이름·동작을 바꿔도 그대로 둔다(docs/ASSETS.md "내부 id").
  */
 export const EMOTES = Object.freeze([
-  Object.freeze({ code: 1, id: 'takeL', name: '작전 성공', icon: '✊', loop: true, duration: 0, bpm: 120, price: 0, desc: '주먹으로 하늘을 두 번 찌르고 가슴을 친 뒤 두 팔에 힘을 준다' }),
-  Object.freeze({ code: 2, id: 'veggie', name: '무전 확인', icon: '📻', loop: true, duration: 0, bpm: 100, price: 0, desc: '왼손을 귀에 대고 고개를 끄덕이다가 오른손으로 앞을 가리키고 엄지를 든다' }),
-  Object.freeze({ code: 3, id: 'sideToSide', name: '경계 이동', icon: '👀', loop: true, duration: 0, bpm: 116, price: 0, desc: '낮은 자세로 좌우 게걸음, 보이지 않는 총을 겨누며 양옆을 살핀다' }),
-  Object.freeze({ code: 4, id: 'crissCross', name: '몸풀기', icon: '🤸', loop: true, duration: 0, bpm: 96, price: 0, desc: '깍지 낀 두 팔로 옆구리를 늘이고, 팔다리를 털어 준다' }),
-  Object.freeze({ code: 5, id: 'tango', name: '제자리 행진', icon: '🥁', loop: true, duration: 0, bpm: 112, price: 0, desc: '무릎을 높이 들며 세 걸음, 네 번째 박에 발을 모아 차렷' }),
-  Object.freeze({ code: 6, id: 'salute', name: '경례', icon: '🫡', loop: false, duration: 2.5, bpm: 0, price: 0, desc: '차렷 자세에서 오른손 경례' }),
-  Object.freeze({ code: 7, id: 'wave', name: '손 흔들기', icon: '👋', loop: false, duration: 2.5, bpm: 0, price: 0, desc: '오른팔을 높이 들어 크게 흔든다' }),
-  Object.freeze({ code: 8, id: 'cheer', name: '환호 박수', icon: '👏', loop: true, duration: 0, bpm: 128, price: 0, desc: '머리 위에서 박수 치며 깡충' }),
-  Object.freeze({ code: 9, id: 'creamCheese', name: '수신호', icon: '✋', loop: true, duration: 0, bpm: 104, price: 0, desc: '정지, 집결, 전진, 엎드려 — 분대 수신호를 차례로 보낸다' }),
-  Object.freeze({ code: 10, id: 'fromYou', name: '쌍안경 정찰', icon: '🔭', loop: true, duration: 0, bpm: 84, price: 600, desc: '쌍안경으로 왼쪽에서 오른쪽까지 훑다가 목표를 가리키고 엄지를 든다' }),
-  Object.freeze({ code: 11, id: 'selfie', name: '깃발 흔들기', icon: '🚩', loop: true, duration: 0, bpm: 92, price: 400, desc: '큰 깃발을 머리 위에서 좌우로 흔든 뒤 땅에 꽂고 허리에 손을 얹는다' })
+  Object.freeze({ code: 1, id: 'takeL', name: '작전 성공', nameEn: 'Mission Success', icon: '✊', loop: true, duration: 0, bpm: 120, price: 0, desc: '주먹으로 하늘을 두 번 찌르고 가슴을 친 뒤 두 팔에 힘을 준다', descEn: 'Punches the sky twice, thumps the chest and flexes both arms' }),
+  Object.freeze({ code: 2, id: 'veggie', name: '무전 확인', nameEn: 'Radio Check', icon: '📻', loop: true, duration: 0, bpm: 100, price: 0, desc: '왼손을 귀에 대고 고개를 끄덕이다가 오른손으로 앞을 가리키고 엄지를 든다', descEn: 'Hand to ear, nods, points ahead and gives a thumbs-up' }),
+  Object.freeze({ code: 3, id: 'sideToSide', name: '경계 이동', nameEn: 'Sweep & Clear', icon: '👀', loop: true, duration: 0, bpm: 116, price: 0, desc: '낮은 자세로 좌우 게걸음, 보이지 않는 총을 겨누며 양옆을 살핀다', descEn: 'Low side-steps, aiming an invisible gun while checking both flanks' }),
+  Object.freeze({ code: 4, id: 'crissCross', name: '몸풀기', nameEn: 'Warm-Up', icon: '🤸', loop: true, duration: 0, bpm: 96, price: 0, desc: '깍지 낀 두 팔로 옆구리를 늘이고, 팔다리를 털어 준다', descEn: 'Stretches the sides with laced arms, then shakes out arms and legs' }),
+  Object.freeze({ code: 5, id: 'tango', name: '제자리 행진', nameEn: 'March in Place', icon: '🥁', loop: true, duration: 0, bpm: 112, price: 0, desc: '무릎을 높이 들며 세 걸음, 네 번째 박에 발을 모아 차렷', descEn: 'Three high-knee steps, feet together and attention on four' }),
+  Object.freeze({ code: 6, id: 'salute', name: '경례', nameEn: 'Salute', icon: '🫡', loop: false, duration: 2.5, bpm: 0, price: 0, desc: '차렷 자세에서 오른손 경례', descEn: 'Stands at attention and salutes' }),
+  Object.freeze({ code: 7, id: 'wave', name: '손 흔들기', nameEn: 'Wave', icon: '👋', loop: false, duration: 2.5, bpm: 0, price: 0, desc: '오른팔을 높이 들어 크게 흔든다', descEn: 'Raises the right arm high and waves big' }),
+  Object.freeze({ code: 8, id: 'cheer', name: '환호 박수', nameEn: 'Cheer', icon: '👏', loop: true, duration: 0, bpm: 128, price: 0, desc: '머리 위에서 박수 치며 깡충', descEn: 'Claps overhead and hops' }),
+  Object.freeze({ code: 9, id: 'creamCheese', name: '수신호', nameEn: 'Hand Signals', icon: '✋', loop: true, duration: 0, bpm: 104, price: 0, desc: '정지, 집결, 전진, 엎드려 — 분대 수신호를 차례로 보낸다', descEn: 'Halt, rally, advance, get down — squad signals in sequence' }),
+  Object.freeze({ code: 10, id: 'fromYou', name: '쌍안경 정찰', nameEn: 'Binocular Recon', icon: '🔭', loop: true, duration: 0, bpm: 84, price: 600, desc: '쌍안경으로 왼쪽에서 오른쪽까지 훑다가 목표를 가리키고 엄지를 든다', descEn: 'Scans left to right with binoculars, points at the target, thumbs-up' }),
+  Object.freeze({ code: 11, id: 'selfie', name: '깃발 흔들기', nameEn: 'Flag Wave', icon: '🚩', loop: true, duration: 0, bpm: 92, price: 400, desc: '큰 깃발을 머리 위에서 좌우로 흔든 뒤 땅에 꽂고 허리에 손을 얹는다', descEn: 'Waves a big flag overhead, plants it and puts hands on hips' })
 ]);
 export const EMOTE_IDS = Object.freeze(EMOTES.map((e) => e.id));
 
