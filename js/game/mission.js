@@ -16,6 +16,7 @@
  * 공수가 바뀌므로 스폰은 팀이 아니라 진영 기준이다. 팀전·개인전은 맵의 spawns(owner·charterer·ffa)를 그대로 쓴다.
  */
 import { toRad } from '../core/consts.js';
+import { t } from '../core/i18n.js';
 
 export const SITE_IDS = Object.freeze(['A', 'B']);
 export const BOMB_TEAMS = Object.freeze(['owner', 'charterer']);
@@ -42,22 +43,22 @@ export const BOMB = Object.freeze({
 export const BOMB_STATES = Object.freeze(['none', 'carried', 'dropped', 'planted', 'defused', 'exploded']);
 /** 라운드가 끝난 사유(폭파 미션) → 화면 문구 */
 export const BOMB_REASON_LABELS = Object.freeze({
-  bomb: '폭탄 폭파',
-  defuse: '폭탄 해체',
-  elimination: '전멸',
-  time: '시간 종료',
-  draw: '무승부'
+  bomb: t('game.reason.bomb'),
+  defuse: t('game.reason.defuse'),
+  elimination: t('game.reason.elimination'),
+  time: t('game.reason.time'),
+  draw: t('game.reason.draw')
 });
 /** 설치·해체 취소 사유 → 화면 문구 */
 export const BOMB_CANCEL_LABELS = Object.freeze({
-  moved: '움직여서 취소됐어요',
-  fired: '공격해서 취소됐어요',
-  died: '쓰러져서 취소됐어요',
+  moved: t('game.bomb.cancelMoved'),
+  fired: t('game.bomb.cancelFired'),
+  died: t('game.bomb.cancelDied'),
   released: '',
   left: '',
   round: ''
 });
-export const SIDE_NAME = Object.freeze({ attack: '공격', defense: '수비' });
+export const SIDE_NAME = Object.freeze({ attack: t('game.side.attack'), defense: t('game.side.defense') });
 
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(+v) ? +v : d);
 const r2 = (v) => Math.round(v * 100) / 100;
@@ -87,7 +88,7 @@ function normSite(s, i) {
   const y = num(s.y, 0);
   const h = num(s.h, 3) > 0 ? num(s.h, 3) : 3;
   const id = typeof s.id === 'string' && s.id.trim() ? s.id.trim().slice(0, 4).toUpperCase() : SITE_IDS[i] || String(i + 1);
-  const name = typeof s.name === 'string' && s.name.trim() ? s.name.trim().slice(0, 32) : `${id} 구역`;
+  const name = typeof s.name === 'string' && s.name.trim() ? s.name.trim().slice(0, 32) : t('game.bomb.siteName', { id });
   return Object.freeze({
     id, name, x: r2(x), y: r2(y), z: r2(z), w: r2(w), h: r2(h), d: r2(d),
     minX: r2(x - w / 2), maxX: r2(x + w / 2), minZ: r2(z - d / 2), maxZ: r2(z + d / 2), minY: r2(y - 0.6), maxY: r2(y + h)
@@ -201,22 +202,22 @@ export function beepInterval(leftMs, fuseMs = BOMB.fuseMs) {
 export function bombTexts(side, bomb, opts = {}) {
   const b = bomb || {};
   const nameOf = typeof opts.nameOf === 'function' ? opts.nameOf : (id) => String(id || '');
-  const siteName = b.site ? `${b.site} 구역` : '';
+  const siteName = b.site ? t('game.bomb.siteName', { id: b.site }) : '';
   const me = opts.me != null ? String(opts.me) : null;
   let goal = '', status = '', tone = '';
   if (b.state === 'planted') {
-    goal = side === 'attack' ? `${siteName} 폭탄을 지키세요` : side === 'defense' ? `${siteName} 폭탄을 해체하세요` : `${siteName}에 폭탄이 설치됐어요`;
-    status = `💣 ${siteName}에 설치됨`;
+    goal = side === 'attack' ? t('game.bomb.goalGuard', { site: siteName }) : side === 'defense' ? t('game.bomb.goalDefuse', { site: siteName }) : t('game.bomb.goalPlanted', { site: siteName });
+    status = t('game.bomb.statusPlanted', { site: siteName });
     tone = 'warn';
   } else if (b.state === 'defused') {
-    goal = '폭탄이 해체됐어요'; status = '✂️ 폭탄 해체'; tone = 'defense';
+    goal = t('game.bomb.goalDefused'); status = t('game.bomb.statusDefused'); tone = 'defense';
   } else if (b.state === 'exploded') {
-    goal = '폭탄이 터졌어요'; status = '💥 폭탄 폭파'; tone = 'attack';
+    goal = t('game.bomb.goalExploded'); status = t('game.bomb.statusExploded'); tone = 'attack';
   } else {
-    goal = side === 'attack' ? 'A 또는 B 구역에 폭탄을 설치하세요' : side === 'defense' ? 'A·B 구역을 지키세요' : '폭파 미션';
+    goal = side === 'attack' ? t('game.bomb.goalAttack') : side === 'defense' ? t('game.bomb.goalDefense') : t('game.bomb.goalNeutral');
     if (side === 'attack') {
-      if (b.state === 'carried' && b.carrier) status = b.carrier === me ? '💣 내가 폭탄을 들고 있어요' : `💣 ${nameOf(b.carrier)}이(가) 폭탄을 들고 있어요`;
-      else if (b.state === 'dropped') status = '💣 폭탄이 떨어졌어요 · 주우러 가세요';
+      if (b.state === 'carried' && b.carrier) status = b.carrier === me ? t('game.bomb.carryMe') : t('game.bomb.carryOther', { name: nameOf(b.carrier) });
+      else if (b.state === 'dropped') status = t('game.bomb.droppedGo');
       tone = 'attack';
     } else if (side === 'defense') {
       status = '';   // 수비는 폭탄을 누가 들었는지·떨어졌는지 모른다(설치되면 모두 안다)

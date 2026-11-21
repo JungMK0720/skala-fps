@@ -16,7 +16,8 @@ enabled = true
 
 [vars]
 # 브라우저 Origin 허용 목록. ':*'는 모든 포트. 사이트 주소가 바뀌면 여기를 고친다
-ALLOWED_ORIGINS = "https://jungmk0720.github.io,http://localhost:*,http://127.0.0.1:*"
+# https://*.game-files.crazygames.com = CrazyGames에 올린 게임 파일이 열리는 주소(docs/PORTAL.md)
+ALLOWED_ORIGINS = "https://jungmk0720.github.io,https://*.game-files.crazygames.com,http://localhost:*,http://127.0.0.1:*"
 
 [[durable_objects.bindings]]
 name = "HUB"

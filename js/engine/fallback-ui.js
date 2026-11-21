@@ -12,6 +12,7 @@
 
 import { DEFAULT_EMOTE_WHEEL, EMOTES, EMOTE_WHEEL } from '../core/consts.js';
 import { BRAND } from '../core/brand.js';
+import { t as tr, loc } from '../core/i18n.js';
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -36,10 +37,10 @@ export function createFallbackMenu(ctx) {
   menu.hidden = true;
   const card = el('div', 'core-card');
   const title = el('h1', 'core-title', BRAND.name);
-  card.append(title, el('p', 'core-sub', '빠르게 달리고, 정확하게 쏘는 브라우저 FPS — 블루 팀 vs 레드 팀'));
+  card.append(title, el('p', 'core-sub', tr('engine.fb.tagline')));
 
   const nameRow = el('label', 'core-row');
-  nameRow.append(el('span', 'core-label', '닉네임'));
+  nameRow.append(el('span', 'core-label', tr('engine.fb.nickname')));
   const nameInput = el('input', 'core-input');
   nameInput.maxLength = 12;
   nameInput.value = ctx.session.name;
@@ -50,7 +51,7 @@ export function createFallbackMenu(ctx) {
   nameRow.append(nameInput);
   card.append(nameRow);
 
-  card.append(el('h2', 'core-h2', '맵 선택'));
+  card.append(el('h2', 'core-h2', tr('engine.fb.mapSelect')));
   const mapsBox = el('div', 'core-maps');
   let selected = lsGet(LAST_MAP_KEY);
   const list = ctx.maps.MAP_LIST;
@@ -59,9 +60,9 @@ export function createFallbackMenu(ctx) {
   for (const m of list) {
     const b = el('button', 'core-map');
     b.type = 'button';
-    b.append(el('b', null, m.name), el('span', 'core-map-en', m.nameEn || m.id), el('span', 'core-map-desc', m.desc || ''));
-    if (m.fallback) b.append(el('em', 'core-badge', '준비 중 · 연습 맵으로 대체'));
-    if (m.test) b.append(el('em', 'core-badge test', '코어 테스트 맵'));
+    b.append(el('b', null, loc(m, 'name')), el('span', 'core-map-en', m.nameEn || m.id), el('span', 'core-map-desc', loc(m, 'desc') || ''));
+    if (m.fallback) b.append(el('em', 'core-badge', tr('engine.fb.badgeFallback')));
+    if (m.test) b.append(el('em', 'core-badge test', tr('engine.fb.badgeTest')));
     b.addEventListener('click', () => { selected = m.id; lsSet(LAST_MAP_KEY, m.id); sync(); });
     b.addEventListener('dblclick', () => start());
     cards.push([m.id, b]);
@@ -72,9 +73,9 @@ export function createFallbackMenu(ctx) {
   card.append(mapsBox);
 
   const actions = el('div', 'core-actions');
-  const startBtn = el('button', 'core-btn primary', '🎯 연습장 시작');
+  const startBtn = el('button', 'core-btn primary', tr('engine.fb.startPractice'));
   startBtn.type = 'button';
-  const multiBtn = el('button', 'core-btn', '👥 멀티플레이');
+  const multiBtn = el('button', 'core-btn', tr('engine.fb.multiplayer'));
   multiBtn.type = 'button';
   multiBtn.addEventListener('click', () => ctx.setScreen('lobby'));
   actions.append(startBtn, multiBtn);
@@ -84,18 +85,18 @@ export function createFallbackMenu(ctx) {
 
   // 설정
   const set = el('details', 'core-settings');
-  set.append(el('summary', null, '⚙️ 설정'));
+  set.append(el('summary', null, tr('engine.fb.settings')));
   const grid = el('div', 'core-set-grid');
   const sensVal = el('output', 'core-out', settings.get('sensitivity').toFixed(2));
   const sens = el('input');
   Object.assign(sens, { type: 'range', min: '0.2', max: '3', step: '0.05', value: String(settings.get('sensitivity')) });
   sens.addEventListener('input', () => { settings.set('sensitivity', +sens.value); sensVal.textContent = (+sens.value).toFixed(2); });
   const zoom = el('select');
-  [['hold', '누르고 있는 동안'], ['toggle', '클릭으로 켜고 끄기']].forEach(([v, t]) => { const o = el('option', null, t); o.value = v; zoom.append(o); });
+  [['hold', tr('engine.fb.zoomHold')], ['toggle', tr('engine.fb.zoomToggle')]].forEach(([v, t]) => { const o = el('option', null, t); o.value = v; zoom.append(o); });
   zoom.value = settings.get('zoomMode');
   zoom.addEventListener('change', () => settings.set('zoomMode', zoom.value));
   const qual = el('select');
-  [['auto', '자동'], ['high', '높음'], ['low', '낮음 (그림자 끔)']].forEach(([v, t]) => { const o = el('option', null, t); o.value = v; qual.append(o); });
+  [['auto', tr('engine.fb.qAuto')], ['high', tr('engine.fb.qHigh')], ['low', tr('engine.fb.qLow')]].forEach(([v, t]) => { const o = el('option', null, t); o.value = v; qual.append(o); });
   qual.value = settings.get('quality');
   qual.addEventListener('change', () => settings.set('quality', qual.value));
   const fps = el('input'); fps.type = 'checkbox'; fps.checked = !!settings.get('showFps');
@@ -103,16 +104,16 @@ export function createFallbackMenu(ctx) {
   const inv = el('input'); inv.type = 'checkbox'; inv.checked = !!settings.get('invertY');
   inv.addEventListener('change', () => settings.set('invertY', inv.checked));
   const row = (label, ...kids) => { const r = el('label', 'core-set'); r.append(el('span', null, label), ...kids); grid.append(r); };
-  row('마우스 감도', sens, sensVal);
-  row('줌(우클릭)', zoom);
-  row('그래픽', qual);
-  row('FPS 표시', fps);
-  row('마우스 상하 반전', inv);
+  row(tr('engine.fb.sens'), sens, sensVal);
+  row(tr('engine.fb.zoom'), zoom);
+  row(tr('engine.fb.graphics'), qual);
+  row(tr('engine.fb.showFps'), fps);
+  row(tr('engine.fb.invertY'), inv);
   set.append(grid);
   card.append(set);
 
   const help = el('p', 'core-help');
-  help.textContent = 'WASD 이동 · 마우스 시점 · 좌클릭 사격 · 우클릭 줌 · Space 점프 · Shift 천천히 걷기 · Ctrl 또는 C 앉기(누르고 있는 동안) · B 누르고 있기 이모트 휠(마우스로 고르고 떼기, 움직이면 취소) · R 재장전 · 1~4 무기 · Tab 점수판 · Esc 일시정지 — 앉은 채 앞으로 갈 때는 C 추천(Ctrl+W는 브라우저 탭 닫기)';
+  help.textContent = tr('engine.fb.help');
   card.append(help);
   menu.append(card);
   root.append(menu);
@@ -129,7 +130,7 @@ export function createFallbackMenu(ctx) {
   // ---- 로딩
   const loading = el('div', 'core-loading');
   loading.hidden = true;
-  const loadingText = el('p', null, '맵 불러오는 중…');
+  const loadingText = el('p', null, tr('engine.fb.loading'));
   loading.append(el('div', 'core-spinner'), loadingText);
   root.append(loading);
 
@@ -137,11 +138,11 @@ export function createFallbackMenu(ctx) {
   const overlay = el('div', 'core-overlay');
   overlay.hidden = true;
   const ovCard = el('div', 'core-card small');
-  const ovTitle = el('h2', null, '클릭해서 시작');
-  const ovText = el('p', 'core-sub', '마우스로 시점을 돌리려면 화면을 클릭하세요. Esc를 누르면 다시 여기로 와요.');
-  const resume = el('button', 'core-btn primary', '▶ 계속하기');
+  const ovTitle = el('h2', null, tr('engine.fb.clickToStart'));
+  const ovText = el('p', 'core-sub', tr('engine.fb.clickHint'));
+  const resume = el('button', 'core-btn primary', tr('engine.fb.resume'));
   resume.type = 'button';
-  const toMenu = el('button', 'core-btn', '메뉴로 나가기');
+  const toMenu = el('button', 'core-btn', tr('engine.fb.toMenu'));
   toMenu.type = 'button';
   const ovActions = el('div', 'core-actions');
   ovActions.append(resume, toMenu);
@@ -167,8 +168,8 @@ export function createFallbackMenu(ctx) {
     const show = inGame() && !ctx.input.locked && !ctx.loading && !ctx.flags.autoplay;
     overlay.hidden = !show;
     if (show) {
-      ovTitle.textContent = first ? '클릭해서 시작' : '일시정지';
-      resume.textContent = first ? '▶ 시작하기' : '▶ 계속하기';
+      ovTitle.textContent = first ? tr('engine.fb.clickToStart') : tr('engine.fb.paused');
+      resume.textContent = first ? tr('engine.fb.start') : tr('engine.fb.resume');
     }
   }
   let started = false;
@@ -179,16 +180,16 @@ export function createFallbackMenu(ctx) {
   }));
   offs.push(bus.on('map:loading', (e) => {
     const m = list.find((x) => x.id === e.id);
-    loadingText.textContent = `${m ? m.name : e.id} 불러오는 중…`;
+    loadingText.textContent = tr('engine.fb.loadingMap', { name: m ? loc(m, 'name') : e.id });
     loading.hidden = false;
     overlay.hidden = true;
   }));
   offs.push(bus.on('map:loaded', () => { loading.hidden = true; refreshOverlay(!started); }));
-  offs.push(bus.on('map:error', (e) => { loading.hidden = true; showError('맵을 불러오지 못했어요: ' + (e.message || e.id)); }));
+  offs.push(bus.on('map:error', (e) => { loading.hidden = true; showError(tr('engine.fb.mapError', { msg: e.message || e.id })); }));
   offs.push(bus.on('input:lock', (e) => { if (e.locked) started = true; refreshOverlay(!started); }));
-  offs.push(bus.on('input:lock-error', () => { if (inGame()) ovText.textContent = '포인터 잠금을 쓸 수 없는 환경이에요(브라우저 설정·iframe 확인). 다시 클릭해 보세요.'; }));
+  offs.push(bus.on('input:lock-error', () => { if (inGame()) ovText.textContent = tr('engine.fb.lockError'); }));
   offs.push(bus.on('screen:unavailable', (e) => {
-    note.textContent = e.name === 'lobby' ? '멀티플레이는 준비 중이에요. 지금은 연습장만 열려 있어요.' : `'${e.name}' 화면은 아직 준비 중이에요.`;
+    note.textContent = e.name === 'lobby' ? tr('engine.fb.lobbySoon') : tr('engine.fb.screenSoon', { name: e.name });
   }));
   offs.push(bus.on('app:error', (e) => showError(e.message || String(e))));
 
@@ -203,8 +204,8 @@ export function createFallbackMenu(ctx) {
 
 /* ============================================================ HUD */
 
-const PART_KO = { head: '머리', body: '몸통', legs: '다리', hand: '손', foot: '발' };
-const EMOTE_DENY = { moving: '멈춘 상태에서만 할 수 있어요', air: '땅 위에서만 할 수 있어요', crouch: '일어선 상태에서만 할 수 있어요', dead: '살아 있을 때만 할 수 있어요', unknown: '없는 이모트예요' };
+const PART_KO = { head: tr('engine.fb.part.head'), body: tr('engine.fb.part.body'), legs: tr('engine.fb.part.legs'), hand: tr('engine.fb.part.hand'), foot: tr('engine.fb.part.foot') };
+const EMOTE_DENY = { moving: tr('engine.fb.deny.moving'), air: tr('engine.fb.deny.air'), crouch: tr('engine.fb.deny.crouch'), dead: tr('engine.fb.deny.dead'), unknown: tr('engine.fb.deny.unknown') };
 
 export function createFallbackHud(ctx) {
   const { bus, settings } = ctx;
@@ -221,7 +222,7 @@ export function createFallbackHud(ctx) {
   const toast = el('div', 'core-toast');
   const feed = el('div', 'core-feed');
   const statsBox = el('div', 'core-stats');
-  const statsTitle = el('b', null, '🎯 연습장');
+  const statsTitle = el('b', null, tr('engine.fb.practice'));
   const statsText = el('span', null, '');
   statsBox.append(statsTitle, statsText);
   const mapName = el('div', 'core-mapname', '');
@@ -236,7 +237,7 @@ export function createFallbackHud(ctx) {
   const ammo = el('div', 'core-ammo');
   const ammoNum = el('b', null, '30');
   const ammoRes = el('small', null, '/ ∞');
-  const wName = el('span', 'core-wname', '임시 히트스캔');
+  const wName = el('span', 'core-wname', tr('engine.fb.tempGun'));
   ammo.append(wName, ammoNum, ammoRes);
   bottom.append(hp, ammo);
   // 이모트 휠(최소 버전: 8칸 원형 + 가상 커서). UI 플러그인이 있으면 그쪽 휠을 쓴다
@@ -259,7 +260,7 @@ export function createFallbackHud(ctx) {
       const e = EMOTES.find((x) => x.id === ids[i]);
       it.hidden = !e;
       it.firstChild.textContent = e ? e.icon : '';
-      it.lastChild.textContent = e ? e.name : '';
+      it.lastChild.textContent = e ? loc(e, 'name') : '';
     });
   }
   fillSlots();
@@ -272,7 +273,7 @@ export function createFallbackHud(ctx) {
   // 점수판(Tab)
   const board = el('div', 'core-board');
   board.hidden = true;
-  const boardTitle = el('h3', null, 'Tab · 연습장 과녁');
+  const boardTitle = el('h3', null, tr('engine.fb.boardTitle'));
   const boardBody = el('div', 'core-board-body');
   board.append(boardTitle, boardBody);
   root.append(board);
@@ -308,24 +309,24 @@ export function createFallbackHud(ctx) {
     statsBox.hidden = e.to !== 'sandbox';
     if (!show) board.hidden = true;
   }));
-  offs.push(bus.on('map:loaded', (e) => { mapName.textContent = `${e.data.name || e.id}${e.data.fallback ? ' (연습 맵 대체)' : ''}`; }));
+  offs.push(bus.on('map:loaded', (e) => { mapName.textContent = (e.data.fallback ? tr('engine.fb.mapFallback', { name: loc(e.data, 'name') || e.id }) : (loc(e.data, 'name') || e.id)); }));
   offs.push(bus.on('hit:player', (e) => {
     if (!e || e.shooterId !== ctx.player.state.id) return;
     flashHit(e.part === 'head' ? 'head' : 'body');
   }));
   offs.push(bus.on('sandbox:target-hit', (e) => {
     if (e.killed) flashHit('kill');
-    showToast(`${PART_KO[e.part] || e.part} −${e.damage}${e.killed ? ' · 쓰러뜨림!' : ''} (${Math.round(e.dist)} m)`, e.part === 'head' ? 'head' : '');
+    showToast(tr(e.killed ? 'engine.fb.hitToastKill' : 'engine.fb.hitToast', { part: PART_KO[e.part] || e.part, dmg: e.damage, dist: Math.round(e.dist) }), e.part === 'head' ? 'head' : '');
   }));
-  offs.push(bus.on('sandbox:target-down', (e) => addFeed(`🎯 ${e.name} — ${e.part === 'head' ? '헤드샷' : PART_KO[e.part] || e.part} (${Math.round(e.dist)} m)`)));
+  offs.push(bus.on('sandbox:target-down', (e) => addFeed(`🎯 ${e.name} — ${e.part === 'head' ? tr('engine.fb.headshot') : PART_KO[e.part] || e.part} (${Math.round(e.dist)} m)`)));
   offs.push(bus.on('sandbox:stats', (s) => {
-    statsText.textContent = `사격 ${s.shots} · 명중 ${s.hits} (${s.accuracy}%) · 머리 ${s.head} · 쓰러뜨림 ${s.kills}${s.longest ? ` · 최장 ${s.longest} m` : ''}`;
+    statsText.textContent = tr(s.longest ? 'engine.fb.statsLongest' : 'engine.fb.stats', { shots: s.shots, hits: s.hits, acc: s.accuracy, head: s.head, kills: s.kills, longest: s.longest });
   }));
   offs.push(bus.on('sandbox:targets', (e) => {
     boardBody.textContent = '';
     for (const t of e.list) {
       const r = el('div', 'core-board-row' + (t.alive ? '' : ' down'));
-      r.append(el('span', null, t.name), el('span', null, t.mode === 'strafe' ? '좌우 이동' : t.mode === 'bob' ? '앉았다 일어섬' : '서 있음'), el('b', null, t.alive ? `HP ${t.hp}` : '쓰러짐'));
+      r.append(el('span', null, t.name), el('span', null, t.mode === 'strafe' ? tr('engine.fb.modeStrafe') : t.mode === 'bob' ? tr('engine.fb.modeBob') : tr('engine.fb.modeStand')), el('b', null, t.alive ? `HP ${t.hp}` : tr('engine.fb.down')));
       boardBody.append(r);
     }
   }));
@@ -335,7 +336,7 @@ export function createFallbackHud(ctx) {
     ammoRes.textContent = '/ ' + (Number.isFinite(e.reserve) ? e.reserve : '∞');
     ammo.classList.toggle('low', !e.reloading && e.ammo <= Math.ceil((e.mag || 30) * 0.2));
   }));
-  offs.push(bus.on('weapon:reload', () => showToast('재장전…')));
+  offs.push(bus.on('weapon:reload', () => showToast(tr('engine.fb.reloading'))));
   offs.push(bus.on('weapon:zoom', (e) => cross.classList.toggle('aim', !!e.active)));
   // 이모트: 휠 · 진행 표시 · 3인칭이면 조준선 숨김 · 거절 사유
   offs.push(bus.on('input:emoteWheel', (e) => {
@@ -348,11 +349,11 @@ export function createFallbackHud(ctx) {
   offs.push(bus.on('player:emote', (e) => {
     const def = EMOTES.find((x) => x.code === e.code);
     emoteTag.hidden = !e.active;
-    if (e.active && def) emoteTag.textContent = `${def.icon} ${def.name} — 움직이면 취소`;
+    if (e.active && def) emoteTag.textContent = tr('engine.fb.emoteTag', { icon: def.icon, name: loc(def, 'name') });
   }));
   offs.push(bus.on('player:view', (e) => { cross.style.visibility = e.mode === 'third' ? 'hidden' : ''; }));
-  offs.push(bus.on('player:emote-denied', (e) => showToast(EMOTE_DENY[e.reason] || '지금은 할 수 없어요')));
-  offs.push(bus.on('input:slot', (e) => { if (ctx.flags.devgun) showToast(`${e.slot}번 무기는 무기 모듈이 붙으면 쓸 수 있어요`); }));
+  offs.push(bus.on('player:emote-denied', (e) => showToast(EMOTE_DENY[e.reason] || tr('engine.fb.cantNow'))));
+  offs.push(bus.on('input:slot', (e) => { if (ctx.flags.devgun) showToast(tr('engine.fb.slotLater', { slot: e.slot })); }));
   offs.push(bus.on('player:spawn', (e) => setHp(e.state.hp)));
   offs.push(bus.on('player:damage', (e) => setHp(e.hp)));
 

@@ -45,7 +45,7 @@ const cleanName = (n) => cleanNickname(n).slice(0, NICKNAME_MAX);
  *   maps    : js/maps/index.js 모듈(MAP_LIST·MAPS) 또는 맵 목록 배열.
  */
 export function createUI(rootEl, options = {}) {
-  if (!rootEl || typeof rootEl.append !== 'function') throw new Error('createUI(rootEl): DOM 요소가 필요합니다');
+  if (!rootEl || typeof rootEl.append !== 'function') throw new Error('createUI(rootEl): DOM 요소가 필요합니다'); // i18n-ok: 개발자용 오류
   const styleLink = options.injectCss === false ? null : ensureStyles();
   const root = h('div', { class: 'sk-ui' });
   rootEl.append(root);

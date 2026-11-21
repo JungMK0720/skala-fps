@@ -381,15 +381,15 @@ const pinnacle = (x, top, r, z = -30) => ({ type: 'pipe', from: [x, 14, z], to: 
 
 const decorHalf = [
   // 표지판
-  { type: 'sign', x: -53.82, y: FIRE + 2.05, z: 5, rotY: SHOW_EAST, w: 3.2, h: 0.7, text: '장거리 사격 구역', ...WARM },
-  { type: 'sign', x: -37, y: RIDGE + 1.6, z: -25.45, rotY: SHOW_SOUTH, w: 3, h: 0.7, text: '능선길 RIDGE WALK', ...WARM },
+  { type: 'sign', x: -53.82, y: FIRE + 2.05, z: 5, rotY: SHOW_EAST, w: 3.2, h: 0.7, text: '장거리 사격 구역', textEn: 'Long-Range Firing Zone', ...WARM },
+  { type: 'sign', x: -37, y: RIDGE + 1.6, z: -25.45, rotY: SHOW_SOUTH, w: 3, h: 0.7, text: '능선길 RIDGE WALK', textEn: 'RIDGE WALK', ...WARM },
   { type: 'pipe', from: [-39.2, 0, 15.2], to: [-39.2, 1.7, 15.2], r: 0.05, mat: 'wood_dark' },
-  { type: 'sign', x: -39.2, y: 1.35, z: 15.26, rotY: SHOW_SOUTH, w: 2.6, h: 0.6, text: '마른 강 DRY WASH', ...WARM },
-  { type: 'sign', x: -24.05, y: 3.95, z: -11, rotY: -Math.PI / 2, w: 3.4, h: 0.6, text: '중앙 갱도 MID TUNNEL', ...WARM },
-  { type: 'sign', x: -14, y: 2.1, z: -12.95, rotY: SHOW_SOUTH, w: 3.6, h: 0.55, text: '낙석 구역: 바위 뒤 출입 금지', bg: '#7a2f18', fg: '#fff0d8' },
+  { type: 'sign', x: -39.2, y: 1.35, z: 15.26, rotY: SHOW_SOUTH, w: 2.6, h: 0.6, text: '마른 강 DRY WASH', textEn: 'DRY WASH', ...WARM },
+  { type: 'sign', x: -24.05, y: 3.95, z: -11, rotY: -Math.PI / 2, w: 3.4, h: 0.6, text: '중앙 갱도 MID TUNNEL', textEn: 'MID TUNNEL', ...WARM },
+  { type: 'sign', x: -14, y: 2.1, z: -12.95, rotY: SHOW_SOUTH, w: 3.6, h: 0.55, text: '낙석 구역: 바위 뒤 출입 금지', textEn: 'Rockfall zone: stay off the boulders', bg: '#7a2f18', fg: '#fff0d8' },
   // 안뜰 안쪽 길잡이: 양 팀 모두 왼쪽이 능선길, 오른쪽이 마른 강이다
-  { type: 'sign', x: -54.75, y: FIRE + 2.1, z: -3.9, rotY: SHOW_WEST, w: 3, h: 0.62, text: '◀ 능선길 RIDGE', ...WARM },
-  { type: 'sign', x: -54.75, y: FIRE + 2.1, z: 3.9, rotY: SHOW_WEST, w: 3, h: 0.62, text: '마른 강 WASH ▶', ...WARM },
+  { type: 'sign', x: -54.75, y: FIRE + 2.1, z: -3.9, rotY: SHOW_WEST, w: 3, h: 0.62, text: '◀ 능선길 RIDGE', textEn: '◀ RIDGE', ...WARM },
+  { type: 'sign', x: -54.75, y: FIRE + 2.1, z: 3.9, rotY: SHOW_WEST, w: 3, h: 0.62, text: '마른 강 WASH ▶', textEn: 'WASH ▶', ...WARM },
   // 환기구
   { type: 'vent', x: -24.01, y: 5, z: -13.9, rotY: -Math.PI / 2, w: 1.1, h: 0.7 },
   { type: 'vent', x: -6, y: 2.4, z: -12.98, rotY: SHOW_SOUTH, w: 1.2, h: 0.7 },
@@ -413,7 +413,7 @@ const decorHalf = [
   { type: 'pipe', from: [-12.8, 0.2, -18.7], to: [-8.2, 3.6, -18.7], r: 0.05, mat: 'wood_dark' },
   { type: 'pipe', from: [-8.2, 0.2, -18.7], to: [-12.8, 3.6, -18.7], r: 0.05, mat: 'wood_dark' },
   // 둥지 안 표지판과 등
-  { type: 'sign', x: -23.92, y: NEST + 0.62, z: 11.5, rotY: -Math.PI / 2, w: 2.2, h: 0.5, text: '둥지: 발은 숨기고 숨은 참기', bg: '#7a2f18', fg: '#fff0d8' },
+  { type: 'sign', x: -23.92, y: NEST + 0.62, z: 11.5, rotY: -Math.PI / 2, w: 2.2, h: 0.5, text: '둥지: 발은 숨기고 숨은 참기', textEn: 'Nest: hide your feet, hold your breath', bg: '#7a2f18', fg: '#fff0d8' },
   { type: 'lantern', x: -26.2, y: NEST + 1.62, z: 11.5, r: 0.14, color: '#ffb35c', cord: 0.12 },
   // 깃대
   { type: 'pipe', from: [-50, FIRE, 0], to: [-50, FIRE + 6.6, 0], r: 0.06, mat: 'wood_dark' },
@@ -437,18 +437,18 @@ const decorHalf = [
 ];
 
 const bannerBlue = [
-  { type: 'banner', x: -44.5, y: 3.05, z: -14.6, rotY: SHOW_EAST, w: 2.2, h: 4.2, text: '블루', bg: '#22407a', fg: '#e6efff', emblem: 'ring' },
-  { type: 'banner', x: -44.3, y: 3.2, z: 17.5, rotY: SHOW_EAST, w: 2.2, h: 4.2, text: '블루', bg: '#22407a', fg: '#e6efff', emblem: 'ring' },
+  { type: 'banner', x: -44.5, y: 3.05, z: -14.6, rotY: SHOW_EAST, w: 2.2, h: 4.2, text: '블루', textEn: 'Blue', bg: '#22407a', fg: '#e6efff', emblem: 'ring' },
+  { type: 'banner', x: -44.3, y: 3.2, z: 17.5, rotY: SHOW_EAST, w: 2.2, h: 4.2, text: '블루', textEn: 'Blue', bg: '#22407a', fg: '#e6efff', emblem: 'ring' },
   { type: 'banner', x: -53.8, y: FIRE + 2, z: -3, rotY: SHOW_EAST, w: 1.2, h: 1.9, emblem: 'ring', bg: '#22407a', fg: '#e6efff' },
   { type: 'banner', x: -50, y: FIRE + 4.9, z: 0.9, rotY: SHOW_EAST, w: 1.5, h: 2.8, emblem: 'ring', bg: '#22407a', fg: '#e6efff' },
   // 안뜰 안쪽: 스폰에서 팀 색이 보인다
   { type: 'banner', x: -54.78, y: FIRE + 2.2, z: 0, rotY: SHOW_WEST, w: 1.5, h: 2.2, emblem: 'ring', bg: '#22407a', fg: '#e6efff' }
 ];
-const bannerOrange = rotate180(bannerBlue).map((b) => ({ ...b, text: b.text ? '레드' : b.text, bg: '#b8323b', fg: '#ffeaea', emblem: 'diamond' }));
+const bannerOrange = rotate180(bannerBlue).map((b) => ({ ...b, text: b.text ? '레드' : b.text, textEn: b.text ? 'Red' : b.text, bg: '#b8323b', fg: '#ffeaea', emblem: 'diamond' }));
 
 const decorCenter = [
-  { type: 'sign', x: 0, y: DECK + 2.05, z: 2.15, rotY: SHOW_SOUTH, w: 3.4, h: 0.6, text: '독수리 관측소', bg: '#1f2d3a', fg: '#ffe2b0' },
-  { type: 'sign', x: 0, y: DECK + 2.05, z: -2.15, rotY: SHOW_NORTH, w: 3.4, h: 0.6, text: '독수리 관측소', bg: '#1f2d3a', fg: '#ffe2b0' }
+  { type: 'sign', x: 0, y: DECK + 2.05, z: 2.15, rotY: SHOW_SOUTH, w: 3.4, h: 0.6, text: '독수리 관측소', textEn: 'Eagle Lookout', bg: '#1f2d3a', fg: '#ffe2b0' },
+  { type: 'sign', x: 0, y: DECK + 2.05, z: -2.15, rotY: SHOW_NORTH, w: 3.4, h: 0.6, text: '독수리 관측소', textEn: 'Eagle Lookout', bg: '#1f2d3a', fg: '#ffe2b0' }
 ];
 
 /* ---------------- 발판·포털 ---------------- */
@@ -473,10 +473,10 @@ export default {
   id: 'longshot',
   name: '협곡 저격장',
   nameEn: 'Long Canyon',
-  desc: '해 질 녘 금빛 협곡의 저격 전용 맵. 양끝 고지대 진지 사이로 100 m 시야선이 뻗고, 능선길과 마른 강바닥, 중앙 갱도가 갈린다. 독수리 관측소를 찾아보자.',
+  desc: '해 질 녘 금빛 협곡의 저격 전용 맵. 양끝 고지대 진지 사이로 100 m 시야선이 뻗고, 능선길과 마른 강바닥, 중앙 갱도가 갈린다. 독수리 관측소를 찾아보자.', descEn: 'A sniper-only golden canyon at sunset. A 100 m sightline runs between high-ground forts, splitting into the ridge walk, the dry wash and the mid tunnel. Can you find the Eagle Lookout?',
   size: { x: 130, z: 60 },
   rulesets: ['sniper'],
-  tag: '스나 전용',
+  tag: '스나 전용', tagEn: 'Sniper Only',
   theme: {
     sky: '#f7c78e', skyTop: '#6d84aa', fog: [300, 1100],
     sunDir: [0.06, 0.6, 0.8], sunColor: '#ffd29a', sunIntensity: 1.15, ambient: 0.7, ground: 'sand'
@@ -490,6 +490,6 @@ export default {
   decor: [...decorHalf, ...rotate180(decorHalf), ...bannerBlue, ...bannerOrange, ...decorCenter],
   pads: [...padsHalf, ...rotate180(padsHalf)],
   portals: [...portalsHalf, ...rotate180(portalsHalf)],
-  secrets: [{ id: 'longshot_eyrie', name: '독수리 관측소', x: 0, y: EYRIE, z: 0, w: 7.2, h: 3, d: 14, points: 150 }],
+  secrets: [{ id: 'longshot_eyrie', name: '독수리 관측소', nameEn: 'Eagle Lookout', x: 0, y: EYRIE, z: 0, w: 7.2, h: 3, d: 14, points: 150 }],
   props: [...propsHalf, ...rotate180(propsHalf)]
 };

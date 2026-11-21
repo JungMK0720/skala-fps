@@ -34,6 +34,7 @@ import { normalizeMission, placeMission } from './mission.js';
 import { missionCrowd } from '../maps/collision.js';
 import { createBombView } from './bombview.js';
 import { createMultiKill, multiKillTier } from './multikill.js';
+import { t, loc } from '../core/i18n.js';
 import { createHordeView } from './horde/view.js';
 import { c4Offset, c4WorldPos } from './horde/contact.js';
 import { HORDE } from './horde/rules.js';
@@ -43,8 +44,8 @@ const SPECTATE_DELAY_MS = 1600;
 // 개인전 즉시 부활: 부활까지 이보다 적게 남으면 안내를 숨기고 E를 받지 않는다(방장은 500 ms 미만이면 거절, match.QUICK_RESPAWN_MIN_LEFT_MS)
 const QUICK_HIDE_MS = 700;
 const QUICK_RETRY_MS = 1500;                     // 요청한 뒤 방장 답(내 spawn)을 기다리는 동안 다시 보내지 않는 시간
-const LOCK_HINT = '🖱️ 화면을 클릭하면 조작을 시작해요';
-const TOUCH_LOCK_HINT = '👆 화면을 누르면 조작을 시작해요';
+const LOCK_HINT = t('game.world.lockHint');
+const TOUCH_LOCK_HINT = t('game.world.touchLockHint');
 const BODY_R = 0.3;
 const CROUCH_H = PLAYER.CROUCH_HEIGHT || 1.25;   // 앉은 키(core consts)
 const FFA_KEYS = Object.freeze(['kills', 'rank', 'total', 'leaderName', 'leaderKills', 'target', 'killTarget']);
@@ -138,7 +139,7 @@ export function setWorldContext(ctx) { defaultCtx = ctx || null; }
  */
 export async function createWorld(opts = {}) {
   const ctx = (opts && opts.ctx) || defaultCtx;
-  if (!ctx || !ctx.renderer || !ctx.player) throw new Error('createWorld: core ctx가 필요해요(game/index.js install 이후에 부르세요)');
+  if (!ctx || !ctx.renderer || !ctx.player) throw new Error('createWorld: core ctx가 필요해요(game/index.js install 이후에 부르세요)');   // i18n-ok: 개발자용 오류
   if (!shared || shared.dead || shared.ctx !== ctx) shared = buildWorld(ctx, opts || {});
   else if (opts && opts.ui && shared.ui !== opts.ui) console.warn('[world] 이미 만든 World가 있어 새 ui는 쓰지 않아요(앱에 UI는 하나)');
   return shared.handle();
@@ -302,7 +303,7 @@ function buildWorld(ctx, opts) {
   // 좀비 물량 막기 상호작용(쓰러진 동료 살리기): HUD 안내 줄과 휴대폰 '살리기' 버튼(touch:use). horde/client.js가 setHordeInteract로 정한다
   let hordeHint = '';
   let hordeTouch = false;
-  let pauseOpts = { leaveLabel: '나가기', note: undefined };
+  let pauseOpts = { leaveLabel: t('game.world.leave'), note: undefined };
   let pauseDetailsProvider = null;                // 좀비 모드: ESC에서 현재 카드·능력치 보여 주기
   let scoreboardProvider = null, scoreboardOpen = false, sbRefresh = 0;
   let clock = 0;                                  // World 시뮬레이션 시각(초, 일시정지 중 멈춤)
@@ -551,7 +552,7 @@ function buildWorld(ctx, opts) {
     if (keyLockTip || !e || !e.down || (e.code !== 'ControlLeft' && e.code !== 'ControlRight')) return;
     if (!active || !ui || !input.locked || !input.canKeyboardLock || input.keyboardLocked) return;
     keyLockTip = true;
-    ui.hud.banner({ icon: '⌨️', title: 'F11 · 전체 화면 키 잠금', sub: '켜면 Ctrl+W(탭 닫기)·Tab도 게임이 받아요' });
+    ui.hud.banner({ icon: '⌨️', title: t('game.world.f11Title'), sub: t('game.world.f11Sub') });
   }));
 
   function openPause() {
@@ -643,7 +644,7 @@ function buildWorld(ctx, opts) {
   async function loadMap(mapId, opt = {}) {
     const seq = ++loadSeq;
     const data = ctx.maps && ctx.maps.getMap ? ctx.maps.getMap(mapId) : null;
-    showLoading(true, `🗺️ ${(data && data.name) || mapId} 불러오는 중…`);
+    showLoading(true, t('game.world.loading', { name: (data && loc(data, 'name')) || mapId }));
     let built;
     try { built = await ctx.loadMap(mapId); }
     finally { if (seq === loadSeq) showLoading(false); }
@@ -756,7 +757,7 @@ function buildWorld(ctx, opts) {
 
   /* ---------- 로컬 플레이어 ---------- */
   function spawnLocal(o = {}) {
-    if (!map) throw new Error('spawnLocal: 먼저 loadMap()을 부르세요');
+    if (!map) throw new Error('spawnLocal: 먼저 loadMap()을 부르세요');   // i18n-ok: 개발자용 오류
     cancelLocalEmote('spawn');
     if (o.id != null && String(o.id)) { local.id = String(o.id); player.state.id = local.id; }
     if (o.name) { local.name = String(o.name); player.state.name = local.name; }
@@ -914,17 +915,17 @@ function buildWorld(ctx, opts) {
   }
   function requestQuick() {
     if (simPaused || uiPaused || !quickOpen()) return;
-    const t = performance.now();
-    if (t - quickSentAt < QUICK_RETRY_MS) return;    // 방장 응답을 기다리는 동안 거듭 누른 것
-    if (!quick.ok) { if (ui) ui.hud.callout(`포인트가 부족해요 · 즉시 부활 ${quick.cost} P`); return; }
-    quickSentAt = t;
+    const tNow = performance.now();
+    if (tNow - quickSentAt < QUICK_RETRY_MS) return;    // 방장 응답을 기다리는 동안 거듭 누른 것
+    if (!quick.ok) { if (ui) ui.hud.callout(t('game.world.noPoints', { cost: quick.cost })); return; }
+    quickSentAt = tNow;
     emit('quickRespawn', { cost: quick.cost });
   }
   /** 휴대폰: 즉시 부활을 쓸 수 있는 동안 설치/해체 버튼을 '부활'로 보인다(개인전에는 폭탄이 없어 버튼이 비어 있다) */
   function syncQuickTouch(on) {
     if (on === quickTouch) return;
     quickTouch = on;
-    bus.emit('touch:use', { on, label: '부활' });
+    bus.emit('touch:use', { on, label: t('game.world.respawn') });
   }
 
   /**
@@ -937,7 +938,7 @@ function buildWorld(ctx, opts) {
     const on = !!(o && o.touch);
     if (on === hordeTouch) return;
     hordeTouch = on;
-    bus.emit('touch:use', { on, label: '살리기' });
+    bus.emit('touch:use', { on, label: t('game.world.revive') });
   }
   /** 내 보호(무적) 표시: ms(>0) 동안 · true = 끌 때까지 · false/0 = 끔 */
   function setProtect(v) {
@@ -1035,7 +1036,7 @@ function buildWorld(ctx, opts) {
   /* 이모트 휠(MODES.md 4.2) — 커서·강조 칸 계산과 B를 뗄 때의 시작은 core(input·player)가 한다.
    * World는 core 'input:emoteWheel' {open, cursor, selected, ...}를 UI 'emotes' 화면에 그대로 옮기고,
    * 시작이 거절되면('player:emote-denied') 안내를 띄운다. */
-  const NOT_STILL = '멈춘 상태에서만 할 수 있어요';
+  const NOT_STILL = t('game.world.notStill');
   /** 휠 8칸의 이모트 id: 계정 장비(상점에서 고른 순서), 계정이 없으면 기본 휠 */
   function wheelIdsNow() {
     const ids = ctx.account && ctx.account.emoteWheel;
@@ -1227,7 +1228,7 @@ function buildWorld(ctx, opts) {
     const d = placeLocalDrop(gun, at);
     if (d) local.ownDrops.add(d.id);   // 방금 버린 총은 한 번 벗어날 때까지 다시 줍지 않는다
     play('switch', { gain: 0.7 });
-    if (ui) ui.hud.callout(`${getDef(gun.id).short} 버림`);
+    if (ui) ui.hud.callout(t('game.world.dropped', { weapon: loc(getDef(gun.id), 'short') }));
     return true;
   }
   /** 총을 든 채 죽으면 그 총이 바닥에 떨어진다(남은 탄 그대로). killLocal이 상태를 바꾸기 전에 부른다 */
@@ -1254,7 +1255,7 @@ function buildWorld(ctx, opts) {
     if (!d || !arsenal.takeWeapon(d.weaponId, { mag: d.mag, reserve: d.reserve })) return;
     removeDrop(d.id);
     play('switch');
-    if (ui) ui.hud.callout(`${getDef(d.weaponId).short} 획득`);
+    if (ui) ui.hud.callout(t('game.world.picked', { weapon: loc(getDef(d.weaponId), 'short') }));
     emit('weaponPick', { dropId: d.id, weaponId: d.weaponId });
   }
   /** 총 위에 섰는데 그 칸에 무기가 있어 줍지 못할 때의 안내 */
@@ -1263,9 +1264,9 @@ function buildWorld(ctx, opts) {
     const d = drops.nearest(player.state.pos, (x) => !local.ownDrops.has(x.id));
     if (!d || canTake(d)) return '';
     const def = getDef(d.weaponId);
-    const slotName = def.slot === 1 ? '주무기' : '보조무기';
-    const how = input.touchMode ? '무기 칸을 길게 눌러' : '들고 G를 눌러';
-    return `${def.short}: ${slotName}를 ${how} 버리면 주울 수 있어요`;
+    const primary = def.slot === 1;
+    const key = input.touchMode ? (primary ? 'game.world.dropHintPrimaryTouch' : 'game.world.dropHintSecondaryTouch') : (primary ? 'game.world.dropHintPrimaryKey' : 'game.world.dropHintSecondaryKey');
+    return t(key, { weapon: loc(def, 'short') });
   }
 
   /* ---------- 로컬 무기 ---------- */
@@ -1593,7 +1594,7 @@ function buildWorld(ctx, opts) {
     arsenal.giveGrenade(1);
     axeHits.delete(g.id);
     play('switch', { gain: 0.5 });
-    if (ui) ui.hud.callout('투척 도끼 회수 +1');
+    if (ui) ui.hud.callout(t('game.world.axeBack'));
   }
 
   /** 도끼 크기 배율: 좀비 모드 '폭발 반경' 증강을 그 사람 도끼의 크기·판정에 그대로 건다(1~3배) */
@@ -1905,8 +1906,8 @@ function buildWorld(ctx, opts) {
     const head = !!o.head, kill = !!o.kill, half = !!(o.half || o.halfShot);
     if (ui) {
       ui.hud.hitmarker(head, kill, { half });
-      if (half) ui.hud.callout(`반샷! −${Math.round(num(o.amount))}`, 'half');
-      else if (head) ui.hud.callout('헤드샷!', 'head');
+      if (half) ui.hud.callout(t('game.world.halfShot', { amount: Math.round(num(o.amount)) }), 'half');
+      else if (head) ui.hud.callout(t('game.world.headshot'), 'head');
     }
     // half_shot은 hit_marker 대신 난다. 반샷으로 끝낸 킬은 킬 소리와 겹친다
     play(kill ? 'kill' : head ? 'headshot' : half ? 'half_shot' : 'hit_marker');
@@ -1927,7 +1928,7 @@ function buildWorld(ctx, opts) {
     const tier = multiKillTier(n);
     if (!tier) return n;
     const legend = tier.id === 'legend';
-    if (ui) ui.hud.multiKill({ id: tier.id, title: tier.title, sub: legend ? `${n}연속 처치` : '' });
+    if (ui) ui.hud.multiKill({ id: tier.id, title: tier.title, sub: legend ? t('game.multi.streak', { n }) : '' });
     play(legend ? 'legend_kill' : 'multi_kill', legend ? undefined : { rate: 1 + 0.06 * (tier.count - 2) });
     try { audio.voice(tier.id, { delay: 0.08 }); } catch (e) { /* 소리 없이 계속 */ }
     emit('multiKill', { count: n, id: tier.id });
@@ -1946,10 +1947,10 @@ function buildWorld(ctx, opts) {
       secretsNoAccount.add(key);
     }
     if (res && res.first) {
-      if (ui) ui.hud.banner({ icon: '🏆', title: '비밀 스팟 발견', sub: `${secret.name} · +${res.gained} P` });
+      if (ui) ui.hud.banner({ icon: '🏆', title: t('game.world.secretTitle'), sub: t('game.world.secretFound', { name: loc(secret, 'name'), points: res.gained }) });
       play('secret_found');
       fx.secretSparkle(e.pos);
-    } else if (ui) ui.hud.callout(`${secret.name} · 이미 찾은 곳`);
+    } else if (ui) ui.hud.callout(t('game.world.secretAgain', { name: loc(secret, 'name') }));
   }
 
   function setRound(o = {}) {
@@ -2381,7 +2382,7 @@ function buildWorld(ctx, opts) {
       }
       simPaused = next;
     },
-    setPauseOptions(o = {}) { pauseOpts = { leaveLabel: (o && o.leaveLabel) || '나가기', note: o ? o.note : undefined }; },
+    setPauseOptions(o = {}) { pauseOpts = { leaveLabel: (o && o.leaveLabel) || t('game.world.leave'), note: o ? o.note : undefined }; },
     setPauseDetails(fn) { pauseDetailsProvider = typeof fn === 'function' ? fn : null; },
     setScoreboard(fn) { scoreboardProvider = typeof fn === 'function' ? fn : null; },
     setHint(text) { customHint = text ? String(text) : ''; },

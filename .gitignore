@@ -26,3 +26,5 @@ dist/
 infra/aws/terraform.tfvars
 # 대원 모델 빌드 도구(tools/models)의 설치 폴더. 게임 실행에는 필요 없다
 tools/models/node_modules/
+dist-crazygames/
+dist-crazygames.zip

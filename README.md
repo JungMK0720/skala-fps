@@ -121,6 +121,7 @@ npm run check
 | [docs/NOTICE.md](docs/NOTICE.md) | 전체 공지: 운영자 패널 사용법, 열쇠 만들기·바꾸기, 동작 원리 |
 | [docs/FEEDBACK.md](docs/FEEDBACK.md) | 건의함: 서버 열기, 읽고 답하기, 한도, 이메일 알림, 왜 이 방법인가 |
 | [docs/FEEDBACK_EMAIL_SOP.md](docs/FEEDBACK_EMAIL_SOP.md) | 건의 이메일 알림 켜기: 용어(프로젝트 ref 등), Resend·비밀·배포·웹훅 순서, 시험, 문제 해결 |
+| [docs/PORTAL.md](docs/PORTAL.md) | CrazyGames 출시: 포털 규칙, SDK 연동(js/platform), 영어 번역 규칙, 제출 빌드·체크리스트, 서버 허용 목록 배포 |
 | [docs/MODES.md](docs/MODES.md) | 모드별 규칙 계약(개인전·폭파 미션·좀비 물량 막기 등) |
 | [docs/AUGMENTS.md](docs/AUGMENTS.md) | 좀비 물량 막기 레벨·경험치와 증강 카드 전체 표(등급·단계 수치·상한) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/CORE_API.md](docs/CORE_API.md) | 엔진 구조와 API |

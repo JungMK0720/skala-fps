@@ -469,12 +469,45 @@ const propsHalf = [
   { type: 'crate', x: -14.6, y: MEZ, z: -14.4, size: 0.8 }
 ];
 
+/** 표지 글씨의 영어 짝. 글씨가 같은 표지는 모두 같은 영어를 쓴다 */
+const SIGN_EN = {
+  '블루': 'BLUE',
+  '레드': 'RED',
+  '분류 처리량\n시간당 12,480건': 'Sort Throughput\n12,480 / hr',
+  '오분류율 0.3 %\n야간조 가동 중': 'Missort Rate 0.3 %\nNight Shift Active',
+  'A-1 수도권': 'A-1 Capital Area',
+  'A-2 강원·충청': 'A-2 Gangwon·Chungcheong',
+  '← 계단 · 북쪽 통로': '← Stairs · North Walkway',
+  '남쪽 통로 · 승강기 →': 'South Walkway · Lift →',
+  '도크 1 · 2': 'Dock 1 · 2',
+  '도크 3 · 4': 'Dock 3 · 4',
+  '투입 대기 37건': 'Infeed Queue 37',
+  '대차 충전 87 %': 'Cart Charge 87 %',
+  '분실물 보관실': 'Lost Parcels',
+  '반품 구역': 'Returns',
+  '화물 승강기 · 탑승 주의': 'Freight Lift · Watch Your Step',
+  '셔터 작동 중 · 끼임 주의': 'Shutter in Use · Pinch Hazard',
+  'B-1 영남': 'B-1 Yeongnam',
+  'B-2 호남·제주': 'B-2 Honam·Jeju',
+  '← 계단 · 남쪽 통로': '← Stairs · South Walkway',
+  '북쪽 통로 · 승강기 →': 'North Walkway · Lift →',
+  '도크 5 · 6': 'Dock 5 · 6',
+  '도크 7 · 8': 'Dock 7 · 8',
+  '투입 대기 52건': 'Infeed Queue 52',
+  '대차 충전 64 %': 'Cart Charge 64 %',
+  '미배송 보관실': 'Undelivered Parcels',
+  '파손 화물 구역': 'Damaged Goods'
+};
+const withEn = (d) => (SIGN_EN[d.text] ? { ...d, textEn: SIGN_EN[d.text] } : d);
+
 export default {
   id: 'sorthub',
   name: '택배 분류 센터',
   nameEn: 'Parcel Hub',
   desc: '랙 통로 셋과 2층 통로 사이로 화물 승강기·셔터·무인 대차가 쉬지 않고 움직이는 야간 택배 분류장.',
+  descEn: 'A night parcel sorting hub where freight lifts, shutters and robot carts never stop moving across three rack aisles and the upper walkways.',
   tag: '좁은 맵',
+  tagEn: 'Small Map',
   size: { x: 44, z: 32 },
   rulesets: ['classic', 'knife'],
   theme: {
@@ -501,7 +534,7 @@ export default {
     })),
     ...teamDecor(TEAMS.owner),
     ...rotate180(teamDecor(TEAMS.charterer))
-  ],
+  ].map(withEn),
   movers: [...moversWest, ...rotate180(moversWest).map((m) => ({ ...m, id: m.id.replace('_w_r', '_e') }))],
   pads: [...padsHalf, ...rotate180(padsHalf)],
   portals: [],

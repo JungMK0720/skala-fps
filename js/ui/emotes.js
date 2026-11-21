@@ -9,6 +9,7 @@
 //     tap = 휴대폰에서 짧게 눌러 열어 둔 휠. 커서 점을 숨기고 "칸을 누르세요" 안내를 띄운다(칸 누르기 판정은 engine/touch.js).
 //   - update는 마우스가 움직일 때마다 와도 된다: 칸 모양은 items가 바뀔 때만 다시 만든다.
 import { h, svg, setText, num } from './dom.js';
+import { t, loc } from '../core/i18n.js';
 
 /** 중앙에서 이만큼(px) 벗어나야 칸이 강조된다 */
 export const EMOTE_WHEEL = Object.freeze({ deadZone: 40 });
@@ -31,9 +32,9 @@ export function emoteIndexAt(x, y, count = 8, deadZone = EMOTE_WHEEL.deadZone) {
 const R = 192;
 const R0 = 74;
 const GAP = 1.4; // 칸 사이 틈(도)
-const HINT = '마우스로 고르고 B를 떼세요 · 그냥 떼면 취소';
-const TOUCH_HINT = '끌어서 고르거나, 떼고 칸을 누르세요';
-const TAP_HINT = '칸을 누르면 시작 · 가운데는 닫기';
+const HINT = t('shop.emo.hint');
+const TOUCH_HINT = t('shop.emo.touchHint');
+const TAP_HINT = t('shop.emo.tapHint');
 const isTouch = () => document.documentElement.classList.contains('pc-touch');
 
 function sectorPath(r0, r1, a0, a1) {
@@ -48,7 +49,7 @@ function sectorPath(r0, r1, a0, a1) {
 const normItem = (it, i) => {
   const o = it && typeof it === 'object' ? it : { id: String(it) };
   const n = o.n != null ? o.n : o.code != null ? o.code : i + 1;
-  return { id: o.id != null ? String(o.id) : String(i), n: String(n), name: String(o.name || o.id || ''), icon: String(o.icon || '') };
+  return { id: o.id != null ? String(o.id) : String(i), n: String(n), name: String(loc(o, 'name') || o.id || ''), icon: String(o.icon || '') };
 };
 
 export function createEmotes(ctx) {
@@ -73,7 +74,7 @@ export function createEmotes(ctx) {
   const hub = h('div', { class: 'sk-emo-center', 'aria-live': 'polite' }, hubIco, hubName, hubHint);
   const dot = h('div', { class: 'sk-emo-dot', hidden: true, 'aria-hidden': 'true' });
   const wheel = h('div', { class: 'sk-emo-wheel' }, svgEl, labels, hub, dot);
-  const el = h('section', { class: 'sk-screen sk-overlay sk-emotes', hidden: true, role: 'group', 'aria-label': '이모트 휠' }, wheel);
+  const el = h('section', { class: 'sk-screen sk-overlay sk-emotes', hidden: true, role: 'group', 'aria-label': t('shop.emo.wheel') }, wheel);
 
   ctx.listen(window, 'resize', () => { wheelPx = 0; });
 
@@ -112,7 +113,7 @@ export function createEmotes(ctx) {
     setText(hubName, it ? it.name : '');
     hubName.hidden = !it;
     const touch = isTouch();
-    setText(hubHint, it ? (tap ? '시작!' : touch ? '손을 떼면 시작' : 'B를 떼면 시작') : tap ? TAP_HINT : touch ? TOUCH_HINT : HINT);
+    setText(hubHint, it ? (tap ? t('shop.emo.go') : touch ? t('shop.emo.liftGo') : t('shop.emo.releaseGo')) : tap ? TAP_HINT : touch ? TOUCH_HINT : HINT);
   }
 
   function applyCursor(c) {

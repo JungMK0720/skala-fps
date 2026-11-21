@@ -19,6 +19,7 @@
  * 어느 쪽이든 Lobby·Room의 API와 의미는 같다. 자세한 API·한도·설계는 README.md
  */
 import { RealtimeSocket, Emitter, netError, randomId, sanitizeName } from './realtime.js';
+import { t } from '../core/i18n.js';
 import { HubSocket } from './hubsocket.js';
 import { clampHz } from './limits.js';
 import { Lobby } from './lobby.js';
@@ -58,12 +59,12 @@ function readConfig() {
 export async function connect(opts = {}) {
   const cfg = readConfig();
   const transport = String(opts.transport || cfg.transport || 'supabase').trim().toLowerCase();
-  if (!TRANSPORTS.includes(transport)) throw netError('NO_CONFIG', '모르는 전송 방식입니다: ' + transport);
+  if (!TRANSPORTS.includes(transport)) throw netError('NO_CONFIG', t('net.unknownTransport', { transport }));
   let makeSocket;
   let room = opts.room;
   if (transport === 'relay') {
     const relayUrl = String(opts.relayUrl || cfg.relay.url || '').trim();
-    if (!relayUrl) throw netError('NO_CONFIG', '중계 서버 주소(relay.url)가 없습니다');
+    if (!relayUrl) throw netError('NO_CONFIG', t('net.relayUrlMissing'));
     const hz = clampHz(Number(opts.relayHz || cfg.relay.hz) || RELAY_ROOM_DEFAULTS.maxHz, 1, 30);
     room = { ...RELAY_ROOM_DEFAULTS, maxHz: hz, ...(opts.room || {}) };
     makeSocket = () => new HubSocket({ url: relayUrl, ...(opts.socket || {}) });
@@ -71,13 +72,13 @@ export async function connect(opts = {}) {
     // account/remote.js와 똑같이 앞뒤 공백을 지운다. 값을 붙여 넣다 공백이 끼면 RPC만 되고 Realtime은 안 되는 상태가 된다
     const url = String(opts.url || cfg.supabase.url || '').trim();
     const key = String(opts.key || cfg.supabase.anonKey || '').trim();
-    if (!url || !key) throw netError('NO_CONFIG', 'Supabase 접속 정보(url, key)가 없습니다');
+    if (!url || !key) throw netError('NO_CONFIG', t('net.supabaseMissing'));
     makeSocket = () => new RealtimeSocket({ url, key, ...(opts.socket || {}) });
   }
   let playerId = opts.playerId != null ? String(opts.playerId) : '';
-  if (playerId && !ID_RE.test(playerId)) throw netError('BAD_PLAYER_ID', 'playerId는 영문·숫자·_- 1~40자');
+  if (playerId && !ID_RE.test(playerId)) throw netError('BAD_PLAYER_ID', t('net.badPlayerId'));
   if (!playerId) playerId = randomId(12);
-  const name = sanitizeName(opts.name) || ('플레이어-' + playerId.slice(0, 4));
+  const name = sanitizeName(opts.name) || t('net.defaultPlayer', { id: playerId.slice(0, 4) });
   const socket = makeSocket();
   await socket.open(opts.timeoutMs || 15000);
   return new Net(socket, { id: playerId, name }, { ...opts, room, transport });
@@ -131,7 +132,7 @@ export class Net extends Emitter {
   }
 
   _serial(fn) {
-    if (this._closed) return Promise.reject(netError('CLOSED', '이미 닫힌 연결입니다'));
+    if (this._closed) return Promise.reject(netError('CLOSED', t('net.alreadyClosed')));
     const run = this._op.then(fn, fn);
     this._op = run.catch(() => {});
     return run;
@@ -167,7 +168,7 @@ export class Net extends Emitter {
     this.removeAll();
   }
 
-  _assertOpen() { if (this._closed) throw netError('CLOSED', '이미 닫힌 연결입니다'); }
+  _assertOpen() { if (this._closed) throw netError('CLOSED', t('net.alreadyClosed')); }
 
   async _leaveCurrent() {
     const r = this._room;
@@ -176,7 +177,7 @@ export class Net extends Emitter {
   }
 
   _attach(room) {
-    if (this._closed) { room.leave('net-closed'); throw netError('CLOSED', '이미 닫힌 연결입니다'); }
+    if (this._closed) { room.leave('net-closed'); throw netError('CLOSED', t('net.alreadyClosed')); }
     this._room = room;
     room.on('closed', () => { if (this._room === room) this._room = null; });
     return room;

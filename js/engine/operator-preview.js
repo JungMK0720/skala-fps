@@ -17,6 +17,7 @@
 import * as THREE from 'three';
 import { loadOperators, OperatorBody } from './operator-model.js';
 import { avatarIdOf } from '../core/avatar-defs.js';
+import { t } from '../core/i18n.js';
 
 const TURN_SPEED = 0.35;    // 저절로 도는 빠르기(rad/s)
 const DRAG_TURN = 0.012;    // 끈 픽셀당 회전(rad)
@@ -137,7 +138,7 @@ export function createOperatorPreview({ container, settings = null, team = 'owne
     syncLabel();
   }
   function syncLabel() {
-    container.setAttribute('aria-label', `대원 미리 보기: ${container.dataset.avatar || avatarId}`);
+    container.setAttribute('aria-label', t('shop.operatorPreview', { name: container.dataset.avatar || avatarId }));
   }
 
   const api = {

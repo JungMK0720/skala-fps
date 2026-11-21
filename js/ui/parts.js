@@ -7,6 +7,7 @@
 import { h, btn, clamp, fmtPoints, num, setText } from './dom.js';
 import { mapIcon, uiIcon, weaponInfo } from './icons.js';
 import { TEAMS } from '../core/consts.js';
+import { t, loc, isEnglish } from '../core/i18n.js';
 
 /**
  * 화면 골격. show(props)는 props를 통째로 바꾸고(생략 시 유지), update(props)는 합친다.
@@ -51,7 +52,7 @@ export function sheet({ title, kicker = '', body, foot, onClose, cls = '' }) {
       h('div', { class: 'sk-sheet-heading' },
         kicker ? h('p', { class: 'sk-kicker', text: kicker, 'aria-hidden': 'true' }) : null,
         h('h2', { class: 'sk-sheet-title sk-stencil', text: title })),
-      btn(uiIcon('close'), onClose, 'sk-btn--icon', { 'aria-label': '닫기' })),
+      btn(uiIcon('close'), onClose, 'sk-btn--icon', { 'aria-label': t('shop.close') })),
     h('div', { class: 'sk-sheet-body' }, body),
     foot ? h('footer', { class: 'sk-sheet-foot' }, foot) : null);
 }
@@ -88,19 +89,20 @@ export function createModal() {
 
 /** 맵 선택 카드(라디오처럼 동작). onPick이 없으면 보기 전용. */
 export function mapCard(m, { selected = false, onPick, small = false } = {}) {
+  const name = loc(m, 'name'), desc = loc(m, 'desc'), tag = loc(m, 'tag');
   const kids = [
     mapIcon(m.id),
     h('span', { class: 'sk-mapcard-text' },
-      h('span', { class: 'sk-mapcard-name', text: m.name }),
-      m.nameEn ? h('span', { class: 'sk-mapcard-en', text: m.nameEn }) : null,
-      m.desc && !small ? h('span', { class: 'sk-mapcard-desc', text: m.desc }) : null,
-      m.tag && !small ? h('span', { class: 'sk-mapcard-tag', text: m.tag }) : null),
+      h('span', { class: 'sk-mapcard-name', text: name }),
+      m.nameEn && !isEnglish() ? h('span', { class: 'sk-mapcard-en', text: m.nameEn }) : null,   // 영어 부제는 한국어 화면에서만
+      desc && !small ? h('span', { class: 'sk-mapcard-desc', text: desc }) : null,
+      tag && !small ? h('span', { class: 'sk-mapcard-tag', text: tag }) : null),
   ];
   const cls = 'sk-mapcard' + (selected ? ' is-on' : '') + (small ? ' sk-mapcard--sm' : '');
   if (!onPick) return h('div', { class: cls + ' is-static' }, kids);
   return h('button', {
     type: 'button', class: cls, role: 'radio', 'aria-checked': selected ? 'true' : 'false',
-    title: m.desc || m.name, onclick: () => onPick(m.id),
+    title: desc || name, onclick: () => onPick(m.id),
   }, kids);
 }
 
@@ -111,7 +113,7 @@ export function keycap(label) {
 /** 포인트 표시. set(n)은 값이 바뀔 때만 DOM을 쓴다. */
 export function pointsBadge(cls = '') {
   const value = h('b', { class: 'sk-points-val' });
-  const el = h('span', { class: 'sk-points' + (cls ? ' ' + cls : ''), title: '포인트' }, uiIcon('coin', 'sk-points-ico'), value);
+  const el = h('span', { class: 'sk-points' + (cls ? ' ' + cls : ''), title: t('shop.points') }, uiIcon('coin', 'sk-points-ico'), value);
   return { el, set(n) { setText(value, fmtPoints(n)); } };
 }
 
@@ -152,7 +154,7 @@ export function avatarArtEl(a, cls = '') {
 }
 
 // ---------- 무기 카드 조각 ----------
-const BAR_LABELS = { power: '위력', rate: '연사', accuracy: '정확도', mobility: '기동성', range: '사거리', control: '반동 제어' };
+const BAR_LABELS = { power: t('shop.bar.power'), rate: t('shop.bar.rate'), accuracy: t('shop.bar.accuracy'), mobility: t('shop.bar.mobility'), range: t('shop.bar.range'), control: t('shop.bar.control') };
 
 /** bars: { power: 0~100, ... } 또는 [{ label, value }] → [{ label, value }] */
 export function normBars(b) {
@@ -169,30 +171,30 @@ export function normStats(st) {
   if (!st) return [];
   const one = (label, value, unit) => ({ label: String(label), value: `${value}${unit ? unit : ''}` });
   if (Array.isArray(st)) {
-    return st.filter(Boolean).map((x) => (Array.isArray(x) ? one(x[0], x[1]) : one(x.label != null ? x.label : x.name, x.value, x.unit)));
+    return st.filter(Boolean).map((x) => (Array.isArray(x) ? one(x[0], x[1]) : one(x.label != null ? loc(x, 'label') : loc(x, 'name'), loc(x, 'value'), x.unit)));
   }
   if (typeof st === 'object') return Object.keys(st).map((k) => one(k, st[k]));
   return [];
 }
 
 function rateSummary(d) {
-  if (d.burst) return { label: '점사', value: `${d.burst.count}발` };
-  if (d.fire === 'bolt') return { label: '볼트', value: `${d.bolt}초` };
-  return { label: '연사', value: d.fire === 'semi' ? `${+Number(d.fireInterval).toFixed(2)}초` : `${d.rpm}rpm` };
+  if (d.burst) return { label: t('shop.stat.burst'), value: t('shop.stat.rounds', { n: d.burst.count }) };
+  if (d.fire === 'bolt') return { label: t('shop.stat.bolt'), value: t('shop.stat.sec', { n: d.bolt }) };
+  return { label: t('shop.stat.rate'), value: d.fire === 'semi' ? t('shop.stat.sec', { n: +Number(d.fireInterval).toFixed(2) }) : `${d.rpm}rpm` };
 }
 
 /** 작은 카드에 넣을 핵심 수치 3~4개. 수치표가 없는 정의(데모 목 데이터)는 stats 앞쪽을 쓴다. */
 export function weaponSummary(d) {
   if (d.melee) {
     const { slash, stab } = d.melee;
-    return [{ label: slash.label, value: slash.damage }, { label: stab.label, value: stab.damage }, { label: '이동', value: `${Math.round(d.moveMul * 100)}%` }];
+    return [{ label: loc(slash, 'label'), value: slash.damage }, { label: loc(stab, 'label'), value: stab.damage }, { label: t('shop.stat.move'), value: `${Math.round(d.moveMul * 100)}%` }];
   }
   if (!d.damage) return normStats(d.stats).slice(0, 3);
-  const rows = [{ label: '머리', value: d.damage.head }, { label: '몸', value: d.damage.body }];
-  if (d.kind === 'sniper') rows.push({ label: '손·발', value: d.damage.hand });
-  if (d.pellets > 1) rows.push({ label: '펠릿', value: `${d.pellets}발` });
+  const rows = [{ label: t('shop.stat.head'), value: d.damage.head }, { label: t('shop.stat.body'), value: d.damage.body }];
+  if (d.kind === 'sniper') rows.push({ label: t('shop.stat.limbs'), value: d.damage.hand });
+  if (d.pellets > 1) rows.push({ label: t('shop.stat.pellets'), value: t('shop.stat.rounds', { n: d.pellets }) });
   rows.push(rateSummary(d));
-  if (rows.length < 4) rows.push({ label: '탄', value: `${d.mag}/${d.premium ? '∞' : d.reserve}` });
+  if (rows.length < 4) rows.push({ key: 'ammo', label: t('shop.stat.ammo'), value: `${d.mag}/${d.premium ? '∞' : d.reserve}` });
   return rows;
 }
 
@@ -206,8 +208,8 @@ export function normWeapon(reg, ref) {
     name: info.name,
     short: info.short || info.name,
     icon: info.icon,
-    role: d.role || '',
-    tagline: d.tagline || d.subtitle || d.summary || '',
+    role: loc(d, 'role') || '',
+    tagline: loc(d, 'tagline') || d.subtitle || d.summary || '',
     stats: normStats(d.stats),
     bars: normBars(d.bars),
     summary: weaponSummary(d),
@@ -293,9 +295,9 @@ export function createStepper({ label, min, max, step = 1, presets = [], fmt = S
     const v = clamp(Math.round(n), min, max);
     if (!off && v !== cur) onPick(v);
   };
-  const minus = btn('−', () => pick(cur - step), 'sk-btn--icon', { 'aria-label': `${label} 줄이기` });
-  const plus = btn('＋', () => pick(cur + step), 'sk-btn--icon', { 'aria-label': `${label} 늘리기` });
-  const quick = presets.length ? createChoiceRow({ label: `${label} 빠른 선택`, onPick: (id) => pick(Number(id)), cls: 'sk-stepper-quick' }) : null;
+  const minus = btn('−', () => pick(cur - step), 'sk-btn--icon', { 'aria-label': t('shop.stepDown', { label }) });
+  const plus = btn('＋', () => pick(cur + step), 'sk-btn--icon', { 'aria-label': t('shop.stepUp', { label }) });
+  const quick = presets.length ? createChoiceRow({ label: t('shop.stepQuick', { label }), onPick: (id) => pick(Number(id)), cls: 'sk-stepper-quick' }) : null;
   const el = h('div', { class: 'sk-stepper' + (cls ? ' ' + cls : ''), role: 'group', 'aria-label': label }, minus, out, plus, quick && quick.el);
 
   function set(n, { disabled = false } = {}) {

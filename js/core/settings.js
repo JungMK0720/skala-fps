@@ -21,10 +21,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
   showFps: false,
   volume: 0.8,          // 0 ~ 1 (FX 담당이 사용)
   fullscreen: 'off',    // 'on' | 'off'  전체 화면 유지(브라우저 단축키 잠금). 실제 전체 화면 상태를 따라 바뀐다(main.js)
+  lang: '',             // '' = 자동(브라우저 언어) | 'ko' | 'en'. core/i18n.js가 페이지를 열 때 읽는다
   name: ''              // 마지막으로 쓴 닉네임
 });
 
-const KEY = 'skalafps.settings.v1';
+export const SETTINGS_KEY = 'skalafps.settings.v1';
+const KEY = SETTINGS_KEY;
 
 function clampSetting(key, value) {
   switch (key) {
@@ -36,6 +38,7 @@ function clampSetting(key, value) {
     case 'zoomMode': return value === 'toggle' ? 'toggle' : 'hold';
     case 'quality': return value === 'high' || value === 'low' ? value : 'auto';
     case 'fullscreen': return value === 'on' ? 'on' : 'off';
+    case 'lang': return value === 'ko' || value === 'en' ? value : '';
     case 'invertY': case 'showFps': return !!value;
     case 'name': return String(value == null ? '' : value).slice(0, 16);
     default: return value;

@@ -359,7 +359,7 @@ export const GEAR_KITS = Object.freeze(Object.keys(KITS));
 /** 장비 묶음 → [[뼈 이름, 지오메트리], ...]. colors = { uniform, accent, strobe(적외선 표시등, 밝은 팀 색), gear } (hex 숫자) */
 export function gearOf(kit, colors) {
   const make = KITS[kit];
-  if (!make) throw new Error('모르는 장비 묶음: ' + kit);
+  if (!make) throw new Error('모르는 장비 묶음: ' + kit); // i18n-ok: 개발자용 오류(화면에 나오지 않는다)
   const c = { ...colors, gearDark: mix(colors.gear, '#000000', 0.35) };
   return make(c);
 }

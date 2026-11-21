@@ -12,13 +12,16 @@ import { computePerks, perkSummary, cardById, TIERS } from './cards.js';
 import { HORDE, fmtClock, hordeAmmo } from './rules.js';
 import { zombieHitDamage, nadeDamage } from './director.js';
 import { WEAPONS } from '../../weapons/defs.js';
-import { SKILL_NAMES, skillKindOf, HAZARD_KINDS } from './bosses.js';
+import { SKILL_NAMES, skillKindOf, HAZARD_KINDS, bossById } from './bosses.js';
+import { t, loc } from '../../core/i18n.js';
 import { pickableWeapons } from '../modes.js';
 
 const FRENZY_MS = 7000;          // 광란: 총으로 좀비를 맞힐 때마다 쌓이는 연사가 이만큼 이어진다(맞힐 때마다 한 겹씩, 겹마다 따로 끝난다)
 const FRENZY_MAX = 300;          // 광란 최대 겹 수
 const REVIVE_SEND_MS = 300;      // 살리기를 누르고 있는 동안 방장에게 다시 알리는 간격(방장은 reviveKeepMs 동안 소식이 없으면 끊는다)
 const REVIVE_KEEP_M = 0.5;       // 살리던 동료는 reviveTouchM보다 이만큼 멀어져도 이어 간다(경계에서 켜졌다 꺼졌다 하지 않게)
+/** 보스 이름은 이 화면의 말로(방장이 보낸 이름은 방장의 말이다) */
+const bossName = (b) => { const d = b && bossById(b.id || b.boss); return d ? d.name : (b && b.name) || t('horde.bossFallback'); };
 const HAZARD_LABEL = Object.freeze({
   [HAZARD_KINDS.acid]: 'acid', [HAZARD_KINDS.fire]: 'fire', [HAZARD_KINDS.web]: 'web',
   [HAZARD_KINDS.frost]: 'frost', [HAZARD_KINDS.shock]: 'shock'
@@ -42,7 +45,7 @@ export function modsFromPerks(k, frenzyStacks = 0) {
 
 /** 발밑 장판 → [아이콘, 이름, 피해가 있는가]. 장판 안에서는 회복이 절반이 되고, 피해가 있는 장판은 0.5초마다 피해를 준다(director healPlayer·stepHazards, bosses.js의 dps) */
 const FIELD_STATUS = Object.freeze({
-  acid: ['☣️', '산성 장판', true], fire: ['🌋', '화염 장판', true], web: ['🕸️', '거미줄 장판', false], frost: ['🧊', '빙결 장판', true], shock: ['⚡', '감전 장판', true]
+  acid: ['☣️', t('horde.field.acid'), true], fire: ['🌋', t('horde.field.fire'), true], web: ['🕸️', t('horde.field.web'), false], frost: ['🧊', t('horde.field.frost'), true], shock: ['⚡', t('horde.field.shock'), true]
 });
 
 /** 이 스테이지에 쓰러지면 다음 스테이지에 자동 부활하지 않는가(director nextStage: 다음 스테이지가 HORDE.noAutoReviveStage 이상) */
@@ -71,8 +74,8 @@ export function hordeStatusList(o) {
   if (!me) return [];
   const out = [];
   const noRevive = !o.solo && noAutoRevive(o.stage) ? {
-    id: 'noRevive', kind: 'debuff', icon: '⚰️', name: '자동 부활 없음',
-    desc: `${HORDE.noAutoReviveStage}스테이지부터는 쓰러지면 스테이지가 넘어가도 저절로 일어나지 않아요. 동료가 쓰러진 자리에서 F를 ${Math.round(HORDE.reviveHoldMs / 1000)}초 눌러 살려야 해요.`
+    id: 'noRevive', kind: 'debuff', icon: '⚰️', name: t('horde.st.noRevive'),
+    desc: t('horde.st.noReviveDesc', { stage: HORDE.noAutoReviveStage, secs: Math.round(HORDE.reviveHoldMs / 1000) })
   } : null;
   if (!me.alive) return noRevive ? [noRevive] : out;
   const since = Math.max(0, Number(o.since) || 0);
@@ -83,12 +86,12 @@ export function hordeStatusList(o) {
   if (me.invuln) {
     const picking = Array.isArray(me.offer) && me.offer.length > 0;
     const ms = picking ? 0 : left(me.invulnMs);
-    if (picking) out.push({ id: 'invuln', kind: 'buff', icon: '🛡', name: '무적', desc: '증강을 고르는 동안 어떤 피해도 받지 않아요. 고른 뒤에도 잠시 이어져요.' });
-    else if (ms > 0) out.push({ id: 'invuln', kind: 'buff', icon: '🛡', name: '무적', desc: '어떤 피해도 받지 않아요. 증강을 고른 직후나 동료가 살려 준 직후에 걸려요.', leftMs: ms });
+    if (picking) out.push({ id: 'invuln', kind: 'buff', icon: '🛡', name: t('horde.st.invuln'), desc: t('horde.st.invulnPickDesc') });
+    else if (ms > 0) out.push({ id: 'invuln', kind: 'buff', icon: '🛡', name: t('horde.st.invuln'), desc: t('horde.st.invulnDesc'), leftMs: ms });
   }
   if (me.shield > 0) {
     const n = Math.round(me.shield);
-    out.push({ id: 'shield', kind: 'buff', icon: '💠', name: '보호막', desc: `받는 피해를 체력보다 먼저 막아요. 남은 보호막 ${n}. 스테이지가 시작할 때 보호막 증강만큼 더해져요.`, value: n });
+    out.push({ id: 'shield', kind: 'buff', icon: '💠', name: t('horde.st.shield'), desc: t('horde.st.shieldDesc', { n }), value: n });
   }
   const fz = Array.isArray(o.frenzy) ? o.frenzy : [];
   const fzLast = fz.length ? fz[fz.length - 1] - now : 0;
@@ -96,29 +99,29 @@ export function hordeStatusList(o) {
     const n = Math.min(FRENZY_MAX, fz.filter((t) => t > now).length);
     const per = (k.frenzy || 0) * 100;
     out.push({
-      id: 'frenzy', kind: 'buff', icon: '🌀', name: '광란', stacks: n, leftMs: fzLast, totalMs: FRENZY_MS,
-      desc: `총으로 좀비를 맞힐 때마다 한 겹(겹마다 ${FRENZY_MS / 1000}초, 최대 ${FRENZY_MAX}겹). 겹마다 연사 +${+per.toFixed(2)}% · 지금 ${n}겹 연사 +${+(per * n).toFixed(1)}%`
+      id: 'frenzy', kind: 'buff', icon: '🌀', name: t('horde.st.frenzy'), stacks: n, leftMs: fzLast, totalMs: FRENZY_MS,
+      desc: t('horde.st.frenzyDesc', { secs: FRENZY_MS / 1000, max: FRENZY_MAX, per: +per.toFixed(2), n, total: +(per * n).toFixed(1) })
     });
   }
-  if (o.secondReady && (k.secondChance || 0) > 0) out.push({ id: 'second', kind: 'buff', icon: '🪽', name: '두 번째 기회', desc: '이번 스테이지에 한 번, 쓰러질 피해를 받아도 체력 30%로 버텨요. 다음 스테이지가 시작되면 다시 준비돼요.' });
-  if ((k.lastStand || 0) > 0 && me.hp / Math.max(1, me.maxHp) <= 0.35) out.push({ id: 'lastStand', kind: 'buff', icon: '💢', name: '배수의 진', desc: `체력이 35% 이하인 동안 주는 피해 +${Math.round(k.lastStand * 100)}%` });
+  if (o.secondReady && (k.secondChance || 0) > 0) out.push({ id: 'second', kind: 'buff', icon: '🪽', name: t('horde.st.second'), desc: t('horde.st.secondDesc') });
+  if ((k.lastStand || 0) > 0 && me.hp / Math.max(1, me.maxHp) <= 0.35) out.push({ id: 'lastStand', kind: 'buff', icon: '💢', name: t('horde.st.lastStand'), desc: t('horde.st.lastStandDesc', { pct: Math.round(k.lastStand * 100) }) });
   // 디버프
   const burn = left(me.burnMs);
-  if (burn > 0) out.push({ id: 'burn', kind: 'debuff', icon: '🔥', name: '화상', desc: '보스에게 맞아 불이 붙었어요. 끝날 때까지 1초마다 피해를 받아요(보호막이 먼저 막아요).', leftMs: burn });
+  if (burn > 0) out.push({ id: 'burn', kind: 'debuff', icon: '🔥', name: t('horde.st.burn'), desc: t('horde.st.burnDesc'), leftMs: burn });
   const curse = left(me.noHealMs);
-  if (curse > 0) out.push({ id: 'noHeal', kind: 'debuff', icon: '🧪', name: '마녀 저주', desc: '끝날 때까지 구급 상자·재생·흡혈·스테이지 회복 등 어떤 회복도 받지 않아요.', leftMs: curse });
+  if (curse > 0) out.push({ id: 'noHeal', kind: 'debuff', icon: '🧪', name: t('horde.st.curse'), desc: t('horde.st.curseDesc'), leftMs: curse });
   const L = o.local;
   if (L && L.stunMs > 0) {
     out.push(o.grabStun
-      ? { id: 'stun', kind: 'debuff', icon: '🪝', name: '사슬 기절', desc: '사슬꾼의 사슬에 끌려와 기절했어요. 움직이지도 쏘지도 못해요.', leftMs: L.stunMs }
-      : { id: 'stun', kind: 'debuff', icon: '💫', name: '기절', desc: '움직이지도 쏘지도 못해요.', leftMs: L.stunMs });
+      ? { id: 'stun', kind: 'debuff', icon: '🪝', name: t('horde.st.chainStun'), desc: t('horde.st.chainStunDesc'), leftMs: L.stunMs }
+      : { id: 'stun', kind: 'debuff', icon: '💫', name: t('horde.st.stun'), desc: t('horde.st.stunDesc'), leftMs: L.stunMs });
   }
-  if (L && L.slowMs > 0) out.push({ id: 'slow', kind: 'debuff', icon: '❄️', name: '느려짐', desc: `비명·얼음 공격에 맞아 이동 속도 −${Math.round((1 - (Number(L.slowMul) || 1)) * 100)}%`, leftMs: L.slowMs });
-  if (L && L.grabbed) out.push({ id: 'grab', kind: 'debuff', icon: '✋', name: '붙잡힘', desc: `좀비 몸에 붙잡혀 이동 속도 −${Math.round((1 - HORDE.grabSlow) * 100)}%. 좀비에게서 떨어지면 풀려요.` });
+  if (L && L.slowMs > 0) out.push({ id: 'slow', kind: 'debuff', icon: '❄️', name: t('horde.st.slow'), desc: t('horde.st.slowDesc', { pct: Math.round((1 - (Number(L.slowMul) || 1)) * 100) }), leftMs: L.slowMs });
+  if (L && L.grabbed) out.push({ id: 'grab', kind: 'debuff', icon: '✋', name: t('horde.st.grab'), desc: t('horde.st.grabDesc', { pct: Math.round((1 - HORDE.grabSlow) * 100) }) });
   const f = o.field && FIELD_STATUS[o.field.kind];
   if (f) {
     const ms = Math.max(0, Number(o.field.leftMs) || 0);
-    out.push({ id: 'field', kind: 'debuff', icon: f[0], name: f[1], desc: `${f[1]} 위에 서 있어요. ${f[2] ? '0.5초마다 피해를 받고, ' : ''}받는 회복이 절반이 돼요. 남은 시간은 장판이 사라질 때까지예요.`, ...(ms > 0 ? { leftMs: ms } : {}) });
+    out.push({ id: 'field', kind: 'debuff', icon: f[0], name: f[1], desc: t(f[2] ? 'horde.st.fieldDmgDesc' : 'horde.st.fieldDesc', { name: f[1] }), ...(ms > 0 ? { leftMs: ms } : {}) });
   }
   if (noRevive) out.push(noRevive);
   return out;
@@ -174,9 +177,9 @@ export function createHordeClient(o) {
     // 카드의 '탄' 칸은 이 모드의 탄(예비 3배, 프리미엄 총도 탄창 2개 × 3)으로 보여 준다
     const ammo = Object.fromEntries(weapons.map((id) => { const a = hordeAmmo(WEAPONS[id]); return [id, a ? `${a.mag}/${a.reserve}` : '']; }));
     return {
-      free: true, weapons, ammo, ruleset: 'classic', title: '무기 고르기 · 좀비 물량 막기',
-      foot: '1스테이지가 시작되면 더는 바꿀 수 없어요. 이번 판 내내 쓸 무기를 고르세요.',
-      note: '시작 전에만', prompt: true
+      free: true, weapons, ammo, ruleset: 'classic', title: t('horde.swap.title'),
+      foot: t('horde.swap.foot'),
+      note: t('horde.swap.note'), prompt: true
     };
   }
 
@@ -233,11 +236,11 @@ export function createHordeClient(o) {
     const H = ui && ui.hud;
     if (!H) return;
     if (ev.phase === 'prep') {
-      H.center('좀비 물량 막기', 2600, { sub: `${Math.round((ev.ms || 0) / 1000)}초 뒤 1스테이지 · 최대한 오래 버티세요`, tone: 'warn' });
+      H.center(t('horde.modeName'), 2600, { sub: t('horde.c.prepSub', { secs: Math.round((ev.ms || 0) / 1000) }), tone: 'warn' });
     } else if (ev.phase === 'wave' && !ev.resumed) {
       const bosses = Array.isArray(ev.bosses) ? ev.bosses : [];
       const secs = Math.round((ev.stageMs || HORDE.stageMs) / 1000);
-      H.center(`스테이지 ${ev.stage}`, 2000, { sub: bosses.length ? `보스 등장 · ${bosses.map((b) => `${b.icon || ''} ${b.name}`).join(' · ')}` : `${secs}초 · 좀비 ${ev.count || 0}마리 · 다 잡으면 남은 시간만큼 경험치`, tone: bosses.length ? 'charterer' : undefined });
+      H.center(t('horde.c.stage', { n: ev.stage }), 2000, { sub: bosses.length ? t('horde.c.bossSub', { list: bosses.map((b) => `${b.icon || ''} ${bossName(b)}`).join(' · ') }) : t('horde.c.waveSub', { secs, n: ev.count || 0 }), tone: bosses.length ? 'charterer' : undefined });
       W('sound', 'horde_wave');
     }
   }
@@ -253,20 +256,20 @@ export function createHordeClient(o) {
         if (ev.phase === 'over' || (ev.phase !== 'prep' && !swapTicket)) { swapTicket = false; W('closeSwap'); }
         break;
       case 'levelUp':
-        if (H) H.banner({ icon: '⭐', title: `레벨 업! Lv ${ev.level}`, sub: (ev.ups | 0) > 1 ? `증강 ${ev.ups}개를 고르세요` : '증강 하나를 고르세요' });
+        if (H) H.banner({ icon: '⭐', title: t('horde.c.levelUp', { lv: ev.level }), sub: (ev.ups | 0) > 1 ? t('horde.c.pickN', { n: ev.ups }) : t('horde.c.pickOne') });
         W('sound', 'horde_clear');
         break;
       case 'offer':
         if (String(ev.id) === meId) { pickSent = null; W('sound', 'card_shuffle'); }
         break;
       case 'clear':
-        if (H) H.callout(`스테이지 클리어! · 남은 시간 경험치 +${ev.bonus | 0} · 체력 25% 회복`);
+        if (H) H.callout(t('horde.c.clear', { xp: ev.bonus | 0 }));
         break;
       case 'timeup':
-        if (H) H.callout(`⏱ 시간 끝 · 남은 좀비 ${ev.left | 0}마리와 다음 스테이지`);
+        if (H) H.callout(t('horde.c.timeup', { n: ev.left | 0 }));
         break;
       case 'decoyDown':
-        if (H && String(ev.owner) === meId) H.callout('🎭 분신이 쓰러졌어요');
+        if (H && String(ev.owner) === meId) H.callout(t('horde.c.decoyDown'));
         break;
       case 'spawn':
         if (String(ev.id) === meId) { if (!ev.keep) spawnMe(ev.spawn, !!ev.revive); }
@@ -279,45 +282,45 @@ export function createHordeClient(o) {
           const mine = last && last.players.find((p) => p.id === meId);
           const mustRevive = noAutoRevive(ev.stage | 0);
           const sub = canRevive && mine && mine.down
-            ? mustRevive ? `동료가 F를 ${Math.round(HORDE.reviveHoldMs / 1000)}초 눌러 살려야 해요 · 라운드 자동 부활 없음`
-              : `동료가 F를 ${Math.round(HORDE.reviveHoldMs / 1000)}초 누르면 일어나요 · 아니면 다음 스테이지에`
-            : mustRevive ? '동료가 곁에서 살려야 해요 · 라운드 자동 부활 없음' : '동료가 이번 스테이지를 깨면 다음 스테이지에 일어나요';
-          if (H) H.center('쓰러졌어요', 2200, { sub, tone: 'warn' });
-        } else { if (o.onActorDown) o.onActorDown(String(ev.id)); if (H) H.callout(`💀 ${nameOf(String(ev.id)) || '동료'} 쓰러짐`); }
+            ? mustRevive ? t('horde.c.downMust', { secs: Math.round(HORDE.reviveHoldMs / 1000) })
+              : t('horde.c.downCan', { secs: Math.round(HORDE.reviveHoldMs / 1000) })
+            : mustRevive ? t('horde.c.downMustNear') : t('horde.c.downNext');
+          if (H) H.center(t('horde.c.down'), 2200, { sub, tone: 'warn' });
+        } else { if (o.onActorDown) o.onActorDown(String(ev.id)); if (H) H.callout(t('horde.c.mateDown', { name: nameOf(String(ev.id)) || t('horde.mate') })); }
         break;
       case 'revive': {
         // 동료가 F를 눌러 쓰러진 사람을 그 자리에서 일으켰다(멀티). 일어난 사람의 스폰은 같은 메시지의 'spawn'이 한다
         const id = String(ev.id), by = String(ev.by);
-        const name = nameOf(id) || '동료', byName = nameOf(by) || '동료';
-        if (id === meId) { if (H) H.center('다시 일어났어요!', 1800, { sub: `${byName}님이 살렸어요 · ${Math.round(HORDE.reviveInvulnMs / 1000)}초 무적`, tone: 'warn' }); }
-        else if (by === meId) { if (H) H.callout(`🩹 ${name}님을 살렸어요`); }
-        else if (H) H.callout(`🩹 ${byName}님이 ${name}님을 살렸어요`);
-        if (o.onFeed) o.onFeed(`🩹 ${byName}님이 ${name}님을 살렸어요`);
+        const name = nameOf(id) || t('horde.mate'), byName = nameOf(by) || t('horde.mate');
+        if (id === meId) { if (H) H.center(t('horde.c.revived'), 1800, { sub: t('horde.c.revivedSub', { name: byName, secs: Math.round(HORDE.reviveInvulnMs / 1000) }), tone: 'warn' }); }
+        else if (by === meId) { if (H) H.callout(t('horde.c.iRevived', { name })); }
+        else if (H) H.callout(t('horde.c.revivedBy', { by: byName, name }));
+        if (o.onFeed) o.onFeed(t('horde.c.revivedBy', { by: byName, name }));
         break;
       }
       case 'knock': if (String(ev.id) === meId) W('pushLocal', ev.v); break;
-      case 'slow': if (String(ev.id) === meId) { W('slowLocal', 1 - (Number(ev.mul) || 0), ev.ms); if (H) H.callout('❄️ 느려졌어요'); } break;
-      case 'stun': if (String(ev.id) === meId) { stunAt = performance.now(); W('stunLocal', ev.ms); if (H) H.callout('💫 기절!'); } break;
-      case 'grabbed': if (String(ev.id) === meId) { grabbedAt = performance.now(); if (H) H.callout('🪝 그랩에 끌려가요!'); } break;
-      case 'noHeal': if (String(ev.id) === meId && H) H.callout(`🧪 저주! ${Math.round((Number(ev.ms) || 0) / 1000)}초 동안 회복 불가`); break;
-      case 'burn': if (String(ev.id) === meId && H) H.callout(`🔥 화상! ${Math.round((Number(ev.ms) || 0) / 1000)}초 동안 지속 피해`); break;
+      case 'slow': if (String(ev.id) === meId) { W('slowLocal', 1 - (Number(ev.mul) || 0), ev.ms); if (H) H.callout(t('horde.c.slowed')); } break;
+      case 'stun': if (String(ev.id) === meId) { stunAt = performance.now(); W('stunLocal', ev.ms); if (H) H.callout(t('horde.c.stunned')); } break;
+      case 'grabbed': if (String(ev.id) === meId) { grabbedAt = performance.now(); if (H) H.callout(t('horde.c.grabbed')); } break;
+      case 'noHeal': if (String(ev.id) === meId && H) H.callout(t('horde.c.cursed', { secs: Math.round((Number(ev.ms) || 0) / 1000) })); break;
+      case 'burn': if (String(ev.id) === meId && H) H.callout(t('horde.c.burned', { secs: Math.round((Number(ev.ms) || 0) / 1000) })); break;
       case 'second':
         if (String(ev.id) !== meId) break;
         // 방장은 스테이지가 시작될 때 다시 쓸 수 있게 한다(director beginStage)
         secondUsedStage = last ? last.stage : stage;
-        if (H) H.banner({ icon: '🪽', title: '두 번째 기회!', sub: '쓰러질 피해를 버텼어요' });
+        if (H) H.banner({ icon: '🪽', title: t('horde.c.second'), sub: t('horde.c.secondSub') });
         break;
       case 'boss':
-        if (H) H.banner({ icon: '👑', title: '보스 등장', sub: (ev.bosses || []).map((b) => `${b.icon || ''} ${b.name}`).join(' · ') });
+        if (H) H.banner({ icon: '👑', title: t('horde.c.boss'), sub: (ev.bosses || []).map((b) => `${b.icon || ''} ${bossName(b)}`).join(' · ') });
         break;
       case 'bossDown':
-        if (H) H.banner({ icon: '🏆', title: `${ev.name || '보스'} 처치!`, sub: ev.by ? `${String(ev.by) === meId ? '내가' : `${nameOf(String(ev.by))}님이`} 마무리했어요` : '' });
+        if (H) H.banner({ icon: '🏆', title: t('horde.c.bossDown', { name: bossName(ev) }), sub: ev.by ? (String(ev.by) === meId ? t('horde.c.bossFinishMe') : t('horde.c.bossFinish', { name: nameOf(String(ev.by)) })) : '' });
         W('sound', 'boss_down');
-        if (o.onFeed) o.onFeed(`👑 ${ev.name || '보스'} 처치${ev.by ? ` · ${nameOf(String(ev.by))}` : ''}`);
+        if (o.onFeed) o.onFeed(ev.by ? t('horde.c.bossFeedBy', { name: bossName(ev), by: nameOf(String(ev.by)) }) : t('horde.c.bossFeed', { name: bossName(ev) }));
         break;
       case 'card': {
         const c = cardById(ev.card);
-        if (String(ev.id) === meId) { W('sound', 'card_pick'); if (H && c) H.callout(`${c.icon} ${c.name}${ev.auto ? ' (시간 초과)' : ''}`); }
+        if (String(ev.id) === meId) { W('sound', 'card_pick'); if (H && c) H.callout(ev.auto ? t('horde.c.cardAuto', { icon: c.icon, name: c.name }) : `${c.icon} ${c.name}`); }
         if (o.onFeed && c) o.onFeed(`${nameOf(String(ev.id))} · ${c.icon} ${c.name}`);
         break;
       }
@@ -326,12 +329,12 @@ export function createHordeClient(o) {
       case 'crit': onCrit(ev); break;
       case 'yasuo':
         W('hordeEvent', ev);
-        if (String(ev.by) === meId && ev.kind === 'shockwave' && H) H.callout('질풍 충격파!');
+        if (String(ev.by) === meId && ev.kind === 'shockwave' && H) H.callout(t('horde.c.yasuoWave'));
         break;
       case 'skill': case 'enrage': case 'bossSpawn': W('hordeEvent', ev); break;
       case 'over': overAt = performance.now(); break;
-      case 'join': if (H && String(ev.id) !== meId) H.callout(`${ev.name || '동료'}님 합류 · 다음 스테이지부터`); break;
-      case 'leave': if (H && String(ev.id) !== meId) H.callout(`${nameOf(String(ev.id)) || '동료'}님이 나갔어요`); break;
+      case 'join': if (H && String(ev.id) !== meId) H.callout(t('horde.c.join', { name: ev.name || t('horde.mate') })); break;
+      case 'leave': if (H && String(ev.id) !== meId) H.callout(t('horde.c.leave', { name: nameOf(String(ev.id)) || t('horde.mate') })); break;
       default: break;
     }
   }
@@ -356,17 +359,17 @@ export function createHordeClient(o) {
     if (ev.kind === 'mag' && a) {
       // 주무기·보조무기의 탄창과 예비 탄을 모두 최대까지 채운다
       W('refillAmmo');
-      text = '🧷 탄약 · 모든 총 탄 가득';
+      text = t('horde.c.lootAmmo');
       // 투척 장비도 최대까지 채운다(늘었을 때만 알린다)
       const grenadeId = a.getLoadout().grenade;
       const nade = a.getAmmo(grenadeId);
       const before = nade && nade.kind === 'count' ? nade.mag : null;
       const after = W('refillGrenades');
-      if (before != null && Number(after) > before) text += ' · 💣 투척 장비 가득';
+      if (before != null && Number(after) > before) text = t('horde.c.lootAmmoNades');
     } else if (ev.kind === 'med') {
-      text = ev.heal > 0 ? `➕ 구급 상자 · 체력 +${ev.heal}` : '➕ 구급 상자 · 체력이 가득해요';
+      text = ev.heal > 0 ? t('horde.c.lootMed', { n: ev.heal }) : t('horde.c.lootMedFull');
     } else if (ev.kind === 'chest') {
-      text = '🎁 보물 상자! · 증강 하나를 고르세요';
+      text = t('horde.c.lootChest');
     }
     W('sound', 'loot_pick');
     if (ui && ui.hud && text) ui.hud.callout(text);
@@ -407,14 +410,14 @@ export function createHordeClient(o) {
   /** World 안내 줄(살리기)과 휴대폰 살리기 버튼. 바뀔 때만 넘긴다 */
   function showInteract(target, holding) {
     const touch = !!(o.input && o.input.touchMode);
-    const name = target ? target.name || '동료' : '';
+    const name = target ? target.name || t('horde.mate') : '';
     const secs = Math.round(HORDE.reviveHoldMs / 1000);
     // 다른 동료가 이미 살리는 중이면 그 사람 이름을 보여 준다(방장은 그 사람만 센다. 그 사람이 떼면 내가 이어서 살린다)
-    const other = target && target.down && target.down.by && target.down.by !== meId ? nameOf(target.down.by) || '동료' : '';
+    const other = target && target.down && target.down.by && target.down.by !== meId ? nameOf(target.down.by) || t('horde.mate') : '';
     const hint = !target ? ''
-      : other ? `🩹 ${other}님이 ${name} 살리는 중`
-        : holding ? `🩹 ${name} 살리는 중…`
-          : touch ? `살리기 버튼을 ${secs}초 누르고 있으세요 · 🩹 ${name}` : `F 길게 눌러 🩹 ${name} 살리기 (${secs}초)`;
+      : other ? t('horde.c.otherReviving', { by: other, name })
+        : holding ? t('horde.c.reviving', { name })
+          : touch ? t('horde.c.reviveTouch', { secs, name }) : t('horde.c.reviveKey', { secs, name });
     const sig = hint ? `${hint}|${touch ? 1 : 0}` : '';
     if (sig === interactSig) return;
     interactSig = sig;
@@ -483,15 +486,15 @@ export function createHordeClient(o) {
       if (inst.refill) W('refillReserve');
       if (inst.nades) W('refillGrenades');
       if (inst.swap) swapNow = true;
-      if (inst.side && W('equipSidearm', inst.side) && ui && ui.hud) ui.hud.callout(`${c.icon} 보조무기: ${(WEAPONS[inst.side] || {}).name || inst.side}`);
-      if (inst.primary && W('equipHordePrimary', inst.primary) && ui && ui.hud) ui.hud.callout(`${c.icon} 주무기: ${(WEAPONS[inst.primary] || {}).name || inst.primary}`);
-      if (inst.melee && W('equipHordeMelee', inst.melee) && ui && ui.hud) ui.hud.callout(`${c.icon} 칼: ${(WEAPONS[inst.melee] || {}).name || inst.melee}`);
+      if (inst.side && W('equipSidearm', inst.side) && ui && ui.hud) ui.hud.callout(t('horde.c.gotSide', { icon: c.icon, name: loc(WEAPONS[inst.side], 'name') || inst.side }));
+      if (inst.primary && W('equipHordePrimary', inst.primary) && ui && ui.hud) ui.hud.callout(t('horde.c.gotPrimary', { icon: c.icon, name: loc(WEAPONS[inst.primary], 'name') || inst.primary }));
+      if (inst.melee && W('equipHordeMelee', inst.melee) && ui && ui.hud) ui.hud.callout(t('horde.c.gotMelee', { icon: c.icon, name: loc(WEAPONS[inst.melee], 'name') || inst.melee }));
     }
     appliedCards = cards.length;
     // 무기 교체권: 무기 목록을 한 번 연다(고르면 닫힌다. 못 골랐으면 N으로 다시 연다)
     if (swapNow && myAlive) {
       swapTicket = true;
-      W('openSwap', { ...swapProps(), title: '무기 교체권 · 한 번', foot: '고른 무기로 바로 바뀌어요. 새로 든 총은 탄을 가득 받아요.', note: '교체권 1회' });
+      W('openSwap', { ...swapProps(), title: t('horde.swap.ticketTitle'), foot: t('horde.swap.ticketFoot'), note: t('horde.swap.ticketNote') });
       W('openSwapList');
     }
   }
@@ -506,15 +509,15 @@ export function createHordeClient(o) {
       if (c) cards.push({ name: c.name, desc: c.desc, icon: c.icon, count });
     }
     const stats = [
-      { label: '공격 피해', value: `${perks.dmg >= 0 ? '+' : ''}${Math.round(perks.dmg * 100)}%` },
-      { label: '회피 확률', value: `${Math.round(Math.min(0.9, perks.dodge) * 100)}% · 광역 공격 제외` },
-      { label: '피격 후 무적', value: `${(HORDE.hitInvulnMs / 1000 + Math.max(0, perks.iframe)).toFixed(1)}초` },
-      { label: '최대 체력', value: `${maxHp}` },
-      { label: '현재 보호막', value: `${me ? me.shield : 0}` },
-      ...perkSummary(perks).filter((row) => !['피해', '맞은 뒤 무적', '최대 체력', '방패'].includes(row.label))
+      { label: t('horde.p.dmg'), value: `${perks.dmg >= 0 ? '+' : ''}${Math.round(perks.dmg * 100)}%` },
+      { label: t('horde.p.dodge'), value: t('horde.p.dodgeVal', { pct: Math.round(Math.min(0.9, perks.dodge) * 100) }) },
+      { label: t('horde.p.iframe'), value: t('horde.p.secs', { n: (HORDE.hitInvulnMs / 1000 + Math.max(0, perks.iframe)).toFixed(1) }) },
+      { label: t('horde.perk.maxHp'), value: `${maxHp}` },
+      { label: t('horde.p.shield'), value: `${me ? me.shield : 0}` },
+      ...perkSummary(perks).filter((row) => ![t('horde.perk.dmg'), t('horde.perk.iframe'), t('horde.perk.maxHp'), t('horde.perk.guard')].includes(row.label))
     ];
-    if (perks.guard > 0) stats.push({ label: '방패', value: `정면·칼을 든 동안 피해 −${Math.round(perks.guard * 100)}%` });
-    if (perks.lifesteal > 0) stats.push({ label: '광역 공격 흡혈', value: `${+(perks.lifesteal * 20).toFixed(2)}%` });
+    if (perks.guard > 0) stats.push({ label: t('horde.perk.guard'), value: t('horde.p.guardVal', { pct: Math.round(perks.guard * 100) }) });
+    if (perks.lifesteal > 0) stats.push({ label: t('horde.p.aoeLeech'), value: `${+(perks.lifesteal * 20).toFixed(2)}%` });
     return { cards, stats, status: statusNow(performance.now()) || [] };
   }
 
@@ -523,9 +526,9 @@ export function createHordeClient(o) {
     const lv = last && last.xp ? last.xp.level : 1;
     return {
       stage, picked: false, rerolls: me.rerolls,
-      title: me.chest ? '🎁 보물 상자!' : `⭐ 레벨 업! Lv ${lv}`,
+      title: me.chest ? t('horde.c.chestTitle') : `⭐ ${t('horde.c.levelUp', { lv })}`,
       // 멀티는 고르는 동안 무적이고 20초 뒤 무작위로 정해진다. 혼자는 게임이 멈춰 있어 시간을 보여 주지 않는다
-      sub: o.solo ? '고르는 동안 게임이 멈춰 있어요' : '고르는 동안 무적이에요 · 시간이 지나면 무작위로 정해져요',
+      sub: o.solo ? t('horde.c.pickPaused') : t('horde.c.pickInvuln'),
       seconds: !o.solo ? (me.offerLeftMs || 0) / 1000 : 0,
       more: Math.max(0, (me.picks | 0) - 1),
       cards: me.offer.map((id) => {
@@ -550,9 +553,9 @@ export function createHordeClient(o) {
   function reviveBar(v, me) {
     if (!canRevive || !me || v.phase !== 'wave') return null;
     // 쓰러진 나(down: true)는 관전 이름표와 겹치지 않는 자리에 그린다(ui/horde.js)
-    if (!me.alive) return me.down && me.down.by ? { text: `🩹 ${nameOf(me.down.by) || '동료'}님이 살리는 중`, frac: me.down.progress || 0, down: true } : null;
-    const t = v.players.find((p) => p.id !== meId && !p.alive && p.down && p.down.by === meId);
-    return t ? { text: `🩹 ${t.name || '동료'} 살리는 중`, frac: t.down.progress || 0, down: false } : null;
+    if (!me.alive) return me.down && me.down.by ? { text: t('horde.c.beingRevived', { name: nameOf(me.down.by) || t('horde.mate') }), frac: me.down.progress || 0, down: true } : null;
+    const tg = v.players.find((p) => p.id !== meId && !p.alive && p.down && p.down.by === meId);
+    return tg ? { text: t('horde.c.revivingBar', { name: tg.name || t('horde.mate') }), frac: tg.down.progress || 0, down: false } : null;
   }
   /** 방장 장판의 유효 시간·반경·바닥 높이와 같은 조건으로 내 발이 닿은 종류를 찾는다. 그 장판 행은 fieldHaz에 둔다(버프·디버프 줄의 남은 시간) */
   function fieldUnderfoot(v, now) {
@@ -616,9 +619,9 @@ export function createHordeClient(o) {
     if (me && me.alive && v.phase === 'wave' && world.internals) {
       const a = world.internals.arsenal;
       const slots = [a.getAmmo(a.getLoadout().primary), a.getAmmo(a.getLoadout().secondary)];
-      if (slots.every((s) => s && s.kind === 'mag' && s.mag <= 0 && s.reserve <= 0)) warn = '탄약이 떨어졌어요 · 좀비가 떨어뜨린 탄창을 줍거나 3번 칼로 싸우세요';
+      if (slots.every((s) => s && s.kind === 'mag' && s.mag <= 0 && s.reserve <= 0)) warn = t('horde.c.noAmmo');
     }
-    if (me && me.alive && me.invuln && !me.offer.length && v.phase === 'wave') warn = `🛡 무적 ${Math.max(1, Math.ceil((me.invulnMs - since) / 1000))}초`;
+    if (me && me.alive && me.invuln && !me.offer.length && v.phase === 'wave') warn = t('horde.c.invulnWarn', { secs: Math.max(1, Math.ceil((me.invulnMs - since) / 1000)) });
     const revive = reviveBar(v, me);
     // 살리기 안내·막대가 떠 있는 동안은 아래 경고 줄을 감춘다(좁은 화면에서 안내 줄과 겹친다)
     if (revive || interactSig) warn = '';
@@ -638,22 +641,22 @@ export function createHordeClient(o) {
    * 방장 스냅샷 하나(applyHordeSnapshot 결과)와 같은 메시지의 이벤트를 반영한다.
    * @param {object} v 뷰
    * @param {object[]} [events]
-   * @param {number} [t] 받은 시각(performance.now)
+   * @param {number} [at] 받은 시각(performance.now)
    */
-  function apply(v, events = [], t = performance.now()) {
+  function apply(v, events = [], at = performance.now()) {
     if (disposed || !v) return;
     last = v;
     if (ui && !ui.isVisible('horde')) ui.show('horde', {});
     W('setRound', { mode: 'zombie', phase: v.phase === 'over' ? 'matchEnd' : 'live', timeLeftMs: null });
     for (const ev of Array.isArray(events) ? events : []) onEvent(ev);
     phase = v.phase; stage = v.stage;
-    timeBase = v.timeLeftMs; timeAt = t;
+    timeBase = v.timeLeftMs; timeAt = at;
     // 줍기를 청한 보급품은 방장 확정을 기다리는 동안 감춘다(1.5초 안에 확정되지 않으면 다시 보인다)
     if (lootPending.size) {
       const present = new Set((v.loot || []).map((L) => L.id));
       for (const [id] of lootPending) if (!present.has(id)) lootPending.delete(id);
     }
-    W('hordePush', lootPending.size ? { ...v, loot: (v.loot || []).filter((L) => { const s = lootPending.get(L.id); return !(s && t - s < LOOT_HIDE_MS); }) } : v, t);
+    W('hordePush', lootPending.size ? { ...v, loot: (v.loot || []).filter((L) => { const s = lootPending.get(L.id); return !(s && at - s < LOOT_HIDE_MS); }) } : v, at);
     const me = v.players.find((p) => p.id === meId);
     if (me) {
       // 카드 → 능력치(바뀔 때만)
@@ -709,10 +712,10 @@ export function createHordeClient(o) {
       if (z.killer === meId) W('feedbackDamage', { amount: 0, kill: true, incoming: false });
     }
     if (killSeen.size > 2000) { const keep = [...killSeen].slice(-500); killSeen.clear(); for (const k of keep) killSeen.add(k); }
-    hud(t);
+    hud(at);
     if (v.phase === 'over' && !overShown) {
-      if (!overAt) overAt = t;
-      if (ui && ui.hud) ui.hud.center('전멸', 0, { sub: `스테이지 ${v.over ? v.over.stage : v.stage} · 생존 ${fmtClock(v.over ? v.over.ms : v.elapsedMs)}`, tone: 'charterer' });
+      if (!overAt) overAt = at;
+      if (ui && ui.hud) ui.hud.center(t('horde.c.wiped'), 0, { sub: t('horde.c.wipedSub', { stage: v.over ? v.over.stage : v.stage, time: fmtClock(v.over ? v.over.ms : v.elapsedMs) }), tone: 'charterer' });
     }
   }
 

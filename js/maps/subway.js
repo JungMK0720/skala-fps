@@ -136,14 +136,14 @@ const decor = [
   // 선로 레일(충돌 없는 관)
   ...[-1, 1].flatMap((s) => [-0.75, 0.75].map((o) => ({ type: 'pipe', from: [-HALF_X, TRACK_Y + 0.07, s * 8 + o], to: [HALF_X, TRACK_Y + 0.07, s * 8 + o], r: 0.05, mat: 'steel' }))),
   // 역 이름판과 안내
-  { type: 'sign', x: -15, y: 3.3, z: -HALL_Z + 0.06, rotY: 0, w: 6, h: 0.9, text: '한빛 환승역 · Hanbit', bg: '#1f5f9e', fg: '#ffffff' },
-  { type: 'sign', x: 15, y: 3.3, z: HALL_Z - 0.06, rotY: Math.PI, w: 6, h: 0.9, text: '한빛 환승역 · Hanbit', bg: '#1f5f9e', fg: '#ffffff' },
-  { type: 'sign', x: 0, y: 3.55, z: -HALL_Z + 0.06, rotY: 0, w: 3, h: 0.5, text: '2호선 환승 ↑', bg: '#2f9b3c', fg: '#ffffff' },
-  { type: 'sign', x: 0, y: 3.55, z: HALL_Z - 0.06, rotY: Math.PI, w: 3, h: 0.5, text: '7호선 환승 ↓', bg: '#6b6b25', fg: '#ffffff' },
-  { type: 'banner', x: -26.45, y: 2.2, z: 0, rotY: Math.PI / 2, w: 2.6, h: 1, text: '운행 중단', bg: '#a3201b', fg: '#fff3e6' },
-  { type: 'banner', x: 26.45, y: 2.2, z: 0, rotY: -Math.PI / 2, w: 2.6, h: 1, text: '관계자 외 출입 금지', bg: '#e2b21a', fg: '#1d1d1b' },
-  { type: 'sign', x: 8, y: 1.6, z: -HALL_Z + 0.06, rotY: 0, w: 2.6, h: 1.6, text: '노선도', bg: '#f2f2ee', fg: '#20323f' },
-  { type: 'sign', x: -8, y: 1.6, z: HALL_Z - 0.06, rotY: Math.PI, w: 2.6, h: 1.6, text: '노선도', bg: '#f2f2ee', fg: '#20323f' },
+  { type: 'sign', x: -15, y: 3.3, z: -HALL_Z + 0.06, rotY: 0, w: 6, h: 0.9, text: '한빛 환승역 · Hanbit', textEn: 'Hanbit Station', bg: '#1f5f9e', fg: '#ffffff' },
+  { type: 'sign', x: 15, y: 3.3, z: HALL_Z - 0.06, rotY: Math.PI, w: 6, h: 0.9, text: '한빛 환승역 · Hanbit', textEn: 'Hanbit Station', bg: '#1f5f9e', fg: '#ffffff' },
+  { type: 'sign', x: 0, y: 3.55, z: -HALL_Z + 0.06, rotY: 0, w: 3, h: 0.5, text: '2호선 환승 ↑', textEn: 'Transfer to Line 2 ↑', bg: '#2f9b3c', fg: '#ffffff' },
+  { type: 'sign', x: 0, y: 3.55, z: HALL_Z - 0.06, rotY: Math.PI, w: 3, h: 0.5, text: '7호선 환승 ↓', textEn: 'Transfer to Line 7 ↓', bg: '#6b6b25', fg: '#ffffff' },
+  { type: 'banner', x: -26.45, y: 2.2, z: 0, rotY: Math.PI / 2, w: 2.6, h: 1, text: '운행 중단', textEn: 'Out of Service', bg: '#a3201b', fg: '#fff3e6' },
+  { type: 'banner', x: 26.45, y: 2.2, z: 0, rotY: -Math.PI / 2, w: 2.6, h: 1, text: '관계자 외 출입 금지', textEn: 'Staff Only', bg: '#e2b21a', fg: '#1d1d1b' },
+  { type: 'sign', x: 8, y: 1.6, z: -HALL_Z + 0.06, rotY: 0, w: 2.6, h: 1.6, text: '노선도', textEn: 'Route Map', bg: '#f2f2ee', fg: '#20323f' },
+  { type: 'sign', x: -8, y: 1.6, z: HALL_Z - 0.06, rotY: Math.PI, w: 2.6, h: 1.6, text: '노선도', textEn: 'Route Map', bg: '#f2f2ee', fg: '#20323f' },
   // 조명(실제 조명 넷) — 천장 형광등 줄은 빛나는 띠로
   ...[-18, -6, 6, 18].map((x) => ({ type: 'light', x, y: CEIL - 0.3, z: 0, color: '#e9f3ff', intensity: 1.5, dist: 18 })),
   ...[-2.9, 2.9].map((z) => ({ type: 'pipe', from: [-26, CEIL - 0.08, z * 1.6], to: [26, CEIL - 0.08, z * 1.6], r: 0.06, mat: 'neon_cyan' }))
@@ -167,12 +167,12 @@ const people = [
 
 // 좀비 문: 굴 넷(승강장 쪽 벽 뒤, 선로 바닥)과 환승 통로 둘(꺾인 끝)
 const GATES = [
-  { id: 'tunnel_nw', name: '북쪽 선로 서쪽 터널', x: -31.8, z: -TRACK_IN - 0.8, rotY: look(-31.8, -6.3, -31.8, -9) },
-  { id: 'tunnel_ne', name: '북쪽 선로 동쪽 터널', x: 31.8, z: -TRACK_IN - 0.8, rotY: look(31.8, -6.3, 31.8, -9) },
-  { id: 'tunnel_sw', name: '남쪽 선로 서쪽 터널', x: -31.8, z: TRACK_IN + 0.8, rotY: look(-31.8, 6.3, -31.8, 9) },
-  { id: 'tunnel_se', name: '남쪽 선로 동쪽 터널', x: 31.8, z: TRACK_IN + 0.8, rotY: look(31.8, 6.3, 31.8, 9) },
-  { id: 'transfer_n', name: '북쪽 환승 통로', x: -12.2, z: -16.2, rotY: look(-12.2, -16.2, 0, -16.2) },
-  { id: 'transfer_s', name: '남쪽 환승 통로', x: 12.2, z: 16.2, rotY: look(12.2, 16.2, 0, 16.2) }
+  { id: 'tunnel_nw', name: '북쪽 선로 서쪽 터널', nameEn: 'North Track · West Tunnel', x: -31.8, z: -TRACK_IN - 0.8, rotY: look(-31.8, -6.3, -31.8, -9) },
+  { id: 'tunnel_ne', name: '북쪽 선로 동쪽 터널', nameEn: 'North Track · East Tunnel', x: 31.8, z: -TRACK_IN - 0.8, rotY: look(31.8, -6.3, 31.8, -9) },
+  { id: 'tunnel_sw', name: '남쪽 선로 서쪽 터널', nameEn: 'South Track · West Tunnel', x: -31.8, z: TRACK_IN + 0.8, rotY: look(-31.8, 6.3, -31.8, 9) },
+  { id: 'tunnel_se', name: '남쪽 선로 동쪽 터널', nameEn: 'South Track · East Tunnel', x: 31.8, z: TRACK_IN + 0.8, rotY: look(31.8, 6.3, 31.8, 9) },
+  { id: 'transfer_n', name: '북쪽 환승 통로', nameEn: 'North Transfer Passage', x: -12.2, z: -16.2, rotY: look(-12.2, -16.2, 0, -16.2) },
+  { id: 'transfer_s', name: '남쪽 환승 통로', nameEn: 'South Transfer Passage', x: 12.2, z: 16.2, rotY: look(12.2, 16.2, 0, 16.2) }
 ];
 
 /* ---------------- 소품 ---------------- */
@@ -187,8 +187,8 @@ export default {
   id: 'subway',
   name: '지하철 환승역',
   nameEn: 'Transfer Station',
-  desc: '운행이 끊긴 지하 환승역. 섬식 승강장 한가운데에서 시작해 양 끝 터널과 남북 환승 통로로 몰려오는 좀비를 막는다. 선로는 0.4 m 낮다.',
-  tag: '좀비 전용',
+  desc: '운행이 끊긴 지하 환승역. 섬식 승강장 한가운데에서 시작해 양 끝 터널과 남북 환승 통로로 몰려오는 좀비를 막는다. 선로는 0.4 m 낮다.', descEn: 'A dead underground transfer station. Start on the island platform and hold off zombies flooding in from the tunnels at both ends and the north and south transfer passages. The tracks sit 0.4 m lower.',
+  tag: '좀비 전용', tagEn: 'Zombies Only',
   size: { x: HALF_X * 2, z: HALF_Z * 2 },
   rulesets: ['classic'],
   modes: ['zombie'],

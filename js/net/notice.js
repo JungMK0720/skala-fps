@@ -128,7 +128,7 @@ function noticeBytes(n) {
  */
 export async function generateNoticeKeys() {
   const s = subtle();
-  if (!s) throw new Error('이 환경에서는 서명을 쓸 수 없습니다(WebCrypto 없음)');
+  if (!s) throw new Error('이 환경에서는 서명을 쓸 수 없습니다(WebCrypto 없음)'); // i18n-ok: 운영자 공지 도구 오류(플레이어 화면에 나오지 않음)
   const pair = await s.generateKey(ALGO, true, ['sign', 'verify']);
   const [pub, priv] = await Promise.all([s.exportKey('raw', pair.publicKey), s.exportKey('pkcs8', pair.privateKey)]);
   return { publicKey: toBase64Url(pub), privateKey: toBase64Url(priv) };
@@ -138,8 +138,8 @@ export async function generateNoticeKeys() {
 export async function importNoticePublicKey(text) {
   const s = subtle();
   const raw = fromBase64Url(text);
-  if (!s) throw new Error('이 환경에서는 서명을 확인할 수 없습니다(WebCrypto 없음)');
-  if (!raw || raw.length !== 65 || raw[0] !== 4) throw new Error('공지 공개 열쇠의 모양이 틀립니다');
+  if (!s) throw new Error('이 환경에서는 서명을 확인할 수 없습니다(WebCrypto 없음)'); // i18n-ok: 운영자 공지 도구 오류(플레이어 화면에 나오지 않음)
+  if (!raw || raw.length !== 65 || raw[0] !== 4) throw new Error('공지 공개 열쇠의 모양이 틀립니다'); // i18n-ok: 운영자 공지 도구 오류(플레이어 화면에 나오지 않음)
   return s.importKey('raw', raw, ALGO, true, ['verify']);
 }
 
@@ -147,12 +147,12 @@ export async function importNoticePublicKey(text) {
 export async function importNoticePrivateKey(text, { extractable = false } = {}) {
   const s = subtle();
   const der = fromBase64Url(String(text == null ? '' : text).replace(/\s+/g, ''));
-  if (!s) throw new Error('이 환경에서는 서명을 쓸 수 없습니다(WebCrypto 없음)');
-  if (!der || der.length < 100) throw new Error('운영자 열쇠의 모양이 틀립니다');
+  if (!s) throw new Error('이 환경에서는 서명을 쓸 수 없습니다(WebCrypto 없음)'); // i18n-ok: 운영자 공지 도구 오류(플레이어 화면에 나오지 않음)
+  if (!der || der.length < 100) throw new Error('운영자 열쇠의 모양이 틀립니다'); // i18n-ok: 운영자 공지 도구 오류(플레이어 화면에 나오지 않음)
   try {
     return await s.importKey('pkcs8', der, ALGO, extractable, ['sign']);
   } catch (_) {
-    throw new Error('운영자 열쇠를 읽을 수 없습니다');
+    throw new Error('운영자 열쇠를 읽을 수 없습니다'); // i18n-ok: 운영자 공지 도구 오류(플레이어 화면에 나오지 않음)
   }
 }
 
@@ -179,16 +179,16 @@ export async function noticeKeysMatch(privateKey, publicKey) {
  */
 export async function signNotice(privateKey, o = {}) {
   const s = subtle();
-  if (!s) throw new Error('이 환경에서는 서명을 쓸 수 없습니다(WebCrypto 없음)');
+  if (!s) throw new Error('이 환경에서는 서명을 쓸 수 없습니다(WebCrypto 없음)'); // i18n-ok: 운영자 공지 도구 오류(플레이어 화면에 나오지 않음)
   const kind = o.kind === 'x' ? 'x' : 'n';
   const text = kind === 'x' ? '' : cleanNoticeText(o.text);
-  if (kind === 'n' && !text) throw new Error('공지 내용이 비어 있습니다');
+  if (kind === 'n' && !text) throw new Error('공지 내용이 비어 있습니다'); // i18n-ok: 운영자 공지 도구 오류(플레이어 화면에 나오지 않음)
   const id = o.id != null ? String(o.id) : randomId(10);
-  if (!ID_RE.test(id)) throw new Error('공지 이름이 틀립니다');
+  if (!ID_RE.test(id)) throw new Error('공지 이름이 틀립니다'); // i18n-ok: 운영자 공지 도구 오류(플레이어 화면에 나오지 않음)
   const at = Number.isFinite(o.at) ? Math.round(o.at) : Date.now();
   const ttl = clampTtl(o.ttl, kind === 'x' ? 1 : NOTICE.MIN_TTL);
   const parts = splitNoticeText(text);
-  if (!parts) throw new Error('공지 내용이 너무 깁니다');
+  if (!parts) throw new Error('공지 내용이 너무 깁니다'); // i18n-ok: 운영자 공지 도구 오류(플레이어 화면에 나오지 않음)
   const sig = toBase64Url(await s.sign(SIGN, privateKey, noticeBytes({ id, at, ttl, kind, text })));
   const line = { nv: NOTICE.VERSION, id, at, ttl, k: kind, sig };
   parts.forEach((p, i) => { line[TEXT_KEYS[i]] = p; });
@@ -391,7 +391,7 @@ export function createNoticeSender(o = {}) {
   const now = typeof o.now === 'function' ? o.now : () => Date.now();
   const keyOf = () => {
     const key = typeof o.privateKey === 'function' ? o.privateKey() : o.privateKey;
-    if (!key) throw new Error('운영자 열쇠가 없습니다');
+    if (!key) throw new Error('운영자 열쇠가 없습니다'); // i18n-ok: 운영자 공지 도구 오류(플레이어 화면에 나오지 않음)
     return key;
   };
   const em = new Emitter();

@@ -21,7 +21,12 @@ const R = (x0, x1, z0, z1, y, h, dir, mat = 'steel') =>
   ({ type: 'ramp', x: n((x0 + x1) / 2), y, z: n((z0 + z1) / 2), w: n(x1 - x0), h, d: n(z1 - z0), dir, mat });
 const C = (x, z, y, r, h, mat) => ({ type: 'cyl', x, y, z, r, h, mat });
 const P = (from, to, r, mat = 'pipe') => ({ type: 'pipe', from, to, r, mat });
-const SG = (x, y, z, rotY, w, h, text, bg = '#0b2545', fg = '#ffffff') => ({ type: 'sign', x, y, z, rotY, w, h, text, bg, fg });
+/** 표지판 글자의 영어 짝(core/i18n.js loc). 한국어 글자를 그대로 열쇠로 쓴다 */
+const SIGN_EN = {
+  '선주 OWNER · ACCOMMODATION': 'OWNER · ACCOMMODATION',
+  '용선자 CHARTERER · FORECASTLE': 'CHARTERER · FORECASTLE'
+};
+const SG = (x, y, z, rotY, w, h, text, bg = '#0b2545', fg = '#ffffff') => ({ type: 'sign', x, y, z, rotY, w, h, text, textEn: SIGN_EN[text], bg, fg });
 const L = (x, y, z, color, intensity, dist) => ({ type: 'light', x, y, z, color, intensity, dist });
 
 // 대칭 변환 (sx, sz = ±1): 박스/경사로/원통/파이프/표지판 모두 처리
@@ -243,7 +248,7 @@ export default {
   id: 'vlcc',
   name: 'VLCC 갑판',
   nameEn: 'Tanker Deck',
-  desc: '묘박지에 투묘한 VLCC 상갑판 — 선미 거주구역·브리지 윙의 수직 근접전, 매니폴드 혼전, 배관 다발 너머 긴 저격 시야선.',
+  desc: '묘박지에 투묘한 VLCC 상갑판 — 선미 거주구역·브리지 윙의 수직 근접전, 매니폴드 혼전, 배관 다발 너머 긴 저격 시야선.', descEn: 'The upper deck of a supertanker at anchor — vertical close-quarters around the aft accommodation and bridge wings, a brawl at the manifold, and long sniper lanes over the pipe runs.',
   size: { x: 150, z: 50 },
   theme: {
     sky: '#f3c98b', skyTop: '#3d6e9e', fog: [80, 260], sunDir: [0.55, 0.45, -0.35],

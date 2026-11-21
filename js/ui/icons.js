@@ -4,6 +4,7 @@
  * Purpose: 도형으로 그린 아이콘(외부 이미지 없음)과 메뉴 배경, 무기·맵 정보 조회. 맵 아이콘은 맵을 위에서 본 단순한 평면도다.
  */
 import { svg } from './dom.js';
+import { t, loc } from '../core/i18n.js';
 
 // ---------- 맵 미니 아이콘 (viewBox 0 0 48 32) ----------
 const fill = (d) => svg('path', { d, class: 'sk-ic-fill' });
@@ -151,8 +152,8 @@ export function mapIcon(id, cls = '') {
 
 // ---------- 헤드샷 아이콘 (조준선 + 머리) ----------
 export function headshotIcon() {
-  return svg('svg', { viewBox: '0 0 16 16', class: 'sk-hs-ico', role: 'img', 'aria-label': '헤드샷' },
-    svg('title', { text: '헤드샷' }),
+  return svg('svg', { viewBox: '0 0 16 16', class: 'sk-hs-ico', role: 'img', 'aria-label': t('shop.headshot') },
+    svg('title', { text: t('shop.headshot') }),
     svg('circle', { cx: 8, cy: 8, r: 5.2 }),
     svg('path', { d: 'M8 0.8 V4.4 M8 11.6 V15.2 M0.8 8 H4.4 M11.6 8 H15.2' }),
     svg('circle', { cx: 8, cy: 8, r: 1.4, class: 'sk-hs-dot' }));
@@ -254,7 +255,7 @@ function shortName(name) {
 
 /** 무기 표에 없는 피해 원인. 폭파 미션의 폭탄 폭발은 킬피드·점수판·결과에서 '💥 폭탄'이다 */
 const SPECIAL_WEAPONS = Object.freeze({
-  bomb: Object.freeze({ id: 'bomb', name: '폭탄', short: '폭탄', icon: '💥' }),
+  bomb: Object.freeze({ id: 'bomb', name: '폭탄', nameEn: 'Bomb', short: '폭탄', shortEn: 'Bomb', icon: '💥' }), // i18n-ok: 짝 칸(nameEn·shortEn)을 loc으로 읽는다
 });
 const specialWeapon = (id) => (id != null && Object.prototype.hasOwnProperty.call(SPECIAL_WEAPONS, String(id)) ? SPECIAL_WEAPONS[String(id)] : null);
 
@@ -263,12 +264,12 @@ export function weaponInfo(registry, ref, extra = {}) {
   const isObj = ref && typeof ref === 'object';
   const id = isObj ? ref.id : ref;
   const def = { ...((id != null && registry.get(String(id))) || specialWeapon(id) || {}), ...(isObj ? ref : {}) };
-  const name = extra.weaponName || def.name || def.label || (id != null ? String(id) : '');
+  const name = extra.weaponName || loc(def, 'name') || def.label || (id != null ? String(id) : '');
   return {
     id: id == null ? '' : String(id),
     icon: extra.weaponIcon || def.icon || def.emoji || guessWeaponIcon(id, def.slot),
     name,
-    short: extra.weaponShort || def.short || def.code || shortName(name),
+    short: extra.weaponShort || loc(def, 'short') || def.code || shortName(name),
     def,
   };
 }
@@ -276,20 +277,21 @@ export function weaponInfo(registry, ref, extra = {}) {
 // ---------- 맵 ----------
 // 엔진이 ui.setMaps()/props.maps로 넘기지 않았을 때만 쓰는 최소 대체값(이름만).
 const FALLBACK_MAPS = [
-  { id: 'rooftop', name: '빨랫줄 옥상', nameEn: 'Clothesline Roof', desc: '' },
-  { id: 'glasshouse', name: '선인장 온실', nameEn: 'Cactus Glasshouse', desc: '' },
-  { id: 'alley', name: '항구 골목', nameEn: 'Harbor Alley', desc: '' },
-  { id: 'dojo', name: '벚꽃 도장', nameEn: 'Blossom Dojo', desc: '' },
-  { id: 'longshot', name: '협곡 저격장', nameEn: 'Long Shot', desc: '' },
-  { id: 'nexus', name: '넥서스', nameEn: 'Nexus', desc: '' },
+  { id: 'rooftop', name: '빨랫줄 옥상', nameEn: 'Clothesline Roof', desc: '' }, // i18n-ok: 짝 칸(nameEn)을 loc으로 읽는다
+  { id: 'glasshouse', name: '선인장 온실', nameEn: 'Cactus Glasshouse', desc: '' }, // i18n-ok: 짝 칸(nameEn)을 loc으로 읽는다
+  { id: 'alley', name: '항구 골목', nameEn: 'Harbor Alley', desc: '' }, // i18n-ok: 짝 칸(nameEn)을 loc으로 읽는다
+  { id: 'dojo', name: '벚꽃 도장', nameEn: 'Blossom Dojo', desc: '' }, // i18n-ok: 짝 칸(nameEn)을 loc으로 읽는다
+  { id: 'longshot', name: '협곡 저격장', nameEn: 'Long Shot', desc: '' }, // i18n-ok: 짝 칸(nameEn)을 loc으로 읽는다
+  { id: 'nexus', name: '넥서스', nameEn: 'Nexus', desc: '' }, // i18n-ok: 짝 칸(nameEn)을 loc으로 읽는다
 ];
 
 /** mission: 폭파 미션을 할 수 있는 맵(A·B 구역이 있음), zombie: 좀비 물량 막기 전용 맵. MAP_LIST 항목에 없으면 false */
 export function normMap(m) {
   if (typeof m === 'string') return { id: m, name: m, nameEn: '', desc: '', tag: '', rulesets: null, test: false, mission: false, zombie: false };
   return {
-    id: String(m.id), name: m.name || String(m.id), nameEn: m.nameEn || '', desc: m.desc || '',
-    tag: m.tag || '', rulesets: Array.isArray(m.rulesets) ? m.rulesets : null, test: !!m.test, mission: m.mission === true, zombie: m.zombie === true,
+    // 이름·설명·태그는 지금 언어로 고른 값이다(mapInfo를 쓰는 결과·방 화면도 같은 글자를 보인다). nameEn은 한국어 화면의 영어 부제
+    id: String(m.id), name: loc(m, 'name') || String(m.id), nameEn: m.nameEn || '', desc: loc(m, 'desc') || '',
+    tag: loc(m, 'tag') || '', rulesets: Array.isArray(m.rulesets) ? m.rulesets : null, test: !!m.test, mission: m.mission === true, zombie: m.zombie === true,
   };
 }
 

@@ -931,6 +931,7 @@
   content: "내 팀"; position: absolute; top: -8px; padding: 1px 6px; border-radius: 2px;
   font-size: 9.5px; font-weight: 900; line-height: 1.4; color: #06172d; background: #fff;
 }
+html[lang="en"] .sk-ts.is-mine::before { content: "YOUR TEAM"; }
 .sk-ts--owner.is-mine::before { left: 8px; }
 .sk-ts--charterer.is-mine::before { right: 8px; }
 .sk-tc { min-width: 96px; padding: 5px 12px; text-align: center; }
@@ -1753,6 +1754,12 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
 .sk-res-line { display: inline-flex; gap: 6px; }
 .sk-res-line b { color: var(--sk-text); font-variant-numeric: tabular-nums; }
 .sk-res-total { font-size: 13px; font-weight: 800; color: var(--sk-muted); white-space: nowrap; }
+/* 포털 보상 광고 줄: 보상 칸 아래 한 줄 전체. 선택임이 바로 보이게 다른 결과 단추와 같은 크기·모양의 평범한 단추로 둔다 */
+.sk-res-bonus { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding-top: 8px; border-top: 1px solid var(--sk-line); }
+.sk-res-bonus[hidden], .sk-res-bonus-btn[hidden] { display: none; }
+.sk-res-bonus-btn { display: inline-flex; align-items: center; gap: 8px; }
+.sk-res-bonus-ico { font-size: 11px; color: var(--sk-accent-hi); }
+.sk-res-bonus-note { margin: 0; }
 
 .sk-game-toast {
   position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 40; max-width: 80vw; padding: 10px 16px; border-radius: 2px;
@@ -2508,6 +2515,7 @@ html.pc-touch .sk-cb-input { font-size: 16px; }   /* iOS가 16px보다 작은 �
 .sk-cd-card.is-picked { opacity: 1; transform: translateY(-4px); box-shadow: 0 0 0 3px var(--sk-ok), 0 16px 30px rgba(0, 0, 0, .5); }
 .sk-cd-card.is-selected { transform: translateY(-6px); box-shadow: 0 0 0 3px #b6ff7a, 0 16px 30px rgba(0, 0, 0, .5), 0 0 26px rgba(182, 255, 122, .35); }
 .sk-cd-card.is-selected::after { content: '선택됨'; position: absolute; top: 8px; right: 10px; padding: 2px 7px; border-radius: 2px; font-size: 11px; font-weight: 900; color: #0b1a06; background: #b6ff7a; }
+html[lang="en"] .sk-cd-card.is-selected::after { content: 'Picked'; }
 .sk-cd-confirm { margin-left: auto; min-width: 150px; }
 .sk-cd-key { position: absolute; top: 8px; left: 10px; width: 22px; height: 22px; border-radius: 2px; display: grid; place-items: center; font-size: 12px; font-weight: 900; background: rgba(255, 255, 255, .1); color: var(--sk-muted); }
 .sk-cd-icon { font-size: 44px; line-height: 1.1; filter: drop-shadow(0 4px 8px rgba(0, 0, 0, .5)); }

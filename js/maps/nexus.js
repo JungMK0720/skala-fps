@@ -424,8 +424,8 @@ const decorCenter = [
   tube([0, CORE + 3.3, 6], [7, CORE + 3.3, 6]),
   tube([-6.98, CORE + 3.3, -6], [-6.98, CORE + 3.3, 6]),
   tube([6.98, CORE + 3.3, -6], [6.98, CORE + 3.3, 6]),
-  { type: 'sign', x: 0, y: CORE + 2.4, z: -5.97, rotY: 0, w: 3.4, h: 0.8, text: 'CORE · 코어', bg: '#10203a', fg: '#d9c8ff' },
-  { type: 'sign', x: 0, y: CORE + 2.4, z: 5.97, rotY: Math.PI, w: 3.4, h: 0.8, text: 'CORE · 코어', bg: '#10203a', fg: '#d9c8ff' }
+  { type: 'sign', x: 0, y: CORE + 2.4, z: -5.97, rotY: 0, w: 3.4, h: 0.8, text: 'CORE · 코어', textEn: 'CORE', bg: '#10203a', fg: '#d9c8ff' },
+  { type: 'sign', x: 0, y: CORE + 2.4, z: 5.97, rotY: Math.PI, w: 3.4, h: 0.8, text: 'CORE · 코어', textEn: 'CORE', bg: '#10203a', fg: '#d9c8ff' }
 ];
 
 const TEAM_LOOK = {
@@ -509,14 +509,29 @@ const propsHalf = [
   { type: 'barrel', x: 20.5, y: 0, z: -33.2 }
 ];
 
+/** 표지 글씨의 영어 짝. 글씨가 같은 표지는 모두 같은 영어를 쓴다 */
+const SIGN_EN = {
+  '블루': 'BLUE',
+  '레드': 'RED',
+  'A동': 'Block A',
+  'B동': 'Block B',
+  'C동': 'Block C',
+  'D동': 'Block D',
+  'A 타워': 'Tower A',
+  'B 타워': 'Tower B'
+};
+const withEn = (d) => (SIGN_EN[d.text] ? { ...d, textEn: SIGN_EN[d.text] } : d);
+
 export default {
   id: 'nexus',
   name: '넥서스',
   nameEn: 'Nexus',
   desc: '칼전 구덩이, 라이플 골목, 저격 탑과 캣워크를 한 판에 합친 야간 훈련장. 발판을 이어 타면 맵 어디로든 날아간다.',
+  descEn: 'A night training ground fusing a knife pit, rifle alleys, sniper towers and catwalks. Chain jump pads to fly anywhere on the map.',
   size: { x: 90, z: 70 },
   rulesets: ['classic', 'knife', 'sniper'],
   tag: '통합',
+  tagEn: 'Hybrid',
   theme: {
     sky: '#12203f', skyTop: '#060b1c', fog: [70, 230], sunDir: [0.25, 0.85, 0.4],
     sunColor: '#b9ccf5', sunIntensity: 0.6, ambient: 0.9, ground: 'tile'
@@ -527,12 +542,12 @@ export default {
     ffa: [...ffaHalf, ...rotate180(ffaHalf)]
   },
   solids: [...center, ...half, ...rotate180(half)],
-  decor: [...decorCenter, ...decorHalf, ...rotate180(decorHalf), ...zoneSigns(['A동', 'B동', 'A 타워']), ...rotate180(zoneSigns(['C동', 'D동', 'B 타워']))].map(paintSide),
+  decor: [...decorCenter, ...decorHalf, ...rotate180(decorHalf), ...zoneSigns(['A동', 'B동', 'A 타워']), ...rotate180(zoneSigns(['C동', 'D동', 'B 타워']))].map(paintSide).map(withEn),
   pads: [...padsHalf, ...rotate180(padsHalf)].map(paintPad),
   portals: [...portalsHalf, ...rotate180(portalsHalf)],
   secrets: [
-    { id: 'nexus_core', name: '코어 룸', x: 0, y: CORE, z: 0, w: 14, h: 3, d: 12, points: 120 },
-    { id: 'nexus_sky', name: '스카이 데크', x: 0, y: SKY, z: 0, w: 6.4, h: 2.5, d: 6.4, points: 150 }
+    { id: 'nexus_core', name: '코어 룸', nameEn: 'Core Room', x: 0, y: CORE, z: 0, w: 14, h: 3, d: 12, points: 120 },
+    { id: 'nexus_sky', name: '스카이 데크', nameEn: 'Sky Deck', x: 0, y: SKY, z: 0, w: 6.4, h: 2.5, d: 6.4, points: 150 }
   ],
   props: [...propsHalf, ...rotate180(propsHalf)]
 };

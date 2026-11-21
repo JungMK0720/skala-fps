@@ -4,6 +4,8 @@
  * Purpose: UI 공용 DOM 헬퍼와 표시 형식(팀·모드·핑·시간·포인트). 동적 문자열은 항상 textContent나 텍스트 노드로만 넣는다.
  */
 
+import { t as tr, fmtNum } from '../core/i18n.js';
+
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const PROP_KEYS = new Set(['value', 'checked', 'disabled', 'hidden', 'selected', 'tabIndex']);
 
@@ -77,8 +79,8 @@ export function fmtTime(sec) {
 }
 
 export const TEAMS = Object.freeze({
-  owner: Object.freeze({ key: 'owner', name: '블루', en: 'Blue', emoji: '🟦' }),
-  charterer: Object.freeze({ key: 'charterer', name: '레드', en: 'Red', emoji: '🟥' }),
+  owner: Object.freeze({ key: 'owner', name: tr('shop.team.owner'), en: 'Blue', emoji: '🟦' }),
+  charterer: Object.freeze({ key: 'charterer', name: tr('shop.team.charterer'), en: 'Red', emoji: '🟥' }),
 });
 export const TEAM_KEYS = Object.freeze(['owner', 'charterer']);
 export const teamKey = (t) => (t === 'owner' || t === 'charterer' ? t : '');
@@ -96,12 +98,12 @@ export function pingClass(ms) {
 export const num = (v, d = 0) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : d);
 
 /** 1250 → "1,250 P" */
-export const fmtPoints = (n) => `${Math.max(0, Math.floor(num(n, 0))).toLocaleString('ko-KR')} P`;
+export const fmtPoints = (n) => `${fmtNum(Math.max(0, Math.floor(num(n, 0))))} P`;
 
 /** 포인트 증감: 1250 → "+1,250", -4 → "-4", 0 → "+0". 음수 앞에 +를 겹쳐 붙이지 않는다(봇전 쉬움 난이도 줄은 음수다) */
 export function fmtDelta(n) {
   const v = Math.round(num(n, 0)) || 0;   // -0.4 → -0 → 0
-  return `${v < 0 ? '-' : '+'}${Math.abs(v).toLocaleString('ko-KR')}`;
+  return `${v < 0 ? '-' : '+'}${fmtNum(Math.abs(v))}`;
 }
 
 /** 초 → "2시간 05분" / "12분 30초" / "45초" */
@@ -109,27 +111,27 @@ export function fmtPlayTime(sec) {
   const t = Math.max(0, Math.floor(num(sec, 0)));
   const hours = Math.floor(t / 3600);
   const minutes = Math.floor((t % 3600) / 60);
-  if (hours) return `${hours}시간 ${String(minutes).padStart(2, '0')}분`;
-  return minutes ? `${minutes}분 ${String(t % 60).padStart(2, '0')}초` : `${t}초`;
+  if (hours) return tr('shop.time.hm', { h: hours, m: String(minutes).padStart(2, '0') });
+  return minutes ? tr('shop.time.ms', { m: minutes, s: String(t % 60).padStart(2, '0') }) : tr('shop.time.s', { s: t });
 }
 
 // ---------- 모드 (MODES.md 3.3 · 5절) — mode를 생략하면 'team'. 폭파 미션('bomb')도 팀으로 나뉜다 ----------
 export const modeKey = (m) => (m === 'ffa' ? 'ffa' : m === 'bomb' ? 'bomb' : m === 'zombie' ? 'zombie' : 'team');
 export const FFA_TARGET = 20;
 export const MODE_ICON = Object.freeze({ team: '⚔️', ffa: '🎯', bomb: '💣', zombie: '🧟' });
-export const MODE_NAME = Object.freeze({ team: '팀전', ffa: '개인전', bomb: '폭파 미션', zombie: '좀비 물량 막기' });
+export const MODE_NAME = Object.freeze({ team: tr('shop.mode.team'), ffa: tr('shop.mode.ffa'), bomb: tr('shop.mode.bomb'), zombie: tr('shop.mode.zombie') });
 /** "팀전 · 5판 3선승" / "개인전 · 20킬" / "폭파 미션 · 5판 3선승" / "좀비 물량 막기 · 최대 4명" */
 export function modeLabel(mode, opts = {}) {
   const key = modeKey(mode);
-  if (key === 'ffa') return `개인전 · ${Math.max(1, Math.floor(num(opts.killTarget, FFA_TARGET)))}킬`;
-  if (key === 'zombie') return '좀비 물량 막기 · 최대 4명';
+  if (key === 'ffa') return tr('shop.mode.ffaLabel', { n: Math.max(1, Math.floor(num(opts.killTarget, FFA_TARGET))) });
+  if (key === 'zombie') return tr('shop.mode.zombieLabel');
   const target = Math.max(1, Math.floor(num(opts.target, 3)));
   const bestOf = Math.max(1, Math.floor(num(opts.bestOf, target * 2 - 1)));
-  return `${MODE_NAME[key]} · ${bestOf}판 ${target}선승`;
+  return tr('shop.mode.roundsLabel', { mode: MODE_NAME[key], bestOf, target });
 }
 
 /** 폭파 미션 진영 이름 */
-export const SIDE_NAME = Object.freeze({ attack: '공격', defense: '수비' });
+export const SIDE_NAME = Object.freeze({ attack: tr('shop.side.attack'), defense: tr('shop.side.defense') });
 /** 이번 라운드 공격 팀(attack)으로 본 team의 진영: 'attack' | 'defense' | ''(둘 중 하나라도 모르면) */
 export function bombSide(team, attack) {
   const a = teamKey(attack);

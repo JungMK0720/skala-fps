@@ -6,13 +6,14 @@
  *          순수 모듈이라 방장·화면·node 시험이 같이 쓴다. 수류탄을 키우는 증강은 모두 최대 수류탄을 2개 늘리고 가득 채운다.
  */
 import { makeRng, hashSeed, pickWeighted } from './rules.js';
+import { t } from '../../core/i18n.js';
 
 /** 등급. weight = 제안에 나올 비율 */
 export const TIERS = Object.freeze({
-  common: Object.freeze({ id: 'common', name: '일반', color: '#c9d4e0', weight: 55 }),
-  rare: Object.freeze({ id: 'rare', name: '희귀', color: '#4fb3ff', weight: 28 }),
-  epic: Object.freeze({ id: 'epic', name: '영웅', color: '#c46bff', weight: 13 }),
-  legend: Object.freeze({ id: 'legend', name: '전설', color: '#ffb02e', weight: 4 })
+  common: Object.freeze({ id: 'common', name: t('horde.tier.common'), color: '#c9d4e0', weight: 55 }),
+  rare: Object.freeze({ id: 'rare', name: t('horde.tier.rare'), color: '#4fb3ff', weight: 28 }),
+  epic: Object.freeze({ id: 'epic', name: t('horde.tier.epic'), color: '#c46bff', weight: 13 }),
+  legend: Object.freeze({ id: 'legend', name: t('horde.tier.legend'), color: '#ffb02e', weight: 4 })
 });
 const TIER_OF_LEVEL = ['common', 'rare', 'epic', 'legend'];
 const ROMAN = ['I', 'II', 'III', 'IV'];
@@ -97,58 +98,58 @@ const fx = (v) => (Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : 
  * also = 같은 값만큼 함께 올리는 능력치(없으면 stat 하나). family 하나에 카드 네 장이 생긴다(I 일반 · II 희귀 · III 영웅 · IV 전설).
  */
 const FAMILIES = [
-  { key: 'hp', name: '튼튼한 몸', icon: '❤️', stat: 'maxHp', vals: [15, 25, 40, 60], text: (v) => `최대 체력 +${v} (그만큼 바로 회복)`, instant: (v) => ({ heal: v }) },
-  { key: 'regen', name: '재생', icon: '💚', stat: 'regen', vals: [0.8, 1.5, 2.5, 4], text: (v) => `초당 체력 ${fx(v)} 회복` },
-  { key: 'leech', name: '흡혈', icon: '🩸', stat: 'lifesteal', vals: [0.001, 0.002, 0.003, 0.004], text: (v) => `준 피해의 ${fx(v * 100)}%만큼 체력 회복` },
-  { key: 'armor', name: '방탄복', icon: '🦺', stat: 'armor', vals: [0.05, 0.1, 0.15, 0.2], text: (v) => `받는 피해 −${pc(v)}` },
-  { key: 'ration', name: '전투 식량', icon: '🍖', stat: 'killHeal', vals: [3, 6, 9, 12], text: (v) => `좀비를 처치할 때마다 체력 +${v}` },
-  { key: 'power', name: '화력', icon: '💥', stat: 'dmg', vals: [0.1, 0.2, 0.3, 0.4], text: (v) => `모든 피해 +${pc(v)}` },
-  { key: 'head', name: '정밀 사격', icon: '🎯', stat: 'head', vals: [0.24, 0.4, 0.64, 1], text: (v) => `머리 피해 +${pc(v)}` },
-  { key: 'boss', name: '보스 사냥꾼', icon: '👑', stat: 'boss', vals: [0.1, 0.18, 0.28, 0.42], text: (v) => `보스에게 주는 피해 +${pc(v)}` },
-  { key: 'blade', name: '칼잡이', icon: '🔪', stat: 'melee', vals: [0.2, 0.35, 0.55, 0.9], text: (v) => `칼 피해 +${pc(v)}` },
-  { key: 'demo', name: '폭파병', icon: '🧨', stat: 'nade', vals: [0.18, 0.3, 0.48, 0.75], text: (v) => `수류탄 피해 +${pc(v)} · ${NADE_UP}`, nade: true },
-  { key: 'trigger', name: '방아쇠', icon: '⚡', stat: 'fireRate', vals: [0.06, 0.1, 0.15, 0.22], text: (v) => `연사 속도 +${pc(v)}` },
+  { key: 'hp', name: t('horde.card.hp'), icon: '❤️', stat: 'maxHp', vals: [15, 25, 40, 60], text: (v) => t('horde.cardDesc.hp', { v: v }), instant: (v) => ({ heal: v }) },
+  { key: 'regen', name: t('horde.card.regen'), icon: '💚', stat: 'regen', vals: [0.8, 1.5, 2.5, 4], text: (v) => t('horde.cardDesc.regen', { v: fx(v) }) },
+  { key: 'leech', name: t('horde.card.leech'), icon: '🩸', stat: 'lifesteal', vals: [0.001, 0.002, 0.003, 0.004], text: (v) => t('horde.cardDesc.leech', { v: fx(v * 100) }) },
+  { key: 'armor', name: t('horde.card.armor'), icon: '🦺', stat: 'armor', vals: [0.05, 0.1, 0.15, 0.2], text: (v) => t('horde.cardDesc.armor', { pct: pc(v) }) },
+  { key: 'ration', name: t('horde.card.ration'), icon: '🍖', stat: 'killHeal', vals: [3, 6, 9, 12], text: (v) => t('horde.cardDesc.ration', { v: v }) },
+  { key: 'power', name: t('horde.card.power'), icon: '💥', stat: 'dmg', vals: [0.1, 0.2, 0.3, 0.4], text: (v) => t('horde.cardDesc.power', { pct: pc(v) }) },
+  { key: 'head', name: t('horde.card.head'), icon: '🎯', stat: 'head', vals: [0.24, 0.4, 0.64, 1], text: (v) => t('horde.cardDesc.head', { pct: pc(v) }) },
+  { key: 'boss', name: t('horde.card.boss'), icon: '👑', stat: 'boss', vals: [0.1, 0.18, 0.28, 0.42], text: (v) => t('horde.cardDesc.boss', { pct: pc(v) }) },
+  { key: 'blade', name: t('horde.card.blade'), icon: '🔪', stat: 'melee', vals: [0.2, 0.35, 0.55, 0.9], text: (v) => t('horde.cardDesc.blade', { pct: pc(v) }) },
+  { key: 'demo', name: t('horde.card.demo'), icon: '🧨', stat: 'nade', vals: [0.18, 0.3, 0.48, 0.75], text: (v) => t('horde.cardDesc.demo', { pct: pc(v), nadeUp: NADE_UP }), nade: true },
+  { key: 'trigger', name: t('horde.card.trigger'), icon: '⚡', stat: 'fireRate', vals: [0.06, 0.1, 0.15, 0.22], text: (v) => t('horde.cardDesc.trigger', { pct: pc(v) }) },
   // 재장전 시간 −50%, 최대 2번(번호가 밀리지 않게 II~IV 자리는 남기고 제안에서만 뺀다). 두 번이면 재장전이 거의 즉시다(탄은 그대로 줄어든다)
-  { key: 'hands', name: '빠른 손', icon: '🔄', stat: 'reloadCut', vals: [0.5, 0.5, 0.5, 0.5], text: () => '재장전 시간 −50% (최대 2번 · 두 번 고르면 재장전이 거의 즉시, 탄은 그대로 줄어든다)', minTier: 2, only: 1, max: 2, retire: [1, 2, 3] },
-  { key: 'mag', name: '탄창 확장', icon: '📦', stat: 'mag', vals: [0.12, 0.2, 0.32, 0.5], text: (v) => `최대 탄창 +${pc(v)}` },
+  { key: 'hands', name: t('horde.card.hands'), icon: '🔄', stat: 'reloadCut', vals: [0.5, 0.5, 0.5, 0.5], text: () => t('horde.cardDesc.hands'), minTier: 2, only: 1, max: 2, retire: [1, 2, 3] },
+  { key: 'mag', name: t('horde.card.mag'), icon: '📦', stat: 'mag', vals: [0.12, 0.2, 0.32, 0.5], text: (v) => t('horde.cardDesc.mag', { pct: pc(v) }) },
   {
-    key: 'ammo', name: '탄약 상자', icon: '🧰', stat: 'reserve', vals: [0.5, 1, 1.5, 2],
-    text: (v) => (v === 1 ? '최대 재장전 탄창을 기본 재장전 탄창만큼 늘리고 가득 채움' : `최대 재장전 탄창을 기본의 ${fx(v)}배만큼 늘리고 가득 채움`),
+    key: 'ammo', name: t('horde.card.ammo'), icon: '🧰', stat: 'reserve', vals: [0.5, 1, 1.5, 2],
+    text: (v) => (v === 1 ? t('horde.cardDesc.ammo1') : t('horde.cardDesc.ammo', { v: fx(v) })),
     instant: () => ({ refill: true })
   },
-  { key: 'steady', name: '안정 조준', icon: '🧘', stat: 'spread', vals: [0.08, 0.14, 0.22, 0.32], text: (v) => `탄퍼짐 −${pc(v)}` },
-  { key: 'grip', name: '반동 제어', icon: '✊', stat: 'recoil', vals: [0.1, 0.16, 0.25, 0.36], text: (v) => `반동 −${pc(v)}` },
-  { key: 'swap', name: '빠른 교체', icon: '🔀', stat: 'draw', vals: [0.15, 0.25, 0.4, 0.6], text: (v) => `무기 꺼내기 속도 +${pc(v)}` },
-  { key: 'sprint', name: '질주', icon: '👟', stat: 'move', vals: [0.05, 0.08, 0.12, 0.18], text: (v) => `이동 속도 +${pc(v)}` },
+  { key: 'steady', name: t('horde.card.steady'), icon: '🧘', stat: 'spread', vals: [0.08, 0.14, 0.22, 0.32], text: (v) => t('horde.cardDesc.steady', { pct: pc(v) }) },
+  { key: 'grip', name: t('horde.card.grip'), icon: '✊', stat: 'recoil', vals: [0.1, 0.16, 0.25, 0.36], text: (v) => t('horde.cardDesc.grip', { pct: pc(v) }) },
+  { key: 'swap', name: t('horde.card.swap'), icon: '🔀', stat: 'draw', vals: [0.15, 0.25, 0.4, 0.6], text: (v) => t('horde.cardDesc.swap', { pct: pc(v) }) },
+  { key: 'sprint', name: t('horde.card.sprint'), icon: '👟', stat: 'move', vals: [0.05, 0.08, 0.12, 0.18], text: (v) => t('horde.cardDesc.sprint', { pct: pc(v) }) },
   // 걷는 속도(move)와 버니합 상한(maxSpeed)이 같은 비율로 함께 오른다
-  { key: 'limit', name: '가속 한계', icon: '🚀', stat: 'maxSpeed', also: 'move', vals: [0.08, 0.14, 0.22, 0.35], text: (v) => `걷는 속도 +${pc(v)} · 최대 속도(버니합 상한)도 +${pc(v)}` },
-  { key: 'leap', name: '도약', icon: '🦘', stat: 'jump', vals: [0.09, 0.14, 0.21, 0.3], text: (v) => `점프 높이 +${pc(v)}` },
-  { key: 'pouch', name: '수류탄 주머니', icon: '💣', stat: 'nades', vals: [5, 6, 8, 10], text: (v) => `최대 수류탄 +${v} (가득 채움)`, instant: () => ({ nades: true }) },
-  { key: 'medic', name: '구급 보급', icon: '🩹', stat: 'medDrop', vals: [0.04, 0.06, 0.09, 0.15], text: (v) => `내가 잡은 좀비가 구급 상자를 떨어뜨릴 확률 +${pc(v)} (기본 5%)` },
-  { key: 'kit', name: '구급 키트', icon: '🧪', stat: 'medHeal', vals: [5, 8, 12, 18], text: (v) => `구급 상자 회복량 +${v} (기본 10)` },
-  { key: 'supply', name: '탄약 보급', icon: '🎒', stat: 'ammoDrop', vals: [0.04, 0.06, 0.09, 0.15], text: (v) => `내가 잡은 좀비가 탄창을 떨어뜨릴 확률 +${pc(v)} (기본 10%)` },
+  { key: 'limit', name: t('horde.card.limit'), icon: '🚀', stat: 'maxSpeed', also: 'move', vals: [0.08, 0.14, 0.22, 0.35], text: (v) => t('horde.cardDesc.limit', { pct: pc(v) }) },
+  { key: 'leap', name: t('horde.card.leap'), icon: '🦘', stat: 'jump', vals: [0.09, 0.14, 0.21, 0.3], text: (v) => t('horde.cardDesc.leap', { pct: pc(v) }) },
+  { key: 'pouch', name: t('horde.card.pouch'), icon: '💣', stat: 'nades', vals: [5, 6, 8, 10], text: (v) => t('horde.cardDesc.pouch', { v: v }), instant: () => ({ nades: true }) },
+  { key: 'medic', name: t('horde.card.medic'), icon: '🩹', stat: 'medDrop', vals: [0.04, 0.06, 0.09, 0.15], text: (v) => t('horde.cardDesc.medic', { pct: pc(v) }) },
+  { key: 'kit', name: t('horde.card.kit'), icon: '🧪', stat: 'medHeal', vals: [5, 8, 12, 18], text: (v) => t('horde.cardDesc.kit', { v: v }) },
+  { key: 'supply', name: t('horde.card.supply'), icon: '🎒', stat: 'ammoDrop', vals: [0.04, 0.06, 0.09, 0.15], text: (v) => t('horde.cardDesc.supply', { pct: pc(v) }) },
   // 탄창을 주우면 모든 총이 가득 차므로 더 받을 것이 없어 네 단계 모두 제안에서 뺀다(전송 번호는 그대로)
-  { key: 'belt', name: '탄띠', icon: '🎗️', stat: 'ammoMags', vals: [1, 1.5, 2, 3], text: (v) => `주운 탄창이 장전 ${fx(v)}회분 더 (기본 1회분)`, retire: [1, 2, 3, 4] },
-  { key: 'blast', name: '폭발 반경', icon: '🌋', stat: 'nadeRadius', vals: [0.3, 0.45, 0.63, 0.88], text: (v) => `수류탄 폭발 반경 +${pc(v)} (TX-3 도끼는 크기·판정 +${pc(v)}) · ${NADE_UP}`, nade: true },
+  { key: 'belt', name: t('horde.card.belt'), icon: '🎗️', stat: 'ammoMags', vals: [1, 1.5, 2, 3], text: (v) => t('horde.cardDesc.belt', { v: fx(v) }), retire: [1, 2, 3, 4] },
+  { key: 'blast', name: t('horde.card.blast'), icon: '🌋', stat: 'nadeRadius', vals: [0.3, 0.45, 0.63, 0.88], text: (v) => t('horde.cardDesc.blast', { pct: pc(v), nadeUp: NADE_UP }), nade: true },
   // 무제한 관통(한 장). 예전 I~IV 중 I 자리를 이 카드로 바꾸고 II~IV는 제안에서만 뺀다
-  { key: 'pierce', name: '관통탄', icon: '🗡️', stat: 'pierce', vals: [99, 99, 99, 99], text: () => '탄이 좀비를 모두 뚫는다(뚫을 때마다 피해 70%, 최소 30%)', minTier: 2, only: 1, max: 1, retire: [1, 2, 3] },
-  { key: 'scav', name: '탄약 회수', icon: '♻️', stat: 'killAmmo', vals: [1, 1, 2, 3], text: (v) => `처치할 때마다 탄창에 탄 ${v}발 돌려받기` },
-  { key: 'weak', name: '약점 포착', icon: '🔍', stat: 'crit', vals: [0.04, 0.07, 0.11, 0.16], text: (v) => `${pc(v)} 확률로 치명타(피해 ×1.5)` },
-  { key: 'wound', name: '치명상', icon: '🩹', stat: 'critDmg', vals: [0.2, 0.35, 0.55, 0.8], text: (v) => `치명타 피해 +${pc(v)}` },
-  { key: 'frost', name: '냉각탄', icon: '❄️', stat: 'slow', vals: [0.08, 0.12, 0.18, 0.25], text: (v) => `맞은 좀비가 1초 동안 ${pc(v)} 느려짐 (냉각이 25%를 넘게 겹치면 시간도 그만큼 늘어남)` },
+  { key: 'pierce', name: t('horde.card.pierce'), icon: '🗡️', stat: 'pierce', vals: [99, 99, 99, 99], text: () => t('horde.cardDesc.pierce'), minTier: 2, only: 1, max: 1, retire: [1, 2, 3] },
+  { key: 'scav', name: t('horde.card.scav'), icon: '♻️', stat: 'killAmmo', vals: [1, 1, 2, 3], text: (v) => t('horde.cardDesc.scav', { v: v }) },
+  { key: 'weak', name: t('horde.card.weak'), icon: '🔍', stat: 'crit', vals: [0.04, 0.07, 0.11, 0.16], text: (v) => t('horde.cardDesc.weak', { pct: pc(v) }) },
+  { key: 'wound', name: t('horde.card.wound'), icon: '🩹', stat: 'critDmg', vals: [0.2, 0.35, 0.55, 0.8], text: (v) => t('horde.cardDesc.wound', { pct: pc(v) }) },
+  { key: 'frost', name: t('horde.card.frost'), icon: '❄️', stat: 'slow', vals: [0.08, 0.12, 0.18, 0.25], text: (v) => t('horde.cardDesc.frost', { pct: pc(v) }) },
   // 폭발 반응 장갑(예전 가시 갑옷 자리, id thorn1~4 그대로). 값 = 초당 터지는 횟수: 4 · 3 · 2 · 1초에 한 번, 겹치면 더해져 더 자주
-  { key: 'thorn', name: '폭발 반응 장갑', icon: '☄️', stat: 'reactive', vals: [0.25, 1 / 3, 0.5, 1], text: (v) => `좀비·보스에게 맞으면 내 자리에서 수류탄이 터진다(수류탄 피해·폭발 반경·수류탄 효과 적용, ${fx(1 / v)}초에 한 번, 겹치면 더 자주)` },
-  { key: 'dodge', name: '회피', icon: '💨', stat: 'dodge', vals: [0.03, 0.05, 0.08, 0.12], text: (v) => `${pc(v)} 확률로 피해를 피함` },
-  { key: 'exec', name: '처형자', icon: '⚔️', stat: 'executioner', vals: [0.38, 0.63, 1, 1.5], text: (v) => `체력 25% 이하 좀비에게 피해 +${pc(v)}` },
-  { key: 'last', name: '배수의 진', icon: '🔥', stat: 'lastStand', vals: [0.25, 0.42, 0.67, 1], text: (v) => `내 체력이 35% 이하일 때 피해 +${pc(v)}` },
-  { key: 'rest', name: '휴식', icon: '🛌', stat: 'stageHeal', vals: [0.25, 0.38, 0.63, 1], text: (v) => `스테이지가 시작할 때 최대 체력의 ${pc(v)} 회복` },
-  { key: 'shield', name: '보호막', icon: '🛡️', stat: 'shield', vals: [30, 50, 80, 120], text: (v) => `스테이지가 시작할 때 보호막 +${v} (남은 보호막에 더해진다)` },
-  { key: 'forge', name: '탄약 제조', icon: '🏭', stat: 'ammoRegen', vals: [0.02, 0.04, 0.06, 0.09], text: (v) => `1초마다 탄창 크기의 ${pc(v)}만큼 재장전 탄창 회복` },
-  { key: 'frenzy', name: '광란', icon: '🌀', stat: 'frenzy', vals: [0.004, 0.005, 0.0075, 0.01], text: (v) => `총으로 좀비를 맞힐 때마다 7초 동안 연사 +${+(v * 100).toFixed(2)}% (최대 300번 겹침)` }
+  { key: 'thorn', name: t('horde.card.thorn'), icon: '☄️', stat: 'reactive', vals: [0.25, 1 / 3, 0.5, 1], text: (v) => t('horde.cardDesc.thorn', { sec: fx(1 / v) }) },
+  { key: 'dodge', name: t('horde.card.dodge'), icon: '💨', stat: 'dodge', vals: [0.03, 0.05, 0.08, 0.12], text: (v) => t('horde.cardDesc.dodge', { pct: pc(v) }) },
+  { key: 'exec', name: t('horde.card.exec'), icon: '⚔️', stat: 'executioner', vals: [0.38, 0.63, 1, 1.5], text: (v) => t('horde.cardDesc.exec', { pct: pc(v) }) },
+  { key: 'last', name: t('horde.card.last'), icon: '🔥', stat: 'lastStand', vals: [0.25, 0.42, 0.67, 1], text: (v) => t('horde.cardDesc.last', { pct: pc(v) }) },
+  { key: 'rest', name: t('horde.card.rest'), icon: '🛌', stat: 'stageHeal', vals: [0.25, 0.38, 0.63, 1], text: (v) => t('horde.cardDesc.rest', { pct: pc(v) }) },
+  { key: 'shield', name: t('horde.card.shield'), icon: '🛡️', stat: 'shield', vals: [30, 50, 80, 120], text: (v) => t('horde.cardDesc.shield', { v: v }) },
+  { key: 'forge', name: t('horde.card.forge'), icon: '🏭', stat: 'ammoRegen', vals: [0.02, 0.04, 0.06, 0.09], text: (v) => t('horde.cardDesc.forge', { pct: pc(v) }) },
+  { key: 'frenzy', name: t('horde.card.frenzy'), icon: '🌀', stat: 'frenzy', vals: [0.004, 0.005, 0.0075, 0.01], text: (v) => t('horde.cardDesc.frenzy', { pct: +(v * 100).toFixed(2) }) }
 ];
 
 /** 수류탄을 키우는 증강에 붙는 말(최대 수류탄 +2, 가득 채움) */
-const NADE_UP = '최대 수류탄 +2 (가득 채움)';
+const NADE_UP = t('horde.cardNadeUp');
 /** 수류탄 증강 하나가 늘리는 최대 수류탄 수 */
 const NADE_UP_N = 2;
 
@@ -157,40 +158,40 @@ const NADE_UP_N = 2;
  * nade: true면 수류탄 증강이라 최대 수류탄 +2와 가득 채움이 붙는다.
  */
 const SPECIALS = [
-  { key: 'second', name: '두 번째 기회', icon: '🪽', tier: 'legend', max: 1, fx: { secondChance: 1 }, desc: '스테이지마다 한 번, 쓰러질 피해를 받아도 체력 30%로 버틴다', minStage: 3 },
-  { key: 'glass', name: '유리 대포', icon: '🔮', tier: 'epic', max: 1, fx: { dmg: 0.5, maxHpPct: -0.2 }, desc: '모든 피해 +50% · 최대 체력 −20%' },
-  { key: 'wall', name: '철벽', icon: '🧱', tier: 'epic', max: 1, fx: { maxHpPct: 1, fireRate: -0.2 }, desc: '최대 체력 +100% · 연사 속도 −20%' },
-  { key: 'chain', name: '연쇄 폭발', icon: '🎆', tier: 'legend', max: 2, fx: { explosive: 0.25 }, desc: '처치한 좀비가 터져 3 m 안의 좀비에게 그 좀비 최대 체력의 25% 피해', minStage: 4 },
-  { key: 'luck', name: '행운', icon: '🍀', tier: 'rare', max: 3, fx: { rerolls: 1 }, desc: '카드 제안마다 다시 뽑기 +1' },
-  { key: 'wide', name: '넓은 선택', icon: '🃏', tier: 'epic', max: 1, fx: { offers: 1 }, desc: '카드 제안이 4장으로 늘어난다' },
-  { key: 'medkit', name: '응급 처치', icon: '🚑', tier: 'common', instant: { healPct: 1 }, desc: '체력을 가득 회복' },
-  { key: 'syringe', name: '회복 주사', icon: '💉', tier: 'common', instant: { healPct: 0.5 }, fx: { regen: 0.5 }, desc: '체력 50% 회복 · 초당 체력 0.5 회복' },
-  { key: 'drop', name: '보급 투하', icon: '🪂', tier: 'rare', max: 1, desc: '스테이지마다 든 총들의 탄창·예비 탄과 수류탄을 모두 가득 채운다' },
-  { key: 'hunter', name: '사냥 본능', icon: '🐺', tier: 'rare', fx: { dmg: 0.24, move: 0.12 }, desc: '모든 피해 +24% · 이동 속도 +12%' },
-  { key: 'thrift', name: '탄약 절약', icon: '🪙', tier: 'epic', max: 2, fx: { thrift: 0.45 }, desc: '45% 확률로 쏴도 탄이 줄지 않는다 (두 번 고르면 90%)' },
-  { key: 'perfect', name: '완벽주의자', icon: '💎', tier: 'epic', max: 1, fx: { head: 3, bodyPenalty: 0.9 }, desc: '머리 피해 +300% · 몸·팔다리 총 피해 −90%' },
-  { key: 'giant', name: '거인 학살자', icon: '🗿', tier: 'epic', max: 1, fx: { boss: 3, normalPenalty: 0.5 }, desc: '보스 피해 +300% · 일반 좀비 피해 −50%' },
-  { key: 'thirst', name: '피의 갈증', icon: '🧛', tier: 'epic', fx: { hitHeal: 0.3, killHeal: 2 }, desc: '맞힐 때마다 체력 +0.3 · 처치마다 체력 +2' },
-  { key: 'runngun', name: '기동 사격', icon: '🏃', tier: 'rare', fx: { spread: 0.3, move: 0.18 }, desc: '탄퍼짐 −30% · 이동 속도 +18%' },
-  { key: 'drum', name: '드럼 탄창', icon: '🥁', tier: 'epic', fx: { mag: 0.6, reload: -0.1 }, desc: '최대 탄창 +60% · 재장전 속도 −10%' },
-  { key: 'samurai', name: '무사도', icon: '🏯', tier: 'epic', fx: { melee: 0.8, move: 0.05 }, desc: '칼 피해 +80% · 이동 속도 +5%' },
-  { key: 'iron', name: '불굴', icon: '⛓️', tier: 'epic', fx: { armor: 0.12, regen: 0.5 }, desc: '받는 피해 −12% · 초당 체력 0.5 회복' },
-  { key: 'tactical', name: '전술 재장전', icon: '🧷', tier: 'rare', fx: { reload: 0.25, mag: 1 }, desc: '재장전 속도 +25% · 최대 탄창 +100%' },
-  { key: 'react', name: '연쇄 반응', icon: '☢️', tier: 'epic', fx: { explosive: 0.12, nade: 0.25 }, desc: '처치 폭발 +12% · 수류탄 피해 +25%', minStage: 4, nade: true },
-  { key: 'dread', name: '공포 그 자체', icon: '👹', tier: 'rare', fx: { slow: 0.12, reactive: 0.25 }, desc: '냉각 +12% · 좀비·보스에게 맞으면 4초에 한 번 내 자리에서 수류탄이 터진다' },
-  { key: 'coin', name: '행운의 동전', icon: '🪙', tier: 'rare', fx: { crit: 0.08, dodge: 0.04 }, desc: '치명타 +8% · 회피 +4%' },
-  { key: 'adrenaline', name: '아드레날린', icon: '💓', tier: 'legend', fx: { fireRate: 0.5, move: 0.3, lastStand: 1 }, desc: '연사 +50% · 이동 +30% · 체력 35% 이하일 때 피해 +100%', minStage: 4 },
-  { key: 'bunker', name: '벙커', icon: '🏚️', tier: 'legend', fx: { armor: 0.45, shield: 100 }, desc: '받는 피해 −45% · 스테이지마다 보호막 +100', minStage: 4 },
+  { key: 'second', name: t('horde.card.second'), icon: '🪽', tier: 'legend', max: 1, fx: { secondChance: 1 }, desc: t('horde.cardDesc.second'), minStage: 3 },
+  { key: 'glass', name: t('horde.card.glass'), icon: '🔮', tier: 'epic', max: 1, fx: { dmg: 0.5, maxHpPct: -0.2 }, desc: t('horde.cardDesc.glass') },
+  { key: 'wall', name: t('horde.card.wall'), icon: '🧱', tier: 'epic', max: 1, fx: { maxHpPct: 1, fireRate: -0.2 }, desc: t('horde.cardDesc.wall') },
+  { key: 'chain', name: t('horde.card.chain'), icon: '🎆', tier: 'legend', max: 2, fx: { explosive: 0.25 }, desc: t('horde.cardDesc.chain'), minStage: 4 },
+  { key: 'luck', name: t('horde.card.luck'), icon: '🍀', tier: 'rare', max: 3, fx: { rerolls: 1 }, desc: t('horde.cardDesc.luck') },
+  { key: 'wide', name: t('horde.card.wide'), icon: '🃏', tier: 'epic', max: 1, fx: { offers: 1 }, desc: t('horde.cardDesc.wide') },
+  { key: 'medkit', name: t('horde.card.medkit'), icon: '🚑', tier: 'common', instant: { healPct: 1 }, desc: t('horde.cardDesc.medkit') },
+  { key: 'syringe', name: t('horde.card.syringe'), icon: '💉', tier: 'common', instant: { healPct: 0.5 }, fx: { regen: 0.5 }, desc: t('horde.cardDesc.syringe') },
+  { key: 'drop', name: t('horde.card.drop'), icon: '🪂', tier: 'rare', max: 1, desc: t('horde.cardDesc.drop') },
+  { key: 'hunter', name: t('horde.card.hunter'), icon: '🐺', tier: 'rare', fx: { dmg: 0.24, move: 0.12 }, desc: t('horde.cardDesc.hunter') },
+  { key: 'thrift', name: t('horde.card.thrift'), icon: '🪙', tier: 'epic', max: 2, fx: { thrift: 0.45 }, desc: t('horde.cardDesc.thrift') },
+  { key: 'perfect', name: t('horde.card.perfect'), icon: '💎', tier: 'epic', max: 1, fx: { head: 3, bodyPenalty: 0.9 }, desc: t('horde.cardDesc.perfect') },
+  { key: 'giant', name: t('horde.card.giant'), icon: '🗿', tier: 'epic', max: 1, fx: { boss: 3, normalPenalty: 0.5 }, desc: t('horde.cardDesc.giant') },
+  { key: 'thirst', name: t('horde.card.thirst'), icon: '🧛', tier: 'epic', fx: { hitHeal: 0.3, killHeal: 2 }, desc: t('horde.cardDesc.thirst') },
+  { key: 'runngun', name: t('horde.card.runngun'), icon: '🏃', tier: 'rare', fx: { spread: 0.3, move: 0.18 }, desc: t('horde.cardDesc.runngun') },
+  { key: 'drum', name: t('horde.card.drum'), icon: '🥁', tier: 'epic', fx: { mag: 0.6, reload: -0.1 }, desc: t('horde.cardDesc.drum') },
+  { key: 'samurai', name: t('horde.card.samurai'), icon: '🏯', tier: 'epic', fx: { melee: 0.8, move: 0.05 }, desc: t('horde.cardDesc.samurai') },
+  { key: 'iron', name: t('horde.card.iron'), icon: '⛓️', tier: 'epic', fx: { armor: 0.12, regen: 0.5 }, desc: t('horde.cardDesc.iron') },
+  { key: 'tactical', name: t('horde.card.tactical'), icon: '🧷', tier: 'rare', fx: { reload: 0.25, mag: 1 }, desc: t('horde.cardDesc.tactical') },
+  { key: 'react', name: t('horde.card.react'), icon: '☢️', tier: 'epic', fx: { explosive: 0.12, nade: 0.25 }, desc: t('horde.cardDesc.react'), minStage: 4, nade: true },
+  { key: 'dread', name: t('horde.card.dread'), icon: '👹', tier: 'rare', fx: { slow: 0.12, reactive: 0.25 }, desc: t('horde.cardDesc.dread') },
+  { key: 'coin', name: t('horde.card.coin'), icon: '🪙', tier: 'rare', fx: { crit: 0.08, dodge: 0.04 }, desc: t('horde.cardDesc.coin') },
+  { key: 'adrenaline', name: t('horde.card.adrenaline'), icon: '💓', tier: 'legend', fx: { fireRate: 0.5, move: 0.3, lastStand: 1 }, desc: t('horde.cardDesc.adrenaline'), minStage: 4 },
+  { key: 'bunker', name: t('horde.card.bunker'), icon: '🏚️', tier: 'legend', fx: { armor: 0.45, shield: 100 }, desc: t('horde.cardDesc.bunker'), minStage: 4 },
   // 수류탄 증강: 효과는 내 수류탄 모두에 겹쳐 붙는다(화염 + 빙결 + 분신을 함께 가질 수 있다)
-  { key: 'fireNade', name: '화염 수류탄', icon: '🔥', tier: 'epic', max: 3, fx: { nadeFire: 1 }, desc: '내 수류탄이 터진 자리에 5초 동안 불길이 남아 안의 좀비에게 계속 피해(겹칠수록 세다)', nade: true },
-  { key: 'iceNade', name: '빙결 수류탄', icon: '🧊', tier: 'epic', max: 3, fx: { nadeFreeze: 1 }, desc: '내 수류탄에 맞은 좀비가 2.2초 동안 얼어붙는다(보스는 절반 · 겹칠수록 오래)', nade: true },
-  { key: 'decoyNade', name: '어그로 수류탄', icon: '🎭', tier: 'epic', max: 3, fx: { nadeDecoy: 1 }, desc: '터진 자리에 내 최대 체력만큼 버티는 분신이 9초 동안 서서 30 m 안의 좀비를 끌어모은다', nade: true },
-  { key: 'multiNade', name: '다연발 투척', icon: '🎇', tier: 'rare', max: 4, fx: { nadeMulti: 1 }, desc: '한 번 던질 때 수류탄이 부채꼴로 1개 더 날아간다(여러 번 고르면 더 많이 · 하나만 줄어든다)', nade: true },
+  { key: 'fireNade', name: t('horde.card.fireNade'), icon: '🔥', tier: 'epic', max: 3, fx: { nadeFire: 1 }, desc: t('horde.cardDesc.fireNade'), nade: true },
+  { key: 'iceNade', name: t('horde.card.iceNade'), icon: '🧊', tier: 'epic', max: 3, fx: { nadeFreeze: 1 }, desc: t('horde.cardDesc.iceNade'), nade: true },
+  { key: 'decoyNade', name: t('horde.card.decoyNade'), icon: '🎭', tier: 'epic', max: 3, fx: { nadeDecoy: 1 }, desc: t('horde.cardDesc.decoyNade'), nade: true },
+  { key: 'multiNade', name: t('horde.card.multiNade'), icon: '🎇', tier: 'rare', max: 4, fx: { nadeMulti: 1 }, desc: t('horde.cardDesc.multiNade'), nade: true },
   // 무기는 1스테이지 전에만 고르므로, 판 중간에 총을 바꾸는 길은 이 증강뿐이다. 아주 가끔 나온다(w = 같은 등급 안에서 나올 비율)
-  { key: 'rearm', name: '무기 교체권', icon: '🔁', tier: 'rare', w: 1.2, retired: true, instant: { swap: true }, desc: '무기 목록이 열려 아무 무기로 한 번 바꿀 수 있다(새로 든 총은 탄을 가득 받는다)' },
+  { key: 'rearm', name: t('horde.card.rearm'), icon: '🔁', tier: 'rare', w: 1.2, retired: true, instant: { swap: true }, desc: t('horde.cardDesc.rearm') },
   // 보조무기를 폭발 무기로 바꾸는 증강(낮은 확률). 쓰러졌다 일어나도 그대로다. 나중에 고른 쪽으로 바뀐다
-  { key: 'sideGl', name: '유탄 발사기', icon: '🧨', tier: 'epic', w: 2, max: 1, instant: { side: 'gl_m32' }, desc: '보조무기가 GL-6 유탄 발사기로 바뀐다(맞은 자리에서 터지는 유탄 6발 · 예비 18발)' },
-  { key: 'sideRl', name: '바주카포', icon: '🚀', tier: 'legend', w: 5, max: 1, minStage: 3, instant: { side: 'rl_b9' }, desc: '보조무기가 BZ-9 바주카포로 바뀐다(곧게 날아가 크게 터지는 로켓 · 한 발씩 · 예비 12발)' }
+  { key: 'sideGl', name: t('horde.card.sideGl'), icon: '🧨', tier: 'epic', w: 2, max: 1, instant: { side: 'gl_m32' }, desc: t('horde.cardDesc.sideGl') },
+  { key: 'sideRl', name: t('horde.card.sideRl'), icon: '🚀', tier: 'legend', w: 5, max: 1, minStage: 3, instant: { side: 'rl_b9' }, desc: t('horde.cardDesc.sideRl') }
 ];
 
 /**
@@ -198,31 +199,31 @@ const SPECIALS = [
  * vals가 있으면 묶음(FAMILIES와 같은 모양), 없으면 특수 카드(SPECIALS와 같은 모양)다. 새 카드는 이 목록 끝에만 더한다.
  */
 const ADDED = [
-  { key: 'reflex', name: '반사 신경', icon: '✨', stat: 'iframe', vals: [0.2, 0.3, 0.4, 0.5], text: (v) => `맞은 뒤 무적 시간 +${fx(v)}초 (기본 0.1초)` },
+  { key: 'reflex', name: t('horde.card.reflex'), icon: '✨', stat: 'iframe', vals: [0.2, 0.3, 0.4, 0.5], text: (v) => t('horde.cardDesc.reflex', { v: fx(v) }) },
   // 검기: 전설 한 장(IV)만 제안에 나온다. I~III은 번호만 남긴다(예전 기록·전송을 읽게). 우클릭 찌르기만 · 10 m · 좀비 한 마리
-  { key: 'wave', name: '검기', icon: '🌙', stat: 'wave', vals: [10, 10, 10, 10], only: true, max: 1, retire: [0, 1, 2], text: (v) => `칼로 우클릭 찌르기를 할 때 검기가 ${v} m 날아가 처음 닿는 좀비 한 마리에게 칼과 같은 피해 (좌클릭 베기에는 검기 없음)` },
-  { key: 'anchor', name: '부동자세', icon: '⚓', tier: 'epic', max: 1, fx: { noKnock: 1 }, desc: '맞아도 밀려나지 않는다(보스의 밀치기·내려찍기도)' },
-  { key: 'c4', name: 'C4 수류탄', icon: '🧲', tier: 'epic', max: 1, fx: { stickyNade: 1 }, nade: true, desc: '내 수류탄이 C4로 바뀐다. 좀비에 닿으면 그 몸에 붙어 따라가다 터진다' },
-  { key: 'shieldKnife', name: '방패 칼', icon: '🛡️', tier: 'epic', max: 1, fx: { guard: 0.45 }, desc: '칼을 들면 방패를 함께 든다. 앞에서 때리는 공격의 피해 −45% (총·수류탄을 들면 방패를 내린다)' },
-  { key: 'airStrike', name: '공중 강타', icon: '🦅', tier: 'epic', max: 1, fx: { airDmg: 5 }, desc: '점프로 공중에 떠 있는 동안 총 피해 +500%' },
+  { key: 'wave', name: t('horde.card.wave'), icon: '🌙', stat: 'wave', vals: [10, 10, 10, 10], only: true, max: 1, retire: [0, 1, 2], text: (v) => t('horde.cardDesc.wave', { v: v }) },
+  { key: 'anchor', name: t('horde.card.anchor'), icon: '⚓', tier: 'epic', max: 1, fx: { noKnock: 1 }, desc: t('horde.cardDesc.anchor') },
+  { key: 'c4', name: t('horde.card.c4'), icon: '🧲', tier: 'epic', max: 1, fx: { stickyNade: 1 }, nade: true, desc: t('horde.cardDesc.c4') },
+  { key: 'shieldKnife', name: t('horde.card.shieldKnife'), icon: '🛡️', tier: 'epic', max: 1, fx: { guard: 0.45 }, desc: t('horde.cardDesc.shieldKnife') },
+  { key: 'airStrike', name: t('horde.card.airStrike'), icon: '🦅', tier: 'epic', max: 1, fx: { airDmg: 5 }, desc: t('horde.cardDesc.airStrike') },
   // 보조무기를 특이점포로 바꾸는 증강(낮은 확률). 쏘면 앞쪽에서 중력이 생겨 좀비를 한 점으로 끌어 뭉친다
-  { key: 'sideGravity', name: '특이점포', icon: '🌀', tier: 'epic', w: 2, max: 1, minStage: 2, instant: { side: 'gv_gun' }, desc: '보조무기가 GV-1 특이점포로 바뀐다(쏘면 앞쪽에 중력이 생겨 좀비가 한곳으로 뭉친다 · 맞히지는 못한다)' },
-  { key: 'flameGun', name: '화염 방사기', icon: '🔥', tier: 'legend', max: 1, minStage: 3,
-    instant: { primary: 'fl_horde' }, desc: '주무기가 FL-12 화염 방사기로 바뀐다(12 m 화염 5갈래 · 연료 100 · 연속 분사)' },
-  { key: 'railGun', name: '레일건', icon: '⚡', tier: 'legend', max: 1, minStage: 3,
-    instant: { primary: 'rg_horde' }, desc: '주무기가 RG-5 레일건으로 바뀐다(몸 400 · 머리 800 · 5발 탄창 · 1.5초마다 사격)' },
-  { key: 'aiGlasses', name: 'AI 안경', icon: '🥽', tier: 'legend', max: 1, minStage: 3,
-    fx: { autoAim: 1 }, desc: '안경을 쓰고 총을 쏘면 앞쪽 조준 원뿔 안에 있는 좀비의 몸통을 자동 조준한다' },
-  { key: 'sideMaster', name: '보조무기 마스터', icon: '🔫', tier: 'legend', max: 1, minStage: 3,
-    fx: { sideMaster: 1 }, desc: '주무기를 더 쓸 수 없다. 대신 보조무기 발사 속도 2배 · 피해 +500% · 최대 탄창 2배' },
+  { key: 'sideGravity', name: t('horde.card.sideGravity'), icon: '🌀', tier: 'epic', w: 2, max: 1, minStage: 2, instant: { side: 'gv_gun' }, desc: t('horde.cardDesc.sideGravity') },
+  { key: 'flameGun', name: t('horde.card.flameGun'), icon: '🔥', tier: 'legend', max: 1, minStage: 3,
+    instant: { primary: 'fl_horde' }, desc: t('horde.cardDesc.flameGun') },
+  { key: 'railGun', name: t('horde.card.railGun'), icon: '⚡', tier: 'legend', max: 1, minStage: 3,
+    instant: { primary: 'rg_horde' }, desc: t('horde.cardDesc.railGun') },
+  { key: 'aiGlasses', name: t('horde.card.aiGlasses'), icon: '🥽', tier: 'legend', max: 1, minStage: 3,
+    fx: { autoAim: 1 }, desc: t('horde.cardDesc.aiGlasses') },
+  { key: 'sideMaster', name: t('horde.card.sideMaster'), icon: '🔫', tier: 'legend', max: 1, minStage: 3,
+    fx: { sideMaster: 1 }, desc: t('horde.cardDesc.sideMaster') },
   // 제우스의 번개(요청 2026-11-20): 주무기가 번개를 던지는 무기로 바뀐다. 맞으면 근처 좀비로 다섯 번 튀고 피해가 줄지 않는다
-  { key: 'zeus', name: '제우스의 번개', icon: '🌩️', tier: 'legend', max: 1, minStage: 3,
-    instant: { primary: 'zs_bolt' }, desc: '주무기가 제우스의 번개로 바뀐다(던진 번개가 맞으면 근처 좀비로 5번 튄다 · 튈 때마다 피해 그대로 150 · 탄약 무제한)' },
+  { key: 'zeus', name: t('horde.card.zeus'), icon: '🌩️', tier: 'legend', max: 1, minStage: 3,
+    instant: { primary: 'zs_bolt' }, desc: t('horde.cardDesc.zeus') },
   // 질풍검(요청 2026-11-20): 좌·우클릭이 같은 칼 판정 찌르기. 두 번 맞히면 다음 공격이 바닥을 타고 앞으로 가는 충격파
-  { key: 'yasuoSword', name: '질풍검', icon: '💨', tier: 'legend', max: 1, minStage: 3,
-    instant: { melee: 'ml_yasuo' }, desc: '칼이 GL-1 질풍검으로 바뀐다. 좌·우클릭 같은 찌르기(0.7초 간격). 2번 맞히면(10초 유지) 다음 공격은 빗나가도 바라보는 쪽 바닥을 따라 14 m 충격파를 보낸다(갈수록 넓어짐). 맞은 좀비는 칼 피해 · 0.6초 비틀거림 · 2초 동안 이동 −50%, 처음 맞은 보스 하나는 칼 피해 10배' },
+  { key: 'yasuoSword', name: t('horde.card.yasuoSword'), icon: '💨', tier: 'legend', max: 1, minStage: 3,
+    instant: { melee: 'ml_yasuo' }, desc: t('horde.cardDesc.yasuoSword') },
   // 근력팔(요청 2026-11-20): 투척무기(수류탄·도끼)를 던진 뒤 딜레이 −45%. 두 장까지(−90%)
-  { key: 'strongArm', name: '근력팔', icon: '💪', tier: 'rare', max: 2, fx: { throwCut: 0.45 }, desc: '투척무기(수류탄·투척 도끼)를 던진 뒤 딜레이 −45% (두 장까지, 두 장이면 −90%)' }
+  { key: 'strongArm', name: t('horde.card.strongArm'), icon: '💪', tier: 'rare', max: 2, fx: { throwCut: 0.45 }, desc: t('horde.cardDesc.strongArm') }
 ];
 
 /** 묶음 하나 → 카드 네 장(I 일반 · II 희귀 · III 영웅 · IV 전설, minTier가 있으면 그 등급부터) */
@@ -251,7 +252,7 @@ function specialCard(s) {
     max: s.max || null, minStage: s.minStage || 1, instant: s.instant || null, special: true, w: s.w || 1
   };
   if (s.retired) card.retired = true;
-  if (s.nade) { nadeUp(card); card.desc = `${s.desc} · ${NADE_UP}`; }
+  if (s.nade) { nadeUp(card); card.desc = t('horde.cardDescNade', { desc: s.desc, nadeUp: NADE_UP }); }
   return card;
 }
 
@@ -378,23 +379,23 @@ export function perkSummary(stats) {
   const rows = [];
   const add = (label, v, f) => { if (v) rows.push({ label, value: f(v) }); };
   const plus = (v) => `${v > 0 ? '+' : '−'}${Math.round(Math.abs(v) * 100)}%`;
-  add('최대 체력', perkMaxHp(s) - 100, (v) => `${v > 0 ? '+' : '−'}${Math.abs(v)}`);
-  add('피해', s.dmg, plus); add('머리', s.head, plus); add('몸 총 피해', s.bodyPenalty, (v) => `−${Math.round(v * 100)}%`); add('보스', s.boss, plus); add('일반 좀비 피해', s.normalPenalty, (v) => `−${Math.round(v * 100)}%`);
-  add('연사', s.fireRate, plus); add('재장전', s.reload, plus); add('탄창', s.mag, plus);
-  add('재장전 탄창', s.reserve, (v) => `+${fx(v)}배`);
-  add('이동', s.move, plus); add('최대 속도', s.maxSpeed, plus);
-  add('방어', s.armor, (v) => `−${Math.round(v * 100)}%`); add('회복', s.regen, (v) => `${fx(v)}/초`);
-  add('흡혈', s.lifesteal, (v) => `${fx(v * 100)}%`); add('타격 회복', s.hitHeal, (v) => `+${fx(v)}`); add('관통', s.pierce, (v) => `${v}`);
-  add('수류탄', s.nades, (v) => `+${v}`); add('폭발 반경', s.nadeRadius, plus); add('한 번에 던지기', s.nadeMulti, (v) => `+${v}`);
-  add('던진 뒤 딜레이', s.throwCut, (v) => `-${Math.round(Math.min(0.9, v) * 100)}%`);
-  add('화염', s.nadeFire, (v) => `${v}단계`); add('빙결', s.nadeFreeze, (v) => `${v}단계`); add('분신', s.nadeDecoy, (v) => `${v}단계`);
-  add('구급 상자 확률', s.medDrop, plus); add('구급 상자 회복', s.medHeal, (v) => `+${v}`);
-  add('탄창 확률', s.ammoDrop, plus); add('탄창 양', s.ammoMags, (v) => `+${fx(v)}회분`);
-  add('맞은 뒤 무적', s.iframe, (v) => `+${fx(v)}초`); add('밀려남', s.noKnock, () => '없음');
-  add('C4', s.stickyNade, () => '붙음'); add('검기', s.wave, (v) => `${fx(v)} m`); add('AI 안경', s.autoAim, () => '몸통 자동 조준');
-  add('재장전 시간', s.reloadCut, (v) => (v >= 1 ? '거의 즉시' : `−${Math.round(v * 100)}%`)); add('방패', s.guard, (v) => `−${Math.round(v * 100)}%`);
-  add('공중 피해', s.airDmg, (v) => `+${Math.round(v * 100)}%`);
-  add('보조무기 마스터', s.sideMaster, () => '주무기 봉인 · 보조 연사 2배 · 피해 +500% · 탄창 2배');
-  add('반응 장갑', s.reactive, (v) => `${fx(1 / v)}초에 한 번`);
+  add(t('horde.perk.maxHp'), perkMaxHp(s) - 100, (v) => `${v > 0 ? '+' : '−'}${Math.abs(v)}`);
+  add(t('horde.perk.dmg'), s.dmg, plus); add(t('horde.perk.head'), s.head, plus); add(t('horde.perk.bodyPenalty'), s.bodyPenalty, (v) => `−${Math.round(v * 100)}%`); add(t('horde.perk.boss'), s.boss, plus); add(t('horde.perk.normalPenalty'), s.normalPenalty, (v) => `−${Math.round(v * 100)}%`);
+  add(t('horde.perk.fireRate'), s.fireRate, plus); add(t('horde.perk.reload'), s.reload, plus); add(t('horde.perk.mag'), s.mag, plus);
+  add(t('horde.perk.reserve'), s.reserve, (v) => t('horde.perkVal.times', { v: fx(v) }));
+  add(t('horde.perk.move'), s.move, plus); add(t('horde.perk.maxSpeed'), s.maxSpeed, plus);
+  add(t('horde.perk.armor'), s.armor, (v) => `−${Math.round(v * 100)}%`); add(t('horde.perk.regen'), s.regen, (v) => t('horde.perkVal.perSec', { v: fx(v) }));
+  add(t('horde.perk.lifesteal'), s.lifesteal, (v) => `${fx(v * 100)}%`); add(t('horde.perk.hitHeal'), s.hitHeal, (v) => `+${fx(v)}`); add(t('horde.perk.pierce'), s.pierce, (v) => `${v}`);
+  add(t('horde.perk.nades'), s.nades, (v) => `+${v}`); add(t('horde.perk.nadeRadius'), s.nadeRadius, plus); add(t('horde.perk.nadeMulti'), s.nadeMulti, (v) => `+${v}`);
+  add(t('horde.perk.throwCut'), s.throwCut, (v) => `-${Math.round(Math.min(0.9, v) * 100)}%`);
+  add(t('horde.perk.nadeFire'), s.nadeFire, (v) => t('horde.perkVal.level', { v })); add(t('horde.perk.nadeFreeze'), s.nadeFreeze, (v) => t('horde.perkVal.level', { v })); add(t('horde.perk.nadeDecoy'), s.nadeDecoy, (v) => t('horde.perkVal.level', { v }));
+  add(t('horde.perk.medDrop'), s.medDrop, plus); add(t('horde.perk.medHeal'), s.medHeal, (v) => `+${v}`);
+  add(t('horde.perk.ammoDrop'), s.ammoDrop, plus); add(t('horde.perk.ammoMags'), s.ammoMags, (v) => t('horde.perkVal.loads', { v: fx(v) }));
+  add(t('horde.perk.iframe'), s.iframe, (v) => t('horde.perkVal.sec', { v: fx(v) })); add(t('horde.perk.noKnock'), s.noKnock, () => t('horde.perkVal.none'));
+  add('C4', s.stickyNade, () => t('horde.perkVal.sticky')); add(t('horde.perk.wave'), s.wave, (v) => `${fx(v)} m`); add(t('horde.perk.autoAim'), s.autoAim, () => t('horde.perkVal.autoAim'));
+  add(t('horde.perk.reloadCut'), s.reloadCut, (v) => (v >= 1 ? t('horde.perkVal.instant') : `−${Math.round(v * 100)}%`)); add(t('horde.perk.guard'), s.guard, (v) => `−${Math.round(v * 100)}%`);
+  add(t('horde.perk.airDmg'), s.airDmg, (v) => `+${Math.round(v * 100)}%`);
+  add(t('horde.perk.sideMaster'), s.sideMaster, () => t('horde.perkVal.sideMaster'));
+  add(t('horde.perk.reactive'), s.reactive, (v) => t('horde.perkVal.every', { v: fx(1 / v) }));
   return rows;
 }

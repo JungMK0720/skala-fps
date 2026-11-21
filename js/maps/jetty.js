@@ -23,7 +23,7 @@
  */
 export default {
   id: 'jetty', name: '원유 부두', nameEn: 'Crude Jetty',
-  desc: '가상 항만 K-7 선석: VLCC가 ALL FAST로 접안해 NOR 통지 후 하역 중인 원유 제티 — 접속교 저격선, 플랫폼·제어실 근접전, 파이프랙 중거리전',
+  desc: '가상 항만 K-7 선석: VLCC가 ALL FAST로 접안해 NOR 통지 후 하역 중인 원유 제티 — 접속교 저격선, 플랫폼·제어실 근접전, 파이프랙 중거리전', descEn: 'Fictional port, berth K-7: a supertanker is ALL FAST and discharging crude — sniper lanes on the trestle, close quarters on the platform and control room, mid-range fights across the pipe racks.',
   size: { x: 140, z: 90 },
   theme: { sky: '#f6b885', skyTop: '#1f3b57', fog: [60, 230], sunDir: [0.75, 0.32, 0.22],
            sunColor: '#ffc896', ambient: 0.5, water: '#1d4e6e' },

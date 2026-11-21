@@ -8,6 +8,7 @@
  *          게임 화면은 state(읽기 전용 스냅샷)를 그리고, 결과 알림은 bus 'account:notice'와 takeNotice()로 받는다.
  */
 import { createApi } from './api.js';
+import { t, fmtNum } from '../core/i18n.js';
 import { coinPriceOf } from './economy.js';
 import {
   OAUTH_MAX_AGE_MS, authorizeUrl, cleanedUrl, createPendingStore, pkceChallenge, randomB64url, readCallback, readPayResult, redirectUriOf
@@ -16,37 +17,37 @@ import {
 const TICKET_MS = 9 * 60 * 1000;   // 서버의 로그인 표는 10분짜리다. 화면에서 기다리는 표는 조금 일찍 버린다
 
 const ERRORS = {
-  network: '서버에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요.',
-  offline: '지금은 쓸 수 없어요.',
-  OAUTH_EXCHANGE: '로그인을 마치지 못했어요. 다시 시도해 주세요.',
-  ID_TOKEN_INVALID: '로그인 정보를 확인하지 못했어요. 다시 시도해 주세요.',
-  TICKET_EXPIRED: '로그인 시간이 지났어요. 다시 로그인해 주세요.',
-  TICKET_INVALID: '로그인 정보를 확인하지 못했어요. 다시 로그인해 주세요.',
-  TICKET_USED: '이미 쓴 로그인이에요. 다시 로그인해 주세요.',
-  LOGIN_OFF: '지금은 로그인을 쓸 수 없어요.',
-  PROVIDER_OFF: '지금은 이 계정으로 로그인할 수 없어요.',
-  PROVIDER_LINKED: '이 닉네임은 같은 서비스의 다른 계정과 이미 연결돼 있어요.',
-  NOT_FOUND: '닉네임이 아직 서버에 등록되지 않았어요. 잠시 뒤 다시 시도해 주세요.',
-  NOT_LINKED: '연결한 계정이 없어요. 먼저 계정을 연결해 주세요.',
-  TOKEN_TAKEN: '로그인을 마치지 못했어요. 다시 시도해 주세요.',
-  PAY_OFF: '지금은 테스트 결제를 쓸 수 없어요.',
-  RATE_LIMITED: '요청이 많아요. 잠시 뒤 다시 시도해 주세요.',
-  BAD_RETURN_URL: '이 주소에서는 결제를 열 수 없어요.',
-  ORDER_STATE: '이미 처리한 주문이에요.',
-  COINS_SPENT: '그 주문의 코인을 이미 써서 환불할 수 없어요.',
-  PENDING: '환불을 확인하는 중이에요. 잠시 뒤 구매 내역을 다시 확인해 주세요.',
-  CANCEL_FAILED: '환불을 마치지 못했어요. 코인은 그대로예요.',
-  OWNED: '이미 가지고 있어요.',
-  ITEM_INVALID: '코인으로 살 수 없는 물건이에요.'
+  network: t('account.errNetwork'),
+  offline: t('account.errOffline'),
+  OAUTH_EXCHANGE: t('account.errOauthExchange'),
+  ID_TOKEN_INVALID: t('account.errIdTokenInvalid'),
+  TICKET_EXPIRED: t('account.errTicketExpired'),
+  TICKET_INVALID: t('account.errTicketInvalid'),
+  TICKET_USED: t('account.errTicketUsed'),
+  LOGIN_OFF: t('account.errLoginOff'),
+  PROVIDER_OFF: t('account.errProviderOff'),
+  PROVIDER_LINKED: t('account.errProviderLinked'),
+  NOT_FOUND: t('account.errNotFound'),
+  NOT_LINKED: t('account.errNotLinked'),
+  TOKEN_TAKEN: t('account.errOauthExchange'),
+  PAY_OFF: t('account.errPayOff'),
+  RATE_LIMITED: t('account.errRateLimited'),
+  BAD_RETURN_URL: t('account.errBadReturnUrl'),
+  ORDER_STATE: t('account.errOrderState'),
+  COINS_SPENT: t('account.errCoinsSpent'),
+  PENDING: t('account.errPending'),
+  CANCEL_FAILED: t('account.errCancelFailed'),
+  OWNED: t('account.errOwned'),
+  ITEM_INVALID: t('account.errItemInvalid')
 };
 
 const PAY_FAIL = {
-  PAY_PROCESS_CANCELED: '결제를 취소했어요.',
-  PAY_PROCESS_ABORTED: '결제가 중간에 멈췄어요. 다시 시도해 주세요.',
-  REJECT_CARD_COMPANY: '카드사에서 결제를 거절했어요.',
-  AMOUNT_MISMATCH: '결제 금액이 주문과 달라 결제하지 않았어요.',
-  ORDER_EXPIRED: '주문 시간이 지나 결제하지 않았어요. 다시 충전해 주세요.',
-  SERVER_BUSY: '서버가 바빠 결제를 마치지 못했어요. 다시 시도해 주세요.'
+  PAY_PROCESS_CANCELED: t('account.payPayProcessCanceled'),
+  PAY_PROCESS_ABORTED: t('account.payPayProcessAborted'),
+  REJECT_CARD_COMPANY: t('account.payRejectCardCompany'),
+  AMOUNT_MISMATCH: t('account.payAmountMismatch'),
+  ORDER_EXPIRED: t('account.payOrderExpired'),
+  SERVER_BUSY: t('account.payServerBusy')
 };
 
 function deepFreeze(o) {
@@ -100,10 +101,10 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
 
   const errorText = (r) => {
     const key = (r && (r.error || r.reason)) || 'network';
-    if (key === 'IDENTITY_TAKEN') return r.name ? `이 계정은 이미 '${r.name}' 닉네임에 연결돼 있어요.` : '이 계정은 이미 다른 닉네임에 연결돼 있어요.';
-    if (key === 'DAILY_LIMIT') return `테스트 결제는 24시간에 ${Number.isInteger(r.limit) ? r.limit : pay.dailyLimit}번까지예요.`;
-    if (key === 'REFUND_EXPIRED') return `결제한 지 ${pay.refundDays}일이 지나 환불할 수 없어요.`;
-    if (key === 'COINS_SHORT') return Number.isInteger(r.price) && Number.isInteger(r.coins) ? `코인이 모자라요. ${r.price - r.coins}개 더 필요해요.` : '코인이 모자라요.';
+    if (key === 'IDENTITY_TAKEN') return r.name ? t('account.identityTakenName', { name: r.name }) : t('account.identityTaken');
+    if (key === 'DAILY_LIMIT') return t('account.dailyLimit', { n: Number.isInteger(r.limit) ? r.limit : pay.dailyLimit });
+    if (key === 'REFUND_EXPIRED') return t('account.refundExpired', { days: pay.refundDays });
+    if (key === 'COINS_SHORT') return Number.isInteger(r.price) && Number.isInteger(r.coins) ? t('account.coinsShortBy', { n: r.price - r.coins }) : t('account.coinsShort');
     return ERRORS[key] || ERRORS.network;
   };
 
@@ -196,7 +197,7 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
       return { ok: true };
     } catch (_) {
       busy = null;
-      say('bad', '로그인 화면을 열지 못했어요. 다시 시도해 주세요.');
+      say('bad', t('account.loginOpenFail'));
       changed();
       return { ok: false, reason: 'error' };
     }
@@ -210,7 +211,7 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
     if (disposed) return r;
     const name = providerName(provider);
     if (r.ok) {
-      const text = r.already ? `이미 ${name} 계정과 연결된 닉네임이에요.` : `${name} 계정을 연결했어요. 다른 기기에서도 ${name}로 로그인하면 이 닉네임을 써요.`;
+      const text = r.already ? t('account.alreadyLinked', { name }) : t('account.linkedDone', { name });
       say('ok', text);
       tell('ok', text, 'mypage');
       await refresh();
@@ -240,7 +241,7 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
     if (disposed) return prof;
     if (!prof || !prof.ok || !prof.profile) {
       busy = null;
-      say('bad', '닉네임을 불러오지 못했어요. 잠시 뒤 다시 로그인해 주세요.');
+      say('bad', t('account.loadNameFail'));
       changed();
       return { ok: false, reason: 'profile' };
     }
@@ -248,7 +249,7 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
     me = null;
     await hooks.switchToken(fresh, prof.profile);   // 이 기기의 프로필을 그 계정의 서버 프로필로 바꾼다
     busy = null;
-    const text = `${providerName(provider)}로 '${r.name}' 닉네임을 불러왔어요.`;
+    const text = t('account.loadedName', { provider: providerName(provider), name: r.name });
     say('ok', text);
     tell('ok', text);
     await refresh();
@@ -260,13 +261,13 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
     const rec = pendingStore.take();
     if (!rec || rec.state !== cb.state || Date.now() - Number(rec.at || 0) > OAUTH_MAX_AGE_MS) {
       if (cb.state || rec) {
-        say('bad', '로그인 요청을 확인하지 못했어요. 다시 시작해 주세요.');
+        say('bad', t('account.loginReqFail'));
         changed();
       }
       return;
     }
     if (cb.error) {
-      say('warn', '로그인을 취소했어요.');
+      say('warn', t('account.loginCanceled'));
       changed();
       return;
     }
@@ -292,12 +293,12 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
       if (hooks.registered()) return linkNow(p.id, ex.ticket);
       // 아직 닉네임이 없는 기기: 닉네임을 정하면(onRegistered) 이 표로 잇는다
       pending = { kind: 'link', ticket: ex.ticket, provider: p.id, providerName: p.name, at: Date.now() };
-      say('warn', `이 ${p.name} 계정에 연결된 닉네임이 없어요. 닉네임을 정하면 바로 연결할게요.`);
+      say('warn', t('account.noLinkedName', { name: p.name }));
       changed();
       return;
     }
     if (hooks.registered() && linkedName === hooks.nickname()) {
-      const text = `이미 ${p.name} 계정과 연결된 닉네임이에요.`;
+      const text = t('account.alreadyLinked', { name: p.name });
       say('ok', text);
       tell('ok', text, 'mypage');
       changed();
@@ -306,8 +307,8 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
     if (hooks.registered()) {
       // 이 기기에는 다른 닉네임이 있다: 바꿀지 먼저 묻는다(마이페이지의 계정 연결 칸)
       pending = { kind: 'switch', ticket: ex.ticket, provider: p.id, providerName: p.name, name: linkedName, at: Date.now() };
-      say('warn', `이 ${p.name} 계정은 '${linkedName}' 닉네임에 연결돼 있어요.`);
-      tell('warn', `이 ${p.name} 계정은 '${linkedName}' 닉네임에 연결돼 있어요. 요원 기록부에서 이 기기를 바꿀지 골라 주세요.`, 'mypage');
+      say('warn', t('account.linkedTo', { provider: p.name, name: linkedName }));
+      tell('warn', t('account.linkedToSwitch', { provider: p.name, name: linkedName }), 'mypage');
       changed();
       return;
     }
@@ -344,7 +345,7 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
         linkNow(p.provider, p.ticket);
         return;
       }
-      say('bad', `${p.providerName} 로그인 시간이 지나 연결하지 못했어요. 요원 기록부에서 다시 연결해 주세요.`);
+      say('bad', t('account.linkExpired', { provider: p.providerName }));
     }
     refresh();
   }
@@ -353,7 +354,7 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
     if (busy) return { ok: false, reason: 'busy' };
     if (status !== 'ready' || !hooks.registered()) return { ok: false, reason: 'off' };
     if (!me || !me.providers.length) {
-      say('bad', '연결한 계정이 없어요. 연결하지 않은 닉네임은 로그아웃하면 다시 찾을 수 없어요.');
+      say('bad', t('account.logoutNoLink'));
       changed();
       return { ok: false, reason: 'unlinked' };
     }
@@ -372,7 +373,7 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
     pending = null;
     await hooks.switchToken(hooks.freshToken());   // 새 기기처럼: 닉네임 게이트가 뜬다
     busy = null;
-    say('ok', '이 기기에서 로그아웃했어요. 연결한 계정으로 다시 로그인하면 이어서 할 수 있어요.');
+    say('ok', t('account.loggedOut'));
     changed();
     return { ok: true };
   }
@@ -380,7 +381,7 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
   // ───────────── 코인 · 테스트 결제 ─────────────
   function canPay() {
     if (status !== 'ready' || !pay.enabled) return ERRORS.PAY_OFF;
-    if (!hooks.registered()) return '닉네임이 서버에 등록된 뒤에 충전할 수 있어요.';
+    if (!hooks.registered()) return t('account.payNeedName');
     return '';
   }
 
@@ -389,7 +390,7 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
     const why = canPay();
     const product = pay.products.find((p) => p.id === productId);
     if (why || !product) {
-      say('bad', why || '모르는 상품이에요.');
+      say('bad', why || t('account.unknownProduct'));
       changed();
       return { ok: false, reason: 'off' };
     }
@@ -415,13 +416,13 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
     let text;
     if (res.kind === 'done') {
       tone = 'ok';
-      text = res.coins != null ? `코인 충전을 마쳤어요. 지금 코인 ${res.coins.toLocaleString('ko-KR')}개예요(테스트 결제).` : '코인 충전을 마쳤어요(테스트 결제).';
+      text = res.coins != null ? t('account.payDoneCoins', { coins: fmtNum(res.coins) }) : t('account.payDone');
     } else if (res.kind === 'pending') {
       tone = 'warn';
-      text = '결제를 확인하는 중이에요. 잠시 뒤 구매 내역을 다시 확인해 주세요.';
+      text = t('account.payPending');
     } else {
       tone = res.code === 'PAY_PROCESS_CANCELED' ? 'warn' : 'bad';
-      text = PAY_FAIL[res.code] || `결제를 마치지 못했어요${res.code ? ` (${res.code})` : ''}.`;
+      text = PAY_FAIL[res.code] || (res.code ? t('account.payFailCode', { code: res.code }) : t('account.payFail'));
     }
     say(tone, text);
     tell(tone, text, 'shop', 'coins');
@@ -436,7 +437,7 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
     const r = await api.cancelOrder({ token: hooks.token(), orderId });
     busy = null;
     if (disposed) return r;
-    if (r.ok) say('ok', '환불했어요(테스트 결제 취소). 그 주문의 코인은 빠졌어요.');
+    if (r.ok) say('ok', t('account.refunded'));
     else say(r.error === 'PENDING' ? 'warn' : 'bad', errorText(r));
     await refresh();
     return r;
@@ -446,7 +447,7 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
     if (busy) return { ok: false, reason: 'busy' };
     const price = coinPriceOf(itemId);
     if (price == null || status !== 'ready' || !coinsEnabled || !hooks.registered()) {
-      say('bad', price == null ? ERRORS.ITEM_INVALID : '지금은 코인을 쓸 수 없어요.');
+      say('bad', price == null ? ERRORS.ITEM_INVALID : t('account.coinsOff'));
       changed();
       return { ok: false, reason: 'off' };
     }
@@ -457,7 +458,7 @@ export function createOnline({ fetch: fetchImpl, config, session, location, hist
     if (disposed) return r;
     if (Array.isArray(r.owned)) hooks.adoptOwned(r.owned);   // 산 물건(이미 가진 경우도)은 서버의 owned에 있다
     if (me && Number.isInteger(r.coins)) me = { ...me, coins: r.coins };
-    say(r.ok ? 'ok' : 'bad', r.ok ? `코인 ${price}개로 샀어요.` : errorText(r));
+    say(r.ok ? 'ok' : 'bad', r.ok ? t('account.boughtCoins', { price }) : errorText(r));
     changed();
     return r.ok ? { ok: true, coins: r.coins, spent: r.spent } : r;
   }

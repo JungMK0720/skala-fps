@@ -12,13 +12,13 @@
  * 계정 장비 loadout.avatar에 고른 id를 두고, 방 presence의 av 칸으로 다른 사람에게 알린다. 모르는 id는 늘 기본 캐릭터로 읽는다.
  */
 export const AVATARS = Object.freeze([
-  Object.freeze({ id: 'av_trooper', name: '보병', icon: '🪖', price: 0, desc: '전술 헬멧과 방탄 조끼. 처음부터 함께하는 기본 대원' }),
-  Object.freeze({ id: 'av_scout', name: '정찰병', icon: '🔭', price: 300, desc: '후드와 이마에 올린 고글, 가벼운 가슴 조끼와 쌍안경' }),
-  Object.freeze({ id: 'av_sapper', name: '공병', icon: '🛠️', price: 600, desc: '흰 안전모와 귀마개·헤드램프, 공구 벨트와 무릎 보호대' }),
-  Object.freeze({ id: 'av_signal', name: '통신병', icon: '📻', price: 800, desc: '정찰모와 헤드셋, 등에 멘 무전기와 긴 안테나' }),
-  Object.freeze({ id: 'av_ranger', name: '사막 레인저', icon: '🌵', price: 1000, desc: '챙 넓은 모자와 선글라스, 목에 두른 스카프와 수통' }),
-  Object.freeze({ id: 'av_night', name: '야간 작전병', icon: '🌙', price: 1400, desc: '검은 복면과 이마에 올린 야간 투시경, 검은 판 조끼' }),
-  Object.freeze({ id: 'av_heavy', name: '중장갑병', icon: '🛡️', price: 2000, desc: '얼굴 가리개 헬멧과 두꺼운 판 갑옷, 어깨·무릎 보호대' })
+  Object.freeze({ id: 'av_trooper', name: '보병', nameEn: 'Trooper', icon: '🪖', price: 0, desc: '전술 헬멧과 방탄 조끼. 처음부터 함께하는 기본 대원', descEn: 'Tactical helmet and body armor. Your default operator' }),
+  Object.freeze({ id: 'av_scout', name: '정찰병', nameEn: 'Scout', icon: '🔭', price: 300, desc: '후드와 이마에 올린 고글, 가벼운 가슴 조끼와 쌍안경', descEn: 'Hood, goggles up, light chest rig and binoculars' }),
+  Object.freeze({ id: 'av_sapper', name: '공병', nameEn: 'Sapper', icon: '🛠️', price: 600, desc: '흰 안전모와 귀마개·헤드램프, 공구 벨트와 무릎 보호대', descEn: 'White hard hat, ear muffs, headlamp, tool belt and knee pads' }),
+  Object.freeze({ id: 'av_signal', name: '통신병', nameEn: 'Signalman', icon: '📻', price: 800, desc: '정찰모와 헤드셋, 등에 멘 무전기와 긴 안테나', descEn: 'Patrol cap, headset and a backpack radio with a long antenna' }),
+  Object.freeze({ id: 'av_ranger', name: '사막 레인저', nameEn: 'Desert Ranger', icon: '🌵', price: 1000, desc: '챙 넓은 모자와 선글라스, 목에 두른 스카프와 수통', descEn: 'Wide-brim hat, sunglasses, neck scarf and canteen' }),
+  Object.freeze({ id: 'av_night', name: '야간 작전병', nameEn: 'Night Ops', icon: '🌙', price: 1400, desc: '검은 복면과 이마에 올린 야간 투시경, 검은 판 조끼', descEn: 'Black balaclava, NVGs up, black plate carrier' }),
+  Object.freeze({ id: 'av_heavy', name: '중장갑병', nameEn: 'Juggernaut', icon: '🛡️', price: 2000, desc: '얼굴 가리개 헬멧과 두꺼운 판 갑옷, 어깨·무릎 보호대', descEn: 'Visored helmet, heavy plate armor, shoulder and knee guards' })
 ]);
 export const AVATAR_IDS = Object.freeze(AVATARS.map((a) => a.id));
 /** 처음부터 장착한 캐릭터(price 0) */

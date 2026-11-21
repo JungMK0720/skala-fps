@@ -473,12 +473,35 @@ const propsHalf = [
   { type: 'barrel', x: -21.2, y: 0, z: -6.2 }
 ];
 
+/** 표지 글씨의 영어 짝. 글씨가 같은 표지는 모두 같은 영어를 쓴다 */
+const SIGN_EN = {
+  '블루': 'BLUE',
+  '레드': 'RED',
+  '뱃사람 국밥': 'Sailor\'s Gukbap',
+  '3번 창고': 'Warehouse 3',
+  '1번 창고': 'Warehouse 1',
+  '선구점': 'Ship Chandler',
+  '항구 사무소': 'Harbor Office',
+  '수산물 창고': 'Seafood Store',
+  '4번 창고': 'Warehouse 4',
+  '2번 창고': 'Warehouse 2',
+  '어망 수선': 'Net Repair',
+  '물탱크 관리소': 'Water Tower Office',
+  '건어물 창고': 'Dried Fish Store',
+  '북 골목': 'North Alley',
+  '가운데 골목': 'Mid Alley',
+  '남 골목': 'South Alley'
+};
+const withEn = (d) => (SIGN_EN[d.text] ? { ...d, textEn: SIGN_EN[d.text] } : d);
+
 export default {
   id: 'alley',
   name: '항구 골목',
   nameEn: 'Harbor Alley',
   desc: '해 질 녘 항구 뒷골목. 좁은 골목 셋이 우물 광장으로 모이는 근접전 맵. 지붕길로 오르면 물탱크가 보인다.',
+  descEn: 'Harbor back alleys at dusk. Three tight lanes meet at a well square. Climb the rooftop path to reach the water tower.',
   tag: '근접전',
+  tagEn: 'Close Quarters',
   size: { x: 56, z: 36 },
   rulesets: ['classic', 'knife'],
   theme: {
@@ -499,9 +522,9 @@ export default {
     ...rotate180(labelled({ warehouse: '4번 창고', big: '2번 창고', shop: '어망 수선', office: '물탱크 관리소', fish: '건어물 창고' })),
     ...teamDecor(TEAMS.owner, ['북 골목', '가운데 골목', '남 골목']),
     ...rotate180(teamDecor(TEAMS.charterer, ['남 골목', '가운데 골목', '북 골목']))
-  ],
+  ].map(withEn),
   pads: [...padsHalf, ...rotate180(padsHalf)],
   portals: [],
-  secrets: [{ id: 'alley_watertower', name: '물탱크 옥상', x: 0, y: TANK_TOP, z: 0, w: 5.4, h: 2.5, d: 5.4, points: 100 }],
+  secrets: [{ id: 'alley_watertower', name: '물탱크 옥상', nameEn: 'Water Tower Roof', x: 0, y: TANK_TOP, z: 0, w: 5.4, h: 2.5, d: 5.4, points: 100 }],
   props: [...propsHalf, ...rotate180(propsHalf)]
 };

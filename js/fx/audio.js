@@ -1300,7 +1300,7 @@ export function createAudio(opts = {}) {
         const res = await fetch(new URL(`${id}.mp3`, voiceDir).href, { signal });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const ab = await res.arrayBuffer();
-        if (ab.byteLength > VOICE_FILE_MAX_BYTES) throw new Error('파일이 너무 큼');
+        if (ab.byteLength > VOICE_FILE_MAX_BYTES) throw new Error('파일이 너무 큼'); // i18n-ok: 콘솔 로그로만 간다
         if (disposed) return;
         voiceRaw.set(id, ab);
         if (ctx) await decodeVoice(id);
@@ -1320,7 +1320,7 @@ export function createAudio(opts = {}) {
     if (!raw) return Promise.resolve();
     const job = ctx.decodeAudioData(raw.slice(0))
       .then((b) => { if (!disposed && ctx && b) voiceBuf.set(id, b); })
-      .catch(() => { voiceBad.push(`${id}: 디코드 실패`); });
+      .catch(() => { voiceBad.push(`${id}: 디코드 실패`); }); // i18n-ok: 콘솔 로그로만 간다
     voiceDecoding.set(id, job);
     return job;
   }

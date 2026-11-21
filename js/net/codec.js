@@ -100,7 +100,7 @@ export function createCodec(schema) {
   const dec = new Map();
   for (const [long, spec] of Object.entries(schema || {})) {
     const [short, mode] = Array.isArray(spec) ? spec : [spec];
-    if (dec.has(short)) throw new Error('codec: 짧은 키 중복 ' + short);
+    if (dec.has(short)) throw new Error('codec: 짧은 키 중복 ' + short); // i18n-ok: 개발용 오류(표 정의 중복)
     enc.set(long, [short, mode]);
     dec.set(short, [long, mode]);
   }
