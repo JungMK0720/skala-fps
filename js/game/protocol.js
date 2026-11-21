@@ -62,7 +62,7 @@ export const PART_CODES = Object.freeze(['head', 'body', 'legs', 'hand', 'foot']
 /** 히트 주장 종류. 앞 순서는 전송 코드라 유지한다. yasuoSwing은 적중 없이도 검 찌르기를 알리는 의도다. */
 export const KIND_CODES = Object.freeze(['shot', 'slash', 'stab', 'grenade', 'other', 'wave', 'waveStab', 'yasuoSwing']);
 /** 수류탄 메시지의 종류 번호(g2x 9번째 칸). 0 = 손으로 던진 수류탄(칸 없음). 앞 순서는 바꾸지 않고 뒤에만 더한다 */
-export const GRENADE_KIND_CODES = Object.freeze(['', 'gl', 'rocket', 'c4', 'gravity', 'stake', 'axe', 'bolt']);
+export const GRENADE_KIND_CODES = Object.freeze(['', 'gl', 'rocket', 'c4', 'gravity', 'stake', 'axe', 'bolt', 'smoke', 'flash']);
 export const PHASE_CODES = Object.freeze(['lobby', 'warmup', 'loadout', 'live', 'roundEnd', 'matchEnd']);
 export const TEAM_CODES = Object.freeze(['owner', 'charterer']);
 export const IMPACT_CODES = Object.freeze(['none', 'world', 'player']);

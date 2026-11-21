@@ -174,7 +174,7 @@ export default {
   'room.deploying': ['출격 준비 중…', 'Deploying…'],
   'room.myGear': ['내 장비', 'My Loadout'],
   'room.premium': ['프리미엄', 'Premium'],
-  'room.grenadeNote': ['수류탄은 모두에게 기본으로 지급돼요.', 'Everyone gets grenades by default.'],
+  'room.grenadeNote': ['수류탄은 모두에게 기본으로 지급돼요. 연막탄·섬광탄은 사서 투척 칸에 바꿔 들 수 있어요.', 'Everyone gets frag grenades. Buy smoke or flash grenades to swap them into your throwable slot.'],
   'room.gearSheetNote': ['가진 무기는 바로 장착하고, 없는 무기는 포인트로 사서 바로 장착해요.', 'Equip weapons you own, or buy with points and equip instantly.'],
   'room.pickSlot': ['{slot} 고르기', 'Choose {slot}'],
   'room.equipped': ['장착 중', 'Equipped'],

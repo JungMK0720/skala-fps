@@ -367,6 +367,19 @@ const DEFS = {
       for (let i = 0; i < 26; i++) S.click(0.12 + S.rnd() ** 1.6 * 1.4, S.r(0.02, 0.12), 2500); // 파편 후드득
       S.sat(2).echo([{ t: 0.35, g: 0.25, lp: 700 }, { t: 0.8, g: 0.15, lp: 500 }, { t: 1.4, g: 0.08, lp: 400 }]);
     } },
+  // 연막탄: 뚜껑이 터지는 퐁 + 길게 뿜어 나오는 쉬익
+  smoke_burst: { dur: 3.2, prio: 6, level: 0.6, ref: 4, maxDist: 70, muffle: 1, send: 0.15, max: 3,
+    r: (S) => S.noise({ dur: 0.05, a: 0.0004, d: 0.012, lp: 1400, g: 0.8 })
+      .tone({ f: 140, f1: 70, glide: 0.04, d: 0.05, dur: 0.2, g: 0.5 })
+      .noise({ t: 0.04, dur: 3.1, env: 'hold', a: 0.15, h: 2.2, d: 0.6, bp: (u) => 3200 - 1400 * u, q: 0.5, g: 0.55 })
+      .noise({ t: 0.04, dur: 3, env: 'hold', a: 0.2, h: 2, d: 0.7, lp: 500, brown: 1, g: 0.35 }) },
+  // 섬광탄: 날카로운 쾅 + 짧은 금속 울림(폭발보다 높고 짧다)
+  flash_bang: { dur: 1.8, prio: 8, level: 1, ref: 10, maxDist: 320, muffle: 1, send: 0.45, max: 2,
+    r: (S) => S.noise({ dur: 0.04, a: 0.0002, d: 0.008, hp: 1800, g: 1.3 })
+      .tone({ f: 160, f1: 45, glide: 0.08, a: 0.002, d: 0.25, dur: 1, g: 1 })
+      .noise({ dur: 0.6, a: 0.001, d: 0.12, bp: (u) => 4200 - 3000 * u, q: 0.6, g: 0.9 })
+      .ring({ t: 0.01, f: [2650, 3980, 5310], amp: [1, 0.6, 0.3], dec: [0.18, 0.12, 0.08], g: 0.35 })
+      .sat(2.2).echo([{ t: 0.3, g: 0.2, lp: 900 }, { t: 0.7, g: 0.1, lp: 600 }]) },
   reload_mag_out: { dur: 0.35, prio: 4, level: 0.5, ref: 2, maxDist: 20, send: 0.03, max: 2,
     r: (S) => S.click(0, 0.6).noise({ t: 0.02, dur: 0.09, env: 'bell', bp: 2400, q: 1.4, g: 0.35 })
       .ring({ t: 0.09, f: [1650, 2480], amp: [1, 0.6], dec: [0.03, 0.02], g: 0.25 })
@@ -895,7 +908,7 @@ const VOICE_FILE_MAX_BYTES = 512 * 1024, VOICE_LEVEL = 0.95;
 export function createAudio(opts = {}) {
   const MAX3 = opts.maxVoices3d ?? 20;     // 3D 보이스(HRTF) 상한
   const MAX2 = opts.maxVoices2d ?? 8;      // 2D 보이스(UI·자기 무기) 상한
-  let ctx = null, mix = null, outVol = null, verb = null, chainNodes = [];
+  let ctx = null, mix = null, outVol = null, verb = null, deaf = null, chainNodes = [];
   let volume = Math.min(1, Math.max(0, opts.volume ?? 0.8));
   let quality = opts.quality === 'low' ? 'low' : 'high';
   let disposed = false, prewarmTimer = 0, seq = 0;
@@ -931,12 +944,14 @@ export function createAudio(opts = {}) {
     const limiter = ctx.createDynamicsCompressor(); setComp(limiter, -3, 0, 20, 0.001, 0.08);
     const clip = ctx.createWaveShaper(); clip.curve = softClipCurve(); clip.oversample = 'none';
     outVol = ctx.createGain(); outVol.gain.value = volume;
+    // 섬광에 귀가 먹먹해질 때만 내려가는 저역 통과(평소 20 kHz = 그대로). 귀울림 소리는 이 뒤(outVol)로 따로 넣는다
+    deaf = ctx.createBiquadFilter(); deaf.type = 'lowpass'; deaf.frequency.value = 20000; deaf.Q.value = 0.5;
     mix.connect(comp); comp.connect(makeup); makeup.connect(limiter); limiter.connect(clip);
-    clip.connect(outVol); outVol.connect(ctx.destination);
+    clip.connect(deaf); deaf.connect(outVol); outVol.connect(ctx.destination);
     verb = ctx.createConvolver(); verb.buffer = makeIR();
     const verbRet = ctx.createGain(); verbRet.gain.value = 0.55;
     verb.connect(verbRet); verbRet.connect(mix);
-    chainNodes = [mix, comp, makeup, limiter, clip, outVol, verb, verbRet];
+    chainNodes = [mix, comp, makeup, limiter, clip, deaf, outVol, verb, verbRet];
     for (let i = 0; i < MAX3; i++) pool3.push(makeVoice(true));
     for (let i = 0; i < MAX2; i++) pool2.push(makeVoice(false));
     for (let i = 0; i < EMO_MAX3; i++) emo3.push(makeEmoteVoice(true));
@@ -1406,6 +1421,40 @@ export function createAudio(opts = {}) {
     setVolume(v) {
       volume = Math.min(1, Math.max(0, +v || 0));
       if (ctx) outVol.gain.setTargetAtTime(volume, ctx.currentTime, 0.02);
+    },
+    /**
+     * 섬광에 귀가 먹먹해진다: amount(0..1)만큼 모든 소리를 저역 통과로 막고 sec초에 걸쳐 돌아온다.
+     * 그동안 높은 귀울림(사인파 두 개의 맥놀이)을 낸다. 언락 전·0이면 아무 일도 없다
+     */
+    deafen(amount, sec) {
+      const k = Math.min(1, Math.max(0, +amount || 0)), dur = Math.max(0.1, +sec || 0);
+      if (!ctx || disposed || !deaf || k <= 0) return false;
+      const now = ctx.currentTime;
+      const low = 20000 * Math.pow(380 / 20000, k);       // 세기 1이면 380 Hz까지 막힌다
+      deaf.frequency.cancelScheduledValues(now);
+      deaf.frequency.setValueAtTime(low, now);
+      deaf.frequency.setValueAtTime(low, now + dur * 0.4);
+      deaf.frequency.exponentialRampToValueAtTime(20000, now + dur * 1.3);
+      const ring = ctx.createGain();
+      ring.gain.setValueAtTime(0.0001, now);
+      ring.gain.exponentialRampToValueAtTime(0.09 * k + 0.0001, now + 0.04);
+      ring.gain.setValueAtTime(0.09 * k + 0.0001, now + dur * 0.4);
+      ring.gain.exponentialRampToValueAtTime(0.0001, now + dur * 1.3);
+      ring.connect(outVol);
+      const end = now + dur * 1.3 + 0.05;
+      for (const f of [3520, 3534]) {
+        const o = ctx.createOscillator();
+        o.type = 'sine'; o.frequency.value = f;
+        o.connect(ring); o.start(now); o.stop(end);
+        o.onended = () => { try { o.disconnect(); ring.disconnect(); } catch (e) { /* 이미 끊겼다 */ } };
+      }
+      return true;
+    },
+    /** 먹먹함을 바로 푼다(맵 나가기·부활) */
+    undeafen() {
+      if (!ctx || !deaf) return;
+      deaf.frequency.cancelScheduledValues(ctx.currentTime);
+      deaf.frequency.setValueAtTime(20000, ctx.currentTime);
     },
     /** pos: {x,y,z}|Vector3|[x,y,z] (눈 위치), yaw/pitch: 라디안 (camera.rotation.y / .x, order 'YXZ') */
     setListener(pos, yaw = 0, pitch = 0) {

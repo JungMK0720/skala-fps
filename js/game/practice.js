@@ -34,6 +34,7 @@ import { FALL, createFallTracker } from '../engine/falldamage.js';
 import { createArsenal, shotDirection, dirFromYawPitch } from '../weapons/logic.js';
 import { getDef } from '../weapons/defs.js';
 import { throwVelocity } from '../weapons/grenade.js';
+import { flashIntensity, flashBlindSec } from '../weapons/tactical.js';
 import { createMatch, standings, REASON_LABELS } from './match.js';
 import { RULESETS, RULESET_IDS, normalizeRuleset, rulesetOf, pickableWeapons, defaultPick, shotTargets } from './modes.js';
 import { createBot, pickBotWeapon, botLoadout, loadoutKey } from './bots.js';
@@ -292,6 +293,8 @@ export function createPractice({ ctx, world, ui }) {
     const kills = new Map(), deaths = new Map(), heads = new Map();   // 경기 이벤트로 센다(개인전 HUD, 계정 기록)
     let myProtectUntil = 0;                  // 개인전 내 보호(시뮬레이션 ms)
     const los = (a, b) => lineOfSight(map.world, a, b);
+    // 봇의 '보기'만 연막탄 연기에 막힌다(걷기·엄폐 찾기는 벽만 본다). 섬광에 눈이 먼 동안은 아무도 보지 못한다(b.blindUntil, 시뮬레이션 ms)
+    const sight = (a, b) => los(a, b) && !(typeof world.smokeBlocks === 'function' && world.smokeBlocks(a, b));
 
     /* ---------- 봇 ---------- */
     const bots = [];
@@ -314,7 +317,7 @@ export function createPractice({ ctx, world, ui }) {
         arsenal: createArsenal({ ...gear, allowedSlots: royal ? [1, 2, 3] : rs.slots, stageCycle: false, zoomMode: 'hold', rng }),
         body: { pos: [0, 0, 0], vel: [0, 0, 0], onGround: true },
         trig: {}, padFlight: false, shotSeq: 0,
-        yaw: 0, pitch: 0, hp: PLAYER.HP, alive: !ffa, protectUntil: 0, crouch: false, emote: 0, emoteUntil: 0,
+        yaw: 0, pitch: 0, hp: PLAYER.HP, alive: !ffa, protectUntil: 0, blindUntil: 0, crouch: false, emote: 0, emoteUntil: 0,
         cmd: IDLE, thinkAcc: (i / Math.max(1, total)) * THINK_DT,
         yawRate: 0, pitchRate: 0, rateTicks: 0,
         edge: { reload: false, slot: null, jump: false }
@@ -405,10 +408,10 @@ export function createPractice({ ctx, world, ui }) {
         self: {
           pos: b.body.pos, vel: b.body.vel, onGround: b.body.onGround, yaw: b.yaw, pitch: b.pitch, hp: b.hp, alive: b.alive, crouch: b.crouch,
           slot: a.getWeapon().slot, ammo: a.getAmmo(), weapon: a.getWeapon(), zoom: a.getZoom().progress,
-          recoil: a.getRecoilKick(), grenades: a.getAmmo('gr_frag').mag
+          recoil: a.getRecoilKick(), grenades: a.getAmmo('gr_frag').mag, blind: b.blindUntil > simMs
         },
         // 배틀로얄 초반: 봇은 가까운 적·자기를 쏜 적만 본다(royale.visibleEnemies) — 처음부터 맵을 가로질러 싸우지 않게
-        enemies: royale ? royale.visibleEnemies(b, enemies) : enemies, allies, nav, los,
+        enemies: royale ? royale.visibleEnemies(b, enemies) : enemies, allies, nav, los, sight,
         objective: bomb ? objectiveFor(b) : royale ? royale.objectiveFor(b) : null
       };
     }
@@ -671,6 +674,7 @@ export function createPractice({ ctx, world, ui }) {
       b.body.onGround = true;
       if (b.fall) b.fall.reset(y);
       b.yaw = num(s.rotY, 0); b.pitch = 0;
+      b.blindUntil = 0;
     }
 
     /** 개인전: 처음 출격·부활 = match 'spawn' { id, spawn, loadout, protectMs } */
@@ -913,6 +917,19 @@ export function createPractice({ ctx, world, ui }) {
         if (ob && ob.protectUntil > simMs) { ob.protectUntil = 0; world.setActorProtect(ob.id, 0); }
       }
       apply(match.claimExplosion({ attackerId: x.ownerId, center: x.center, victims: x.victims.map((v) => ({ id: v.id, dmg: v.dmg })) }));
+    }));
+    // 섬광탄(모든 투척자): 봇마다 시선 각도·거리·벽·연기로 세기를 재서 그만큼 눈이 먼다(MODES.md 섬광탄). 머리 위에 💫
+    offs.push(world.on('flash', (x) => {
+      if (!x || !Array.isArray(x.pos)) return;
+      for (const b of bots) {
+        if (!b.alive) continue;
+        const eye = eyeOf(b), forward = dirFromYawPitch(b.yaw, b.pitch);
+        const k = flashIntensity({ eye, forward, pos: x.pos, clear: los(eye, x.pos), smoke: world.smokeBlocks(eye, x.pos) });
+        if (k <= 0) continue;
+        const ms = flashBlindSec(k) * 1000;
+        b.blindUntil = Math.max(b.blindUntil, simMs + ms);
+        world.setActorBlind(b.id, ms);
+      }
     }));
     offs.push(world.on('fire', (f) => {
       const d = getDef(f.weaponId);

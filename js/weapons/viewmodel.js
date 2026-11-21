@@ -34,7 +34,7 @@ export const VIEWMODEL_LAYER = 30;
 export const VIEWMODEL_IDS = Object.freeze([
   'ar_std', 'ar_rapid', 'ar_line', 'ar_burst', 'dm_mark', 'sm_vx3', 'sg_bx12', 'sg_pump', 'sg_double', 'sg_auto', 'sm_uzi_dual', 'mg_minigun',
   'sr_bolt', 'sr_twin', 'sr_swift', 'sr_heavy', 'mg_m249', 'fl_horde', 'rg_horde', 'zs_bolt', 'pt_std', 'pt_magnum', 'sg_shorty', 'pn_air', 'sk_stake', 'th_axe',
-  'ml_knife', 'ml_tanto', 'ml_gurkha', 'ml_katana', 'ml_yasuo', 'ml_case', 'ml_saw', 'gr_frag',
+  'ml_knife', 'ml_tanto', 'ml_gurkha', 'ml_katana', 'ml_yasuo', 'ml_case', 'ml_saw', 'gr_frag', 'gr_smoke', 'gr_flash',
 ]);
 
 const RO = 10000;                 // renderOrder 기준(월드의 투명 물체보다 뒤에 그려지도록 크게)
@@ -1383,6 +1383,52 @@ export function createViewmodel(camera, opts = {}) {
       kick: { z: 0, pitch: 0, roll: 0 }, flash: 0,
     };
   }
+  /** 연막탄·섬광탄: 길쭉한 깡통 + 위 신관·안전 손잡이·핀(손 모양·잡는 자리는 수류탄과 같다) */
+  function buildGrCan(body, band, label, sub, holes) {
+    const g = new THREE.Group();
+    const parts = {};
+    const nade = new THREE.Group();
+    g.add(nade);
+    const bodyMat = paint(body, { rough: 0.55, metal: 0.25, glow: 0.1 });
+    const bandMat = paint(band, { rough: 0.5, metal: 0.2, glow: 0.12 });
+    cyl(0.027, 0.027, 0.098, bodyMat, nade, 'y', 0, 0, 0, 20);
+    cyl(0.0275, 0.0275, 0.012, bandMat, nade, 'y', 0, 0.03, 0, 20);
+    cyl(0.0275, 0.0275, 0.006, M.black, nade, 'y', 0, -0.046, 0, 20);
+    if (holes) for (let i = 0; i < 6; i++) {                                  // 섬광탄: 옆구리의 빛 구멍
+      const a = (i / 6) * Math.PI * 2;
+      cyl(0.005, 0.005, 0.004, M.black, nade, 'x', Math.cos(a) * 0.0262, -0.012, Math.sin(a) * 0.0262).rotation.y = -a;
+    }
+    cyl(0.01, 0.012, 0.02, M.gunmetal, nade, 'y', 0, 0.058, 0);            // 신관
+    box(0.012, 0.08, 0.005, M.steel, nade, -0.03, 0.02, 0).rotation.z = -0.06;  // 안전 손잡이
+    box(0.024, 0.005, 0.012, M.steel, nade, -0.02, 0.066, 0);
+    const pin = new THREE.Group();
+    pin.position.set(0.012, 0.061, 0);
+    nade.add(pin);
+    torus(0.011, 0.0018, M.steel, pin, 0.012, 0, 0).rotation.y = Math.PI / 2;
+    cyl(0.0015, 0.0015, 0.026, M.steel, pin, 'x', 0, 0, 0);
+    parts.pin = pin;
+    parts.nade = nade;
+    const tex = canvasTexture(512, 160, textDraw([
+      { text: label, size: 0.5, y: 0.38, color: '#15171a' },
+      { text: sub, size: 0.24, y: 0.78, color: '#15171a', weight: 700 },
+    ]));
+    if (tex) {
+      const lm = new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false, fog: false });
+      owned.mats.add(lm);
+      add(new THREE.CylinderGeometry(0.0278, 0.0278, 0.03, 20, 1, true, -0.1 - 0.95, 1.9), lm, nade, 0, -0.008, 0, 1);
+    }
+    const L = makeArm('L', [-0.09, -0.13, 0.06], [0, 0, 1], [-0.3, -0.9, 0.3], 0.018);
+    L.userData.hiddenIdle = true;
+    return {
+      g, parts, muzzle: null,
+      arms: { R: makeArm('R', [0.006, -0.002, 0.004], [0, -1, 0.05], [0.72, -0.1, 0.68], 0.0282), L },
+      hip: [0.115, -0.085, -0.27], hipRot: [0.15, -0.35, 0.05],
+      ads: null,
+      kick: { z: 0, pitch: 0, roll: 0 }, flash: 0,
+    };
+  }
+  const buildGrSmoke = () => buildGrCan(0x5d6b4e, 0xd8dccf, 'SMOKE', 'M-7 · 14 S', false);
+  const buildGrFlash = () => buildGrCan(0x9aa3ab, 0x2c3138, 'FLASH', 'FL-9 · 1.6 S', true);
 
   // ── 조준기 ──────────────────────────────────────────────────
   const reticle = (parent, y, z, r = 0.0017) => add(new THREE.CircleGeometry(r, 12), M.dot, parent, 0, y, z, 3);
@@ -2704,6 +2750,8 @@ export function createViewmodel(camera, opts = {}) {
     ml_case: buildMlCase,
     ml_saw: buildMlSaw,
     gr_frag: buildGrFrag,
+    gr_smoke: buildGrSmoke,
+    gr_flash: buildGrFlash,
   };
   /** 알 수 없는 id도 던지지 않고 비슷한 모형으로 그린다 */
   function builderIdFor(id) {

@@ -159,7 +159,7 @@ language sql immutable set search_path = public, extensions as $$
     "pn_air": 900, "sk_stake": 1000, "th_axe": 800,
     "ml_knife": 0, "ml_tanto": 500, "ml_gurkha": 800, "ml_katana": 1200,
     "ml_case": 700, "ml_saw": 1300,
-    "gr_frag": 0,
+    "gr_frag": 0, "gr_smoke": 300, "gr_flash": 400,
     "takeL": 0, "veggie": 0, "sideToSide": 0, "crissCross": 0, "tango": 0,
     "salute": 0, "wave": 0, "cheer": 0, "creamCheese": 0,
     "fromYou": 600, "selfie": 400,

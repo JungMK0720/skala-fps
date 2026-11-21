@@ -68,6 +68,7 @@ audio.play('ui_click');   audio.play('purchase');
 | `setListener(pos, yaw, pitch)` | `pos`는 `{x,y,z}`, `Vector3`, `[x,y,z]` 중 하나. three.js 카메라 관례(−Z가 정면)를 따른다 |
 | `play(name, { pos, gain = 1, rate = 1 })` → `{ id, stop(fade) }` 또는 `null` | `pos`가 있으면 3D, 없으면 2D다. 언락 전, 알 수 없는 이름, 들리지 않는 거리, 우선순위에 밀린 경우에는 `null`을 돌려준다. 알 수 없는 이름(`constructor`처럼 내장 속성과 같은 이름 포함)과 `null` 옵션으로는 예외가 나지 않는다 |
 | `voice(id, { delay = 0, gain = 1 })` → `boolean` | 연속 킬 안내 음성 한 문장(2D, `VOICE_IDS` 중 하나). 전용 보이스 하나로 내므로 앞 문장은 40 ms 페이드로 끊고 바로 잇는다. 언락 전·모르는 id·아직 디코드하지 않은 파일이면 `false`(그때 받기·디코드를 시작한다). `voicesReady()`는 디코드가 끝난 id 목록으로 resolve |
+| `deafen(amount, sec)` → `boolean` · `undeafen()` | 섬광탄: 세기(0~1)만큼 모든 소리를 저역 통과로 막고(1이면 380 Hz) `sec`초에 걸쳐 돌아온다. 그동안 높은 귀울림(3.5 kHz 사인파 둘의 맥놀이)이 마스터 볼륨 앞에 따로 들어간다. `undeafen`은 바로 푼다(맵 나가기·라운드 정리) |
 | `stopAll(fade)` · `setQuality('low'\|'high')` · `getStats()` · `dispose()` | low는 equalpower 패닝, 3D 보이스 12개, 잔향 절반이다 |
 
 ### 소리 목록
@@ -87,6 +88,8 @@ audio.play('ui_click');   audio.play('purchase');
 | `katana_hit` | 밝은 강철 울림과 짧은 타격 | 6 | 3.5 m / 60 m |
 | `grenade_pin` / `grenade_bounce` | 금속 핀 링 / 금속 굴러가는 소리 | 5 | 2~3 m / 25~55 m |
 | `explosion` | 저음 붐, 파편 후드득, 잔향 | 8 | 12 m / 420 m |
+| `smoke_burst` | 뚜껑 퐁 + 3초 동안 뿜어 나오는 쉬익(연막탄) | 6 | 4 m / 70 m |
+| `flash_bang` | 날카로운 쾅 + 짧은 금속 울림(섬광탄, 폭발보다 높고 짧다) | 8 | 10 m / 320 m |
 | `reload_mag_out` / `reload_mag_in` / `bolt` / `dry_fire` / `switch` | 기계음 | 4 | 1.5~2 m / 15~25 m |
 | `footstep_concrete` / `footstep_steel` | 사각거리는 발소리 / 강판의 쿵 | 3 | 2~2.5 m / 32~45 m |
 | `bhop_land` | 아주 작고 낮은 쿵(버니합 착지) | 3 | 1.5 m / 14 m |
@@ -227,6 +230,15 @@ actor.emoteSnd?.setPos(actorPos);
 
 - `prefers-reduced-motion: reduce`이면 섬광 불투명도를 0.4배로, 라이트 세기를 0.4배로 줄이고 총구 라이트는 끈다. 폭발 섬광 크기는 0.7배, 흔들림은 0.2배다. 발판·포털·칼날의 섬광과 포털 링도 0.4배이고, 속도 줄기는 나오지 않는다. OS 설정 변경을 실시간으로 반영한다.
 - 기본값(`applyShake: true`)에서는 `update()`가 `camera.rotation`에 작은 오프셋을 더한다. 다음 프레임에는 엔진이 덮어쓰지 않은 축만 그 오프셋을 되돌리므로 조준이 누적해서 틀어지지 않는다. 엔진이 회전을 직접 합성하고 싶으면 `setApplyShake(false)`로 끄고 `getShake()`가 돌려주는 `{pitch, yaw, roll}`을 더하면 된다.
+
+## tactical-fx.js
+
+`createTacticalFx({ scene, container })` — 연막탄·섬광탄 연출(판정은 `weapons/tactical.js`).
+
+- `frame(dt, clouds, fog)`: `clouds = smoke.list(t)`마다 부드러운 연기 스프라이트 30장(구름마다 재질 30개, 텍스처 한 장 공유)을 반구처럼 놓고 반경에 맞춰 키운다. 끝 2.5초에 옅어진다. `fog`(카메라가 연기 속에 있는 정도)만큼 `.sk-smokefog` 회색 덮개를 캔버스 위·HUD 아래에 깐다.
+- `flashBurst(pos)`: 섬광 자리의 더하기 혼합 번쩍임(0.32초). 빛(PointLight)은 더하지 않는다(셰이더 다시 만들기 방지).
+- `blind(k)`: `.sk-flashout` 하얀 덮개를 `flashWhiteout(k, 경과)`대로(처음 45% 버팀, 세기 × 3초). `blindAmount()` · `fogAmount()`는 지금 불투명도(QA).
+- `clear()` · `dispose()`.
 
 ## 검증
 

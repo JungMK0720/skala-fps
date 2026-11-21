@@ -247,8 +247,9 @@ export function createRoom(ctx) {
   /** 상점에서 파는 그 칸의 무기(좀비 전용·카드 전용은 빠지고, 상점에서 파는 좀비 전용 무기 shop은 남는다). 무기 정의 순서 그대로 */
   const slotWeapons = (slot) => [...ctx.weapons.values()].filter((w) => w.slot === slot && (!w.zombieOnly || w.shop) && !w.cardOnly);
   function equippedId(g) {
-    if (g.key !== 'grenade') return ctx.account.loadout[g.key];
-    const first = slotWeapons(g.slot)[0];
+    const id = ctx.account.loadout[g.key];
+    if (id || g.key !== 'grenade') return id;
+    const first = slotWeapons(g.slot)[0];   // 투척 칸이 비어 있으면 기본 수류탄
     return first ? first.id : null;
   }
 
@@ -285,9 +286,8 @@ export function createRoom(ctx) {
     const a = ctx.account;
     if (!g || !a) return;
     const now = equippedId(g);
-    const fixed = g.key === 'grenade';
     for (const r of gearRows) {
-      const owned = fixed || a.isOwned(r.id);
+      const owned = a.isOwned(r.id);
       const on = r.id === now;
       const closed = !owned && typeof a.canSell === 'function' && !a.canSell(r.id);   // 서버 가격표에 아직 없다
       const short = owned || closed ? 0 : Math.max(0, r.w.price - a.profile.points);
@@ -295,7 +295,7 @@ export function createRoom(ctx) {
       r.el.classList.toggle('is-owned', owned);
       setText(r.state, on ? t('room.equipped') : owned ? t('room.owned') : fmtPoints(r.w.price));
       setText(r.action, on ? t('room.equipped') : owned ? t('room.equip') : closed ? t('room.buyPending') : short ? t('room.short', { points: fmtPoints(short) }) : t('room.buyEquip'));
-      r.action.disabled = on || fixed || closed || short > 0 || !!p.starting;
+      r.action.disabled = on || closed || short > 0 || !!p.starting;
       r.action.classList.toggle('sk-btn--primary', !owned && !closed && !short);
       r.action.classList.toggle('sk-btn--ghost', on);
     }
@@ -303,7 +303,7 @@ export function createRoom(ctx) {
 
   function pickGear(g, w) {
     const a = ctx.account;
-    if (!a || p.starting || g.key === 'grenade') return;
+    if (!a || p.starting) return;
     let bought = null;
     if (!a.isOwned(w.id)) {
       const r = a.buy(w.id);

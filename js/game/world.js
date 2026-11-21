@@ -25,6 +25,8 @@ import { createGrenadeSystem, stepGrenade, GRENADE_PHYSICS, PROJECTILES } from '
 import { createViewmodel } from '../weapons/viewmodel.js';
 import { createAudio } from '../fx/audio.js';
 import { createEffects } from '../fx/effects.js';
+import { createTacticalFx } from '../fx/tactical-fx.js';
+import { createSmokeField, flashIntensity, flashBlindSec, throwableOf } from '../weapons/tactical.js';
 import { relativeAngle } from '../ui/dom.js';
 import { droppedGunMesh } from '../engine/avatars.js';
 import { avatarIdOf } from '../core/avatar-defs.js';
@@ -165,6 +167,9 @@ function buildWorld(ctx, opts) {
   fx.setApplyShake(false);                       // 흔들림은 frame()에서 한 번에 더한다
   const audio = createAudio({ volume: num(settings.get('volume'), 0.8) });
   const vm = createViewmodel(R.viewCamera, { lookCamera: R.camera, muzzleFlash: true });
+  // 연막탄·섬광탄(모든 모드): 연기 구름 판정(시계 = clock)과 연출(구름·번쩍임·화면 안개·하얀 실명 화면)
+  const smoke = createSmokeField();
+  const tfx = createTacticalFx({ scene: R.scene, container: R.three && R.three.domElement ? R.three.domElement.parentElement : null });
   try {
     vm.preload();
     if (typeof vm.prewarm === 'function') vm.prewarm(R.three);   // 셰이더·텍스처까지 미리 준비해 첫 교체에서 끊기지 않게 한다
@@ -193,7 +198,9 @@ function buildWorld(ctx, opts) {
     gl: new THREE.MeshLambertMaterial({ color: 0x4f6b2a }), rocket: new THREE.MeshLambertMaterial({ color: 0xff8a2a, emissive: 0x7a2a00 }),
     gravity: new THREE.MeshLambertMaterial({ color: 0x8a5cff, emissive: 0x4b2aa8 }), stake: new THREE.MeshLambertMaterial({ color: 0x9b6b3d }),
     axe: new THREE.MeshLambertMaterial({ color: 0xb0b8c0, emissive: 0x202428 }),
-    bolt: new THREE.MeshBasicMaterial({ color: 0xfff27a, fog: false, toneMapped: false })
+    bolt: new THREE.MeshBasicMaterial({ color: 0xfff27a, fog: false, toneMapped: false }),
+    // 연막탄(국방색 깡통)·섬광탄(밝은 회색 깡통)
+    smoke: new THREE.MeshLambertMaterial({ color: 0x6f7c62 }), flash: new THREE.MeshLambertMaterial({ color: 0xd4d9de })
   };
   const axePillarGeo = new THREE.CylinderGeometry(0.12, 0.12, 2.4, 8);
   const axePillarMat = new THREE.MeshBasicMaterial({ color: 0x3a9eff, transparent: true, opacity: 0.48, depthWrite: false, fog: false });
@@ -733,7 +740,7 @@ function buildWorld(ctx, opts) {
     props.load(built.data, built.colliders);     // 기다리지 않는다: 표시 전용이고 cannon-es는 CDN에서 온다
     if (nades) nades.dispose();
     nades = createGrenadeSystem({ world: built.world });
-    c4Stuck.clear(); axeHits.clear(); clearWells();
+    c4Stuck.clear(); axeHits.clear(); clearWells(); clearTactical();
     active = true;
     simPaused = false; uiPaused = false; scoreboardOpen = false;
     controls = true; customHint = '';            // 이전 모드(멀티 teardown 등)가 남긴 설정을 지운다
@@ -776,7 +783,7 @@ function buildWorld(ctx, opts) {
     setHordePerks(null);
     setRoyale(null);
     if (nades) { nades.dispose(); nades = null; }
-    c4Stuck.clear(); axeHits.clear(); clearWells();
+    c4Stuck.clear(); axeHits.clear(); clearWells(); clearTactical();
     for (const m of nadeMeshes) { m.visible = false; m.userData.pillar.visible = false; }
     fx.clear(false);
     fx.setSpeedAmount(0);
@@ -813,7 +820,7 @@ function buildWorld(ctx, opts) {
   function reset() {
     closeSwap();
     if (nades) nades.clear();
-    c4Stuck.clear(); axeHits.clear(); clearWells();
+    c4Stuck.clear(); axeHits.clear(); clearWells(); clearTactical();
     for (const m of nadeMeshes) { m.visible = false; m.userData.pillar.visible = false; }
     clearDrops();
     bombView.reset();
@@ -875,9 +882,10 @@ function buildWorld(ctx, opts) {
 
   /* ---------- 모드 · 부활 · 보호 (개인전) ---------- */
   const avatarTeam = (a) => (mode === 'ffa' ? 'charterer' : a.team || 'charterer');   // 개인전: 다른 사람은 모두 한 가지 '적' 색
-  // 이름표 앞 상태 표시: 🛡 부활 보호(개인전), 💣 폭탄을 든 아군(폭파 미션, bombView.carrier는 내가 공격 팀일 때만 채워진다).
+  // 이름표 앞 상태 표시: 🛡 부활 보호(개인전), 💣 폭탄을 든 아군(폭파 미션, bombView.carrier는 내가 공격 팀일 때만 채워진다), 💫 섬광에 눈이 먼 봇(연습장).
   // 적의 이름표는 이름 없이 이 표시만 보인다(engine/nametag.js) → 개인전에서도 다른 사람의 닉네임은 머리 위에 뜨지 않는다
-  const avatarBadge = (a) => [a.protectUntil > performance.now() ? '🛡' : '', mode === 'bomb' && bombView.carrier === a.id ? '💣' : ''].filter(Boolean).join(' ');
+  const avatarBadge = (a) => [a.protectUntil > performance.now() ? '🛡' : '', mode === 'bomb' && bombView.carrier === a.id ? '💣' : '',
+    a.blindUntil > performance.now() ? '💫' : ''].filter(Boolean).join(' ');
   function refreshAvatar(a) {
     const av = avatars.add(a.id, { name: a.name, badge: avatarBadge(a), team: avatarTeam(a), avatar: a.avatar });
     av.setAiGlasses(mode === 'zombie' && hordeGlasses.has(a.id));
@@ -1028,6 +1036,15 @@ function buildWorld(ctx, opts) {
     const until = v === true ? Infinity : num(v) > 0 ? performance.now() + num(v) : 0;
     const was = a.protectUntil > performance.now();
     a.protectUntil = until;
+    if (was !== (until > performance.now())) refreshAvatar(a);
+  }
+  /** 다른 사람(연습장 봇)이 섬광에 눈이 멀었다: ms 동안 이름표에 💫. 0이면 끈다 */
+  function setActorBlind(id, ms) {
+    const a = actors.get(String(id));
+    if (!a) return;
+    const until = num(ms) > 0 ? performance.now() + num(ms) : 0;
+    const was = a.blindUntil > performance.now();
+    a.blindUntil = until;
     if (was !== (until > performance.now())) refreshAvatar(a);
   }
 
@@ -1632,9 +1649,11 @@ function buildWorld(ctx, opts) {
     const eye = player.getEye();
     const fwd = player.getAimDir();
     const axe = mode === 'zombie' && ev.weaponId === 'th_axe';
+    // 연막탄·섬광탄은 어느 모드든 그 종류로 날아간다(좀비 모드의 다연발·C4 증강도 받지 않는다)
+    const tactical = throwableOf(ev.weaponId);
     // 도끼는 한 개씩 던져 회수한다. 수류탄 전용 다연발·C4 증강은 적용하지 않는다.
-    const extra = !axe && mode === 'zombie' ? hordePerk.nadeMulti : 0;
-    const kind = axe ? 'axe' : mode === 'zombie' && hordePerk.sticky ? 'c4' : null;
+    const extra = !axe && !tactical && mode === 'zombie' ? hordePerk.nadeMulti : 0;
+    const kind = tactical || (axe ? 'axe' : mode === 'zombie' && hordePerk.sticky ? 'c4' : null);
     for (let i = 0; i <= extra; i++) {
       const ang = i === 0 ? 0 : (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 0.16;
       const c = Math.cos(ang), s = Math.sin(ang);
@@ -1655,6 +1674,8 @@ function buildWorld(ctx, opts) {
     if (e.type === 'expire') { axeHits.delete(e.id); return; }
     if (e.type !== 'explode') return; // 도끼 착지는 폭발·피해·이펙트 없이 그대로 남는다
     c4Stuck.delete(e.id);
+    if (e.kind === 'smoke') { smokeBurst(e); return; }
+    if (e.kind === 'flash') { flashBurst(e); return; }
     const c = arr3(e.pos);
     // 좀비 물량 막기 '폭발 반경' 증강: 던진 사람의 배율만큼 넓게 터진다(방장 화면은 남의 수류탄도 그 사람 배율로 잰다)
     const pdef = e.kind ? PROJ_DEF[e.kind] : null;
@@ -1687,6 +1708,37 @@ function buildWorld(ctx, opts) {
     for (const r of res) if (r.damage > 0) victims.push({ id: r.id, dmg: r.damage, dist: round2(r.dist) });
     if (e.owner === local.id) protectUntil = 0;   // 수류탄 피해 주장도 '먼저 공격' → 보호 끝(match 규칙과 같게)
     emit('explosion', { ownerId: e.owner, local: e.owner === local.id, grenadeId: e.id, center: { x: c[0], y: c[1], z: c[2] }, pos: r3(c), victims, kind: e.kind || null });
+  }
+
+  /* ---------- 연막탄 · 섬광탄 (모든 모드, weapons/tactical.js) ---------- */
+  /** 연막탄 신관이 다 됐다: 그 자리에 연기 구름(내 화면 시야·연습장 봇 시야를 같이 막는다) */
+  function smokeBurst(e) {
+    const c = arr3(e.pos);
+    if (!smoke.add({ id: e.id, pos: c, t: clock })) return;
+    play('smoke_burst', { pos: c });
+    emit('smoke', { ownerId: e.owner, id: e.id, pos: r3(c) });
+  }
+  /** 섬광탄이 터졌다: 번쩍임·소리, 내 눈(시선 각도·거리·벽·연기)만큼 하얀 화면과 귀울림. 봇은 'flash' 이벤트로 연습장이 판정한다 */
+  function flashBurst(e) {
+    const c = arr3(e.pos);
+    const at = [c[0], c[1] + 0.25, c[2]];
+    tfx.flashBurst(at);
+    play('flash_bang', { pos: at });
+    if (local.spawned && local.alive && map) {
+      const eye = player.getEye();
+      const k = flashIntensity({ eye, forward: player.getAimDir(), pos: at, clear: lineOfSight(map.world, eye, at), smoke: smoke.blocks(eye, at, clock) });
+      if (k > 0) {
+        tfx.blind(k);
+        audio.deafen(k, flashBlindSec(k));
+      }
+    }
+    emit('flash', { ownerId: e.owner, id: e.id, pos: r3(at) });
+  }
+  /** 연기·섬광 연출을 모두 지운다(맵 불러오기·나가기·라운드 정리) */
+  function clearTactical() {
+    smoke.clear();
+    tfx.clear();
+    audio.undeafen();
   }
 
   function actorGrenade(o = {}) {
@@ -2284,6 +2336,8 @@ function buildWorld(ctx, opts) {
     if (mode === 'zombie') horde.frame(dt, performance.now(), simPaused);
     drawGrenades();
     drawWells(performance.now());
+    // 연기 구름·번쩍임과 화면 덮개(카메라가 연기 속이면 회색 안개 — 관전 카메라도 같다)
+    tfx.frame(dt, smoke.list(clock), smoke.density([cam.position.x, cam.position.y, cam.position.z], clock));
     if (mode === 'bomb') bombView.frame(dt);
     for (const v of dropViews.values()) v.spin.rotation.y += dt * 1.4;
     // 속도 줄기: 걷기 속도부터 나타나 수평 속도 상한에서 가장 세다
@@ -2291,8 +2345,9 @@ function buildWorld(ctx, opts) {
     // 체력 낮음: 심장 박동
     const nowMs = performance.now();
     if (local.alive && player.state.hp > 0 && player.state.hp <= 25 && nowMs >= heartbeatAt) { heartbeatAt = nowMs + 900; play('low_hp_heartbeat'); }
-    // 다른 사람 보호 표시(🛡) 만료
+    // 다른 사람 보호 표시(🛡)·섬광 실명 표시(💫) 만료
     for (const a of actors.values()) if (a.protectUntil && a.protectUntil !== Infinity && a.protectUntil <= displayNow()) { a.protectUntil = 0; refreshAvatar(a); }
+    for (const a of actors.values()) if (a.blindUntil && a.blindUntil <= nowMs) { a.blindUntil = 0; refreshAvatar(a); }
     hudFrame(dt);
     if (scoreboardOpen) { sbRefresh -= dt; if (sbRefresh <= 0) { sbRefresh = 0.5; showScoreboard(); } }
   }
@@ -2398,6 +2453,7 @@ function buildWorld(ctx, opts) {
     try { horde.dispose(); } catch (e) { /* ignore */ }
     try { vm.dispose(); } catch (e) { /* ignore */ }
     try { fx.dispose(); } catch (e) { /* ignore */ }
+    try { tfx.dispose(); } catch (e) { /* ignore */ }
     try { audio.dispose(); } catch (e) { /* ignore */ }
     if (nades) nades.dispose();
     for (const m of nadeMeshes) R.scene.remove(m, m.userData.pillar);
@@ -2455,6 +2511,9 @@ function buildWorld(ctx, opts) {
     setQuickRespawn,
     setProtect,
     setActorProtect,
+    setActorBlind,
+    /** a→b 시선이 지금 연막탄 연기에 막히는가(연습장 봇 시야). 벽은 보지 않는다 */
+    smokeBlocks: (a, b) => smoke.blocks(a, b, clock),
     /**
      * 좀비 물량 막기(WORLD_API 9절): 방장 뷰(horde/director.js applyHordeSnapshot)를 받은 시각과 함께 넣으면 좀비·보스·투사체·장판을
      * 시간축으로 보간해 그린다. 내 사격·칼·검기·수류탄은 이 좀비들을 맞히고 'hitClaim'(victimId 'z12')을 낸다. 쓰러진 동료 표시는 나를 빼고 띄운다
@@ -2586,7 +2645,7 @@ function buildWorld(ctx, opts) {
     get multiKillCount() { return multiKill.count; },
     get paused() { return uiPaused; },
     /** 디버그·테스트용 내부 객체(읽기 전용으로 쓸 것) */
-    get internals() { return { arsenal, vm, fx, audio, nades, actors, local, rnd, props, drops, bombView, horde, hordePerk, c4Stuck, kit }; }
+    get internals() { return { arsenal, vm, fx, audio, nades, actors, local, rnd, props, drops, bombView, horde, hordePerk, c4Stuck, kit, smoke, tfx, clock }; }
   };
 
   W.handle = function handle() {

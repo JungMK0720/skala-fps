@@ -12,7 +12,7 @@ import { h, btn, fmtPoints, setText } from './dom.js';
 import { avatarArtEl, barMeters, makeScreen, normWeapon, pointsBadge } from './parts.js';
 import { uiIcon, weaponGlyph } from './icons.js';
 import { onlineState, orderStatusText, paintNote } from './online.js';
-import { PREMIUM_PRICE } from '../weapons/defs.js';
+import { DEFAULT_LOADOUT, PREMIUM_PRICE } from '../weapons/defs.js';
 import { EMOTES, EMOTE_WHEEL, TEAMS, TEAM_IDS } from '../core/consts.js';
 import { AVATARS, DEFAULT_AVATAR } from '../core/avatar-defs.js';
 import { t, loc, fmtNum, getLang } from '../core/i18n.js';
@@ -37,7 +37,7 @@ const CHECKING_NOTE = t('shop.av.checking');
 export const NOT_READY_NOTE = t('shop.notReady');
 /** 계정이 지금 팔 수 있는 물건인가. canSell이 없는 옛 계정 대역은 판다고 본다 */
 const sellable = (a, id) => typeof a.canSell !== 'function' || a.canSell(id);
-/** 상점에서 다루는 슬롯과 계정 장비 칸. 기본 수류탄 카드에는 구매/장착 동작이 없다. */
+/** 상점에서 다루는 슬롯과 계정 장비 칸. 기본 수류탄 카드는 장착 중이면 동작이 없고, 연막탄·섬광탄을 장착했을 때만 '장착'이 보인다. */
 const SLOT_KEYS = { 1: 'primary', 2: 'secondary', 3: 'melee', 4: 'grenade' };
 /** 큰 탭 → 선 아이콘 이름 */
 const TAB_GLYPH = Object.freeze({ primary: 'rifle', secondary: 'pistol', melee: 'knife', throw: 'grenade', emote: 'emote', avatar: 'helmet', coins: 'coin' });
@@ -218,15 +218,20 @@ export function createShop(ctx) {
       w.stats.length ? h('dl', { class: 'sk-shop-stats' },
         w.stats.map((s) => h('div', { class: 'sk-shop-stat' }, h('dt', { text: s.label }), h('dd', { text: s.value })))) : null,
       h('footer', { class: 'sk-shop-foot' }, need, action));
-    const card = { id: def.id, w, slotKey: def.id === 'gr_frag' ? null : SLOT_KEYS[def.slot] || null, el: articleEl, state, need, action };
+    const card = { id: def.id, w, slotKey: SLOT_KEYS[def.slot] || null, issued: def.id === DEFAULT_LOADOUT.grenade, el: articleEl, state, need, action };
     return card;
   }
 
   function paintCard(card) {
     const a = ctx.account;
-    // 수류탄은 모두에게 기본으로 주는 무기라 사거나 장착하지 않는다
+    // 기본 수류탄은 모두에게 주는 무기라 사지 않는다. 연막탄·섬광탄을 장착했을 때만 '장착'으로 되돌릴 수 있다(투척 칸이 비어 있으면 기본 수류탄)
+    if (card.issued && (a.loadout[card.slotKey] || card.id) === card.id) {
+      card.action.hidden = true;
+      setText(card.state, t('shop.issued')); setText(card.need, ''); card.el.classList.add('is-owned'); card.el.classList.add('is-equipped');
+      return;
+    }
     card.action.hidden = !card.slotKey;
-    if (!card.slotKey) { setText(card.state, t('shop.issued')); setText(card.need, ''); card.el.classList.add('is-owned'); return; }
+    if (!card.slotKey) return;
     const owned = a.isOwned(card.id);
     const equipped = owned && a.loadout[card.slotKey] === card.id;
     const closed = !owned && !sellable(a, card.id);   // 서버 가격표에 아직 없다

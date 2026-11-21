@@ -3055,8 +3055,8 @@ export function createSession(options = {}) {
   });
   wOn('grenade', (g) => {
     if (!inRound() || current.phase !== 'live') return;
-    // 종류: 손 수류탄(없음) · 유탄 발사기 'gl' · 바주카포 'rocket' · C4 수류탄 'c4'(좀비 모드 증강, 좀비에 붙는다) · 특이점포 · 말뚝건 · 투척 도끼 · 제우스의 번개
-    const kind = ['gl', 'rocket', 'c4', 'gravity', 'stake', 'axe', 'bolt'].includes(g.kind) ? g.kind : undefined;
+    // 종류: 손 수류탄(없음) · 유탄 발사기 'gl' · 바주카포 'rocket' · C4 수류탄 'c4'(좀비 모드 증강, 좀비에 붙는다) · 특이점포 · 말뚝건 · 투척 도끼 · 제우스의 번개 · 연막탄 · 섬광탄
+    const kind = ['gl', 'rocket', 'c4', 'gravity', 'stake', 'axe', 'bolt', 'smoke', 'flash'].includes(g.kind) ? g.kind : undefined;
     sync.sendGrenade({ pos: g.pos, vel: g.vel, t: localT(g.t), kind, fuse: g.fuse });
   });
   // 총은 죽은 뒤에 버리므로 살아 있는지(inRound)는 보지 않는다
