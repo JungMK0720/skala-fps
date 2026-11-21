@@ -102,13 +102,16 @@ export function createTacticalFx({ scene, container } = {}) {
       // 위로 볼록한 반구 안(바닥 아래로는 조금만)에 고르게
       const a = rnd() * Math.PI * 2, y = rnd() * 1.15 - 0.3, h = Math.sqrt(Math.max(0, 1 - Math.min(1, y * y)));
       const u = [Math.cos(a) * h, y * 0.75, Math.sin(a) * h];
-      const shade = 0.62 + 0.22 * (y + 0.3) + rnd() * 0.08;  // 아래쪽은 조금 어둡다
-      const m = new THREE.SpriteMaterial({ map: puffTex, color: new THREE.Color(shade * 0.96, shade, shade * 0.95), transparent: true, depthWrite: false, opacity: 0 });
+      // 회색 톤(화면 색 공간 기준). 아래쪽은 어둡고 위쪽은 밝아 덩어리마다 명암이 달라 부피가 보인다
+      const shade = 0.5 + 0.2 * (y + 0.3) + rnd() * 0.14;
+      const m = new THREE.SpriteMaterial({ map: puffTex, color: new THREE.Color().setRGB(shade * 0.97, shade, shade * 0.95, THREE.SRGBColorSpace), transparent: true, depthWrite: false, opacity: 0 });
       m.rotation = rnd() * Math.PI * 2;
       const sp = new THREE.Sprite(m);
       sp.renderOrder = RO;
       group.add(sp);
-      puffs.push({ s: sp, m, u, rf: 0.2 + 0.7 * Math.sqrt(rnd()), sz: 0.75 + rnd() * 0.55, spin: (rnd() - 0.5) * 0.25, ph: rnd() * 6.28 });
+      const rf = 0.15 + 0.8 * Math.sqrt(rnd());
+      // 바깥 덩어리는 작고 옅어 가장자리가 뭉게뭉게 보인다
+      puffs.push({ s: sp, m, u, rf, sz: (0.75 + rnd() * 0.55) * (1.1 - rf * 0.45), a: rf > 0.7 ? 0.62 : 0.92, spin: (rnd() - 0.5) * 0.25, ph: rnd() * 6.28 });
     }
     root.add(group);
     const c = { group, puffs };
@@ -136,7 +139,7 @@ export function createTacticalFx({ scene, container } = {}) {
       const size = r * p.sz * 0.95;
       p.s.scale.set(size, size, 1);
       p.m.rotation += p.spin * step;
-      p.m.opacity = 0.9 * alpha;
+      p.m.opacity = p.a * alpha;
     }
   }
 
